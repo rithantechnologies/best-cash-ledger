@@ -6,14 +6,19 @@ export function Spinner({size="md"}:{size?:"sm"|"md"|"lg"}) {
 }
 
 export function PageLoader({label="Loading workspace…"}:{label?:string}) {
-  return <div className="grid min-h-[58vh] place-items-center">
+  return <div className="grid min-h-[62vh] place-items-center">
     <div className="flex flex-col items-center text-center">
-      <div className="relative grid h-16 w-16 place-items-center rounded-3xl bg-white shadow-[0_18px_60px_rgba(15,23,42,.10)] ring-1 ring-slate-200/70">
-        <span className="absolute inset-2 animate-pulse rounded-2xl bg-indigo-50"/>
-        <Spinner size="lg"/>
+      <div className="relative grid h-20 w-20 place-items-center">
+        <span className="absolute inset-0 rounded-[28px] bg-[radial-gradient(circle_at_35%_25%,#eef2ff_0%,#ffffff_55%,#f8fafc_100%)] shadow-[0_20px_70px_rgba(15,23,42,.12)] ring-1 ring-slate-200/70"/>
+        <span className="absolute inset-2 animate-pulse rounded-[22px] bg-indigo-50/70"/>
+        <span className="relative h-10 w-10 animate-spin rounded-full border-[4px] border-slate-200 border-t-indigo-600"/>
       </div>
-      <p className="mt-5 text-sm font-semibold text-slate-700">{label}</p>
-      <p className="mt-1 text-xs text-slate-400">Just a moment</p>
+      <p className="mt-5 text-sm font-bold tracking-tight text-slate-800">{label}</p>
+      <div className="mt-2 flex items-center gap-1" aria-hidden="true">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400"/>
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-300 [animation-delay:120ms]"/>
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-200 [animation-delay:240ms]"/>
+      </div>
     </div>
   </div>;
 }
@@ -138,5 +143,76 @@ export function TransactionFrame({
         {footer}
       </div>
     </div>
+  </div>;
+}
+
+
+export function PageFrame({
+  children,className="",width="max-w-7xl",
+}:{children:ReactNode;className?:string;width?:string}) {
+  return <div className={"page-enter mx-auto "+width+" space-y-5 "+className}>{children}</div>;
+}
+
+export function Notice({
+  children,tone="slate",
+}:{children:ReactNode;tone?:"slate"|"emerald"|"amber"|"rose"|"indigo"}) {
+  const tones={
+    slate:"border-slate-200 bg-slate-50 text-slate-700",
+    emerald:"border-emerald-200 bg-emerald-50 text-emerald-700",
+    amber:"border-amber-200 bg-amber-50 text-amber-800",
+    rose:"border-rose-200 bg-rose-50 text-rose-700",
+    indigo:"border-indigo-200 bg-indigo-50 text-indigo-700",
+  };
+  return <div className={"rounded-2xl border px-4 py-3 text-sm font-medium "+tones[tone]}>{children}</div>;
+}
+
+export function Toolbar({children}:{children:ReactNode}) {
+  return <Surface className="p-3 sm:p-4"><div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">{children}</div></Surface>;
+}
+
+
+export function SegmentedTabs<T extends string>({
+  value,onChange,items,
+}:{value:T;onChange:(value:T)=>void;items:{value:T;label:string;count?:number}[]}) {
+  return <div className="w-full overflow-x-auto pb-1">
+    <div className="inline-flex min-w-max rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+      {items.map(item=><button key={item.value} type="button" onClick={()=>onChange(item.value)}
+        className={"min-h-10 rounded-xl px-3.5 text-xs font-bold transition "+(value===item.value?"bg-slate-950 text-white shadow-sm":"text-slate-500 hover:bg-slate-50 hover:text-slate-900")}>
+        {item.label}{item.count!==undefined?<span className={"ml-2 rounded-full px-1.5 py-0.5 text-[10px] "+(value===item.value?"bg-white/15":"bg-slate-100")}>{item.count}</span>:null}
+      </button>)}
+    </div>
+  </div>;
+}
+
+export function Pager({
+  total,page,totalPages,label="item",onPrevious,onNext,
+}:{total:number;page:number;totalPages:number;label?:string;onPrevious:()=>void;onNext:()=>void}) {
+  return <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <p className="text-xs text-slate-500">{total} {label}{total===1?"":"s"} · Page {page} of {Math.max(1,totalPages)}</p>
+    <div className="grid grid-cols-2 gap-2">
+      <button type="button" disabled={page<=1} onClick={onPrevious} className="min-h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 disabled:opacity-40">Previous</button>
+      <button type="button" disabled={page>=totalPages} onClick={onNext} className="min-h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 disabled:opacity-40">Next</button>
+    </div>
+  </div>;
+}
+
+
+export function DetailStat({
+  label,value,tone="slate",detail,
+}:{label:string;value:ReactNode;detail?:ReactNode;tone?:"slate"|"emerald"|"indigo"|"amber"|"rose"|"cyan"}) {
+  const tones={slate:"text-slate-950",emerald:"text-emerald-700",indigo:"text-indigo-700",amber:"text-amber-700",rose:"text-rose-700",cyan:"text-cyan-700"};
+  return <Surface className="p-3.5 sm:p-4">
+    <p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">{label}</p>
+    <p className={"mt-1.5 truncate text-lg font-black tracking-tight sm:text-xl "+tones[tone]}>{value}</p>
+    {detail?<p className="mt-1 text-[11px] text-slate-400">{detail}</p>:null}
+  </Surface>;
+}
+
+export function PanelHeader({
+  title,description,action,
+}:{title:string;description?:string;action?:ReactNode}) {
+  return <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+    <div><h3 className="text-sm font-bold tracking-tight">{title}</h3>{description?<p className="mt-0.5 text-[11px] text-slate-400">{description}</p>:null}</div>
+    {action?<div className="shrink-0">{action}</div>:null}
   </div>;
 }

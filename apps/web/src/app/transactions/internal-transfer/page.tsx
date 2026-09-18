@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { Field, FormSection, PageLoader, SummaryRow, TransactionFrame } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Account={id:string;accountName:string;accountType:string;currentBalance:number};
@@ -11,40 +12,33 @@ const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency
 export default function InternalTransferPage(){
  const router=useRouter();
  const [accounts,setAccounts]=useState<Account[]>([]);
- const [source,setSource]=useState("");
- const [destination,setDestination]=useState("");
- const [amount,setAmount]=useState("");
- const [charge,setCharge]=useState("0");
- const [reference,setReference]=useState("");
- const [notes,setNotes]=useState("");
- const [error,setError]=useState("");
- const [saving,setSaving]=useState(false);
+ const [source,setSource]=useState(""),[destination,setDestination]=useState(""),[amount,setAmount]=useState(""),[charge,setCharge]=useState("0"),[reference,setReference]=useState(""),[notes,setNotes]=useState("");
+ const [error,setError]=useState(""),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
+ useEffect(()=>{apiFetch<Account[]>("/dashboard/accounts").then(setAccounts).catch(()=>setError("Failed to load accounts")).finally(()=>setLoading(false));},[]);
 
- useEffect(()=>{apiFetch<Account[]>("/dashboard/accounts").then(setAccounts).catch(()=>setError("Failed to load accounts"));},[]);
+ const transfer=Number(amount||0),fee=Number(charge||0);
+ const sourceAccount=accounts.find(a=>a.id===source),destinationAccount=accounts.find(a=>a.id===destination);
 
  async function submit(e:FormEvent){
   e.preventDefault();setSaving(true);setError("");
-  try{
-   await apiFetch("/transactions/internal-transfer",{method:"POST",body:JSON.stringify({
-    sourceAccountId:source,destinationAccountId:destination,transferAmount:Number(amount),
-    chargeAmount:Number(charge||0),referenceNumber:reference||undefined,notes:notes||undefined,
-   })});
-   router.push("/transactions");
-  }catch(err){setError(err instanceof Error?err.message:"Transfer failed");}
-  finally{setSaving(false);}
+  try{await apiFetch("/transactions/internal-transfer",{method:"POST",body:JSON.stringify({sourceAccountId:source,destinationAccountId:destination,transferAmount:transfer,chargeAmount:fee,referenceNumber:reference||undefined,notes:notes||undefined})});router.push("/transactions");}
+  catch(err){setError(err instanceof Error?err.message:"Transfer failed");}finally{setSaving(false);}
  }
 
- return <AppShell><div className="mx-auto max-w-3xl space-y-6">
-  <div><h2 className="text-2xl font-bold">Internal Transfer</h2><p className="text-sm text-slate-500">Move funds between business accounts. The transfer itself is not income.</p></div>
-  {error?<p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>:null}
-  <form onSubmit={submit} className="grid gap-4 rounded-xl border bg-white p-5 md:grid-cols-2">
-   <label className="text-sm"><span className="mb-1 block font-medium">From</span><select className="w-full rounded-lg border px-3 py-2.5" value={source} onChange={e=>setSource(e.target.value)} required><option value="">Source account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} — {money(a.currentBalance)}</option>)}</select></label>
-   <label className="text-sm"><span className="mb-1 block font-medium">To</span><select className="w-full rounded-lg border px-3 py-2.5" value={destination} onChange={e=>setDestination(e.target.value)} required><option value="">Destination account</option>{accounts.filter(a=>a.id!==source).map(a=><option key={a.id} value={a.id}>{a.accountName} — {money(a.currentBalance)}</option>)}</select></label>
-   <input className="rounded-lg border px-3 py-2.5" type="number" step="0.01" min="0.01" placeholder="Transfer amount" value={amount} onChange={e=>setAmount(e.target.value)} required/>
-   <input className="rounded-lg border px-3 py-2.5" type="number" step="0.01" min="0" placeholder="Transfer / bank charge" value={charge} onChange={e=>setCharge(e.target.value)}/>
-   <input className="rounded-lg border px-3 py-2.5 md:col-span-2" placeholder="Reference / UTR" value={reference} onChange={e=>setReference(e.target.value)}/>
-   <textarea className="rounded-lg border px-3 py-2.5 md:col-span-2" placeholder="Notes (optional)" value={notes} onChange={e=>setNotes(e.target.value)}/>
-   <div className="md:col-span-2 flex justify-end"><button disabled={saving||source===destination} className="rounded-lg bg-slate-950 px-6 py-2.5 font-semibold text-white disabled:opacity-50">{saving?"Saving...":"Save Transfer"}</button></div>
-  </form>
- </div></AppShell>;
+ if(loading)return <AppShell><PageLoader label="Preparing internal transfer…"/></AppShell>;
+ const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ return <AppShell><form onSubmit={submit}><TransactionFrame eyebrow="Own accounts" title="Internal transfer" description="Move funds between accounts you control. The transfer itself is not treated as income."
+  summary={<><SummaryRow label="Transfer amount" value={money(transfer)} tone="indigo"/><SummaryRow label="Transfer charge" value={money(fee)} tone="rose"/><SummaryRow label="Total source outflow" value={money(transfer+fee)} tone="amber"/>{sourceAccount?<SummaryRow label="From" value={sourceAccount.accountName}/>:null}{destinationAccount?<SummaryRow label="To" value={destinationAccount.accountName}/>:null}</>}
+  footer={<button disabled={saving||source===destination||transfer<=0} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white disabled:opacity-40">{saving?"Saving transaction…":"Save internal transfer"}</button>}>
+  {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
+  <FormSection step="1" title="Move the funds" description="Choose the source, destination and amount.">
+   <div className="grid gap-3 sm:grid-cols-2">
+    <Field label="From account"><select className={control} value={source} onChange={e=>setSource(e.target.value)} required><option value="">Select source account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} — {money(a.currentBalance)}</option>)}</select></Field>
+    <Field label="To account"><select className={control} value={destination} onChange={e=>setDestination(e.target.value)} required><option value="">Select destination account</option>{accounts.filter(a=>a.id!==source).map(a=><option key={a.id} value={a.id}>{a.accountName} — {money(a.currentBalance)}</option>)}</select></Field>
+    <Field label="Transfer amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
+    <Field label="Bank / transfer charge"><input className={control} type="number" step="0.01" min="0" placeholder="0.00" value={charge} onChange={e=>setCharge(e.target.value)}/></Field>
+   </div>
+  </FormSection>
+  <FormSection step="2" title="Reference & notes" description="Optional reconciliation details."><div className="grid gap-3 sm:grid-cols-2"><Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></FormSection>
+ </TransactionFrame></form></AppShell>;
 }

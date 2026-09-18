@@ -1,7 +1,9 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { PageLoader, SectionHeading, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Summary={
@@ -19,13 +21,13 @@ export default function EndOfDayPage(){
   const [status,setStatus]=useState<Status|null>(null);
   const [history,setHistory]=useState<Position[]>([]);
   const [role,setRole]=useState("");
-  const [busy,setBusy]=useState(false),[error,setError]=useState("");
+  const [busy,setBusy]=useState(false),[error,setError]=useState(""),[loading,setLoading]=useState(true);
 
   async function load(){
     const [s,h]=await Promise.all([apiFetch<Status>("/end-of-day/status"),apiFetch<Position[]>("/end-of-day/history")]);
     setStatus(s);setHistory(h);
   }
-  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{};load().catch(e=>setError(e instanceof Error?e.message:"Failed to load end-of-day"));},[]);
+  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{};load().catch(e=>setError(e instanceof Error?e.message:"Failed to load end-of-day")).finally(()=>setLoading(false));},[]);
 
   async function snapshot(){
     setBusy(true);setError("");
@@ -34,18 +36,18 @@ export default function EndOfDayPage(){
     finally{setBusy(false);}
   }
 
-  if(!status)return <AppShell><div className="rounded-2xl border bg-white p-6">{error||"Loading end-of-day..."}</div></AppShell>;
+  if(loading||!status)return <AppShell><PageLoader label="Preparing end-of-day…"/></AppShell>;
   const admin=role==="OWNER"||role==="ADMIN";
   const s=status.summary;
 
-  return <AppShell><div className="mx-auto max-w-7xl space-y-6">
-    <div><p className="text-xs font-bold uppercase tracking-[.18em] text-indigo-600">Daily control</p><h2 className="mt-1 text-3xl font-bold tracking-tight">End of Day</h2><p className="mt-1 text-sm text-slate-500">Verify the final financial position and save a permanent daily snapshot after all cash counters are closed.</p></div>
+  return <AppShell><div className="page-enter mx-auto max-w-7xl space-y-5">
+    <SectionHeading eyebrow="Daily control" title="End of day" description="Close the day with confidence: verify cash sessions, review the financial position, then save an immutable snapshot."/>
 
     {error?<p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>:null}
     {status.openCashSessions>0?<div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900"><strong>{status.openCashSessions} cash counter session(s) still open.</strong><p className="mt-1 text-sm">Close them before saving the EOD snapshot so physical cash and ledger cash agree.</p></div>:null}
 
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {[["Available funds",s.availableFunds],["Provider clearing",s.pendingProviderSettlements],["Customer receivables",s.customerReceivable],["Customer payables",s.customerPayable],["Operating position",s.operatingPosition],["Owner CC outstanding",s.creditCardOutstanding],["Net financial position",s.netFinancialPosition]].map(([label,value])=><div key={String(label)} className="rounded-2xl border bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 text-2xl font-bold">{money(Number(value))}</p></div>)}
+    <section className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+      {[["Available funds",s.availableFunds],["Provider clearing",s.pendingProviderSettlements],["Customer receivables",s.customerReceivable],["Customer payables",s.customerPayable],["Operating position",s.operatingPosition],["Owner CC outstanding",s.creditCardOutstanding],["Net financial position",s.netFinancialPosition]].map(([label,value])=><Surface key={String(label)} className="p-3.5 sm:p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 text-2xl font-bold">{money(Number(value))}</p></Surface>)}
     </section>
 
     <section className="rounded-2xl border bg-slate-950 p-6 text-white shadow-lg">

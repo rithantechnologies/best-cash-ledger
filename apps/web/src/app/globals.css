@@ -16,7 +16,10 @@ body {
   margin: 0;
   min-width: 320px;
   overflow-x: hidden;
-  background: var(--background);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(99,102,241,.055), transparent 28rem),
+    radial-gradient(circle at 10% 15%, rgba(14,165,233,.035), transparent 24rem),
+    var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -46,6 +49,24 @@ button, a {
 button:active, a:active { transform: translateY(1px); }
 
 ::selection { background: #e0e7ff; color: #312e81; }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.surface-hover {
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.surface-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 38px rgba(15,23,42,.07);
+  border-color: #cbd5e1;
+}
 
 @keyframes cashledger-progress {
   0% { transform: translateX(-100%); }

@@ -3,45 +3,41 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { Field, FormSection, PageLoader, SummaryRow, TransactionFrame } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Account={id:string;accountName:string;accountType:string};
+const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(v);
 
 export default function AtmWithdrawalPage(){
  const router=useRouter();
  const [accounts,setAccounts]=useState<Account[]>([]);
- const [bankId,setBankId]=useState("");
- const [cashId,setCashId]=useState("");
- const [cash,setCash]=useState("");
- const [charge,setCharge]=useState("0");
- const [reference,setReference]=useState("");
- const [notes,setNotes]=useState("");
- const [error,setError]=useState("");
- const [saving,setSaving]=useState(false);
- useEffect(()=>{apiFetch<Account[]>("/dashboard/accounts").then(setAccounts).catch(()=>setError("Failed to load accounts"));},[]);
+ const [bankId,setBankId]=useState(""),[cashId,setCashId]=useState(""),[cash,setCash]=useState(""),[charge,setCharge]=useState("0"),[reference,setReference]=useState(""),[notes,setNotes]=useState("");
+ const [error,setError]=useState(""),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
+ useEffect(()=>{apiFetch<Account[]>("/dashboard/accounts").then(setAccounts).catch(()=>setError("Failed to load accounts")).finally(()=>setLoading(false));},[]);
+ const cashValue=Number(cash||0),chargeValue=Number(charge||0);
+ const bank=accounts.find(a=>a.id===bankId),cashAccount=accounts.find(a=>a.id===cashId);
 
  async function submit(e:FormEvent){
   e.preventDefault();setSaving(true);setError("");
-  try{
-   await apiFetch("/transactions/atm-withdrawal",{method:"POST",body:JSON.stringify({
-    bankAccountId:bankId,cashAccountId:cashId,cashReceived:Number(cash),atmCharge:Number(charge||0),
-    referenceNumber:reference||undefined,notes:notes||undefined,
-   })});
-   router.push("/transactions");
-  }catch(err){setError(err instanceof Error?err.message:"ATM withdrawal failed");}
-  finally{setSaving(false);}
+  try{await apiFetch("/transactions/atm-withdrawal",{method:"POST",body:JSON.stringify({bankAccountId:bankId,cashAccountId:cashId,cashReceived:cashValue,atmCharge:chargeValue,referenceNumber:reference||undefined,notes:notes||undefined})});router.push("/transactions");}
+  catch(err){setError(err instanceof Error?err.message:"ATM withdrawal failed");}finally{setSaving(false);}
  }
- return <AppShell><div className="mx-auto max-w-3xl space-y-6">
-  <div><h2 className="text-2xl font-bold">ATM Withdrawal</h2><p className="text-sm text-slate-500">Move bank funds into physical cash and record ATM/bank charge separately.</p></div>
-  {error?<p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>:null}
-  <form onSubmit={submit} className="grid gap-4 rounded-xl border bg-white p-5 md:grid-cols-2">
-   <select className="rounded-lg border px-3 py-2.5" value={bankId} onChange={e=>setBankId(e.target.value)} required><option value="">Bank account</option>{accounts.filter(a=>a.accountType==="BANK").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>
-   <select className="rounded-lg border px-3 py-2.5" value={cashId} onChange={e=>setCashId(e.target.value)} required><option value="">Cash account</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>
-   <input className="rounded-lg border px-3 py-2.5" type="number" step="0.01" min="0.01" placeholder="Cash received" value={cash} onChange={e=>setCash(e.target.value)} required/>
-   <input className="rounded-lg border px-3 py-2.5" type="number" step="0.01" min="0" placeholder="ATM charge" value={charge} onChange={e=>setCharge(e.target.value)}/>
-   <input className="rounded-lg border px-3 py-2.5 md:col-span-2" placeholder="ATM / bank reference" value={reference} onChange={e=>setReference(e.target.value)}/>
-   <textarea className="rounded-lg border px-3 py-2.5 md:col-span-2" placeholder="Notes (optional)" value={notes} onChange={e=>setNotes(e.target.value)}/>
-   <div className="md:col-span-2 flex justify-end"><button disabled={saving} className="rounded-lg bg-slate-950 px-6 py-2.5 font-semibold text-white disabled:opacity-50">{saving?"Saving...":"Save ATM Withdrawal"}</button></div>
-  </form>
- </div></AppShell>;
+
+ if(loading)return <AppShell><PageLoader label="Preparing ATM withdrawal…"/></AppShell>;
+ const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ return <AppShell><form onSubmit={submit}><TransactionFrame eyebrow="Cash movement" title="ATM withdrawal" description="Move bank funds into physical cash while keeping the ATM or bank charge separate."
+  summary={<><SummaryRow label="Cash received" value={money(cashValue)} tone="emerald"/><SummaryRow label="ATM charge" value={money(chargeValue)} tone="rose"/><SummaryRow label="Bank outflow" value={money(cashValue+chargeValue)} tone="amber"/>{bank?<SummaryRow label="From bank" value={bank.accountName}/>:null}{cashAccount?<SummaryRow label="To cash" value={cashAccount.accountName}/>:null}</>}
+  footer={<button disabled={saving||cashValue<=0} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white disabled:opacity-40">{saving?"Saving transaction…":"Save ATM withdrawal"}</button>}>
+  {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
+  <FormSection step="1" title="Withdrawal details" description="Choose the bank and cash accounts, then enter what was physically received.">
+   <div className="grid gap-3 sm:grid-cols-2">
+    <Field label="Bank account"><select className={control} value={bankId} onChange={e=>setBankId(e.target.value)} required><option value="">Select bank account</option>{accounts.filter(a=>a.accountType==="BANK").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field>
+    <Field label="Cash account"><select className={control} value={cashId} onChange={e=>setCashId(e.target.value)} required><option value="">Select cash account</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field>
+    <Field label="Cash received"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={cash} onChange={e=>setCash(e.target.value)} required/></Field>
+    <Field label="ATM / bank charge"><input className={control} type="number" step="0.01" min="0" placeholder="0.00" value={charge} onChange={e=>setCharge(e.target.value)}/></Field>
+   </div>
+  </FormSection>
+  <FormSection step="2" title="Reference & notes" description="Optional details for reconciliation."><div className="grid gap-3 sm:grid-cols-2"><Field label="ATM / bank reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></FormSection>
+ </TransactionFrame></form></AppShell>;
 }

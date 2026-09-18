@@ -1,9 +1,10 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { CompactMetric, EmptyState, MiniStat, PageLoader, SectionHeading, Surface } from "@/components/ui";
+import { EmptyState, MiniStat, PageLoader, SectionHeading, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Breakdown={pendingAmount:number;pendingCount:number;partialAmount:number;partialCount:number;dueTodayAmount:number;dueTodayCount:number;overdueAmount:number;overdueCount:number};
@@ -73,12 +74,42 @@ function MoneyMix({summary}:{summary:Summary}) {
     <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-1">{items.map(x=><div key={x.label} className="flex items-center justify-between gap-3"><span className="flex min-w-0 items-center gap-2 text-xs text-slate-500"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{background:x.color}}/><span className="truncate">{x.label}</span></span><strong className="text-sm">{money(x.value)}</strong></div>)}</div>
   </div>;
 }
-function ActivityGroup({title,tone,rows}:{title:string;tone:"emerald"|"rose"|"indigo";rows:{label:string;value:number}[]}) {
-  const max=Math.max(1,...rows.map(x=>Math.abs(x.value)));
-  const dot={emerald:"bg-emerald-500",rose:"bg-rose-500",indigo:"bg-indigo-500"}[tone];
-  return <div className="min-w-0">
-    <div className="mb-2 flex items-center gap-2"><i className={"h-2 w-2 rounded-full "+dot}/><h4 className="text-xs font-bold uppercase tracking-[.12em] text-slate-500">{title}</h4></div>
-    <div className="space-y-1.5">{rows.map(row=><CompactMetric key={row.label} label={row.label} value={money(row.value)} tone={tone} bar={Math.abs(row.value)/max*100}/>)}</div>
+function TodayPulse({today}:{today:Today}) {
+  const rows=[
+    {label:"Cash",incoming:today.cashIn,outgoing:today.cashOut},
+    {label:"Bank",incoming:today.bankIn,outgoing:today.bankOut},
+    {label:"UPI",incoming:today.upiIn,outgoing:today.upiOut},
+    {label:"Wallet",incoming:today.walletIn,outgoing:today.walletOut},
+    {label:"Customers",incoming:today.customerReceipt,outgoing:today.customerPayout},
+    {label:"Service fees",incoming:today.commission,outgoing:today.providerCharges},
+  ];
+  const services=[
+    {label:"Card swipe",value:today.cardSwipe,tone:"indigo"},
+    {label:"AePS",value:today.aeps,tone:"cyan"},
+    {label:"Receivables created",value:today.receivableCreated,tone:"indigo"},
+    {label:"Business expense",value:today.businessExpense,tone:"rose"},
+    {label:"Personal expense",value:today.personalExpense,tone:"amber"},
+  ] as const;
+  const max=Math.max(1,...rows.flatMap(r=>[Math.abs(r.incoming),Math.abs(r.outgoing)]));
+
+  return <div className="grid gap-5 xl:grid-cols-[1.25fr_.75fr]">
+    <div className="min-w-0">
+      <div className="grid grid-cols-[minmax(84px,1fr)_minmax(92px,.9fr)_minmax(92px,.9fr)] items-center gap-2 border-b border-slate-100 pb-2 text-[10px] font-bold uppercase tracking-[.13em] text-slate-400">
+        <span>Channel</span><span className="text-right text-emerald-600">Money in</span><span className="text-right text-rose-600">Money out</span>
+      </div>
+      <div className="divide-y divide-slate-100">{rows.map(row=><div key={row.label} className="grid grid-cols-[minmax(84px,1fr)_minmax(92px,.9fr)_minmax(92px,.9fr)] items-center gap-2 py-2.5">
+        <div className="min-w-0"><p className="truncate text-xs font-bold text-slate-700">{row.label}</p><div className="mt-1 flex h-1 overflow-hidden rounded-full bg-slate-100"><span className="bg-emerald-400" style={{width:(Math.abs(row.incoming)/max*50)+"%"}}/><span className="ml-auto bg-rose-400" style={{width:(Math.abs(row.outgoing)/max*50)+"%"}}/></div></div>
+        <strong className="truncate text-right text-sm text-emerald-700">{money(row.incoming)}</strong>
+        <strong className="truncate text-right text-sm text-rose-700">{money(row.outgoing)}</strong>
+      </div>)}</div>
+    </div>
+    <div className="min-w-0 xl:border-l xl:border-slate-100 xl:pl-5">
+      <div className="mb-2 flex items-center justify-between"><h4 className="text-[10px] font-bold uppercase tracking-[.13em] text-slate-400">Service activity</h4><span className="text-[10px] text-slate-400">Today</span></div>
+      <div className="grid grid-cols-2 gap-2">{services.map(item=><div key={item.label} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-inset ring-slate-100">
+        <p className="text-[10px] font-semibold leading-4 text-slate-500">{item.label}</p>
+        <p className={"mt-1 text-base font-black tracking-tight "+({indigo:"text-indigo-700",cyan:"text-cyan-700",rose:"text-rose-700",amber:"text-amber-700"}[item.tone])}>{money(item.value)}</p>
+      </div>)}</div>
+    </div>
   </div>;
 }
 
@@ -119,9 +150,6 @@ export default function DashboardPage(){
   if(loading)return <AppShell><PageLoader label="Preparing your dashboard…"/></AppShell>;
   if(error||!summary||!today)return <AppShell><div className="grid min-h-[58vh] place-items-center"><Surface className="max-w-md p-6 text-center"><div className="mx-auto grid h-11 w-11 place-items-center rounded-2xl bg-rose-50 text-rose-700">!</div><h2 className="mt-4 font-bold">Dashboard couldn’t load</h2><p className="mt-1 text-sm text-slate-500">{error||"Please try again."}</p><button onClick={load} className="mt-5 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white">Try again</button></Surface></div></AppShell>;
 
-  const inbound=[{label:"Cash in",value:today.cashIn},{label:"Receipts",value:today.customerReceipt},{label:"Bank in",value:today.bankIn},{label:"UPI in",value:today.upiIn},{label:"Wallet in",value:today.walletIn},{label:"Commission",value:today.commission}];
-  const outbound=[{label:"Cash out",value:today.cashOut},{label:"Payouts",value:today.customerPayout},{label:"Bank out",value:today.bankOut},{label:"UPI out",value:today.upiOut},{label:"Wallet out",value:today.walletOut},{label:"Charges",value:today.providerCharges}];
-  const operations=[{label:"Card swipe",value:today.cardSwipe},{label:"AePS",value:today.aeps},{label:"Receivables created",value:today.receivableCreated},{label:"Business expense",value:today.businessExpense},{label:"Personal expense",value:today.personalExpense}];
   return <AppShell><div className="page-enter mx-auto max-w-[1440px] space-y-4 sm:space-y-5">
     <SectionHeading eyebrow="Live business position" title="Dashboard" description="What you have, what is coming in, and what needs attention—without digging through reports."
       action={<div className="grid grid-cols-2 gap-2"><Link href="/receivables" className="rounded-xl bg-emerald-50 px-3.5 py-2.5 text-center text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-100">Receive money</Link><Link href="/payables" className="rounded-xl bg-white px-3.5 py-2.5 text-center text-xs font-bold text-slate-700 ring-1 ring-inset ring-slate-200">Payables</Link></div>}/>
@@ -142,12 +170,8 @@ export default function DashboardPage(){
       </div>
     </Surface>
     <Surface className="p-4 sm:p-5">
-      <div className="mb-4 flex items-start justify-between gap-3"><div><h3 className="font-bold tracking-tight">Today’s operating pulse</h3><p className="mt-0.5 text-xs text-slate-500">Everything that moved today, grouped for quick scanning.</p></div><span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">India day</span></div>
-      <div className="grid gap-4 md:grid-cols-3">
-        <ActivityGroup title="Money in" tone="emerald" rows={inbound}/>
-        <ActivityGroup title="Money out" tone="rose" rows={outbound}/>
-        <ActivityGroup title="Services & activity" tone="indigo" rows={operations}/>
-      </div>
+      <div className="mb-4 flex items-start justify-between gap-3"><div><h3 className="font-bold tracking-tight">Today’s operating pulse</h3><p className="mt-0.5 text-xs text-slate-500">One compact view of today’s inflows, outflows and service activity.</p></div><span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">India day</span></div>
+      <TodayPulse today={today}/>
     </Surface>
 
     <div className="grid gap-4 xl:grid-cols-[1.65fr_1fr]">

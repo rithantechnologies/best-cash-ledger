@@ -1,8 +1,9 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { EmptyState, Modal, PageLoader, SectionHeading, StatusBadge, Surface } from "@/components/ui";
+import { EmptyState, Modal, PageLoader, SectionHeading, SegmentedTabs, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string;defaultChargeType:string;isActive:boolean};
@@ -107,10 +108,21 @@ export default function SettingsPage(){
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
-  <div className="grid gap-2 sm:grid-cols-3">{tabs.map(tab=><button key={tab.id} onClick={()=>setArea(tab.id)}
-    className={"group rounded-2xl border p-4 text-left transition "+(area===tab.id?"border-indigo-200 bg-indigo-50/70 shadow-sm":"border-slate-200 bg-white hover:border-slate-300")}>
-    <div className="flex items-start justify-between gap-3"><div><p className={"text-sm font-bold "+(area===tab.id?"text-indigo-800":"text-slate-800")}>{tab.label}</p><p className="mt-0.5 text-xs text-slate-500">{tab.desc}</p></div><span className={"grid h-8 min-w-8 place-items-center rounded-xl px-2 text-xs font-bold "+(area===tab.id?"bg-indigo-600 text-white":"bg-slate-100 text-slate-500")}>{tab.count}</span></div>
-  </button>)}</div>
+  <div className="lg:grid lg:grid-cols-[230px_minmax(0,1fr)] lg:gap-5">
+    <div className="lg:hidden">
+      <SegmentedTabs value={area} onChange={setArea} items={tabs.map(tab=>({value:tab.id,label:tab.label,count:tab.count}))}/>
+    </div>
+    <aside className="hidden lg:block">
+      <Surface className="sticky top-20 p-2">
+        <div className="px-3 pb-2 pt-2"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-400">Configuration</p><p className="mt-1 text-xs leading-5 text-slate-500">Choose one area and work without unrelated forms on screen.</p></div>
+        <div className="space-y-1">{tabs.map(tab=><button key={tab.id} onClick={()=>setArea(tab.id)}
+          className={"flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-3 text-left transition "+(area===tab.id?"bg-slate-950 text-white shadow-sm":"text-slate-600 hover:bg-slate-50 hover:text-slate-950")}>
+          <div className="min-w-0"><p className="truncate text-sm font-bold">{tab.label}</p><p className={"mt-0.5 truncate text-[11px] "+(area===tab.id?"text-slate-300":"text-slate-400")}>{tab.desc}</p></div>
+          <span className={"grid h-8 min-w-8 shrink-0 place-items-center rounded-xl px-2 text-xs font-black "+(area===tab.id?"bg-white/10 text-white":"bg-slate-100 text-slate-500")}>{tab.count}</span>
+        </button>)}</div>
+      </Surface>
+    </aside>
+    <div className="mt-4 min-w-0 space-y-4 lg:mt-0">
   {area==="payments"?<div className="space-y-4">
     <div className="grid grid-cols-2 gap-3">
       <Surface className="p-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">Active providers</p><p className="mt-1 text-2xl font-black">{activeProviders}</p></Surface>
@@ -140,6 +152,8 @@ export default function SettingsPage(){
     <div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">Active categories</p><p className="mt-1 text-3xl font-black">{activeCategories}</p></div><button onClick={()=>setCreate("category")} className={primary}>+ Expense category</button></div>
     {categories.length?<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{categories.map(c=><Surface key={c.id} className={!c.isActive?"p-4 opacity-60":"p-4"}><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{c.name}</p><StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge></div><p className="mt-1 text-xs text-slate-500">{c.expenseUsage==="MIXED"?"Business & personal":c.expenseUsage.toLowerCase()}</p></div><div className="flex gap-1.5"><button onClick={()=>beginEdit({kind:"category",item:c})} className={secondary}>Edit</button><button onClick={()=>setToggleState({path:"/settings/expense-categories/"+c.id,isActive:c.isActive,label:c.name})} className={secondary}>{c.isActive?"Retire":"Activate"}</button></div></div></Surface>)}</div>:<EmptyState title="No expense categories yet"/>}
   </div>:null}
+    </div>
+  </div>
 
   <Modal open={create==="provider"} title="Add provider" description="Create the service provider first; gateways can be attached next." onClose={()=>setCreate(null)}>
     <form onSubmit={addProvider} className="space-y-4"><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider name</span><input className={input} placeholder="PaySwitch / EzyPay" value={providerName} onChange={e=>setProviderName(e.target.value)} required/></label><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider type</span><select className={input} value={providerType} onChange={e=>setProviderType(e.target.value)}><option>MULTI_SERVICE</option><option>WALLET</option><option>CARD_PROVIDER</option><option>AEPS_PLATFORM</option></select></label><button className={primary+" w-full"}>Add Provider</button></form>

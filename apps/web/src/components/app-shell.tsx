@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import type { FormEvent, MouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -57,6 +58,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [navigating, setNavigating] = useState(false);
   const [showTransition, setShowTransition] = useState(false);
+  const [transitionLabel, setTransitionLabel] = useState("page");
 
   useEffect(() => {
     try {
@@ -70,9 +72,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setShowTransition(false);
   },[pathname]);
   useEffect(()=>{
-    if(!navigating){setShowTransition(false);return;}
-    const timer=window.setTimeout(()=>setShowTransition(true),120);
-    return()=>window.clearTimeout(timer);
+    setShowTransition(navigating);
   },[navigating]);
   useEffect(()=>{
     document.body.style.overflow=menuOpen?"hidden":"";
@@ -89,6 +89,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     event.preventDefault();
     if(search.trim()){
       setMenuOpen(false);
+      setTransitionLabel("search");
       setNavigating(true);
       router.push("/search?q="+encodeURIComponent(search.trim()));
     }
@@ -103,6 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     try{
       const url=new URL(anchor.href,window.location.href);
       if(url.origin===window.location.origin&&(url.pathname!==window.location.pathname||url.search!==window.location.search)){
+        setTransitionLabel(anchor.textContent?.trim()||"page");
         setNavigating(true);
       }
     }catch{}
@@ -126,17 +128,21 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return <div onClickCapture={handleNavigationCapture} className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-950">
     {navigating?<div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-indigo-100"><div className="h-full w-1/2 bg-indigo-600 [animation:cashledger-progress_.9s_ease-in-out_infinite]"/></div>:null}
-    {showTransition?<div className="pointer-events-none fixed inset-0 z-[70] grid place-items-center bg-slate-50/25 backdrop-blur-[1px]">
-      <div className="flex items-center gap-3 rounded-2xl border border-white/80 bg-white/95 px-4 py-3 shadow-[0_18px_55px_rgba(15,23,42,.14)]">
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600"/>
-        <span className="text-sm font-semibold text-slate-700">Opening {currentTitle==="Cash Ledger"?"page":currentTitle.toLowerCase()}…</span>
+    {showTransition?<div className="pointer-events-none fixed inset-0 z-[70] grid place-items-center bg-slate-50/45 backdrop-blur-[2px]">
+      <div className="flex min-w-[190px] flex-col items-center rounded-[24px] border border-white/90 bg-white/95 px-6 py-5 text-center shadow-[0_24px_70px_rgba(15,23,42,.16)] ring-1 ring-slate-200/60">
+        <div className="relative grid h-11 w-11 place-items-center">
+          <span className="absolute inset-0 animate-ping rounded-full bg-indigo-100 opacity-70"/>
+          <span className="relative h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200 border-t-indigo-600"/>
+        </div>
+        <span className="mt-3 max-w-[240px] truncate text-sm font-bold text-slate-800">Opening {transitionLabel.toLowerCase()}…</span>
+        <span className="mt-1 text-[11px] text-slate-400">Loading the latest data</span>
       </div>
     </div>:null}
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 border-r border-slate-200/80 bg-white lg:flex lg:flex-col">
-      <div className="flex h-20 items-center gap-3 border-b border-slate-100 px-5">
-        <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-950 text-sm font-black text-white shadow-sm">CL</div>
-        <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">Financial ops</p><h1 className="text-lg font-bold tracking-tight">Cash Ledger</h1></div>
-      </div>
+      <Link href="/" aria-label="Open dashboard" className="flex h-20 items-center gap-3 border-b border-slate-100 px-5 transition hover:bg-slate-50/70">
+        <div className="grid h-10 w-10 place-items-center rounded-2xl bg-[linear-gradient(135deg,#111827,#312e81)] text-sm font-black text-white shadow-sm">CL</div>
+        <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-indigo-500">Financial ops</p><h1 className="text-lg font-bold tracking-tight">Cash Ledger</h1></div>
+      </Link>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">{visibleNav.map(item=>navLink(item))}</nav>
       <div className="border-t border-slate-100 p-3">
         <button onClick={logout} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-950">
@@ -149,10 +155,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
         <div className="flex h-16 items-center gap-3 px-3 sm:px-5 lg:px-7">
           <button type="button" onClick={()=>setMenuOpen(true)}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm lg:hidden"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm lg:hidden"
             aria-label="Open navigation"><Icon name="menu"/></button>
 
-          <div className="min-w-0 lg:min-w-[150px]">
+          <Link href="/" aria-label="Open dashboard" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[linear-gradient(135deg,#111827,#312e81)] text-[11px] font-black text-white shadow-sm lg:hidden">CL</Link>
+
+          <div className="min-w-0 flex-1 lg:min-w-[150px] lg:flex-none">
             <p className="hidden text-[11px] font-medium text-slate-400 sm:block">Cash Ledger</p>
             <p className="truncate text-sm font-bold sm:text-base">{currentTitle}</p>
           </div>
@@ -168,22 +176,22 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link href="/receivables" className="hidden min-h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 sm:flex">
               <Icon name="in" className="h-4 w-4"/>Receive
             </Link>
-            <Link href="/transactions/new" className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-3.5 text-sm font-semibold text-white shadow-sm sm:px-4">
+            <Link href="/transactions/new" className="flex min-h-10 items-center gap-2 rounded-xl bg-[linear-gradient(135deg,#111827,#312e81)] px-3 text-sm font-semibold text-white shadow-sm sm:min-h-11 sm:px-4">
               <Icon name="plus" className="h-4 w-4"/><span className="hidden sm:inline">Transaction</span><span className="sm:hidden">New</span>
             </Link>
           </div>
         </div>
       </header>
 
-      <main className="px-3 py-4 pb-24 sm:px-5 sm:py-6 lg:px-7 lg:pb-8">{children}</main>
+      <main aria-busy={navigating} className={"px-3 py-4 pb-24 transition-[opacity,transform] duration-200 sm:px-5 sm:py-6 lg:px-7 lg:pb-8 "+(navigating?"translate-y-[2px] opacity-55":"translate-y-0 opacity-100")}>{children}</main>
     </div>
 
     {menuOpen?<div className="fixed inset-0 z-50 lg:hidden">
       <button className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px]" onClick={()=>setMenuOpen(false)} aria-label="Close navigation"/>
       <aside className="absolute inset-y-0 left-0 flex w-[min(88vw,360px)] flex-col bg-white shadow-2xl">
         <div className="flex h-16 items-center gap-3 border-b border-slate-100 px-4">
-          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-950 text-sm font-black text-white">CL</div>
-          <div className="min-w-0 flex-1"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">Financial ops</p><p className="font-bold">Cash Ledger</p></div>
+          <Link href="/" onClick={()=>setMenuOpen(false)} aria-label="Open dashboard" className="grid h-10 w-10 place-items-center rounded-2xl bg-[linear-gradient(135deg,#111827,#312e81)] text-sm font-black text-white">CL</Link>
+          <Link href="/" onClick={()=>setMenuOpen(false)} className="min-w-0 flex-1"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-indigo-500">Financial ops</p><p className="font-bold">Cash Ledger</p></Link>
           <button onClick={()=>setMenuOpen(false)} className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-slate-600" aria-label="Close navigation"><Icon name="close"/></button>
         </div>
         <form onSubmit={submitSearch} className="border-b border-slate-100 p-3">
