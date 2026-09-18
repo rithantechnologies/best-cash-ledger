@@ -42,6 +42,8 @@ enum TransactionType {
   CASH_TRANSFER
   AEPS_WITHDRAWAL
   CUSTOMER_PAYOUT
+  CUSTOMER_RECEIVABLE
+  CUSTOMER_RECEIPT
   INTERNAL_TRANSFER
   BUSINESS_EXPENSE
   PERSONAL_EXPENSE
@@ -76,6 +78,15 @@ enum PayableStatus {
   REVERSED
 }
 
+enum ReceivableStatus {
+  PENDING
+  PARTIALLY_RECEIVED
+  RECEIVED
+  OVERDUE
+  CANCELLED
+  REVERSED
+}
+
 enum PaymentStatus {
   COMPLETED
   REVERSED
@@ -91,6 +102,7 @@ enum LedgerType {
   LIABILITY
   INCOME
   EXPENSE
+  EQUITY
 }
 
 enum EntryType {
@@ -152,6 +164,7 @@ model Customer {
   beneficiaries Beneficiary[]
   transactions  Transaction[]
   payables      CustomerPayable[]
+  receivables   CustomerReceivable[]
   ledgerEntries LedgerEntry[]
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
@@ -311,6 +324,8 @@ model FinancialAccount {
   dailyBalances              DailyAccountBalance[]
   cardSwipeSettlements       CardSwipeDetail[]
   payablePayments            PayablePayment[]
+  receivableSources           CustomerReceivable[]     @relation("ReceivableSourceAccount")
+  receivableCollections       ReceivableCollection[]   @relation("ReceivableCollectionAccount")
   cashTransfersOut           CashTransferDetail[]      @relation("CashTransferSource")
   cashTransfersCash          CashTransferDetail[]      @relation("CashTransferCash")
   aepsSettlements            AepsDetail[]              @relation("AepsSettlement")
@@ -367,6 +382,8 @@ model Transaction {
   creditCardPayment     CreditCardPaymentDetail?
   payable               CustomerPayable?
   payablePayment        PayablePayment?
+  receivableSource      CustomerReceivable?   @relation("ReceivableSourceTransaction")
+  receivableCollection  ReceivableCollection? @relation("ReceivableCollectionTransaction")
   journal               LedgerJournal?
 
   @@index([transactionAt])
@@ -471,6 +488,51 @@ model PayablePayment {
   createdAt       DateTime         @default(now())
 
   @@index([payableId])
+}
+
+model CustomerReceivable {
+  id                  String            @id @default(uuid())
+  customerId          String
+  customer            Customer          @relation(fields: [customerId], references: [id])
+  sourceTransactionId String            @unique
+  sourceTransaction   Transaction       @relation("ReceivableSourceTransaction", fields: [sourceTransactionId], references: [id])
+  sourceAccountId     String?
+  sourceAccount       FinancialAccount? @relation("ReceivableSourceAccount", fields: [sourceAccountId], references: [id])
+  reason              String
+  description         String?
+  originalAmount      Decimal           @db.Decimal(18, 2)
+  receivedAmount      Decimal           @default(0) @db.Decimal(18, 2)
+  remainingAmount     Decimal           @db.Decimal(18, 2)
+  dueAt               DateTime?
+  status              ReceivableStatus
+  collections         ReceivableCollection[]
+  ledgerEntries       LedgerEntry[]
+  createdById         String
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([customerId])
+  @@index([status, dueAt])
+}
+
+model ReceivableCollection {
+  id                   String           @id @default(uuid())
+  receivableId         String
+  receivable           CustomerReceivable @relation(fields: [receivableId], references: [id])
+  transactionId        String           @unique
+  transaction          Transaction      @relation("ReceivableCollectionTransaction", fields: [transactionId], references: [id])
+  collectionDate       DateTime
+  destinationAccountId String
+  destinationAccount   FinancialAccount @relation("ReceivableCollectionAccount", fields: [destinationAccountId], references: [id])
+  amount               Decimal          @db.Decimal(18, 2)
+  referenceNumber      String?
+  notes                String?
+  status               PaymentStatus
+  createdById          String
+  createdAt            DateTime         @default(now())
+
+  @@index([receivableId])
+  @@index([destinationAccountId])
 }
 
 model CashTransferDetail {
@@ -654,6 +716,8 @@ model LedgerEntry {
   customer        Customer?        @relation(fields: [customerId], references: [id])
   payableId       String?
   payable         CustomerPayable? @relation(fields: [payableId], references: [id])
+  receivableId    String?
+  receivable      CustomerReceivable? @relation(fields: [receivableId], references: [id])
   description     String?
   createdAt       DateTime         @default(now())
 

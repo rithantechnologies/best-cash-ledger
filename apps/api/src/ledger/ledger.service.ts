@@ -7,6 +7,7 @@ type JournalEntry = {
   amount: number;
   customerId?: string;
   payableId?: string;
+  receivableId?: string;
   description?: string;
 };
 

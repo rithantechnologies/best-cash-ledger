@@ -1,6 +1,6 @@
 # Best Cash Ledger
 
-Manual-first cash and financial operations ledger for small agencies handling cash, banks, UPI, provider wallets, customer card settlements, AePS, customer payables, expenses, internal transfers, and end-of-day reconciliation.
+Manual-first cash and financial operations ledger for small agencies handling cash, banks, UPI, provider wallets, customer card settlements, AePS, customer payables and receivables, expenses, internal transfers, and end-of-day financial-position reconciliation.
 
 ## Stack
 

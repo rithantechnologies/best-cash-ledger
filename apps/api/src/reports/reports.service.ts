@@ -33,6 +33,8 @@ export class ReportsService {
       { atmWithdrawal: { OR: [{ bankAccountId: filters.accountId }, { cashAccountId: filters.accountId }] } },
       { creditCardPayment: { OR: [{ creditCardAccountId: filters.accountId }, { sourceAccountId: filters.accountId }] } },
       { payablePayment: { sourceAccountId: filters.accountId } },
+      { receivableSource: { sourceAccountId: filters.accountId } },
+      { receivableCollection: { destinationAccountId: filters.accountId } },
     ] : [];
 
     const providerOr: Prisma.TransactionWhereInput[] = filters.providerId ? [
@@ -72,6 +74,8 @@ export class ReportsService {
         expense: true,
         atmWithdrawal: true,
         creditCardPayment: true,
+        receivableSource: true,
+        receivableCollection: true,
       },
       orderBy: { transactionAt: 'desc' },
       take: 1000,
@@ -150,7 +154,7 @@ export class ReportsService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    const [transactions, payables] = await Promise.all([
+    const [transactions, payables, receivables] = await Promise.all([
       this.prisma.transaction.findMany({
         where: { customerId },
         include: { charges: true, commissions: true },
@@ -160,6 +164,18 @@ export class ReportsService {
         where: { customerId },
         include: { payments: true, sourceTransaction: true },
         orderBy: { dueAt: 'desc' },
+      }),
+      this.prisma.customerReceivable.findMany({
+        where: { customerId },
+        include: {
+          collections: {
+            include: { destinationAccount: true },
+            orderBy: { collectionDate: 'desc' },
+          },
+          sourceTransaction: true,
+          sourceAccount: true,
+        },
+        orderBy: { createdAt: 'desc' },
       }),
     ]);
 
@@ -179,6 +195,7 @@ export class ReportsService {
         createdBy: byId.get(row.createdById) ?? null,
       })),
       payables,
+      receivables,
     };
   }
   commission(from?: string, to?: string) {
@@ -207,6 +224,17 @@ export class ReportsService {
     return this.prisma.customerPayable.findMany({
       include: { customer: true, payments: true, paymentTerm: true },
       orderBy: { dueAt: 'asc' },
+    });
+  }
+
+  async receivables() {
+    return this.prisma.customerReceivable.findMany({
+      include: {
+        customer: true,
+        sourceAccount: true,
+        collections: { include: { destinationAccount: true } },
+      },
+      orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
     });
   }
 

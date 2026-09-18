@@ -51,6 +51,11 @@ export class ReportsController {
     return this.reports.payables();
   }
 
+  @Get('receivables')
+  receivables() {
+    return this.reports.receivables();
+  }
+
   @Get('operators')
   operators() {
     return this.reports.operators();

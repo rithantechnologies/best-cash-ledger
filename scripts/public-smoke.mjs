@@ -13,7 +13,7 @@ const body=await login.json();
 if(!body.accessToken)throw new Error('Public login token missing');
 const headers={authorization:'Bearer '+body.accessToken};
 
-for(const path of ['/dashboard/summary','/transactions?page=1&pageSize=5','/payables?page=1&pageSize=5','/reports/daily-summary']){
+for(const path of ['/dashboard/summary','/dashboard/position-trend','/transactions?page=1&pageSize=5','/payables?page=1&pageSize=5','/receivables?page=1&pageSize=5','/reports/receivables','/reports/daily-summary']){
   const res=await fetch(base+path,{headers});
   if(!res.ok)throw new Error(path+' failed: '+res.status);
   await res.json();
@@ -22,5 +22,6 @@ console.log('✓ public owner login');
 console.log('✓ public dashboard');
 console.log('✓ public transaction pagination');
 console.log('✓ public payable pagination');
+console.log('✓ public receivables and position trend');
 console.log('✓ public reports');
 console.log('PUBLIC AUTH SMOKE PASS');

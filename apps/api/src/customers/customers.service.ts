@@ -81,6 +81,10 @@ export class CustomersService {
         upiAccounts: true,
         beneficiaries: { include: { accounts: true } },
         payables: { orderBy: { dueAt: 'asc' } },
+        receivables: {
+          include: { collections: { include: { destinationAccount: true } } },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
     if (!customer) throw new NotFoundException('Customer not found');

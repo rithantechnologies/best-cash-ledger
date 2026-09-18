@@ -27,6 +27,16 @@ export class DashboardController {
     return this.dashboard.payables();
   }
 
+  @Get('receivables')
+  receivables() {
+    return this.dashboard.receivables();
+  }
+
+  @Get('position-trend')
+  positionTrend() {
+    return this.dashboard.positionTrend();
+  }
+
   @Get('last-10-days')
   lastTenDays(@Query('type') type?: string) {
     return this.dashboard.lastTenDays(type);

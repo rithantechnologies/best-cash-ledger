@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
@@ -14,6 +15,7 @@ type Customer={
  id:string;customerCode:string;customerType:string;fullName:string;mobile:string|null;notes:string|null;isActive:boolean;
  cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];beneficiaries:Beneficiary[];
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
+ receivables:{id:string;reason:string;remainingAmount:string;receivedAmount:string;originalAmount:string;dueAt:string|null;status:string}[];
 };
 
 export default function CustomerDetailPage(){
@@ -70,9 +72,16 @@ export default function CustomerDetailPage(){
  async function toggle(path:string,isActive:boolean,label:string){if(!window.confirm((isActive?"Retire ":"Reactivate ")+label+"?"))return;await run(()=>apiFetch(path+"/active",{method:"PATCH",body:JSON.stringify({isActive:!isActive})}));}
 
  if(!c)return <AppShell><div className="rounded-xl border bg-white p-6">{error||"Loading customer..."}</div></AppShell>;
+ const openPayable=c.payables.filter(x=>!["PAID","CANCELLED","REVERSED"].includes(x.status)).reduce((s,x)=>s+Number(x.remainingAmount),0);
+ const openReceivable=c.receivables.filter(x=>!["RECEIVED","CANCELLED","REVERSED"].includes(x.status)).reduce((s,x)=>s+Number(x.remainingAmount),0);
  return <AppShell><div className="mx-auto max-w-7xl space-y-6">
   <div><p className="text-xs uppercase text-slate-500">{c.customerCode} · {c.customerType} · {c.isActive?"Active":"Inactive"}</p><h2 className="text-2xl font-bold">{c.fullName}</h2><p className="text-sm text-slate-500">{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</p></div>
   {error?<p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>:null}
+
+  <section className="grid gap-4 md:grid-cols-2">
+   <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5"><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">To Receive</p><p className="mt-2 text-3xl font-bold text-emerald-950">{new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(openReceivable)}</p><div className="mt-4 space-y-2">{c.receivables.slice(0,5).map(x=><Link key={x.id} href={"/receivables/"+x.id} className="flex items-center justify-between rounded-lg bg-white/80 px-3 py-2 text-sm"><span><strong>{x.reason}</strong><span className="block text-xs text-slate-500">{x.status.replaceAll("_"," ")}{x.dueAt?" · "+new Date(x.dueAt).toLocaleDateString("en-IN"):""}</span></span><strong className="text-emerald-700">{new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(x.remainingAmount))}</strong></Link>)}{!c.receivables.length?<p className="text-sm text-slate-500">No receivables.</p>:null}</div></div>
+   <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5"><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">To Pay</p><p className="mt-2 text-3xl font-bold text-amber-950">{new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(openPayable)}</p><div className="mt-4 space-y-2">{c.payables.slice(0,5).map(x=><div key={x.id} className="flex items-center justify-between rounded-lg bg-white/80 px-3 py-2 text-sm"><span><strong>{x.status.replaceAll("_"," ")}</strong><span className="block text-xs text-slate-500">Due {new Date(x.dueAt).toLocaleDateString("en-IN")}</span></span><strong className="text-amber-700">{new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(x.remainingAmount))}</strong></div>)}{!c.payables.length?<p className="text-sm text-slate-500">No payables.</p>:null}</div></div>
+  </section>
 
   <section className="grid gap-5 lg:grid-cols-3">
    <div className="rounded-xl border bg-white p-5"><h3 className="font-semibold">Cards</h3><div className="mt-3 space-y-2">{c.cards.map(x=><div key={x.id} className={"rounded-lg bg-slate-50 p-3 text-sm "+(!x.isActive?"opacity-60":"")}><strong>{x.bankName}</strong> ****{x.lastFourDigits}<br/><span className="text-slate-500">{x.nickname||x.cardType||"Card"} · {x.isActive?"Active":"Inactive"}</span><div className="mt-2 flex gap-1"><button onClick={()=>editCard(x)} className="rounded border px-2 py-1 text-xs">Edit</button><button onClick={()=>toggle("/customers/cards/"+x.id,x.isActive,"card")} className="rounded border px-2 py-1 text-xs">{x.isActive?"Retire":"Reactivate"}</button></div></div>)}{!c.cards.length?<p className="text-sm text-slate-500">No cards saved.</p>:null}</div></div>

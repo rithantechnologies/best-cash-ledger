@@ -32,6 +32,8 @@ try {
   }
   const systemLedgers = [
     ['SYS-CUST-PAYABLE', 'Customer Payables', LedgerType.LIABILITY, 'CUSTOMER_PAYABLE'],
+    ['SYS-CUST-RECEIVABLE', 'Customer Receivables', LedgerType.ASSET, 'CUSTOMER_RECEIVABLE'],
+    ['SYS-RECEIVABLE-ADJUSTMENT', 'Receivable Opening Adjustments', LedgerType.EQUITY, 'RECEIVABLE_ADJUSTMENT'],
     ['SYS-COMMISSION', 'Commission Income', LedgerType.INCOME, 'COMMISSION_INCOME'],
     ['SYS-PROVIDER-CHARGE', 'Provider Charges', LedgerType.EXPENSE, 'PROVIDER_CHARGE'],
     ['SYS-BANK-CHARGE', 'Bank Charges', LedgerType.EXPENSE, 'BANK_CHARGE'],

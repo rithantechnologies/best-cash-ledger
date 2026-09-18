@@ -6,6 +6,7 @@ import { CustomersModule } from './customers/customers.module.js';
 import { AccountsModule } from './accounts/accounts.module.js';
 import { ProvidersModule } from './providers/providers.module.js';
 import { PayablesModule } from './payables/payables.module.js';
+import { ReceivablesModule } from './receivables/receivables.module.js';
 import { LedgerModule } from './ledger/ledger.module.js';
 import { TransactionsModule } from './transactions/transactions.module.js';
 import { AuthModule } from './auth/auth.module.js';
@@ -26,6 +27,7 @@ import { SearchModule } from './search/search.module.js';
     AccountsModule,
     ProvidersModule,
     PayablesModule,
+    ReceivablesModule,
     LedgerModule,
     TransactionsModule,
     AuthModule,

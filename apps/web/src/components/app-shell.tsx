@@ -10,6 +10,7 @@ const navItems = [
   { label: "Transactions", href: "/transactions" },
   { label: "Customers", href: "/customers" },
   { label: "Payables", href: "/payables" },
+  { label: "Receivables", href: "/receivables" },
   { label: "Accounts", href: "/accounts" },
   { label: "Cash Counter", href: "/cash-counter" },
   { label: "Reports", href: "/reports" },

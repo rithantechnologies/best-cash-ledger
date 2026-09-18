@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { EntryType, PayableStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { EntryType, PayableStatus, PaymentStatus, Prisma, ReceivableStatus, TransactionStatus, TransactionType } from '@prisma/client';
 import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateAepsDto } from './dto/create-aeps.dto.js';
@@ -926,6 +926,8 @@ export class TransactionsService {
         creditCardPayment: true,
         payable: { include: { payments: true } },
         payablePayment: { include: { payable: true } },
+        receivableSource: { include: { collections: true } },
+        receivableCollection: { include: { receivable: true } },
         journal: {
           include: {
             entries: { include: { ledgerAccount: true } },
@@ -949,6 +951,8 @@ export class TransactionsService {
           journal: { include: { entries: true } },
           payable: { include: { payments: true } },
           payablePayment: true,
+          receivableSource: { include: { collections: true } },
+          receivableCollection: true,
         },
       });
 
@@ -959,6 +963,9 @@ export class TransactionsService {
 
       if (original.payable && Number(original.payable.paidAmount) > 0) {
         throw new BadRequestException('Reverse customer payouts first before reversing this source transaction');
+      }
+      if (original.receivableSource && Number(original.receivableSource.receivedAmount) > 0) {
+        throw new BadRequestException('Reverse receivable collections first before reversing this source transaction');
       }
 
       if (!original.journal) {
@@ -993,6 +1000,7 @@ export class TransactionsService {
           amount: Number(entry.amount),
           customerId: entry.customerId ?? undefined,
           payableId: entry.payableId ?? undefined,
+          receivableId: entry.receivableId ?? undefined,
           description: 'Reversal: ' + (entry.description ?? original.transactionNumber),
         })),
       );
@@ -1023,6 +1031,50 @@ export class TransactionsService {
               paidAmount: new Prisma.Decimal(paid),
               remainingAmount: new Prisma.Decimal(remaining),
               status: paid <= 0 ? PayableStatus.PENDING : PayableStatus.PARTIALLY_PAID,
+            },
+          });
+        }
+      }
+
+      if (original.receivableSource) {
+        await tx.customerReceivable.update({
+          where: { id: original.receivableSource.id },
+          data: {
+            status: ReceivableStatus.REVERSED,
+            remainingAmount: new Prisma.Decimal(0),
+          },
+        });
+      }
+
+      if (original.receivableCollection) {
+        const collection = original.receivableCollection;
+        const receivable = await tx.customerReceivable.findUnique({
+          where: { id: collection.receivableId },
+        });
+        if (receivable) {
+          const received = Math.max(
+            0,
+            Number(receivable.receivedAmount) - Number(collection.amount),
+          );
+          const remaining = Number(receivable.originalAmount) - received;
+          const status =
+            remaining <= 0
+              ? ReceivableStatus.RECEIVED
+              : receivable.dueAt && receivable.dueAt < new Date()
+                ? ReceivableStatus.OVERDUE
+                : received <= 0
+                  ? ReceivableStatus.PENDING
+                  : ReceivableStatus.PARTIALLY_RECEIVED;
+          await tx.receivableCollection.update({
+            where: { id: collection.id },
+            data: { status: PaymentStatus.REVERSED },
+          });
+          await tx.customerReceivable.update({
+            where: { id: receivable.id },
+            data: {
+              receivedAmount: new Prisma.Decimal(received),
+              remainingAmount: new Prisma.Decimal(remaining),
+              status,
             },
           });
         }
