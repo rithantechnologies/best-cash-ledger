@@ -35,18 +35,23 @@ export class ReportsService {
       { payablePayment: { sourceAccountId: filters.accountId } },
       { receivableSource: { sourceAccountId: filters.accountId } },
       { receivableCollection: { destinationAccountId: filters.accountId } },
+      { providerSettlementReceipt: { destinationAccountId: filters.accountId } },
     ] : [];
 
     const providerOr: Prisma.TransactionWhereInput[] = filters.providerId ? [
       { cardSwipe: { providerId: filters.providerId } },
       { aeps: { providerId: filters.providerId } },
       { charges: { some: { providerId: filters.providerId } } },
+      { providerSettlementSource: { providerId: filters.providerId } },
+      { providerSettlementReceipt: { settlement: { providerId: filters.providerId } } },
     ] : [];
 
     const gatewayOr: Prisma.TransactionWhereInput[] = filters.gatewayId ? [
       { cardSwipe: { gatewayId: filters.gatewayId } },
       { aeps: { gatewayId: filters.gatewayId } },
       { charges: { some: { gatewayId: filters.gatewayId } } },
+      { providerSettlementSource: { gatewayId: filters.gatewayId } },
+      { providerSettlementReceipt: { settlement: { gatewayId: filters.gatewayId } } },
     ] : [];
 
     const rows = await this.prisma.transaction.findMany({
@@ -76,6 +81,8 @@ export class ReportsService {
         creditCardPayment: true,
         receivableSource: true,
         receivableCollection: true,
+        providerSettlementSource: true,
+        providerSettlementReceipt: true,
       },
       orderBy: { transactionAt: 'desc' },
       take: 1000,
@@ -127,7 +134,11 @@ export class ReportsService {
         : Promise.resolve([]),
     ]);
 
-    let running = Number(account.openingBalance);
+    const rangeStart = from ? new Date(from) : null;
+    let running =
+      !rangeStart || account.createdAt < rangeStart
+        ? Number(account.openingBalance)
+        : 0;
     for (const entry of priorEntries) {
       const amount = Number(entry.amount);
       running += account.accountNature === 'ASSET'
@@ -135,10 +146,26 @@ export class ReportsService {
         : entry.entryType === EntryType.CREDIT ? amount : -amount;
     }
     const openingBalance = running;
+    let openingIntroduced = false;
     return {
       account,
       openingBalance,
+      openingBalanceIntroducedInRange:
+        rangeStart &&
+        account.createdAt >= rangeStart &&
+        (!to || account.createdAt <= new Date(to))
+          ? Number(account.openingBalance)
+          : 0,
       rows: entries.map((entry) => {
+        if (
+          !openingIntroduced &&
+          rangeStart &&
+          account.createdAt >= rangeStart &&
+          entry.journal.postingDate >= account.createdAt
+        ) {
+          running += Number(account.openingBalance);
+          openingIntroduced = true;
+        }
         const amount = Number(entry.amount);
         running += account.accountNature === 'ASSET'
           ? entry.entryType === EntryType.DEBIT ? amount : -amount
@@ -235,6 +262,26 @@ export class ReportsService {
         collections: { include: { destinationAccount: true } },
       },
       orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  providerSettlements() {
+    return this.prisma.providerSettlement.findMany({
+      include: {
+        provider: true,
+        gateway: true,
+        destinationAccount: true,
+        sourceTransaction: { include: { customer: true } },
+        receipts: { include: { destinationAccount: true } },
+      },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  endOfDay() {
+    return this.prisma.dailyPositionSummary.findMany({
+      orderBy: { businessDate: 'desc' },
+      take: 365,
     });
   }
 

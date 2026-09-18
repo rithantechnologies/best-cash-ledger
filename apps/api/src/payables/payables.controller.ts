@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { PayableStatus, RoleName } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
@@ -37,8 +37,13 @@ export class PayablesController {
   }
 
   @Post(':id/payments')
-  pay(@Param('id') id: string, @Body() dto: CreatePayablePaymentDto, @Req() req: any) {
-    return this.payables.pay(id, dto, req.user.userId);
+  pay(
+    @Param('id') id: string,
+    @Body() dto: CreatePayablePaymentDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.payables.pay(id, dto, req.user.userId, key);
   }
 
   @Post(':id/cancel')

@@ -31,7 +31,7 @@ export default function LoginPage() {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      localStorage.setItem("cashledger_token", result.accessToken);
+      localStorage.removeItem("cashledger_token");
       localStorage.setItem("cashledger_user", JSON.stringify(result.user));
       router.replace("/");
     } catch (err) {

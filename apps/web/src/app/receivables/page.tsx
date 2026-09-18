@@ -6,10 +6,10 @@ import { AppShell } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
 
 type Customer={id:string;fullName:string;customerCode:string};
-type Account={id:string;accountName:string;accountType:string;currentBalance:number};
+type Account={id:string;accountName:string;accountType:string;currentBalance:number;isActive:boolean};
 type Collection={id:string;collectionDate:string;amount:string;referenceNumber:string|null;destinationAccount:{accountName:string}};
 type Receivable={
-  id:string;reason:string;description:string|null;originalAmount:string;receivedAmount:string;
+  id:string;reason:string;reasonCategory:string;description:string|null;originalAmount:string;receivedAmount:string;
   remainingAmount:string;dueAt:string|null;status:string;createdAt:string;
   customer:{id:string;fullName:string};sourceAccount:{accountName:string}|null;
   sourceTransaction:{referenceNumber:string|null};collections:Collection[];
@@ -35,9 +35,10 @@ export default function ReceivablesPage(){
   const [page,setPage]=useState(1),[pageSize,setPageSize]=useState(25),[total,setTotal]=useState(0),[totalPages,setTotalPages]=useState(1);
   const [q,setQ]=useState(""),[status,setStatus]=useState(""),[sortBy,setSortBy]=useState("dueAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("asc");
   const [customerId,setCustomerId]=useState(""),[amount,setAmount]=useState(""),[sourceAccountId,setSourceAccountId]=useState("");
-  const [reason,setReason]=useState(""),[description,setDescription]=useState(""),[dueAt,setDueAt]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState("");
+  const [reason,setReason]=useState(""),[reasonCategory,setReasonCategory]=useState("OTHER"),[description,setDescription]=useState(""),[dueAt,setDueAt]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState("");
   const [selected,setSelected]=useState<Receivable|null>(null),[collectAmount,setCollectAmount]=useState(""),[destination,setDestination]=useState("");
   const [collectReference,setCollectReference]=useState(""),[collectNotes,setCollectNotes]=useState("");
+  const [cancelTarget,setCancelTarget]=useState<Receivable|null>(null),[cancelReason,setCancelReason]=useState("");
   const [error,setError]=useState(""),[busy,setBusy]=useState(false),[role,setRole]=useState("");
 
   async function load(targetPage=page){
@@ -66,11 +67,11 @@ export default function ReceivablesPage(){
     e.preventDefault();setBusy(true);setError("");
     try{
       await apiFetch("/receivables",{method:"POST",body:JSON.stringify({
-        customerId,amount:Number(amount),sourceAccountId:sourceAccountId||undefined,reason,
+        customerId,amount:Number(amount),sourceAccountId:sourceAccountId||undefined,reason,reasonCategory,
         description:description||undefined,dueAt:dueAt?new Date(dueAt+"T23:59:59").toISOString():undefined,
         referenceNumber:reference||undefined,notes:notes||undefined,
       })});
-      setCustomerId("");setAmount("");setSourceAccountId("");setReason("");setDescription("");setDueAt("");setReference("");setNotes("");
+      setCustomerId("");setAmount("");setSourceAccountId("");setReason("");setReasonCategory("OTHER");setDescription("");setDueAt("");setReference("");setNotes("");
       await refreshAll();
     }catch(e){setError(e instanceof Error?e.message:"Failed to create receivable");}finally{setBusy(false);}
   }
@@ -87,14 +88,15 @@ export default function ReceivablesPage(){
     }catch(e){setError(e instanceof Error?e.message:"Failed to record collection");}finally{setBusy(false);}
   }
 
-  async function cancel(item:Receivable){
-    const why=window.prompt("Reason for cancelling this receivable?");
-    if(!why)return;
-    try{await apiFetch("/receivables/"+item.id+"/cancel",{method:"POST",body:JSON.stringify({reason:why})});await refreshAll();}
-    catch(e){setError(e instanceof Error?e.message:"Cancellation failed");}
+  async function cancel(e:FormEvent){
+    e.preventDefault();if(!cancelTarget||cancelReason.trim().length<3)return;
+    try{
+      await apiFetch("/receivables/"+cancelTarget.id+"/cancel",{method:"POST",body:JSON.stringify({reason:cancelReason.trim()})});
+      setCancelTarget(null);setCancelReason("");await refreshAll();
+    }catch(e){setError(e instanceof Error?e.message:"Cancellation failed");}
   }
 
-  const liquidAccounts=useMemo(()=>accounts.filter(a=>a.accountType!=="OWNER_CREDIT_CARD"),[accounts]);
+  const liquidAccounts=useMemo(()=>accounts.filter(a=>a.isActive&&a.accountType!=="OWNER_CREDIT_CARD"),[accounts]);
 
   return <AppShell><div className="mx-auto max-w-7xl space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-3">
@@ -118,12 +120,15 @@ export default function ReceivablesPage(){
         <input className="rounded-xl border px-3 py-2.5" type="number" step="0.01" min="0.01" placeholder="Amount" value={amount} onChange={e=>setAmount(e.target.value)} required/>
         <select className="rounded-xl border px-3 py-2.5" value={sourceAccountId} onChange={e=>setSourceAccountId(e.target.value)}><option value="">Opening / adjustment (no source)</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select>
         <input className="rounded-xl border px-3 py-2.5" type="date" value={dueAt} onChange={e=>setDueAt(e.target.value)}/>
-        <input className="rounded-xl border px-3 py-2.5" placeholder="Reason (loan, shortage, settlement...)" value={reason} onChange={e=>setReason(e.target.value)} required/>
+        <select className="rounded-xl border px-3 py-2.5" value={reasonCategory} onChange={e=>setReasonCategory(e.target.value)}><option value="ADVANCE">Advance</option><option value="SETTLEMENT_DUE">Settlement Due</option><option value="SHORTAGE_RECOVERY">Shortage Recovery</option><option value="LOAN">Loan</option><option value="ADJUSTMENT">Adjustment</option><option value="OTHER">Other</option></select>
+        <input className="rounded-xl border px-3 py-2.5" placeholder="Reason / details" value={reason} onChange={e=>setReason(e.target.value)} required/>
         <input className="rounded-xl border px-3 py-2.5" placeholder="Reference" value={reference} onChange={e=>setReference(e.target.value)}/>
         <input className="rounded-xl border px-3 py-2.5 xl:col-span-2" placeholder="Description / notes" value={description} onChange={e=>setDescription(e.target.value)}/>
       </div>
       <div className="mt-4 flex justify-end"><button disabled={busy} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50">{busy?"Saving...":"Create Receivable"}</button></div>
     </form>
+
+    {cancelTarget?<form onSubmit={cancel} className="rounded-2xl border border-red-200 bg-red-50 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-red-950">Cancel receivable — {cancelTarget.customer.fullName}</h3><p className="text-sm text-red-800">This reverses the source journal. Collections must be reversed first.</p></div><button type="button" onClick={()=>{setCancelTarget(null);setCancelReason("");}} className="text-sm font-semibold text-red-800">Close</button></div><div className="mt-4 flex flex-col gap-3 sm:flex-row"><input className="flex-1 rounded-xl border bg-white px-3 py-2.5" value={cancelReason} onChange={e=>setCancelReason(e.target.value)} placeholder="Cancellation reason" minLength={3} required/><button className="rounded-xl bg-red-700 px-5 py-2.5 text-sm font-semibold text-white">Confirm Cancellation</button></div></form>:null}
 
     {selected?<form onSubmit={collect} className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
       <div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="font-semibold text-emerald-950">Record collection — {selected.customer.fullName}</h3><p className="text-sm text-emerald-800">Remaining {money(selected.remainingAmount)}</p></div><button type="button" onClick={()=>setSelected(null)} className="text-sm font-medium text-emerald-800">Close</button></div>
@@ -147,11 +152,11 @@ export default function ReceivablesPage(){
     <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm"><table className="w-full min-w-[1050px] text-sm">
       <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Customer / Reason</th><th>Original</th><th>Received</th><th>Remaining</th><th>Source</th><th>Due</th><th>Status</th><th className="px-4">Actions</th></tr></thead>
       <tbody>{items.map(r=><tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/60">
-        <td className="px-4 py-4"><p className="font-semibold">{r.customer.fullName}</p><p className="text-xs text-slate-500">{r.reason}{r.description?" · "+r.description:""}</p></td>
+        <td className="px-4 py-4"><p className="font-semibold">{r.customer.fullName}</p><p className="text-xs text-slate-500">{r.reasonCategory.replaceAll("_"," ")} · {r.reason}{r.description?" · "+r.description:""}</p></td>
         <td className="font-medium">{money(r.originalAmount)}</td><td className="text-emerald-700">{money(r.receivedAmount)}</td><td className="font-bold">{money(r.remainingAmount)}</td>
         <td>{r.sourceAccount?.accountName??"Opening / adjustment"}</td><td>{r.dueAt?new Date(r.dueAt).toLocaleDateString("en-IN"):"—"}</td>
         <td><span className={"inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset "+badge(r.status)}>{r.status.replaceAll("_"," ")}</span></td>
-        <td className="px-4"><div className="flex gap-2"><Link href={"/receivables/"+r.id} className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700">View</Link><button onClick={()=>{setSelected(r);setCollectAmount(r.remainingAmount);setDestination("");}} disabled={Number(r.remainingAmount)<=0||["RECEIVED","CANCELLED","REVERSED"].includes(r.status)} className="rounded-lg border border-emerald-300 px-3 py-1.5 font-medium text-emerald-700 disabled:opacity-40">Collect</button>{(role==="OWNER"||role==="ADMIN")&&Number(r.receivedAmount)===0&&Number(r.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(r.status)?<button onClick={()=>cancel(r)} className="rounded-lg border border-red-200 px-3 py-1.5 font-medium text-red-700">Cancel</button>:null}</div></td>
+        <td className="px-4"><div className="flex gap-2"><Link href={"/receivables/"+r.id} className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700">View</Link><button onClick={()=>{setSelected(r);setCollectAmount(r.remainingAmount);setDestination("");}} disabled={Number(r.remainingAmount)<=0||["RECEIVED","CANCELLED","REVERSED"].includes(r.status)} className="rounded-lg border border-emerald-300 px-3 py-1.5 font-medium text-emerald-700 disabled:opacity-40">Collect</button>{(role==="OWNER"||role==="ADMIN")&&Number(r.receivedAmount)===0&&Number(r.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(r.status)?<button onClick={()=>{setCancelTarget(r);setCancelReason("");}} className="rounded-lg border border-red-200 px-3 py-1.5 font-medium text-red-700">Cancel</button>:null}</div></td>
       </tr>)}
       {!items.length?<tr><td colSpan={8} className="px-4 py-10 text-center text-slate-500">No matching receivables.</td></tr>:null}</tbody>
     </table></div>

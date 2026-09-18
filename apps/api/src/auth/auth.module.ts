@@ -8,6 +8,14 @@ import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { JwtStrategy } from './jwt.strategy.js';
 import { RolesGuard } from './roles.guard.js';
 
+function jwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret === 'development-only-secret') {
+    throw new Error('JWT_SECRET must be configured securely');
+  }
+  return secret;
+}
+
 @Global()
 @Module({
   imports: [
@@ -15,8 +23,8 @@ import { RolesGuard } from './roles.guard.js';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({
       global: true,
-      secret: process.env.JWT_SECRET ?? 'development-only-secret',
-      signOptions: { expiresIn: '12h' },
+      secret: jwtSecret(),
+      signOptions: { expiresIn: '4h' },
     }),
   ],
   controllers: [AuthController],

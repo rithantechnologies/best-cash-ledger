@@ -1,6 +1,7 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
-import { EntryType, PayableStatus, PaymentStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import { FinancialValidationService } from '../finance/financial-validation.service.js';
+import { IdempotencyService } from '../finance/idempotency.service.js';
 import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreatePayablePaymentDto } from './dto/create-payable-payment.dto.js';
@@ -11,24 +12,9 @@ export class PayablesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly validation: FinancialValidationService,
+    private readonly idempotency: IdempotencyService,
   ) {}
-
-  private async payoutDedupeKey(payableId: string, userId: string, payload: unknown) {
-    const bucket = Math.floor(Date.now() / 30000);
-    const fingerprint = createHash('sha256')
-      .update(JSON.stringify({ payableId, payload }))
-      .digest('hex')
-      .slice(0, 24);
-    const key = 'CUSTOMER_PAYOUT:' + userId + ':' + bucket + ':' + fingerprint;
-    const existing = await this.prisma.transaction.findUnique({
-      where: { idempotencyKey: key },
-      select: { transactionNumber: true },
-    });
-    if (existing) {
-      throw new ConflictException('Duplicate request detected: ' + existing.transactionNumber);
-    }
-    return key;
-  }
 
   async list(options?: {
     page?: number;
@@ -87,35 +73,94 @@ export class PayablesService {
     };
   }
 
-  get(id: string) {
-    return this.prisma.customerPayable.findUnique({
+  async get(id: string) {
+    const payable = await this.prisma.customerPayable.findUnique({
       where: { id },
       include: {
         customer: true,
         paymentTerm: true,
-        sourceTransaction: { include: { cardSwipe: true } },
-        payments: { orderBy: { paymentDate: 'desc' } },
+        sourceTransaction: {
+          include: {
+            cardSwipe: true,
+            charges: true,
+            commissions: true,
+            providerSettlementSource: true,
+          },
+        },
+        payments: {
+          include: {
+            sourceAccount: true,
+            transaction: true,
+          },
+          orderBy: { paymentDate: 'desc' },
+        },
       },
     });
+    if (!payable) throw new NotFoundException('Payable not found');
+
+    const userIds = [
+      payable.sourceTransaction.createdById,
+      ...payable.payments.map((payment) => payment.createdById),
+    ];
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...new Set(userIds)] } },
+      select: { id: true, fullName: true },
+    });
+    const byId = new Map(users.map((user) => [user.id, user]));
+
+    return {
+      ...payable,
+      createdBy:
+        byId.get(payable.sourceTransaction.createdById) ?? null,
+      payments: payable.payments.map((payment) => ({
+        ...payment,
+        createdBy: byId.get(payment.createdById) ?? null,
+      })),
+    };
   }
-  async pay(id: string, dto: CreatePayablePaymentDto, userId: string) {
-    const idempotencyKey = await this.payoutDedupeKey(id, userId, dto);
+  async pay(
+    id: string,
+    dto: CreatePayablePaymentDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.CUSTOMER_PAYOUT,
+      userId,
+      { payableId: id, ...dto },
+      providedIdempotencyKey,
+    );
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE',
+        id,
+      );
       const payable = await tx.customerPayable.findUnique({ where: { id } });
       if (!payable) throw new NotFoundException('Payable not found');
+      if (
+        payable.status === PayableStatus.PAID ||
+        payable.status === PayableStatus.CANCELLED ||
+        payable.status === PayableStatus.REVERSED
+      ) {
+        throw new BadRequestException('Payable is not open for payment');
+      }
 
       const remaining = Number(payable.remainingAmount);
-      if (dto.amount > remaining) {
+      if (dto.amount > remaining + 0.001) {
         throw new BadRequestException('Payment exceeds remaining payable');
       }
 
-      const sourceAccount = await tx.financialAccount.findUnique({
-        where: { id: dto.sourceAccountId },
-        include: { ledgerAccount: true },
-      });
-      if (!sourceAccount?.ledgerAccount) {
-        throw new NotFoundException('Source account or ledger not found');
-      }
+      await this.validation.lockAccount(tx, dto.sourceAccountId);
+      const sourceAccount = await this.validation.liquidAsset(
+        tx,
+        dto.sourceAccountId,
+        'Customer payout source',
+      );
+      await this.validation.ensureSufficientFunds(
+        tx,
+        sourceAccount,
+        dto.amount,
+      );
 
       const payableLedger = await tx.ledgerAccount.findUnique({
         where: { ledgerCode: 'SYS-CUST-PAYABLE' },
@@ -152,8 +197,8 @@ export class PayablesService {
       });
 
       const paidAmount = Number(payable.paidAmount) + dto.amount;
-      const remainingAmount = remaining - dto.amount;
-      const status = remainingAmount <= 0
+      const remainingAmount = Math.max(0, remaining - dto.amount);
+      const status = remainingAmount <= 0.001
         ? PayableStatus.PAID
         : payable.dueAt < new Date()
           ? PayableStatus.OVERDUE
@@ -182,7 +227,7 @@ export class PayablesService {
             payableId: payable.id,
           },
           {
-            ledgerAccountId: sourceAccount.ledgerAccount.id,
+            ledgerAccountId: sourceAccount.ledgerAccount!.id,
             entryType: EntryType.CREDIT,
             amount: dto.amount,
             customerId: payable.customerId,
@@ -194,17 +239,19 @@ export class PayablesService {
       await tx.auditLog.create({
         data: {
           userId,
-          entityType: 'TRANSACTION',
-          entityId: transaction.id,
-          action: 'CREATE',
+          entityType: 'CUSTOMER_PAYABLE',
+          entityId: payable.id,
+          action: 'PAY',
+          oldValues: {
+            paidAmount: payable.paidAmount.toString(),
+            remainingAmount: payable.remainingAmount.toString(),
+            status: payable.status,
+          },
           newValues: {
-            transactionNumber: transaction.transactionNumber,
-            transactionType: transaction.transactionType,
-            grossAmount: transaction.grossAmount.toString(),
-            netAmount: transaction.netAmount?.toString() ?? null,
-            status: transaction.status,
-            customerId: transaction.customerId,
-            payableId: payable.id,
+            paidAmount: paidAmount.toString(),
+            remainingAmount: remainingAmount.toString(),
+            status,
+            transactionId: transaction.id,
           },
         },
       });
@@ -215,12 +262,17 @@ export class PayablesService {
 
   async cancel(id: string, dto: CancelPayableDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE',
+        id,
+      );
       const payable = await tx.customerPayable.findUnique({
         where: { id },
         include: {
           sourceTransaction: {
             include: {
               journal: { include: { entries: true } },
+              providerSettlementSource: true,
             },
           },
         },
@@ -232,6 +284,14 @@ export class PayablesService {
       }
       if (Number(payable.paidAmount) > 0) {
         throw new BadRequestException('Reverse all customer payouts before cancelling this payable');
+      }
+      if (
+        payable.sourceTransaction.providerSettlementSource &&
+        Number(payable.sourceTransaction.providerSettlementSource.receivedAmount) > 0
+      ) {
+        throw new BadRequestException(
+          'Reverse provider settlement receipts before cancelling this payable',
+        );
       }
       if (!payable.sourceTransaction.journal) {
         throw new BadRequestException('Source transaction has no posted journal');
@@ -265,6 +325,7 @@ export class PayablesService {
           amount: Number(entry.amount),
           customerId: entry.customerId ?? undefined,
           payableId: entry.payableId ?? undefined,
+          providerSettlementId: entry.providerSettlementId ?? undefined,
           description: 'Payable cancellation reversal',
         })),
       );
@@ -277,6 +338,16 @@ export class PayablesService {
           updatedById: userId,
         },
       });
+
+      if (payable.sourceTransaction.providerSettlementSource) {
+        await tx.providerSettlement.update({
+          where: { id: payable.sourceTransaction.providerSettlementSource.id },
+          data: {
+            status: ProviderSettlementStatus.REVERSED,
+            remainingAmount: new Prisma.Decimal(0),
+          },
+        });
+      }
 
       const updated = await tx.customerPayable.update({
         where: { id },

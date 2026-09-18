@@ -9,11 +9,12 @@ import { apiFetch } from "@/lib/api";
 type Breakdown={pendingAmount:number;pendingCount:number;partialAmount:number;partialCount:number;dueTodayAmount:number;dueTodayCount:number;overdueAmount:number;overdueCount:number};
 type Summary={
   cashBalance:number;bankBalance:number;upiBalance:number;walletBalance:number;availableFunds:number;
-  customerPayable:number;customerReceivable:number;netFinancialPosition:number;
+  customerPayable:number;customerReceivable:number;pendingProviderSettlements:number;pendingProviderSettlementCount:number;
+  operatingPosition:number;netFinancialPosition:number;
   payableBreakdown:Breakdown;receivableBreakdown:Breakdown;
   creditCardOutstanding:number;creditCardAvailable:number;
 };
-type Account={id:string;accountName:string;accountType:string;accountNature:string;currentBalance:number;creditLimit:number|null;availableCredit:number|null};
+type Account={id:string;accountName:string;accountType:string;accountNature:string;usageType:string;currentBalance:number;creditLimit:number|null;availableCredit:number|null;isActive:boolean};
 type Today={
   cashIn:number;cashOut:number;bankIn:number;bankOut:number;walletIn:number;walletOut:number;upiIn:number;upiOut:number;
   cardSwipe:number;aeps:number;customerPayout:number;customerReceipt:number;receivableCreated:number;
@@ -21,7 +22,7 @@ type Today={
 };
 type Payable={id:string;remainingAmount:string;dueAt:string;bucket:string;customer:{fullName:string}};
 type Receivable={id:string;remainingAmount:string;dueAt:string|null;bucket:string;reason:string;customer:{fullName:string}};
-type Trend={date:string;availableFunds:number;receivables:number;payables:number;creditCardOutstanding:number;netPosition:number};
+type Trend={date:string;availableFunds:number;pendingProviderSettlements:number;receivables:number;payables:number;creditCardOutstanding:number;operatingPosition:number;netPosition:number};
 
 const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(v||0));
 const shortMoney=(v:number)=>new Intl.NumberFormat("en-IN",{notation:"compact",maximumFractionDigits:1,style:"currency",currency:"INR"}).format(v);
@@ -58,22 +59,23 @@ function Donut({segments}:{segments:{label:string;value:number;color:string}[]})
 
 function PositionChart({rows}:{rows:Trend[]}){
   const width=720,height=260,pad=30;
-  const values=rows.flatMap(r=>[r.netPosition,r.availableFunds]);
+  const values=rows.flatMap(r=>[r.netPosition,r.operatingPosition,r.availableFunds]);
   const min=Math.min(0,...values),max=Math.max(1,...values),range=max-min||1;
-  const pts=(key:"netPosition"|"availableFunds")=>rows.map((r,i)=>{
+  const pts=(key:"netPosition"|"operatingPosition"|"availableFunds")=>rows.map((r,i)=>{
     const x=pad+(rows.length<=1?0:i*(width-pad*2)/(rows.length-1));
     const y=height-pad-((r[key]-min)/range)*(height-pad*2);
     return x.toFixed(1)+","+y.toFixed(1);
   }).join(" ");
   const zeroY=height-pad-((0-min)/range)*(height-pad*2);
   return <div>
-    <div className="flex flex-wrap gap-4 text-xs text-slate-500"><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-indigo-600"/>Net position</span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-500"/>Available funds</span></div>
+    <div className="flex flex-wrap gap-4 text-xs text-slate-500"><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-indigo-600"/>Net position</span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-cyan-500"/>Operating position</span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-500"/>Available funds</span></div>
     <div className="mt-4 overflow-x-auto"><svg viewBox={"0 0 "+width+" "+height} className="min-w-[640px] w-full">
       {[0.25,0.5,0.75].map(n=><line key={n} x1={pad} x2={width-pad} y1={pad+n*(height-pad*2)} y2={pad+n*(height-pad*2)} stroke="#e2e8f0" strokeDasharray="4 6"/>)}
       {min<0?<line x1={pad} x2={width-pad} y1={zeroY} y2={zeroY} stroke="#94a3b8" strokeDasharray="5 5"/>:null}
       <polyline fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={pts("availableFunds")}/>
+      <polyline fill="none" stroke="#06b6d4" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={pts("operatingPosition")}/>
       <polyline fill="none" stroke="#4f46e5" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={pts("netPosition")}/>
-      {rows.map((r,i)=>{const x=pad+(rows.length<=1?0:i*(width-pad*2)/(rows.length-1));return <text key={r.date} x={x} y={height-6} textAnchor="middle" fontSize="10" fill="#64748b">{r.date.slice(5)}</text>})}
+      {rows.map((r,i)=>{const x=pad+(rows.length<=1?0:i*(width-pad*2)/(rows.length-1));const y=height-pad-((r.netPosition-min)/range)*(height-pad*2);return <g key={r.date}><circle cx={x} cy={y} r="5" fill="#4f46e5"><title>{r.date+" · Net "+money(r.netPosition)+" · Operating "+money(r.operatingPosition)+" · Available "+money(r.availableFunds)+" · Clearing "+money(r.pendingProviderSettlements)}</title></circle><text x={x} y={height-6} textAnchor="middle" fontSize="10" fill="#64748b">{r.date.slice(5)}</text></g>})}
     </svg></div>
     <div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>{rows[0]?money(rows[0].netPosition):"—"}</span><span>10-day movement</span><strong className="text-slate-800">{rows.at(-1)?money(rows.at(-1)!.netPosition):"—"}</strong></div>
   </div>;
@@ -96,10 +98,10 @@ export default function DashboardPage(){
   const router=useRouter();
   const [summary,setSummary]=useState<Summary|null>(null),[accounts,setAccounts]=useState<Account[]>([]),[today,setToday]=useState<Today|null>(null);
   const [payables,setPayables]=useState<Payable[]>([]),[receivables,setReceivables]=useState<Receivable[]>([]),[trend,setTrend]=useState<Trend[]>([]);
+  const [accountScope,setAccountScope]=useState("ALL");
   const [error,setError]=useState("");
 
   useEffect(()=>{
-    if(!localStorage.getItem("cashledger_token")){router.replace("/login");return;}
     Promise.all([
       apiFetch<Summary>("/dashboard/summary"),apiFetch<Account[]>("/dashboard/accounts"),apiFetch<Today>("/dashboard/today"),
       apiFetch<Payable[]>("/dashboard/payables"),apiFetch<Receivable[]>("/dashboard/receivables"),apiFetch<Trend[]>("/dashboard/position-trend"),
@@ -115,7 +117,8 @@ export default function DashboardPage(){
   ]:[],[summary]);
 
   if(!summary||!today)return <AppShell><div className="rounded-2xl border bg-white p-6">{error||"Loading financial position..."}</div></AppShell>;
-  const compareMax=Math.max(1,summary.customerReceivable,summary.customerPayable,summary.creditCardOutstanding);
+  const compareMax=Math.max(1,summary.customerReceivable,summary.customerPayable,summary.creditCardOutstanding,summary.pendingProviderSettlements);
+  const scopedAccounts=accounts.filter(a=>accountScope==="ALL"||a.usageType===accountScope);
 
   return <AppShell><div className="mx-auto max-w-[1500px] space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -125,16 +128,16 @@ export default function DashboardPage(){
 
     <section className="overflow-hidden rounded-3xl bg-slate-950 text-white shadow-xl">
       <div className="grid gap-6 p-6 lg:grid-cols-[1.25fr_2fr] lg:p-8">
-        <div><p className="text-xs font-semibold uppercase tracking-[.2em] text-indigo-300">Overall net position</p><p className={"mt-3 text-4xl font-black tracking-tight sm:text-5xl "+(summary.netFinancialPosition<0?"text-rose-300":"text-white")}>{money(summary.netFinancialPosition)}</p><p className="mt-3 max-w-lg text-sm leading-6 text-slate-300">Available funds + money to receive − customer payables − owner credit-card outstanding.</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-[.2em] text-indigo-300">Net financial position</p><p className={"mt-3 text-4xl font-black tracking-tight sm:text-5xl "+(summary.netFinancialPosition<0?"text-rose-300":"text-white")}>{money(summary.netFinancialPosition)}</p><p className="mt-3 text-sm font-semibold text-cyan-300">Operating position {money(summary.operatingPosition)}</p><p className="mt-2 max-w-lg text-sm leading-6 text-slate-300">Operating position includes liquid funds, provider clearing and customer receivables less customer payables. Net position also subtracts owner credit-card outstanding.</p></div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[["Available now",summary.availableFunds,"text-emerald-300"],["To receive",summary.customerReceivable,"text-cyan-300"],["To pay",summary.customerPayable,"text-amber-300"],["Card outstanding",summary.creditCardOutstanding,"text-rose-300"]].map(([l,v,c])=><div key={String(l)} className="rounded-2xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-slate-400">{l}</p><p className={"mt-2 text-xl font-bold "+c}>{money(Number(v))}</p></div>)}
+          {[["Available now",summary.availableFunds,"text-emerald-300"],["Provider clearing",summary.pendingProviderSettlements,"text-cyan-300"],["Customer receive",summary.customerReceivable,"text-sky-300"],["To pay",summary.customerPayable,"text-amber-300"],["Card outstanding",summary.creditCardOutstanding,"text-rose-300"]].map(([l,v,c])=><div key={String(l)} className="rounded-2xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-slate-400">{l}</p><p className={"mt-2 text-xl font-bold "+c}>{money(Number(v))}</p></div>)}
         </div>
       </div>
-      <div className="border-t border-white/10 bg-white/[.03] px-6 py-3 text-xs text-slate-400">Formula: {money(summary.availableFunds)} + {money(summary.customerReceivable)} − {money(summary.customerPayable)} − {money(summary.creditCardOutstanding)}</div>
+      <div className="border-t border-white/10 bg-white/[.03] px-6 py-3 text-xs text-slate-400">Net formula: {money(summary.availableFunds)} + {money(summary.pendingProviderSettlements)} clearing + {money(summary.customerReceivable)} receivables − {money(summary.customerPayable)} payables − {money(summary.creditCardOutstanding)} owner CC</div>
     </section>
 
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Metric label="Cash in hand" value={summary.cashBalance}/><Metric label="Bank balance" value={summary.bankBalance}/><Metric label="UPI balance" value={summary.upiBalance}/><Metric label="Provider wallets" value={summary.walletBalance}/>
+    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <Metric label="Cash in hand" value={summary.cashBalance}/><Metric label="Bank balance" value={summary.bankBalance}/><Metric label="UPI balance" value={summary.upiBalance}/><Metric label="Provider wallets" value={summary.walletBalance}/><Metric label="Pending provider settlement" value={summary.pendingProviderSettlements} hint={summary.pendingProviderSettlementCount+" item(s)"} tone="indigo"/>
     </section>
 
     <section className="grid gap-6 xl:grid-cols-[1.7fr_1fr]">
@@ -145,10 +148,11 @@ export default function DashboardPage(){
     <section className="grid gap-6 xl:grid-cols-2">
       <div className="rounded-2xl border bg-white p-5 shadow-sm"><div className="mb-5"><h3 className="font-semibold">Receive vs Pay</h3><p className="text-xs text-slate-500">Outstanding obligations and collections.</p></div><div className="space-y-5">
         <SideBar label="Customer receivables" value={summary.customerReceivable} max={compareMax} tone="bg-emerald-500"/>
+        <SideBar label="Provider clearing" value={summary.pendingProviderSettlements} max={compareMax} tone="bg-cyan-500"/>
         <SideBar label="Customer payables" value={summary.customerPayable} max={compareMax} tone="bg-amber-500"/>
         <SideBar label="Owner credit-card outstanding" value={summary.creditCardOutstanding} max={compareMax} tone="bg-rose-500"/>
       </div><div className="mt-6 grid grid-cols-2 gap-3"><Metric label="Receivable overdue" value={summary.receivableBreakdown.overdueAmount} hint={summary.receivableBreakdown.overdueCount+" item(s)"} tone="red"/><Metric label="Payable overdue" value={summary.payableBreakdown.overdueAmount} hint={summary.payableBreakdown.overdueCount+" item(s)"} tone="red"/></div></div>
-      <div className="rounded-2xl border bg-white p-5 shadow-sm"><div className="mb-5"><h3 className="font-semibold">Account Balances</h3><p className="text-xs text-slate-500">Largest liquid balances at a glance.</p></div><AccountBars accounts={accounts}/></div>
+      <div className="rounded-2xl border bg-white p-5 shadow-sm"><div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">Account Balances</h3><p className="text-xs text-slate-500">Filter by the account's configured usage without changing the all-business net-position formula.</p></div><select className="rounded-lg border px-2 py-1.5 text-xs" value={accountScope} onChange={e=>setAccountScope(e.target.value)}><option value="ALL">All</option><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></select></div><AccountBars accounts={scopedAccounts}/></div>
     </section>
 
     <section className="rounded-2xl border bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-semibold">Today’s Activity</h3><p className="text-xs text-slate-500">Posted movements and operating activity.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">India day</span></div>

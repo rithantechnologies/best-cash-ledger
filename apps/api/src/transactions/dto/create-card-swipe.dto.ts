@@ -1,4 +1,4 @@
-import { IsDateString, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateCardSwipeDto {
   @IsString() customerId!: string;
@@ -11,6 +11,8 @@ export class CreateCardSwipeDto {
   @IsString() paymentTermId!: string;
   @IsDateString() dueAt!: string;
   @IsString() settlementAccountId!: string;
+  @IsOptional() @IsBoolean() settledNow?: boolean;
+  @IsOptional() @IsDateString() settlementDueAt?: string;
   @IsOptional() @IsString() referenceNumber?: string;
   @IsOptional() @IsString() notes?: string;
 }

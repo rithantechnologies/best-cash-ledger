@@ -1,7 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
-import { EntryType, PayableStatus, PaymentStatus, Prisma, ReceivableStatus, TransactionStatus, TransactionType } from '@prisma/client';
-import { LedgerService } from '../ledger/ledger.service.js';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { AccountNature, AccountType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import { FinancialValidationService } from '../finance/financial-validation.service.js';
+import { IdempotencyService } from '../finance/idempotency.service.js';
+import { LedgerService, type JournalEntry } from '../ledger/ledger.service.js';
+import { ProviderSettlementsService } from '../provider-settlements/provider-settlements.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateAepsDto } from './dto/create-aeps.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
@@ -17,6 +19,9 @@ export class TransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly validation: FinancialValidationService,
+    private readonly idempotency: IdempotencyService,
+    private readonly settlements: ProviderSettlementsService,
   ) {}
 
   private auditCreated(tx: Prisma.TransactionClient, transaction: {
@@ -59,23 +64,6 @@ export class TransactionsService {
       ...item,
       createdBy: byId.get(item.createdById) ?? null,
     }));
-  }
-
-  private async dedupeKey(type: TransactionType, userId: string, payload: unknown) {
-    const bucket = Math.floor(Date.now() / 30000);
-    const fingerprint = createHash('sha256')
-      .update(JSON.stringify(payload))
-      .digest('hex')
-      .slice(0, 24);
-    const key = type + ':' + userId + ':' + bucket + ':' + fingerprint;
-    const existing = await this.prisma.transaction.findUnique({
-      where: { idempotencyKey: key },
-      select: { transactionNumber: true },
-    });
-    if (existing) {
-      throw new ConflictException('Duplicate request detected: ' + existing.transactionNumber);
-    }
-    return key;
   }
 
   async list(options?: {
@@ -138,33 +126,79 @@ export class TransactionsService {
     };
   }
 
-  async createCardSwipe(dto: CreateCardSwipeDto, userId: string) {
-    const idempotencyKey = await this.dedupeKey(TransactionType.CARD_SWIPE, userId, dto);
-    const providerChargeAmount = dto.swipeAmount * dto.providerChargeRate / 100;
+  async createCardSwipe(
+    dto: CreateCardSwipeDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.CARD_SWIPE,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
+    const providerChargeAmount =
+      dto.swipeAmount * dto.providerChargeRate / 100;
     const commissionAmount = dto.swipeAmount * dto.commissionRate / 100;
     const settlementAmount = dto.swipeAmount - providerChargeAmount;
-    const customerPayableAmount = dto.swipeAmount - providerChargeAmount - commissionAmount;
+    const customerPayableAmount = dto.swipeAmount - commissionAmount;
+
+    if (
+      settlementAmount <= 0 ||
+      customerPayableAmount < 0 ||
+      providerChargeAmount < 0 ||
+      commissionAmount < 0
+    ) {
+      throw new BadRequestException(
+        'Invalid swipe amount, provider charge or customer commission',
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      const settlementAccount = await tx.financialAccount.findUnique({
-        where: { id: dto.settlementAccountId },
-        include: { ledgerAccount: true },
-      });
-      if (!settlementAccount?.ledgerAccount) {
-        throw new NotFoundException('Settlement account or ledger not found');
-      }
+      await this.validation.activeCustomer(tx, dto.customerId);
+      await this.validation.customerCard(
+        tx,
+        dto.customerId,
+        dto.customerCardId,
+      );
+      await this.validation.providerGateway(
+        tx,
+        dto.providerId,
+        dto.gatewayId,
+        true,
+      );
+      await this.validation.paymentTerm(tx, dto.paymentTermId);
+      const settlementAccount =
+        await this.validation.providerSettlementDestination(
+          tx,
+          dto.settlementAccountId,
+        );
 
       const systemLedgers = await tx.ledgerAccount.findMany({
         where: {
           ledgerCode: {
-            in: ['SYS-CUST-PAYABLE', 'SYS-COMMISSION', 'SYS-PROVIDER-CHARGE'],
+            in: [
+              'SYS-CUST-PAYABLE',
+              'SYS-COMMISSION',
+              'SYS-PROVIDER-CHARGE',
+              'SYS-PROVIDER-CLEARING',
+            ],
           },
         },
       });
-      const byCode = new Map(systemLedgers.map((item) => [item.ledgerCode, item]));
+      const byCode = new Map(
+        systemLedgers.map((item) => [item.ledgerCode, item]),
+      );
       const payableLedger = byCode.get('SYS-CUST-PAYABLE');
       const commissionLedger = byCode.get('SYS-COMMISSION');
       const providerChargeLedger = byCode.get('SYS-PROVIDER-CHARGE');
-      if (!payableLedger || !commissionLedger || !providerChargeLedger) {
+      const clearingLedger = byCode.get('SYS-PROVIDER-CLEARING');
+      if (
+        !payableLedger ||
+        !commissionLedger ||
+        !providerChargeLedger ||
+        !clearingLedger
+      ) {
         throw new Error('Required system ledgers are missing');
       }
 
@@ -183,6 +217,7 @@ export class TransactionsService {
           createdById: userId,
         },
       });
+
       await tx.cardSwipeDetail.create({
         data: {
           transactionId: transaction.id,
@@ -202,27 +237,32 @@ export class TransactionsService {
         },
       });
 
-      await tx.transactionCharge.create({
-        data: {
-          transactionId: transaction.id,
-          chargeType: 'PROVIDER',
-          providerId: dto.providerId,
-          gatewayId: dto.gatewayId,
-          calculationType: 'PERCENTAGE',
-          rate: new Prisma.Decimal(dto.providerChargeRate),
-          amount: new Prisma.Decimal(providerChargeAmount),
-        },
-      });
+      if (providerChargeAmount > 0) {
+        await tx.transactionCharge.create({
+          data: {
+            transactionId: transaction.id,
+            chargeType: 'PROVIDER',
+            providerId: dto.providerId,
+            gatewayId: dto.gatewayId,
+            calculationType: 'PERCENTAGE',
+            rate: new Prisma.Decimal(dto.providerChargeRate),
+            amount: new Prisma.Decimal(providerChargeAmount),
+          },
+        });
+      }
 
-      await tx.transactionCommission.create({
-        data: {
-          transactionId: transaction.id,
-          commissionType: 'CARD_SWIPE',
-          calculationType: 'PERCENTAGE',
-          rate: new Prisma.Decimal(dto.commissionRate),
-          amount: new Prisma.Decimal(commissionAmount),
-        },
-      });
+      if (commissionAmount > 0) {
+        await tx.transactionCommission.create({
+          data: {
+            transactionId: transaction.id,
+            commissionType: 'CARD_SWIPE',
+            calculationType: 'PERCENTAGE',
+            rate: new Prisma.Decimal(dto.commissionRate),
+            amount: new Prisma.Decimal(commissionAmount),
+          },
+        });
+      }
+
       const payable = await tx.customerPayable.create({
         data: {
           customerId: dto.customerId,
@@ -236,45 +276,96 @@ export class TransactionsService {
         },
       });
 
+      const providerSettlement = await this.settlements.createForSource(tx, {
+        sourceTransactionId: transaction.id,
+        providerId: dto.providerId,
+        gatewayId: dto.gatewayId,
+        expectedAmount: settlementAmount,
+        destinationAccountId: settlementAccount.id,
+        dueAt: dto.settlementDueAt
+          ? new Date(dto.settlementDueAt)
+          : null,
+        createdById: userId,
+      });
+
+      const entries: JournalEntry[] = [
+        {
+          ledgerAccountId: clearingLedger.id,
+          entryType: EntryType.DEBIT,
+          amount: settlementAmount,
+          customerId: dto.customerId,
+          providerSettlementId: providerSettlement.id,
+          description: 'Provider settlement pending',
+        },
+        {
+          ledgerAccountId: payableLedger.id,
+          entryType: EntryType.CREDIT,
+          amount: customerPayableAmount,
+          customerId: dto.customerId,
+          payableId: payable.id,
+          description: 'Customer payable',
+        },
+      ];
+
+      if (providerChargeAmount > 0) {
+        entries.push({
+          ledgerAccountId: providerChargeLedger.id,
+          entryType: EntryType.DEBIT,
+          amount: providerChargeAmount,
+          customerId: dto.customerId,
+          providerSettlementId: providerSettlement.id,
+          description: 'Provider charge expense',
+        });
+      }
+      if (commissionAmount > 0) {
+        entries.push({
+          ledgerAccountId: commissionLedger.id,
+          entryType: EntryType.CREDIT,
+          amount: commissionAmount,
+          customerId: dto.customerId,
+          providerSettlementId: providerSettlement.id,
+          description: 'Customer commission income',
+        });
+      }
+
       await this.ledger.post(
         tx,
         transaction.id,
         userId,
         'Credit card swipe',
-        [
-          {
-            ledgerAccountId: settlementAccount.ledgerAccount.id,
-            entryType: EntryType.DEBIT,
-            amount: settlementAmount,
-            customerId: dto.customerId,
-            description: 'Provider settlement',
-          },
-          {
-            ledgerAccountId: payableLedger.id,
-            entryType: EntryType.CREDIT,
-            amount: customerPayableAmount,
-            customerId: dto.customerId,
-            payableId: payable.id,
-            description: 'Customer payable',
-          },
-          {
-            ledgerAccountId: commissionLedger.id,
-            entryType: EntryType.CREDIT,
-            amount: commissionAmount,
-            customerId: dto.customerId,
-            description: 'Commission income',
-          },
-        ],
+        entries,
       );
 
+      let settlementReceipt = null;
+      if (dto.settledNow) {
+        settlementReceipt = await this.settlements.autoReceive(
+          tx,
+          providerSettlement.id,
+          settlementAccount.id,
+          settlementAmount,
+          userId,
+          dto.referenceNumber,
+        );
+      }
+
       await this.auditCreated(tx, transaction, userId);
-      return { transaction, payable };
+      return { transaction, payable, providerSettlement, settlementReceipt };
     });
   }
 
-  async createCashTransfer(dto: CreateCashTransferDto, userId: string) {
-    const idempotencyKey = await this.dedupeKey(TransactionType.CASH_TRANSFER, userId, dto);
-    const commissionAmount = dto.requestedAmount * dto.commissionRate / 100;
+  async createCashTransfer(
+    dto: CreateCashTransferDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.CASH_TRANSFER,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
+    const commissionAmount =
+      dto.requestedAmount * dto.commissionRate / 100;
     const addOn = dto.commissionMethod === 'ADD_ON';
     const cashReceived = addOn
       ? dto.requestedAmount + commissionAmount
@@ -289,37 +380,54 @@ export class TransactionsService {
       dto.customerUpiAccountId,
     ].filter(Boolean).length;
 
-    if (destinationCount > 1) {
-      throw new BadRequestException('Choose only one transfer destination account');
+    if (destinationCount !== 1) {
+      throw new BadRequestException(
+        'Choose exactly one customer or beneficiary transfer destination',
+      );
     }
-
     if (actualTransferAmount <= 0) {
       throw new BadRequestException('Commission exceeds transfer amount');
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const [
-        cashAccount,
+      await this.validation.activeCustomer(tx, dto.customerId);
+      await this.validation.lockAccount(tx, dto.sourceAccountId);
+
+      const [cashAccount, sourceAccount, commissionLedger] =
+        await Promise.all([
+          this.validation.cashAccount(
+            tx,
+            dto.cashAccountId,
+            'Cash receiving account',
+          ),
+          this.validation.transferSource(tx, dto.sourceAccountId),
+          tx.ledgerAccount.findUnique({
+            where: { ledgerCode: 'SYS-COMMISSION' },
+          }),
+        ]);
+      if (!commissionLedger) {
+        throw new NotFoundException('Commission ledger not found');
+      }
+      await this.validation.ensureSufficientFunds(
+        tx,
         sourceAccount,
-        commissionLedger,
+        actualTransferAmount + transferChargeAmount,
+      );
+
+      const [
         customerBankAccount,
         customerUpiAccount,
         beneficiaryAccount,
       ] = await Promise.all([
-        tx.financialAccount.findUnique({
-          where: { id: dto.cashAccountId },
-          include: { ledgerAccount: true },
-        }),
-        tx.financialAccount.findUnique({
-          where: { id: dto.sourceAccountId },
-          include: { ledgerAccount: true },
-        }),
-        tx.ledgerAccount.findUnique({ where: { ledgerCode: 'SYS-COMMISSION' } }),
         dto.customerBankAccountId
-          ? tx.customerBankAccount.findUnique({ where: { id: dto.customerBankAccountId } })
+          ? tx.customerBankAccount.findUnique({
+              where: { id: dto.customerBankAccountId },
+            })
           : Promise.resolve(null),
         dto.customerUpiAccountId
-          ? tx.customerUpiAccount.findUnique({ where: { id: dto.customerUpiAccountId } })
+          ? tx.customerUpiAccount.findUnique({
+              where: { id: dto.customerUpiAccountId },
+            })
           : Promise.resolve(null),
         dto.beneficiaryAccountId
           ? tx.beneficiaryAccount.findUnique({
@@ -329,26 +437,50 @@ export class TransactionsService {
           : Promise.resolve(null),
       ]);
 
-      if (!cashAccount?.ledgerAccount || !sourceAccount?.ledgerAccount || !commissionLedger) {
-        throw new NotFoundException('Required account or ledger not found');
+      if (
+        dto.customerBankAccountId &&
+        (!customerBankAccount ||
+          !customerBankAccount.isActive ||
+          customerBankAccount.customerId !== dto.customerId)
+      ) {
+        throw new BadRequestException(
+          'Selected active bank account does not belong to the customer',
+        );
       }
-      if (customerBankAccount && customerBankAccount.customerId !== dto.customerId) {
-        throw new BadRequestException('Selected bank account does not belong to the customer');
+      if (
+        dto.customerUpiAccountId &&
+        (!customerUpiAccount ||
+          !customerUpiAccount.isActive ||
+          customerUpiAccount.customerId !== dto.customerId)
+      ) {
+        throw new BadRequestException(
+          'Selected active UPI account does not belong to the customer',
+        );
       }
-      if (customerUpiAccount && customerUpiAccount.customerId !== dto.customerId) {
-        throw new BadRequestException('Selected UPI account does not belong to the customer');
-      }
-      if (beneficiaryAccount && beneficiaryAccount.beneficiary.customerId !== dto.customerId) {
-        throw new BadRequestException('Selected beneficiary account does not belong to the customer');
+      if (
+        dto.beneficiaryAccountId &&
+        (!beneficiaryAccount ||
+          !beneficiaryAccount.isActive ||
+          !beneficiaryAccount.beneficiary.isActive ||
+          beneficiaryAccount.beneficiary.customerId !== dto.customerId ||
+          (dto.beneficiaryId &&
+            beneficiaryAccount.beneficiaryId !== dto.beneficiaryId))
+      ) {
+        throw new BadRequestException(
+          'Selected active beneficiary account does not belong to the customer',
+        );
       }
 
       const chargeLedgerCode =
-        sourceAccount.accountType === 'PROVIDER_WALLET'
+        sourceAccount.accountType === AccountType.PROVIDER_WALLET
           ? 'SYS-PROVIDER-CHARGE'
           : 'SYS-BANK-CHARGE';
-      const chargeLedger = transferChargeAmount > 0
-        ? await tx.ledgerAccount.findUnique({ where: { ledgerCode: chargeLedgerCode } })
-        : null;
+      const chargeLedger =
+        transferChargeAmount > 0
+          ? await tx.ledgerAccount.findUnique({
+              where: { ledgerCode: chargeLedgerCode },
+            })
+          : null;
       if (transferChargeAmount > 0 && !chargeLedger) {
         throw new NotFoundException('Transfer charge ledger not found');
       }
@@ -390,15 +522,17 @@ export class TransactionsService {
         },
       });
 
-      await tx.transactionCommission.create({
-        data: {
-          transactionId: transaction.id,
-          commissionType: 'CASH_TRANSFER',
-          calculationType: 'PERCENTAGE',
-          rate: new Prisma.Decimal(dto.commissionRate),
-          amount: new Prisma.Decimal(commissionAmount),
-        },
-      });
+      if (commissionAmount > 0) {
+        await tx.transactionCommission.create({
+          data: {
+            transactionId: transaction.id,
+            commissionType: 'CASH_TRANSFER',
+            calculationType: 'PERCENTAGE',
+            rate: new Prisma.Decimal(dto.commissionRate),
+            amount: new Prisma.Decimal(commissionAmount),
+          },
+        });
+      }
 
       if (transferChargeAmount > 0) {
         await tx.transactionCharge.create({
@@ -406,7 +540,9 @@ export class TransactionsService {
             transactionId: transaction.id,
             chargeType:
               dto.transferChargeType ??
-              (sourceAccount.accountType === 'PROVIDER_WALLET' ? 'WALLET' : 'BANK'),
+              (sourceAccount.accountType === AccountType.PROVIDER_WALLET
+                ? 'WALLET'
+                : 'BANK'),
             providerId: sourceAccount.providerId,
             calculationType: 'FIXED',
             amount: new Prisma.Decimal(transferChargeAmount),
@@ -416,75 +552,120 @@ export class TransactionsService {
 
       const ledgerEntries = [
         {
-          ledgerAccountId: cashAccount.ledgerAccount.id,
+          ledgerAccountId: cashAccount.ledgerAccount!.id,
           entryType: EntryType.DEBIT,
           amount: cashReceived,
           customerId: dto.customerId,
+          description: 'Cash received from customer',
         },
         {
-          ledgerAccountId: sourceAccount.ledgerAccount.id,
+          ledgerAccountId: sourceAccount.ledgerAccount!.id,
           entryType: EntryType.CREDIT,
           amount: actualTransferAmount + transferChargeAmount,
           customerId: dto.customerId,
+          description: 'Transfer source outflow',
         },
-        {
+      ];
+
+      if (commissionAmount > 0) {
+        ledgerEntries.push({
           ledgerAccountId: commissionLedger.id,
           entryType: EntryType.CREDIT,
           amount: commissionAmount,
           customerId: dto.customerId,
-        },
-      ];
-
+          description: 'Cash transfer commission',
+        });
+      }
       if (transferChargeAmount > 0 && chargeLedger) {
         ledgerEntries.push({
           ledgerAccountId: chargeLedger.id,
           entryType: EntryType.DEBIT,
           amount: transferChargeAmount,
           customerId: dto.customerId,
+          description: 'Transfer charge expense',
         });
       }
 
-      await this.ledger.post(tx, transaction.id, userId, 'Cash transfer', ledgerEntries);
+      await this.ledger.post(
+        tx,
+        transaction.id,
+        userId,
+        'Cash transfer',
+        ledgerEntries,
+      );
 
       await this.auditCreated(tx, transaction, userId);
       return transaction;
     });
   }
 
-  async createAeps(dto: CreateAepsDto, userId: string) {
-    const idempotencyKey = await this.dedupeKey(TransactionType.AEPS_WITHDRAWAL, userId, dto);
-    const platformChargeAmount = dto.withdrawalAmount * dto.platformChargeRate / 100;
-    const commissionAmount = dto.withdrawalAmount * dto.commissionRate / 100;
+  async createAeps(
+    dto: CreateAepsDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.AEPS_WITHDRAWAL,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
+    const platformChargeAmount =
+      dto.withdrawalAmount * dto.platformChargeRate / 100;
+    const commissionAmount =
+      dto.withdrawalAmount * dto.commissionRate / 100;
     const cashGiven = dto.withdrawalAmount - commissionAmount;
     const settlementAmount = dto.withdrawalAmount - platformChargeAmount;
 
-    if (cashGiven <= 0 || settlementAmount <= 0) {
+    if (
+      cashGiven <= 0 ||
+      settlementAmount <= 0 ||
+      platformChargeAmount < 0 ||
+      commissionAmount < 0
+    ) {
       throw new BadRequestException('Invalid AePS charges or commission');
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const [cashAccount, settlementAccount, chargeLedger, commissionLedger] =
+      await this.validation.activeCustomer(tx, dto.customerId);
+      await this.validation.providerGateway(
+        tx,
+        dto.providerId,
+        dto.gatewayId,
+        false,
+      );
+      await this.validation.lockAccount(tx, dto.cashAccountId);
+
+      const [cashAccount, settlementAccount, chargeLedger, commissionLedger, clearingLedger] =
         await Promise.all([
-          tx.financialAccount.findUnique({
-            where: { id: dto.cashAccountId },
-            include: { ledgerAccount: true },
+          this.validation.cashAccount(
+            tx,
+            dto.cashAccountId,
+            'AePS cash account',
+          ),
+          this.validation.providerSettlementDestination(
+            tx,
+            dto.settlementAccountId,
+          ),
+          tx.ledgerAccount.findUnique({
+            where: { ledgerCode: 'SYS-PROVIDER-CHARGE' },
           }),
-          tx.financialAccount.findUnique({
-            where: { id: dto.settlementAccountId },
-            include: { ledgerAccount: true },
+          tx.ledgerAccount.findUnique({
+            where: { ledgerCode: 'SYS-COMMISSION' },
           }),
-          tx.ledgerAccount.findUnique({ where: { ledgerCode: 'SYS-PROVIDER-CHARGE' } }),
-          tx.ledgerAccount.findUnique({ where: { ledgerCode: 'SYS-COMMISSION' } }),
+          tx.ledgerAccount.findUnique({
+            where: { ledgerCode: 'SYS-PROVIDER-CLEARING' },
+          }),
         ]);
 
-      if (
-        !cashAccount?.ledgerAccount ||
-        !settlementAccount?.ledgerAccount ||
-        !chargeLedger ||
-        !commissionLedger
-      ) {
-        throw new NotFoundException('Required AePS account or ledger not found');
+      if (!chargeLedger || !commissionLedger || !clearingLedger) {
+        throw new NotFoundException('Required AePS system ledger not found');
       }
+      await this.validation.ensureSufficientFunds(
+        tx,
+        cashAccount,
+        cashGiven,
+      );
 
       const transaction = await tx.transaction.create({
         data: {
@@ -523,87 +704,157 @@ export class TransactionsService {
         },
       });
 
-      await tx.transactionCharge.create({
-        data: {
-          transactionId: transaction.id,
-          chargeType: 'PROVIDER',
-          providerId: dto.providerId,
-          gatewayId: dto.gatewayId,
-          calculationType: 'PERCENTAGE',
-          rate: new Prisma.Decimal(dto.platformChargeRate),
-          amount: new Prisma.Decimal(platformChargeAmount),
-        },
+      if (platformChargeAmount > 0) {
+        await tx.transactionCharge.create({
+          data: {
+            transactionId: transaction.id,
+            chargeType: 'PROVIDER',
+            providerId: dto.providerId,
+            gatewayId: dto.gatewayId,
+            calculationType: 'PERCENTAGE',
+            rate: new Prisma.Decimal(dto.platformChargeRate),
+            amount: new Prisma.Decimal(platformChargeAmount),
+          },
+        });
+      }
+      if (commissionAmount > 0) {
+        await tx.transactionCommission.create({
+          data: {
+            transactionId: transaction.id,
+            commissionType: 'AEPS',
+            calculationType: 'PERCENTAGE',
+            rate: new Prisma.Decimal(dto.commissionRate),
+            amount: new Prisma.Decimal(commissionAmount),
+          },
+        });
+      }
+
+      const providerSettlement = await this.settlements.createForSource(tx, {
+        sourceTransactionId: transaction.id,
+        providerId: dto.providerId,
+        gatewayId: dto.gatewayId,
+        expectedAmount: settlementAmount,
+        destinationAccountId: settlementAccount.id,
+        dueAt: dto.settlementDueAt
+          ? new Date(dto.settlementDueAt)
+          : null,
+        createdById: userId,
       });
 
-      await tx.transactionCommission.create({
-        data: {
-          transactionId: transaction.id,
-          commissionType: 'AEPS',
-          calculationType: 'PERCENTAGE',
-          rate: new Prisma.Decimal(dto.commissionRate),
-          amount: new Prisma.Decimal(commissionAmount),
-        },
-      });
-
-      await this.ledger.post(tx, transaction.id, userId, 'AePS withdrawal', [
+      const entries: JournalEntry[] = [
         {
-          ledgerAccountId: settlementAccount.ledgerAccount.id,
+          ledgerAccountId: clearingLedger.id,
           entryType: EntryType.DEBIT,
           amount: settlementAmount,
           customerId: dto.customerId,
+          providerSettlementId: providerSettlement.id,
+          description: 'AePS provider settlement pending',
         },
         {
+          ledgerAccountId: cashAccount.ledgerAccount!.id,
+          entryType: EntryType.CREDIT,
+          amount: cashGiven,
+          customerId: dto.customerId,
+          description: 'Cash paid to customer',
+        },
+      ];
+      if (platformChargeAmount > 0) {
+        entries.push({
           ledgerAccountId: chargeLedger.id,
           entryType: EntryType.DEBIT,
           amount: platformChargeAmount,
           customerId: dto.customerId,
-        },
-        {
-          ledgerAccountId: cashAccount.ledgerAccount.id,
-          entryType: EntryType.CREDIT,
-          amount: cashGiven,
-          customerId: dto.customerId,
-        },
-        {
+          providerSettlementId: providerSettlement.id,
+          description: 'AePS provider charge expense',
+        });
+      }
+      if (commissionAmount > 0) {
+        entries.push({
           ledgerAccountId: commissionLedger.id,
           entryType: EntryType.CREDIT,
           amount: commissionAmount,
           customerId: dto.customerId,
-        },
-      ]);
+          providerSettlementId: providerSettlement.id,
+          description: 'AePS commission income',
+        });
+      }
+
+      await this.ledger.post(
+        tx,
+        transaction.id,
+        userId,
+        'AePS withdrawal',
+        entries,
+      );
+
+      let settlementReceipt = null;
+      if (dto.settledNow) {
+        settlementReceipt = await this.settlements.autoReceive(
+          tx,
+          providerSettlement.id,
+          settlementAccount.id,
+          settlementAmount,
+          userId,
+          dto.providerReference,
+        );
+      }
 
       await this.auditCreated(tx, transaction, userId);
-      return transaction;
+      return { transaction, providerSettlement, settlementReceipt };
     });
   }
 
-  async createInternalTransfer(dto: CreateInternalTransferDto, userId: string) {
-    const idempotencyKey = await this.dedupeKey(TransactionType.INTERNAL_TRANSFER, userId, dto);
+  async createInternalTransfer(
+    dto: CreateInternalTransferDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.INTERNAL_TRANSFER,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
     const chargeAmount = dto.chargeAmount ?? 0;
+    if (dto.sourceAccountId === dto.destinationAccountId) {
+      throw new BadRequestException(
+        'Source and destination accounts must be different',
+      );
+    }
 
     return this.prisma.$transaction(async (tx) => {
+      await this.validation.lockAccount(tx, dto.sourceAccountId);
       const [source, destination] = await Promise.all([
-        tx.financialAccount.findUnique({
-          where: { id: dto.sourceAccountId },
-          include: { ledgerAccount: true },
-        }),
-        tx.financialAccount.findUnique({
-          where: { id: dto.destinationAccountId },
-          include: { ledgerAccount: true },
-        }),
+        this.validation.liquidAsset(
+          tx,
+          dto.sourceAccountId,
+          'Transfer source account',
+        ),
+        this.validation.liquidAsset(
+          tx,
+          dto.destinationAccountId,
+          'Transfer destination account',
+        ),
       ]);
-
-      if (!source?.ledgerAccount || !destination?.ledgerAccount) {
-        throw new NotFoundException('Transfer account or ledger not found');
-      }
+      await this.validation.ensureSufficientFunds(
+        tx,
+        source,
+        dto.transferAmount + chargeAmount,
+      );
 
       const chargeLedgerCode =
-        source.accountType === 'PROVIDER_WALLET'
+        source.accountType === AccountType.PROVIDER_WALLET
           ? 'SYS-PROVIDER-CHARGE'
           : 'SYS-BANK-CHARGE';
-      const chargeLedger = chargeAmount > 0
-        ? await tx.ledgerAccount.findUnique({ where: { ledgerCode: chargeLedgerCode } })
-        : null;
+      const chargeLedger =
+        chargeAmount > 0
+          ? await tx.ledgerAccount.findUnique({
+              where: { ledgerCode: chargeLedgerCode },
+            })
+          : null;
+      if (chargeAmount > 0 && !chargeLedger) {
+        throw new NotFoundException('Transfer charge ledger not found');
+      }
 
       const transaction = await tx.transaction.create({
         data: {
@@ -636,9 +887,9 @@ export class TransactionsService {
           data: {
             transactionId: transaction.id,
             chargeType:
-              source.accountType === 'PROVIDER_WALLET'
+              source.accountType === AccountType.PROVIDER_WALLET
                 ? 'WALLET'
-                : source.accountType === 'BANK'
+                : source.accountType === AccountType.BANK
                   ? 'BANK'
                   : 'TRANSFER',
             providerId: source.providerId,
@@ -648,25 +899,27 @@ export class TransactionsService {
         });
       }
 
-      const entries = [
+      const entries: JournalEntry[] = [
         {
-          ledgerAccountId: destination.ledgerAccount.id,
+          ledgerAccountId: destination.ledgerAccount!.id,
           entryType: EntryType.DEBIT,
           amount: dto.transferAmount,
+          description: 'Internal transfer received',
         },
         {
-          ledgerAccountId: source.ledgerAccount.id,
+          ledgerAccountId: source.ledgerAccount!.id,
           entryType: EntryType.CREDIT,
           amount: dto.transferAmount + chargeAmount,
+          description: 'Internal transfer sent',
         },
       ];
 
-      if (chargeAmount > 0) {
-        if (!chargeLedger) throw new Error('Transfer charge ledger missing');
+      if (chargeAmount > 0 && chargeLedger) {
         entries.splice(1, 0, {
           ledgerAccountId: chargeLedger.id,
           entryType: EntryType.DEBIT,
           amount: chargeAmount,
+          description: 'Transfer charge expense',
         });
       }
 
@@ -677,21 +930,85 @@ export class TransactionsService {
         'Internal transfer',
         entries,
       );
-
       await this.auditCreated(tx, transaction, userId);
       return transaction;
     });
   }
 
-  async createExpense(dto: CreateExpenseDto, userId: string) {
-    const idempotencyKey = await this.dedupeKey(dto.expenseType === 'PERSONAL' ? TransactionType.PERSONAL_EXPENSE : TransactionType.BUSINESS_EXPENSE, userId, dto);
+  async createExpense(
+    dto: CreateExpenseDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    if (dto.expenseType === 'MIXED') {
+      throw new BadRequestException(
+        'Expense type must be BUSINESS or PERSONAL',
+      );
+    }
+    const transactionType =
+      dto.expenseType === 'PERSONAL'
+        ? TransactionType.PERSONAL_EXPENSE
+        : TransactionType.BUSINESS_EXPENSE;
+    const idempotencyKey = await this.idempotency.key(
+      transactionType,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
+
     return this.prisma.$transaction(async (tx) => {
-      const paymentAccount = await tx.financialAccount.findUnique({
-        where: { id: dto.paymentAccountId },
-        include: { ledgerAccount: true },
-      });
-      if (!paymentAccount?.ledgerAccount) {
-        throw new NotFoundException('Payment account or ledger not found');
+      await this.validation.lockAccount(tx, dto.paymentAccountId);
+      const paymentAccount = await this.validation.account(
+        tx,
+        dto.paymentAccountId,
+        {
+          label: 'Expense payment account',
+          types: [
+            AccountType.CASH,
+            AccountType.BANK,
+            AccountType.UPI,
+            AccountType.PROVIDER_WALLET,
+            AccountType.OWNER_CREDIT_CARD,
+          ],
+        },
+      );
+      await this.validation.expenseCategory(
+        tx,
+        dto.expenseCategoryId,
+        dto.expenseType,
+      );
+
+      if (
+        paymentAccount.usageType !== 'MIXED' &&
+        paymentAccount.usageType !== dto.expenseType
+      ) {
+        throw new BadRequestException(
+          'Expense type is incompatible with the selected account usage',
+        );
+      }
+
+      if (paymentAccount.accountType === AccountType.OWNER_CREDIT_CARD) {
+        if (paymentAccount.accountNature !== AccountNature.LIABILITY) {
+          throw new BadRequestException(
+            'Owner credit-card account must be a liability',
+          );
+        }
+        await this.validation.ensureCreditCapacity(
+          tx,
+          paymentAccount,
+          dto.amount,
+        );
+      } else {
+        if (paymentAccount.accountNature !== AccountNature.ASSET) {
+          throw new BadRequestException(
+            'Expense payment account must be an asset',
+          );
+        }
+        await this.validation.ensureSufficientFunds(
+          tx,
+          paymentAccount,
+          dto.amount,
+        );
       }
 
       const expenseLedgerCode =
@@ -706,10 +1023,7 @@ export class TransactionsService {
       const transaction = await tx.transaction.create({
         data: {
           transactionNumber: 'EXP-' + Date.now().toString(36).toUpperCase(),
-          transactionType:
-            dto.expenseType === 'PERSONAL'
-              ? TransactionType.PERSONAL_EXPENSE
-              : TransactionType.BUSINESS_EXPENSE,
+          transactionType,
           transactionAt: new Date(),
           grossAmount: new Prisma.Decimal(dto.amount),
           netAmount: new Prisma.Decimal(dto.amount),
@@ -737,11 +1051,16 @@ export class TransactionsService {
           ledgerAccountId: expenseLedger.id,
           entryType: EntryType.DEBIT,
           amount: dto.amount,
+          description: dto.description,
         },
         {
-          ledgerAccountId: paymentAccount.ledgerAccount.id,
+          ledgerAccountId: paymentAccount.ledgerAccount!.id,
           entryType: EntryType.CREDIT,
           amount: dto.amount,
+          description:
+            paymentAccount.accountType === AccountType.OWNER_CREDIT_CARD
+              ? 'Credit-card liability increased'
+              : 'Expense payment',
         },
       ]);
 
@@ -750,26 +1069,46 @@ export class TransactionsService {
     });
   }
 
-  async createAtmWithdrawal(dto: CreateAtmWithdrawalDto, userId: string) {
-    const idempotencyKey = await this.dedupeKey(TransactionType.ATM_WITHDRAWAL, userId, dto);
+  async createAtmWithdrawal(
+    dto: CreateAtmWithdrawalDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.ATM_WITHDRAWAL,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
     const atmCharge = dto.atmCharge ?? 0;
 
     return this.prisma.$transaction(async (tx) => {
-      const [bankAccount, cashAccount, atmChargeLedger] = await Promise.all([
-        tx.financialAccount.findUnique({
-          where: { id: dto.bankAccountId },
-          include: { ledgerAccount: true },
-        }),
-        tx.financialAccount.findUnique({
-          where: { id: dto.cashAccountId },
-          include: { ledgerAccount: true },
-        }),
-        tx.ledgerAccount.findUnique({ where: { ledgerCode: 'SYS-ATM-CHARGE' } }),
-      ]);
+      await this.validation.lockAccount(tx, dto.bankAccountId);
+      const [bankAccount, cashAccount, atmChargeLedger] =
+        await Promise.all([
+          this.validation.bankAccount(
+            tx,
+            dto.bankAccountId,
+            'ATM bank account',
+          ),
+          this.validation.cashAccount(
+            tx,
+            dto.cashAccountId,
+            'ATM cash account',
+          ),
+          tx.ledgerAccount.findUnique({
+            where: { ledgerCode: 'SYS-ATM-CHARGE' },
+          }),
+        ]);
 
-      if (!bankAccount?.ledgerAccount || !cashAccount?.ledgerAccount || !atmChargeLedger) {
-        throw new NotFoundException('ATM account or ledger not found');
+      if (!atmChargeLedger) {
+        throw new NotFoundException('ATM charge ledger not found');
       }
+      await this.validation.ensureSufficientFunds(
+        tx,
+        bankAccount,
+        dto.cashReceived + atmCharge,
+      );
 
       const transaction = await tx.transaction.create({
         data: {
@@ -791,7 +1130,9 @@ export class TransactionsService {
           transactionId: transaction.id,
           bankAccountId: dto.bankAccountId,
           cashAccountId: dto.cashAccountId,
-          withdrawalAmount: new Prisma.Decimal(dto.cashReceived + atmCharge),
+          withdrawalAmount: new Prisma.Decimal(
+            dto.cashReceived + atmCharge,
+          ),
           cashReceived: new Prisma.Decimal(dto.cashReceived),
           atmCharge: new Prisma.Decimal(atmCharge),
           referenceNumber: dto.referenceNumber,
@@ -809,24 +1150,26 @@ export class TransactionsService {
         });
       }
 
-      const entries = [
+      const entries: JournalEntry[] = [
         {
-          ledgerAccountId: cashAccount.ledgerAccount.id,
+          ledgerAccountId: cashAccount.ledgerAccount!.id,
           entryType: EntryType.DEBIT,
           amount: dto.cashReceived,
+          description: 'Cash received from ATM',
         },
         {
-          ledgerAccountId: bankAccount.ledgerAccount.id,
+          ledgerAccountId: bankAccount.ledgerAccount!.id,
           entryType: EntryType.CREDIT,
           amount: dto.cashReceived + atmCharge,
+          description: 'ATM bank outflow',
         },
       ];
-
       if (atmCharge > 0) {
         entries.splice(1, 0, {
           ledgerAccountId: atmChargeLedger.id,
           entryType: EntryType.DEBIT,
           amount: atmCharge,
+          description: 'ATM charge expense',
         });
       }
 
@@ -837,28 +1180,48 @@ export class TransactionsService {
         'ATM withdrawal',
         entries,
       );
-
       await this.auditCreated(tx, transaction, userId);
       return transaction;
     });
   }
 
-  async createCreditCardPayment(dto: CreateCreditCardPaymentDto, userId: string) {
-    const idempotencyKey = await this.dedupeKey(TransactionType.OWNER_CC_PAYMENT, userId, dto);
+  async createCreditCardPayment(
+    dto: CreateCreditCardPaymentDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.OWNER_CC_PAYMENT,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
+
     return this.prisma.$transaction(async (tx) => {
+      await this.validation.lockAccount(tx, dto.creditCardAccountId);
+      await this.validation.lockAccount(tx, dto.sourceAccountId);
+
       const [cardAccount, sourceAccount] = await Promise.all([
-        tx.financialAccount.findUnique({
-          where: { id: dto.creditCardAccountId },
-          include: { ledgerAccount: true },
-        }),
-        tx.financialAccount.findUnique({
-          where: { id: dto.sourceAccountId },
-          include: { ledgerAccount: true },
-        }),
+        this.validation.ownerCreditCard(tx, dto.creditCardAccountId),
+        this.validation.liquidAsset(
+          tx,
+          dto.sourceAccountId,
+          'Credit-card payment source',
+        ),
       ]);
 
-      if (!cardAccount?.ledgerAccount || !sourceAccount?.ledgerAccount) {
-        throw new NotFoundException('Credit card or source account ledger not found');
+      const [outstanding] = await Promise.all([
+        this.validation.balance(tx, cardAccount),
+        this.validation.ensureSufficientFunds(
+          tx,
+          sourceAccount,
+          dto.paymentAmount,
+        ),
+      ]);
+      if (dto.paymentAmount > outstanding + 0.001) {
+        throw new BadRequestException(
+          'Payment exceeds current credit-card outstanding',
+        );
       }
 
       const transaction = await tx.transaction.create({
@@ -893,14 +1256,16 @@ export class TransactionsService {
         'Owner credit card payment',
         [
           {
-            ledgerAccountId: cardAccount.ledgerAccount.id,
+            ledgerAccountId: cardAccount.ledgerAccount!.id,
             entryType: EntryType.DEBIT,
             amount: dto.paymentAmount,
+            description: 'Reduce owner credit-card liability',
           },
           {
-            ledgerAccountId: sourceAccount.ledgerAccount.id,
+            ledgerAccountId: sourceAccount.ledgerAccount!.id,
             entryType: EntryType.CREDIT,
             amount: dto.paymentAmount,
+            description: 'Credit-card payment source',
           },
         ],
       );
@@ -928,6 +1293,8 @@ export class TransactionsService {
         payablePayment: { include: { payable: true } },
         receivableSource: { include: { collections: true } },
         receivableCollection: { include: { receivable: true } },
+        providerSettlementSource: { include: { receipts: true } },
+        providerSettlementReceipt: { include: { settlement: true } },
         journal: {
           include: {
             entries: { include: { ledgerAccount: true } },
@@ -953,6 +1320,8 @@ export class TransactionsService {
           payablePayment: true,
           receivableSource: { include: { collections: true } },
           receivableCollection: true,
+          providerSettlementSource: { include: { receipts: true } },
+          providerSettlementReceipt: { include: { settlement: true } },
         },
       });
 
@@ -966,6 +1335,14 @@ export class TransactionsService {
       }
       if (original.receivableSource && Number(original.receivableSource.receivedAmount) > 0) {
         throw new BadRequestException('Reverse receivable collections first before reversing this source transaction');
+      }
+      if (
+        original.providerSettlementSource &&
+        Number(original.providerSettlementSource.receivedAmount) > 0
+      ) {
+        throw new BadRequestException(
+          'Reverse provider settlement receipts first before reversing this source transaction',
+        );
       }
 
       if (!original.journal) {
@@ -1001,6 +1378,7 @@ export class TransactionsService {
           customerId: entry.customerId ?? undefined,
           payableId: entry.payableId ?? undefined,
           receivableId: entry.receivableId ?? undefined,
+          providerSettlementId: entry.providerSettlementId ?? undefined,
           description: 'Reversal: ' + (entry.description ?? original.transactionNumber),
         })),
       );
@@ -1048,6 +1426,10 @@ export class TransactionsService {
 
       if (original.receivableCollection) {
         const collection = original.receivableCollection;
+        await tx.$queryRawUnsafe(
+          'SELECT "id" FROM "CustomerReceivable" WHERE "id" = $1 FOR UPDATE',
+          collection.receivableId,
+        );
         const receivable = await tx.customerReceivable.findUnique({
           where: { id: collection.receivableId },
         });
@@ -1058,11 +1440,11 @@ export class TransactionsService {
           );
           const remaining = Number(receivable.originalAmount) - received;
           const status =
-            remaining <= 0
+            remaining <= 0.001
               ? ReceivableStatus.RECEIVED
               : receivable.dueAt && receivable.dueAt < new Date()
                 ? ReceivableStatus.OVERDUE
-                : received <= 0
+                : received <= 0.001
                   ? ReceivableStatus.PENDING
                   : ReceivableStatus.PARTIALLY_RECEIVED;
           await tx.receivableCollection.update({
@@ -1071,6 +1453,55 @@ export class TransactionsService {
           });
           await tx.customerReceivable.update({
             where: { id: receivable.id },
+            data: {
+              receivedAmount: new Prisma.Decimal(received),
+              remainingAmount: new Prisma.Decimal(remaining),
+              status,
+            },
+          });
+        }
+      }
+
+      if (original.providerSettlementSource) {
+        await tx.providerSettlement.update({
+          where: { id: original.providerSettlementSource.id },
+          data: {
+            status: ProviderSettlementStatus.REVERSED,
+            remainingAmount: new Prisma.Decimal(0),
+          },
+        });
+      }
+
+      if (original.providerSettlementReceipt) {
+        const receipt = original.providerSettlementReceipt;
+        await tx.$queryRawUnsafe(
+          'SELECT "id" FROM "ProviderSettlement" WHERE "id" = $1 FOR UPDATE',
+          receipt.settlementId,
+        );
+        const settlement = await tx.providerSettlement.findUnique({
+          where: { id: receipt.settlementId },
+        });
+        if (settlement) {
+          const received = Math.max(
+            0,
+            Number(settlement.receivedAmount) - Number(receipt.amount),
+          );
+          const remaining = Math.max(
+            0,
+            Number(settlement.expectedAmount) - received,
+          );
+          const status =
+            received <= 0.001
+              ? ProviderSettlementStatus.PENDING
+              : remaining <= 0.001
+                ? ProviderSettlementStatus.SETTLED
+                : ProviderSettlementStatus.PARTIALLY_SETTLED;
+          await tx.providerSettlementReceipt.update({
+            where: { id: receipt.id },
+            data: { status: PaymentStatus.REVERSED },
+          });
+          await tx.providerSettlement.update({
+            where: { id: settlement.id },
             data: {
               receivedAmount: new Prisma.Decimal(received),
               remainingAmount: new Prisma.Decimal(remaining),

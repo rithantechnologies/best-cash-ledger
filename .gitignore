@@ -9,3 +9,5 @@ coverage
 logs/
 backups/
 *.dump
+apps/api/.e2e-hardening-api.pid
+apps/api/.e2e-hardening-schema

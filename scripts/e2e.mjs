@@ -183,7 +183,8 @@ const swipeResult = (await request('/transactions/card-swipe', {
     referenceNumber: 'E2E-SWIPE-' + suffix,
   }),
 }, token)).body;
-close(swipeResult.payable.originalAmount, 47500, 'card payable');
+close(swipeResult.payable.originalAmount, 48500, 'card payable');
+close(swipeResult.providerSettlement.expectedAmount, 49000, 'card provider settlement');
 
 await request('/payables/' + swipeResult.payable.id + '/payments', {
   method: 'POST',
@@ -195,7 +196,7 @@ await request('/payables/' + swipeResult.payable.id + '/payments', {
 }, token);
 
 const payableAfter = (await request('/payables/' + swipeResult.payable.id, {}, token)).body;
-close(payableAfter.remainingAmount, 27500, 'remaining payable');
+close(payableAfter.remainingAmount, 28500, 'remaining payable');
 if (payableAfter.status !== 'PARTIALLY_PAID') {
   throw new Error('Payable not PARTIALLY_PAID: ' + payableAfter.status);
 }
@@ -290,10 +291,11 @@ await request('/transactions/owner-credit-card-payment', {
 const summary = (await request('/dashboard/summary', {}, token)).body;
 close(summary.cashBalance, 95160, 'cash balance');
 close(summary.bankBalance, 469070, 'bank balance');
-close(summary.walletBalance, 63950, 'wallet balance');
+close(summary.walletBalance, 5000, 'wallet balance');
+close(summary.pendingProviderSettlements, 58950, 'pending provider settlements');
 close(summary.creditCardOutstanding, 600, 'credit card outstanding');
 close(summary.creditCardAvailable, 99400, 'credit card available');
-close(summary.customerPayable, 27500, 'customer payable');
+close(summary.customerPayable, 28500, 'customer payable');
 console.log('✓ ATM, owner credit-card payment and dashboard balances');
 
 const closed = (await request('/cash-counter/' + cashOpen.id + '/close', {
@@ -380,7 +382,8 @@ if (!audit.some((x) => x.action === 'REVERSE')) {
 
 const afterReverse = (await request('/dashboard/summary', {}, token)).body;
 close(afterReverse.bankBalance, 474080, 'bank after reversal');
-close(afterReverse.walletBalance, 58950, 'wallet after reversal');
+close(afterReverse.walletBalance, 0, 'wallet after reversal');
+close(afterReverse.pendingProviderSettlements, 58950, 'pending provider settlements after reversal');
 
 console.log('✓ reversal, audit and post-reversal balances');
 
@@ -477,8 +480,17 @@ await request('/accounts/' + bank.id, {
   method: 'PATCH',
   body: JSON.stringify({ accountName: 'E2E Bank Edited ' + suffix, usageType: 'BUSINESS' }),
 }, token);
-await request('/accounts/' + bank.id + '/active', { method: 'PATCH', body: JSON.stringify({ isActive: false }) }, token);
-await request('/accounts/' + bank.id + '/active', { method: 'PATCH', body: JSON.stringify({ isActive: true }) }, token);
+const bankDeactivateBlocked = await fetch(base + '/accounts/' + bank.id + '/active', {
+  method: 'PATCH',
+  headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+  body: JSON.stringify({ isActive: false }),
+});
+if (bankDeactivateBlocked.status !== 400) {
+  throw new Error('Non-zero account deactivation should return 400, got ' + bankDeactivateBlocked.status);
+}
+const lifecycleZero = await createAccount('E2E Lifecycle Zero', 'BANK', 'ASSET', 0);
+await request('/accounts/' + lifecycleZero.id + '/active', { method: 'PATCH', body: JSON.stringify({ isActive: false }) }, token);
+await request('/accounts/' + lifecycleZero.id + '/active', { method: 'PATCH', body: JSON.stringify({ isActive: true }) }, token);
 
 await request('/providers/' + provider.id, {
   method: 'PATCH',

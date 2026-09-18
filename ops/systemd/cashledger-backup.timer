@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Cash Ledger verified backup
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Asia/Kolkata
+Persistent=true
+Unit=cashledger-backup.service
+
+[Install]
+WantedBy=timers.target

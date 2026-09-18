@@ -7,9 +7,14 @@ type AccountBalance = {
   accountName: string;
   accountType: AccountType;
   accountNature: AccountNature;
+  usageType: string;
   currentBalance: number;
   creditLimit: number | null;
   availableCredit: number | null;
+  isActive: boolean;
+  bankName: string | null;
+  accountReference: string | null;
+  lastFourDigits: string | null;
 };
 
 @Injectable()
@@ -29,7 +34,6 @@ export class DashboardService {
   }
   private async getAccountBalances(): Promise<AccountBalance[]> {
     const accounts = await this.prisma.financialAccount.findMany({
-      where: { isActive: true },
       include: { ledgerAccount: true },
       orderBy: { accountName: 'asc' },
     });
@@ -69,14 +73,22 @@ export class DashboardService {
         accountName: account.accountName,
         accountType: account.accountType,
         accountNature: account.accountNature,
+        usageType: account.usageType,
         currentBalance,
         creditLimit: account.creditLimit ? Number(account.creditLimit) : null,
         availableCredit:
-          account.accountType === AccountType.OWNER_CREDIT_CARD && account.creditLimit
+          account.accountType === AccountType.OWNER_CREDIT_CARD &&
+          account.creditLimit
             ? Number(account.creditLimit) - currentBalance
             : null,
+        isActive: account.isActive,
+        bankName: account.bankName,
+        accountReference: account.accountReference,
+        lastFourDigits: account.lastFourDigits,
       };
-    });
+    }).filter(
+      (account) => account.isActive || Math.abs(account.currentBalance) > 0.005,
+    );
   }
 
   async summary() {
@@ -92,6 +104,7 @@ export class DashboardService {
     const [
       openPayable, payablePending, payablePartial, payableOverdue, payableDueToday,
       openReceivable, receivablePending, receivablePartial, receivableOverdue, receivableDueToday,
+      providerSettlementsOpen,
     ] = await Promise.all([
       this.prisma.customerPayable.aggregate({
         where: { remainingAmount: { gt: 0 }, status: { in: payableOpen } },
@@ -145,6 +158,14 @@ export class DashboardService {
         where: { remainingAmount: { gt: 0 }, dueAt: { gte: todayStart, lt: todayEnd }, status: { in: receivableOpen } },
         _sum: { remainingAmount: true }, _count: true,
       }),
+      this.prisma.providerSettlement.aggregate({
+        where: {
+          remainingAmount: { gt: 0 },
+          status: { in: ['PENDING', 'PARTIALLY_SETTLED'] },
+        },
+        _sum: { remainingAmount: true },
+        _count: true,
+      }),
     ]);
 
     const cashBalance = sumType(AccountType.CASH);
@@ -154,12 +175,25 @@ export class DashboardService {
     const availableFunds = cashBalance + bankBalance + upiBalance + walletBalance;
     const customerPayable = Number(openPayable._sum.remainingAmount ?? 0);
     const customerReceivable = Number(openReceivable._sum.remainingAmount ?? 0);
+    const pendingProviderSettlements = Number(
+      providerSettlementsOpen._sum.remainingAmount ?? 0,
+    );
     const creditCardOutstanding = sumType(AccountType.OWNER_CREDIT_CARD);
-    const netFinancialPosition = availableFunds + customerReceivable - customerPayable - creditCardOutstanding;
+    const operatingPosition =
+      availableFunds +
+      pendingProviderSettlements +
+      customerReceivable -
+      customerPayable;
+    const netFinancialPosition =
+      operatingPosition - creditCardOutstanding;
 
     return {
       cashBalance, bankBalance, upiBalance, walletBalance, availableFunds,
-      customerPayable, customerReceivable, netFinancialPosition,
+      customerPayable, customerReceivable,
+      pendingProviderSettlements,
+      pendingProviderSettlementCount: providerSettlementsOpen._count,
+      operatingPosition,
+      netFinancialPosition,
       payableBreakdown: {
         pendingAmount: Number(payablePending._sum.remainingAmount ?? 0), pendingCount: payablePending._count,
         partialAmount: Number(payablePartial._sum.remainingAmount ?? 0), partialCount: payablePartial._count,
@@ -345,6 +379,13 @@ export class DashboardService {
     if (type === 'CUSTOMER_RECEIVABLE') {
       return this.receivableTenDaySeries(start, end);
     }
+    if (type === 'PROVIDER_SETTLEMENT') {
+      return this.systemAssetTenDaySeries(
+        'SYS-PROVIDER-CLEARING',
+        start,
+        end,
+      );
+    }
 
     const typeMap: Record<string, AccountType[]> = {
       CASH: [AccountType.CASH],
@@ -360,30 +401,47 @@ export class DashboardService {
     };
     const accountTypes = typeMap[type] ?? typeMap.TOTAL;
     const accounts = await this.prisma.financialAccount.findMany({
-      where: { accountType: { in: accountTypes }, isActive: true },
+      where: { accountType: { in: accountTypes } },
       include: { ledgerAccount: true },
     });
     const ledgerIds = accounts
       .map((a) => a.ledgerAccount?.id)
       .filter((id): id is string => Boolean(id));
 
-    let opening = accounts.reduce(
-      (sum, account) => sum + Number(account.openingBalance),
-      0,
-    );
+    let opening = accounts
+      .filter((account) => account.createdAt < start)
+      .reduce(
+        (sum, account) => sum + Number(account.openingBalance),
+        0,
+      );
+
+    const dailyOpening = new Map<string, number>();
+    for (const account of accounts) {
+      if (account.createdAt >= start && account.createdAt < end) {
+        const key = this.dateKey(account.createdAt);
+        dailyOpening.set(
+          key,
+          (dailyOpening.get(key) ?? 0) + Number(account.openingBalance),
+        );
+      }
+    }
 
     if (ledgerIds.length) {
       const prior = await this.prisma.ledgerEntry.findMany({
         where: {
           ledgerAccountId: { in: ledgerIds },
-          journal: { postingDate: { lt: start }, status: 'POSTED' },
+          journal: {
+            postingDate: { lt: start },
+            status: 'POSTED',
+          },
         },
         select: { entryType: true, amount: true },
       });
       for (const entry of prior) {
-        opening += entry.entryType === EntryType.DEBIT
-          ? Number(entry.amount)
-          : -Number(entry.amount);
+        opening +=
+          entry.entryType === EntryType.DEBIT
+            ? Number(entry.amount)
+            : -Number(entry.amount);
       }
     }
 
@@ -391,7 +449,10 @@ export class DashboardService {
       ? await this.prisma.ledgerEntry.findMany({
           where: {
             ledgerAccountId: { in: ledgerIds },
-            journal: { postingDate: { gte: start, lt: end }, status: 'POSTED' },
+            journal: {
+              postingDate: { gte: start, lt: end },
+              status: 'POSTED',
+            },
           },
           select: {
             entryType: true,
@@ -400,12 +461,20 @@ export class DashboardService {
           },
         })
       : [];
-    const daily = new Map<string, { moneyIn: number; moneyOut: number }>();
+
+    const daily = new Map<
+      string,
+      { moneyIn: number; moneyOut: number }
+    >();
     for (const entry of movements) {
       const key = this.dateKey(entry.journal.postingDate);
-      const row = daily.get(key) ?? { moneyIn: 0, moneyOut: 0 };
-      if (entry.entryType === EntryType.DEBIT) row.moneyIn += Number(entry.amount);
-      else row.moneyOut += Number(entry.amount);
+      const row =
+        daily.get(key) ?? { moneyIn: 0, moneyOut: 0 };
+      if (entry.entryType === EntryType.DEBIT) {
+        row.moneyIn += Number(entry.amount);
+      } else {
+        row.moneyOut += Number(entry.amount);
+      }
       daily.set(key, row);
     }
 
@@ -414,19 +483,26 @@ export class DashboardService {
     for (let i = 0; i < 10; i += 1) {
       const date = new Date(start.getTime() + i * dayMs);
       const key = this.dateKey(date);
-      const movement = daily.get(key) ?? { moneyIn: 0, moneyOut: 0 };
+      const movement =
+        daily.get(key) ?? { moneyIn: 0, moneyOut: 0 };
+      const openingAdded = dailyOpening.get(key) ?? 0;
       const rowOpening = running;
-      running = rowOpening + movement.moneyIn - movement.moneyOut;
+      running =
+        rowOpening +
+        openingAdded +
+        movement.moneyIn -
+        movement.moneyOut;
       rows.push({
         date: key,
         opening: rowOpening,
-        moneyIn: movement.moneyIn,
+        moneyIn: movement.moneyIn + openingAdded,
         moneyOut: movement.moneyOut,
         closing: running,
       });
     }
     return rows;
   }
+
   private async payableTenDaySeries(start: Date, end: Date) {
     const dayMs = 24 * 60 * 60 * 1000;
     const payableLedger = await this.prisma.ledgerAccount.findUnique({
@@ -556,54 +632,55 @@ export class DashboardService {
     return rows;
   }
 
-  private async creditCardTenDaySeries(start: Date, end: Date) {
+  private async systemAssetTenDaySeries(
+    ledgerCode: string,
+    start: Date,
+    end: Date,
+  ) {
     const dayMs = 24 * 60 * 60 * 1000;
-    const accounts = await this.prisma.financialAccount.findMany({
-      where: { accountType: AccountType.OWNER_CREDIT_CARD, isActive: true },
-      include: { ledgerAccount: true },
+    const ledger = await this.prisma.ledgerAccount.findUnique({
+      where: { ledgerCode },
+      select: { id: true },
     });
-    const ledgerIds = accounts
-      .map((account) => account.ledgerAccount?.id)
-      .filter((id): id is string => Boolean(id));
+    if (!ledger) throw new Error(ledgerCode + ' ledger missing');
 
-    let opening = accounts.reduce(
-      (sum, account) => sum + Number(account.openingBalance),
-      0,
-    );
-    const [priorEntries, entries] = ledgerIds.length
-      ? await Promise.all([
-          this.prisma.ledgerEntry.findMany({
-            where: {
-              ledgerAccountId: { in: ledgerIds },
-              journal: { postingDate: { lt: start }, status: 'POSTED' },
-            },
-            select: { entryType: true, amount: true },
-          }),
-          this.prisma.ledgerEntry.findMany({
-            where: {
-              ledgerAccountId: { in: ledgerIds },
-              journal: { postingDate: { gte: start, lt: end }, status: 'POSTED' },
-            },
-            select: {
-              entryType: true,
-              amount: true,
-              journal: { select: { postingDate: true } },
-            },
-          }),
-        ])
-      : [[], []];
+    const [priorEntries, entries] = await Promise.all([
+      this.prisma.ledgerEntry.findMany({
+        where: {
+          ledgerAccountId: ledger.id,
+          journal: { postingDate: { lt: start }, status: 'POSTED' },
+        },
+        select: { entryType: true, amount: true },
+      }),
+      this.prisma.ledgerEntry.findMany({
+        where: {
+          ledgerAccountId: ledger.id,
+          journal: {
+            postingDate: { gte: start, lt: end },
+            status: 'POSTED',
+          },
+        },
+        select: {
+          entryType: true,
+          amount: true,
+          journal: { select: { postingDate: true } },
+        },
+      }),
+    ]);
 
+    let opening = 0;
     for (const entry of priorEntries) {
-      opening += entry.entryType === EntryType.CREDIT
-        ? Number(entry.amount)
-        : -Number(entry.amount);
+      opening +=
+        entry.entryType === EntryType.DEBIT
+          ? Number(entry.amount)
+          : -Number(entry.amount);
     }
 
     const daily = new Map<string, { moneyIn: number; moneyOut: number }>();
     for (const entry of entries) {
       const key = this.dateKey(entry.journal.postingDate);
       const row = daily.get(key) ?? { moneyIn: 0, moneyOut: 0 };
-      if (entry.entryType === EntryType.CREDIT) row.moneyIn += Number(entry.amount);
+      if (entry.entryType === EntryType.DEBIT) row.moneyIn += Number(entry.amount);
       else row.moneyOut += Number(entry.amount);
       daily.set(key, row);
     }
@@ -626,30 +703,148 @@ export class DashboardService {
     return rows;
   }
 
+  private async creditCardTenDaySeries(start: Date, end: Date) {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const accounts = await this.prisma.financialAccount.findMany({
+      where: { accountType: AccountType.OWNER_CREDIT_CARD },
+      include: { ledgerAccount: true },
+    });
+    const ledgerIds = accounts
+      .map((account) => account.ledgerAccount?.id)
+      .filter((id): id is string => Boolean(id));
+
+    let opening = accounts
+      .filter((account) => account.createdAt < start)
+      .reduce(
+        (sum, account) => sum + Number(account.openingBalance),
+        0,
+      );
+
+    const dailyOpening = new Map<string, number>();
+    for (const account of accounts) {
+      if (account.createdAt >= start && account.createdAt < end) {
+        const key = this.dateKey(account.createdAt);
+        dailyOpening.set(
+          key,
+          (dailyOpening.get(key) ?? 0) + Number(account.openingBalance),
+        );
+      }
+    }
+
+    const [priorEntries, entries] = ledgerIds.length
+      ? await Promise.all([
+          this.prisma.ledgerEntry.findMany({
+            where: {
+              ledgerAccountId: { in: ledgerIds },
+              journal: {
+                postingDate: { lt: start },
+                status: 'POSTED',
+              },
+            },
+            select: { entryType: true, amount: true },
+          }),
+          this.prisma.ledgerEntry.findMany({
+            where: {
+              ledgerAccountId: { in: ledgerIds },
+              journal: {
+                postingDate: { gte: start, lt: end },
+                status: 'POSTED',
+              },
+            },
+            select: {
+              entryType: true,
+              amount: true,
+              journal: { select: { postingDate: true } },
+            },
+          }),
+        ])
+      : [[], []];
+
+    for (const entry of priorEntries) {
+      opening +=
+        entry.entryType === EntryType.CREDIT
+          ? Number(entry.amount)
+          : -Number(entry.amount);
+    }
+
+    const daily = new Map<string, { moneyIn: number; moneyOut: number }>();
+    for (const entry of entries) {
+      const key = this.dateKey(entry.journal.postingDate);
+      const row = daily.get(key) ?? { moneyIn: 0, moneyOut: 0 };
+      if (entry.entryType === EntryType.CREDIT) {
+        row.moneyIn += Number(entry.amount);
+      } else {
+        row.moneyOut += Number(entry.amount);
+      }
+      daily.set(key, row);
+    }
+
+    const rows = [];
+    let running = opening;
+    for (let i = 0; i < 10; i += 1) {
+      const date = new Date(start.getTime() + i * dayMs);
+      const key = this.dateKey(date);
+      const movement = daily.get(key) ?? { moneyIn: 0, moneyOut: 0 };
+      const openingAdded = dailyOpening.get(key) ?? 0;
+      const rowOpening = running;
+      running =
+        rowOpening +
+        openingAdded +
+        movement.moneyIn -
+        movement.moneyOut;
+      rows.push({
+        date: key,
+        opening: rowOpening,
+        moneyIn: movement.moneyIn + openingAdded,
+        moneyOut: movement.moneyOut,
+        closing: running,
+      });
+    }
+    return rows;
+  }
+
   async positionTrend() {
     const today = this.indiaDayRange();
     const dayMs = 24 * 60 * 60 * 1000;
     const start = new Date(today.start.getTime() - 9 * dayMs);
     const end = today.end;
 
-    const [liquid, receivable, payable, creditCard] = await Promise.all([
-      this.lastTenDays('TOTAL'),
-      this.receivableTenDaySeries(start, end),
-      this.payableTenDaySeries(start, end),
-      this.creditCardTenDaySeries(start, end),
-    ]);
+    const [liquid, providerClearing, receivable, payable, creditCard] =
+      await Promise.all([
+        this.lastTenDays('TOTAL'),
+        this.systemAssetTenDaySeries(
+          'SYS-PROVIDER-CLEARING',
+          start,
+          end,
+        ),
+        this.receivableTenDaySeries(start, end),
+        this.payableTenDaySeries(start, end),
+        this.creditCardTenDaySeries(start, end),
+      ]);
 
-    return liquid.map((row, index) => ({
-      date: row.date,
-      availableFunds: row.closing,
-      receivables: receivable[index]?.closing ?? 0,
-      payables: payable[index]?.closing ?? 0,
-      creditCardOutstanding: creditCard[index]?.closing ?? 0,
-      netPosition:
+    return liquid.map((row, index) => {
+      const pendingProviderSettlements =
+        providerClearing[index]?.closing ?? 0;
+      const customerReceivable = receivable[index]?.closing ?? 0;
+      const customerPayable = payable[index]?.closing ?? 0;
+      const creditCardOutstanding =
+        creditCard[index]?.closing ?? 0;
+      const operatingPosition =
         row.closing +
-        (receivable[index]?.closing ?? 0) -
-        (payable[index]?.closing ?? 0) -
-        (creditCard[index]?.closing ?? 0),
-    }));
+        pendingProviderSettlements +
+        customerReceivable -
+        customerPayable;
+      return {
+        date: row.date,
+        availableFunds: row.closing,
+        pendingProviderSettlements,
+        receivables: customerReceivable,
+        payables: customerPayable,
+        creditCardOutstanding,
+        operatingPosition,
+        netPosition:
+          operatingPosition - creditCardOutstanding,
+      };
+    });
   }
 }

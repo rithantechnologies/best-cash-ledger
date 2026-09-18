@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
 
@@ -26,6 +27,8 @@ export default function PayablesPage(){
   const [reference,setReference]=useState("");
   const [paymentNotes,setPaymentNotes]=useState("");
   const [role,setRole]=useState("");
+  const [cancelTarget,setCancelTarget]=useState<Payable|null>(null);
+  const [cancelReason,setCancelReason]=useState("");
   const [error,setError]=useState("");
 
   function load(page=pagination.page){
@@ -54,14 +57,13 @@ export default function PayablesPage(){
     }catch(err){setError(err instanceof Error?err.message:"Payment failed");}
   }
 
-  async function cancelPayable(payable:Payable){
-    const reason=window.prompt("Reason for cancelling this payable?");
-    if(!reason||reason.trim().length<3)return;
-    if(!window.confirm("Cancel this payable and reverse its source transaction?"))return;
+  async function cancelPayable(e:FormEvent){
+    e.preventDefault();if(!cancelTarget||cancelReason.trim().length<3)return;
     setError("");
     try{
-      await apiFetch("/payables/"+payable.id+"/cancel",{method:"POST",body:JSON.stringify({reason:reason.trim()})});
-      if(selected?.id===payable.id)setSelected(null);
+      await apiFetch("/payables/"+cancelTarget.id+"/cancel",{method:"POST",body:JSON.stringify({reason:cancelReason.trim()})});
+      if(selected?.id===cancelTarget.id)setSelected(null);
+      setCancelTarget(null);setCancelReason("");
       await load();
     }catch(err){setError(err instanceof Error?err.message:"Cancellation failed");}
   }
@@ -74,6 +76,11 @@ export default function PayablesPage(){
 
   return <AppShell><div className="mx-auto max-w-7xl space-y-6">
     <div><h2 className="text-2xl font-bold">Customer Payables</h2><p className="text-sm text-slate-500">Pending, partial, due, overdue, paid and cancelled customer obligations.</p></div>
+
+    {cancelTarget?<form onSubmit={cancelPayable} className="rounded-xl border border-red-200 bg-red-50 p-5">
+      <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-red-950">Cancel payable for {cancelTarget.customer.fullName}</p><p className="text-sm text-red-800">This reverses the source transaction. Existing payouts must be reversed first.</p></div><button type="button" onClick={()=>{setCancelTarget(null);setCancelReason("");}} className="text-sm font-semibold text-red-800">Close</button></div>
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row"><input className="flex-1 rounded-lg border bg-white px-3 py-2.5" value={cancelReason} onChange={e=>setCancelReason(e.target.value)} placeholder="Cancellation reason" minLength={3} required/><button className="rounded-lg bg-red-700 px-4 py-2.5 font-semibold text-white">Confirm Cancellation</button></div>
+    </form>:null}
 
     {selected?<form onSubmit={pay} className="grid gap-3 rounded-xl border border-slate-300 bg-white p-5 md:grid-cols-5">
       <div className="md:col-span-5"><p className="font-semibold">Pay {selected.customer.fullName}</p><p className="text-sm text-slate-500">Remaining {money(selected.remainingAmount)}</p></div>
@@ -94,7 +101,7 @@ export default function PayablesPage(){
     {error?<p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>:null}
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white"><table className="w-full min-w-[900px] text-sm">
       <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3">{sh("Original","originalAmount")}</th><th className="px-4 py-3">{sh("Paid","paidAmount")}</th><th className="px-4 py-3">{sh("Remaining","remainingAmount")}</th><th className="px-4 py-3">{sh("Due","dueAt")}</th><th className="px-4 py-3">{sh("Status","status")}</th><th className="px-4 py-3">Actions</th></tr></thead>
-      <tbody>{items.map(p=><tr key={p.id} className="border-t"><td className="px-4 py-3 font-medium">{p.customer.fullName}</td><td className="px-4 py-3">{money(p.originalAmount)}</td><td className="px-4 py-3">{money(p.paidAmount)}</td><td className="px-4 py-3 font-semibold">{money(p.remainingAmount)}</td><td className="px-4 py-3">{new Date(p.dueAt).toLocaleString("en-IN")}</td><td className="px-4 py-3">{p.status}</td><td className="px-4 py-3"><div className="flex gap-2"><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setSource("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="rounded-lg border px-3 py-1.5 font-medium disabled:opacity-40">Pay</button>{(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>cancelPayable(p)} className="rounded-lg border border-red-300 px-3 py-1.5 font-medium text-red-700">Cancel</button>:null}</div></td></tr>)}
+      <tbody>{items.map(p=><tr key={p.id} className="border-t"><td className="px-4 py-3 font-medium">{p.customer.fullName}</td><td className="px-4 py-3">{money(p.originalAmount)}</td><td className="px-4 py-3">{money(p.paidAmount)}</td><td className="px-4 py-3 font-semibold">{money(p.remainingAmount)}</td><td className="px-4 py-3">{new Date(p.dueAt).toLocaleString("en-IN")}</td><td className="px-4 py-3">{p.status}</td><td className="px-4 py-3"><div className="flex gap-2"><Link href={"/payables/"+p.id} className="rounded-lg border px-3 py-1.5 font-medium">View</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setSource("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="rounded-lg border px-3 py-1.5 font-medium disabled:opacity-40">Pay</button>{(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="rounded-lg border border-red-300 px-3 py-1.5 font-medium text-red-700">Cancel</button>:null}</div></td></tr>)}
       {!items.length?<tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">No matching payables.</td></tr>:null}</tbody>
     </table></div>
 

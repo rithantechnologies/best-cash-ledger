@@ -34,6 +34,8 @@ export default function CardSwipePage(){
   const [termId,setTermId]=useState("");
   const [dueAt,setDueAt]=useState(dateTimeLocal(new Date()));
   const [settlementAccountId,setSettlementAccountId]=useState("");
+  const [settledNow,setSettledNow]=useState(false);
+  const [settlementDueAt,setSettlementDueAt]=useState("");
   const [reference,setReference]=useState("");
   const [notes,setNotes]=useState("");
   const [error,setError]=useState("");
@@ -57,7 +59,7 @@ export default function CardSwipePage(){
   const providerCharge=swipe*pRate/100;
   const commission=swipe*cRate/100;
   const settlement=swipe-providerCharge;
-  const payable=swipe-providerCharge-commission;
+  const payable=swipe-commission;
 
   useEffect(()=>{
     if(gateway) setProviderRate(String(Number(gateway.defaultChargeRate)));
@@ -89,6 +91,8 @@ export default function CardSwipePage(){
         customerId,customerCardId:cardId,swipeAmount:swipe,providerId,gatewayId,
         providerChargeRate:pRate,commissionRate:cRate,paymentTermId:termId,
         dueAt:new Date(dueAt).toISOString(),settlementAccountId,
+        settledNow,
+        settlementDueAt:settlementDueAt?new Date(settlementDueAt).toISOString():undefined,
         referenceNumber:reference||undefined,
         notes:notes||undefined,
       })});
@@ -98,7 +102,7 @@ export default function CardSwipePage(){
   }
 
   return <AppShell><div className="mx-auto max-w-5xl space-y-6">
-    <div><h2 className="text-2xl font-bold">Credit Card Swipe</h2><p className="text-sm text-slate-500">Record provider settlement, charges, commission and customer payable.</p></div>
+    <div><h2 className="text-2xl font-bold">Credit Card Swipe</h2><p className="text-sm text-slate-500">Record customer payable now and track provider settlement separately until the money actually reaches the target account.</p></div>
     {error?<p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>:null}
     <form onSubmit={submit} className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 md:grid-cols-2">
       <label className="text-sm"><span className="mb-1 block font-medium">Customer</span><select className="w-full rounded-lg border px-3 py-2.5" value={customerId} onChange={e=>{setCustomerId(e.target.value);setCardId("");}} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</select></label>
@@ -110,14 +114,16 @@ export default function CardSwipePage(){
       <label className="text-sm"><span className="mb-1 block font-medium">Payment Term</span><select className="w-full rounded-lg border px-3 py-2.5" value={termId} onChange={e=>setTermId(e.target.value)} required><option value="">Select term</option>{terms.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
       <label className="text-sm"><span className="mb-1 block font-medium">Business Commission %</span><input className="w-full rounded-lg border px-3 py-2.5" type="number" step="0.0001" min="0" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/></label>
       <label className="text-sm"><span className="mb-1 block font-medium">Due Date / Time</span><input className="w-full rounded-lg border px-3 py-2.5" type="datetime-local" value={dueAt} onChange={e=>setDueAt(e.target.value)} required/></label>
-      <label className="text-sm"><span className="mb-1 block font-medium">Settlement Account</span><select className="w-full rounded-lg border px-3 py-2.5" value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Wallet / bank receiving settlement</option>{accounts.filter(a=>a.accountType!=="OWNER_CREDIT_CARD").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></label>
+      <label className="text-sm"><span className="mb-1 block font-medium">Settlement Target Account</span><select className="w-full rounded-lg border px-3 py-2.5" value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Wallet / bank expected to receive settlement</option>{accounts.filter(a=>["BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></label>
+      <label className="text-sm"><span className="mb-1 block font-medium">Expected Settlement Date / Time</span><input className="w-full rounded-lg border px-3 py-2.5" type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)}/></label>
+      <label className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm md:col-span-2"><input type="checkbox" checked={settledNow} onChange={e=>setSettledNow(e.target.checked)} className="h-4 w-4"/><span><strong>Provider already settled this transaction</strong><span className="block text-xs text-emerald-800">Check only when the settlement amount is already visible in the target bank/wallet. Otherwise it remains in Provider Clearing.</span></span></label>
       <label className="text-sm md:col-span-2"><span className="mb-1 block font-medium">Provider Reference</span><input className="w-full rounded-lg border px-3 py-2.5" value={reference} onChange={e=>setReference(e.target.value)} placeholder="Optional reference"/></label>
       <label className="text-sm md:col-span-2"><span className="mb-1 block font-medium">Notes</span><textarea className="w-full rounded-lg border px-3 py-2.5" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></label>
 
       <div className="md:col-span-2 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-4">
         <div><p className="text-xs text-slate-500">Provider Charge</p><p className="font-semibold">{money(providerCharge)}</p></div>
         <div><p className="text-xs text-slate-500">Business Commission</p><p className="font-semibold">{money(commission)}</p></div>
-        <div><p className="text-xs text-slate-500">Wallet / Bank Credit</p><p className="font-semibold">{money(settlement)}</p></div>
+        <div><p className="text-xs text-slate-500">Provider Settlement</p><p className="font-semibold">{money(settlement)}</p><p className="text-[10px] text-slate-500">{settledNow?"Received now":"Pending clearing"}</p></div>
         <div><p className="text-xs text-slate-500">Customer Payable</p><p className="text-lg font-bold">{money(payable)}</p></div>
       </div>
 

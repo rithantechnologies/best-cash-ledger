@@ -1,0 +1,19 @@
+[Unit]
+Description=Cash Ledger API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=cashledger
+Group=cashledger
+WorkingDirectory=/var/www/cashledger/apps/api
+EnvironmentFile=/var/www/cashledger/apps/api/.env
+ExecStart=/home/cashledger/.nvm/versions/node/v22.23.2/bin/node /var/www/cashledger/apps/api/dist/main.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

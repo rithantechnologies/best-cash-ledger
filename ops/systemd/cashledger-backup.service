@@ -1,0 +1,13 @@
+[Unit]
+Description=Cash Ledger verified backup
+
+[Service]
+Type=oneshot
+User=cashledger
+Group=cashledger
+WorkingDirectory=/var/www/cashledger
+ExecStart=/home/cashledger/.nvm/versions/node/v22.23.2/bin/node /var/www/cashledger/scripts/backup-production.mjs automated
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077

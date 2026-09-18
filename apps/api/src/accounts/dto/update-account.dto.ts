@@ -1,5 +1,5 @@
 import { UsageType } from '@prisma/client';
-import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateAccountDto {
   @IsOptional() @IsString() accountName?: string;
@@ -7,6 +7,6 @@ export class UpdateAccountDto {
   @IsOptional() @IsString() bankName?: string;
   @IsOptional() @IsString() accountReference?: string;
   @IsOptional() @IsString() lastFourDigits?: string;
-  @IsOptional() @IsNumber() creditLimit?: number;
+  @IsOptional() @IsNumber() @Min(0) creditLimit?: number;
   @IsOptional() @IsEnum(UsageType) usageType?: UsageType;
 }

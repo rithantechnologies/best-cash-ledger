@@ -1,13 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { EntryType, JournalStatus, Prisma } from '@prisma/client';
 
-type JournalEntry = {
+export type JournalEntry = {
   ledgerAccountId: string;
   entryType: EntryType;
   amount: number;
   customerId?: string;
   payableId?: string;
   receivableId?: string;
+  providerSettlementId?: string;
   description?: string;
 };
 

@@ -44,6 +44,7 @@ enum TransactionType {
   CUSTOMER_PAYOUT
   CUSTOMER_RECEIVABLE
   CUSTOMER_RECEIPT
+  PROVIDER_SETTLEMENT
   INTERNAL_TRANSFER
   BUSINESS_EXPENSE
   PERSONAL_EXPENSE
@@ -90,6 +91,23 @@ enum ReceivableStatus {
 enum PaymentStatus {
   COMPLETED
   REVERSED
+}
+
+enum ProviderSettlementStatus {
+  PENDING
+  PARTIALLY_SETTLED
+  SETTLED
+  CANCELLED
+  REVERSED
+}
+
+enum ReceivableReasonCategory {
+  ADVANCE
+  SETTLEMENT_DUE
+  SHORTAGE_RECOVERY
+  LOAN
+  ADJUSTMENT
+  OTHER
 }
 
 enum CommissionMethod {
@@ -254,6 +272,7 @@ model Provider {
   gateways     ProviderGateway[]
   accounts     FinancialAccount[]
   charges      TransactionCharge[]
+  settlements  ProviderSettlement[]
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 }
@@ -267,6 +286,7 @@ model ProviderGateway {
   defaultChargeType CalculationType
   defaultChargeRate Decimal         @db.Decimal(10, 4)
   isActive          Boolean         @default(true)
+  settlements        ProviderSettlement[]
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
@@ -338,6 +358,8 @@ model FinancialAccount {
   creditCardPaymentsAsCard   CreditCardPaymentDetail[] @relation("CreditCardPaymentCard")
   creditCardPaymentsAsSource CreditCardPaymentDetail[] @relation("CreditCardPaymentSource")
   cashSessions               CashSession[]
+  providerSettlementDestinations ProviderSettlement[]       @relation("ProviderSettlementDestination")
+  providerSettlementReceipts     ProviderSettlementReceipt[] @relation("ProviderSettlementReceiptAccount")
   createdAt                  DateTime                  @default(now())
   updatedAt                  DateTime                  @updatedAt
 }
@@ -384,6 +406,9 @@ model Transaction {
   payablePayment        PayablePayment?
   receivableSource      CustomerReceivable?   @relation("ReceivableSourceTransaction")
   receivableCollection  ReceivableCollection? @relation("ReceivableCollectionTransaction")
+  providerSettlementSource ProviderSettlement? @relation("ProviderSettlementSourceTransaction")
+  providerSettlementReceipt ProviderSettlementReceipt? @relation("ProviderSettlementReceiptTransaction")
+  cashAdjustmentSession CashSession? @relation("CashSessionAdjustment")
   journal               LedgerJournal?
 
   @@index([transactionAt])
@@ -499,6 +524,7 @@ model CustomerReceivable {
   sourceAccountId     String?
   sourceAccount       FinancialAccount? @relation("ReceivableSourceAccount", fields: [sourceAccountId], references: [id])
   reason              String
+  reasonCategory      ReceivableReasonCategory @default(OTHER)
   description         String?
   originalAmount      Decimal           @db.Decimal(18, 2)
   receivedAmount      Decimal           @default(0) @db.Decimal(18, 2)
@@ -532,6 +558,52 @@ model ReceivableCollection {
   createdAt            DateTime         @default(now())
 
   @@index([receivableId])
+  @@index([destinationAccountId])
+}
+
+model ProviderSettlement {
+  id                   String                   @id @default(uuid())
+  sourceTransactionId  String                   @unique
+  sourceTransaction    Transaction              @relation("ProviderSettlementSourceTransaction", fields: [sourceTransactionId], references: [id])
+  providerId           String?
+  provider             Provider?                @relation(fields: [providerId], references: [id])
+  gatewayId            String?
+  gateway              ProviderGateway?         @relation(fields: [gatewayId], references: [id])
+  expectedAmount       Decimal                  @db.Decimal(18, 2)
+  receivedAmount       Decimal                  @default(0) @db.Decimal(18, 2)
+  remainingAmount      Decimal                  @db.Decimal(18, 2)
+  destinationAccountId String
+  destinationAccount   FinancialAccount         @relation("ProviderSettlementDestination", fields: [destinationAccountId], references: [id])
+  dueAt                DateTime?
+  status               ProviderSettlementStatus
+  createdById          String
+  receipts             ProviderSettlementReceipt[]
+  ledgerEntries        LedgerEntry[]
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  @@index([providerId, gatewayId])
+  @@index([status, dueAt])
+  @@index([destinationAccountId])
+}
+
+model ProviderSettlementReceipt {
+  id                   String             @id @default(uuid())
+  settlementId         String
+  settlement           ProviderSettlement @relation(fields: [settlementId], references: [id])
+  transactionId        String             @unique
+  transaction          Transaction        @relation("ProviderSettlementReceiptTransaction", fields: [transactionId], references: [id])
+  receivedAt           DateTime
+  destinationAccountId String
+  destinationAccount   FinancialAccount   @relation("ProviderSettlementReceiptAccount", fields: [destinationAccountId], references: [id])
+  amount               Decimal            @db.Decimal(18, 2)
+  referenceNumber      String?
+  notes                String?
+  status               PaymentStatus
+  createdById          String
+  createdAt            DateTime           @default(now())
+
+  @@index([settlementId])
   @@index([destinationAccountId])
 }
 
@@ -657,6 +729,8 @@ model CashSession {
   closedById           String?
   closedAt             DateTime?
   closingNotes         String?
+  adjustmentTransactionId String?                 @unique
+  adjustmentTransaction   Transaction?            @relation("CashSessionAdjustment", fields: [adjustmentTransactionId], references: [id])
   status               CashSessionStatus
   denominationCounts   CashDenominationCount[]
 
@@ -718,11 +792,14 @@ model LedgerEntry {
   payable         CustomerPayable? @relation(fields: [payableId], references: [id])
   receivableId    String?
   receivable      CustomerReceivable? @relation(fields: [receivableId], references: [id])
+  providerSettlementId String?
+  providerSettlement   ProviderSettlement? @relation(fields: [providerSettlementId], references: [id])
   description     String?
   createdAt       DateTime         @default(now())
 
   @@index([ledgerAccountId])
   @@index([journalId])
+  @@index([providerSettlementId])
 }
 
 model AuditLog {
@@ -753,6 +830,31 @@ model DailyAccountBalance {
   updatedAt          DateTime         @updatedAt
 
   @@unique([businessDate, financialAccountId])
+}
+
+model DailyReceivableSummary {
+  id                String   @id @default(uuid())
+  businessDate      DateTime @unique @db.Date
+  openingReceivable Decimal  @db.Decimal(18, 2)
+  newReceivables    Decimal  @db.Decimal(18, 2)
+  collectionsMade   Decimal  @db.Decimal(18, 2)
+  closingReceivable Decimal  @db.Decimal(18, 2)
+  createdAt         DateTime @default(now())
+}
+
+model DailyPositionSummary {
+  id                         String   @id @default(uuid())
+  businessDate               DateTime @unique @db.Date
+  availableFunds             Decimal  @db.Decimal(18, 2)
+  pendingProviderSettlements Decimal  @db.Decimal(18, 2)
+  customerReceivable         Decimal  @db.Decimal(18, 2)
+  customerPayable            Decimal  @db.Decimal(18, 2)
+  ownerCreditCardOutstanding Decimal  @db.Decimal(18, 2)
+  operatingPosition          Decimal  @db.Decimal(18, 2)
+  netFinancialPosition       Decimal  @db.Decimal(18, 2)
+  cashVariance               Decimal  @db.Decimal(18, 2)
+  createdById                String
+  createdAt                  DateTime @default(now())
 }
 
 model DailyPayableSummary {

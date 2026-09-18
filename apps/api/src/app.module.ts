@@ -17,17 +17,23 @@ import { CashCounterModule } from './cash-counter/cash-counter.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { SearchModule } from './search/search.module.js';
+import { FinanceModule } from './finance/finance.module.js';
+import { ProviderSettlementsModule } from './provider-settlements/provider-settlements.module.js';
+import { EndOfDayModule } from './end-of-day/end-of-day.module.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    FinanceModule,
     HealthModule,
     CustomersModule,
     AccountsModule,
     ProvidersModule,
     PayablesModule,
     ReceivablesModule,
+    ProviderSettlementsModule,
+    EndOfDayModule,
     LedgerModule,
     TransactionsModule,
     AuthModule,

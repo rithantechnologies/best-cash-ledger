@@ -1,0 +1,19 @@
+[Unit]
+Description=Cash Ledger Web
+After=network.target cashledger-api.service
+Requires=cashledger-api.service
+
+[Service]
+Type=simple
+User=cashledger
+Group=cashledger
+WorkingDirectory=/var/www/cashledger/apps/web
+ExecStart=/home/cashledger/.nvm/versions/node/v22.23.2/bin/npm run start -- -H 127.0.0.1 -p 3200
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

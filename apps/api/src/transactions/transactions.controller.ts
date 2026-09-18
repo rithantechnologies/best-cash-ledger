@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
@@ -45,38 +45,38 @@ export class TransactionsController {
   }
 
   @Post('card-swipe')
-  createCardSwipe(@Body() dto: CreateCardSwipeDto, @Req() req: any) {
-    return this.transactions.createCardSwipe(dto, req.user.userId);
+  createCardSwipe(@Body() dto: CreateCardSwipeDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.transactions.createCardSwipe(dto, req.user.userId, key);
   }
 
   @Post('cash-transfer')
-  createCashTransfer(@Body() dto: CreateCashTransferDto, @Req() req: any) {
-    return this.transactions.createCashTransfer(dto, req.user.userId);
+  createCashTransfer(@Body() dto: CreateCashTransferDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.transactions.createCashTransfer(dto, req.user.userId, key);
   }
 
   @Post('aeps')
-  createAeps(@Body() dto: CreateAepsDto, @Req() req: any) {
-    return this.transactions.createAeps(dto, req.user.userId);
+  createAeps(@Body() dto: CreateAepsDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.transactions.createAeps(dto, req.user.userId, key);
   }
 
   @Post('internal-transfer')
-  createInternalTransfer(@Body() dto: CreateInternalTransferDto, @Req() req: any) {
-    return this.transactions.createInternalTransfer(dto, req.user.userId);
+  createInternalTransfer(@Body() dto: CreateInternalTransferDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.transactions.createInternalTransfer(dto, req.user.userId, key);
   }
 
   @Post('expense')
-  createExpense(@Body() dto: CreateExpenseDto, @Req() req: any) {
-    return this.transactions.createExpense(dto, req.user.userId);
+  createExpense(@Body() dto: CreateExpenseDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.transactions.createExpense(dto, req.user.userId, key);
   }
 
   @Post('atm-withdrawal')
-  createAtmWithdrawal(@Body() dto: CreateAtmWithdrawalDto, @Req() req: any) {
-    return this.transactions.createAtmWithdrawal(dto, req.user.userId);
+  createAtmWithdrawal(@Body() dto: CreateAtmWithdrawalDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.transactions.createAtmWithdrawal(dto, req.user.userId, key);
   }
 
   @Post('owner-credit-card-payment')
-  createCreditCardPayment(@Body() dto: CreateCreditCardPaymentDto, @Req() req: any) {
-    return this.transactions.createCreditCardPayment(dto, req.user.userId);
+  createCreditCardPayment(@Body() dto: CreateCreditCardPaymentDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.transactions.createCreditCardPayment(dto, req.user.userId, key);
   }
 
   @Post(':id/reverse')

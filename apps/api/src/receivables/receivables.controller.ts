@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Post,
   Query,
@@ -47,8 +48,12 @@ export class ReceivablesController {
   }
 
   @Post()
-  create(@Body() dto: CreateReceivableDto, @Req() req: any) {
-    return this.receivables.create(dto, req.user.userId);
+  create(
+    @Body() dto: CreateReceivableDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.receivables.create(dto, req.user.userId, key);
   }
 
   @Post(':id/collections')
@@ -56,8 +61,9 @@ export class ReceivablesController {
     @Param('id') id: string,
     @Body() dto: CreateReceivableCollectionDto,
     @Req() req: any,
+    @Headers('idempotency-key') key?: string,
   ) {
-    return this.receivables.collect(id, dto, req.user.userId);
+    return this.receivables.collect(id, dto, req.user.userId, key);
   }
 
   @Post(':id/cancel')

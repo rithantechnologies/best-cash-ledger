@@ -4,16 +4,33 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("cashledger_token") : null;
-
   const headers = new Headers(options.headers);
   headers.set("content-type", "application/json");
-  if (token) headers.set("authorization", "Bearer " + token);
+
+  // Bearer-token fallback remains for older sessions/API clients during the
+  // transition, while the browser now primarily uses the HttpOnly session cookie.
+  const legacyToken =
+    typeof window !== "undefined"
+      ? localStorage.getItem("cashledger_token")
+      : null;
+  if (legacyToken) {
+    headers.set("authorization", "Bearer " + legacyToken);
+  }
+
+  if (
+    options.method &&
+    options.method.toUpperCase() === "POST" &&
+    !headers.has("idempotency-key") &&
+    typeof crypto !== "undefined" &&
+    "randomUUID" in crypto
+  ) {
+    headers.set("idempotency-key", crypto.randomUUID());
+  }
 
   const response = await fetch(BASE_PATH + "/api" + path, {
     ...options,
     headers,
+    credentials: "include",
   });
 
   if (response.status === 401 && typeof window !== "undefined") {
@@ -24,8 +41,12 @@ export async function apiFetch<T>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.message ?? "Request failed");
+    const message = Array.isArray(body.message)
+      ? body.message.join(", ")
+      : body.message;
+    throw new Error(message ?? "Request failed");
   }
 
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }

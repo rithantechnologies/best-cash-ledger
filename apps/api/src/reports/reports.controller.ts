@@ -56,6 +56,16 @@ export class ReportsController {
     return this.reports.receivables();
   }
 
+  @Get('provider-settlements')
+  providerSettlements() {
+    return this.reports.providerSettlements();
+  }
+
+  @Get('end-of-day')
+  endOfDay() {
+    return this.reports.endOfDay();
+  }
+
   @Get('operators')
   operators() {
     return this.reports.operators();

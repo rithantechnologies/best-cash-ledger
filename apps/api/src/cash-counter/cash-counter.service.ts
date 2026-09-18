@@ -1,12 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CountType, EntryType, Prisma } from '@prisma/client';
+import { CountType, EntryType, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { FinancialValidationService } from '../finance/financial-validation.service.js';
+import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CloseCashSessionDto } from './dto/close-cash-session.dto.js';
 import { OpenCashSessionDto } from './dto/open-cash-session.dto.js';
 
 @Injectable()
 export class CashCounterService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: LedgerService,
+    private readonly validation: FinancialValidationService,
+  ) {}
 
   private businessDate() {
     const now = new Date();
@@ -34,12 +40,11 @@ export class CashCounterService {
     });
     if (existing) throw new BadRequestException('Cash session is already open');
 
-    const account = await this.prisma.financialAccount.findUnique({
-      where: { id: dto.cashAccountId },
-    });
-    if (!account || account.accountType !== 'CASH') {
-      throw new BadRequestException('Selected account is not a cash account');
-    }
+    const account = await this.validation.cashAccount(
+      this.prisma,
+      dto.cashAccountId,
+      'Cash counter account',
+    );
 
     const openingTotal = this.total(dto.denominations);
     return this.prisma.$transaction(async (tx) => {
@@ -79,43 +84,119 @@ export class CashCounterService {
     });
   }
 
-  private async expectedClosing(session: { id: string; cashAccountId: string; openedAt: Date; openingTotal: Prisma.Decimal }) {
-    const account = await this.prisma.financialAccount.findUnique({
+  private async expectedClosing(
+    tx: Prisma.TransactionClient,
+    session: {
+      cashAccountId: string;
+      openedAt: Date;
+      openingTotal: Prisma.Decimal;
+    },
+  ) {
+    const account = await tx.financialAccount.findUnique({
       where: { id: session.cashAccountId },
       include: { ledgerAccount: true },
     });
-    if (!account?.ledgerAccount) throw new NotFoundException('Cash ledger account not found');
+    if (!account?.ledgerAccount) {
+      throw new NotFoundException('Cash ledger account not found');
+    }
 
-    const entries = await this.prisma.ledgerEntry.findMany({
+    const entries = await tx.ledgerEntry.findMany({
       where: {
         ledgerAccountId: account.ledgerAccount.id,
-        journal: { postingDate: { gte: session.openedAt }, status: 'POSTED' },
+        journal: {
+          postingDate: { gte: session.openedAt },
+          status: 'POSTED',
+        },
       },
       select: { entryType: true, amount: true },
     });
 
     let expected = Number(session.openingTotal);
     for (const entry of entries) {
-      expected += entry.entryType === EntryType.DEBIT ? Number(entry.amount) : -Number(entry.amount);
+      expected +=
+        entry.entryType === EntryType.DEBIT
+          ? Number(entry.amount)
+          : -Number(entry.amount);
     }
-    return expected;
+    return { expected, account };
   }
-  async close(id: string, dto: CloseCashSessionDto, userId: string) {
-    const session = await this.prisma.cashSession.findUnique({ where: { id } });
-    if (!session) throw new NotFoundException('Cash session not found');
-    if (session.status !== 'OPEN') throw new BadRequestException('Cash session is already closed');
 
+  async close(id: string, dto: CloseCashSessionDto, userId: string) {
     const actual = this.total(dto.denominations);
-    const expected = await this.expectedClosing(session);
-    const difference = actual - expected;
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT "id" FROM "CashSession" WHERE "id" = $1 FOR UPDATE',
+        id,
+      );
+      const session = await tx.cashSession.findUnique({ where: { id } });
+      if (!session) throw new NotFoundException('Cash session not found');
+      if (session.status !== 'OPEN') {
+        throw new BadRequestException('Cash session is already closed');
+      }
+
+      const { expected, account } = await this.expectedClosing(tx, session);
+      const difference = actual - expected;
+      let adjustmentTransactionId: string | null = null;
+
+      if (Math.abs(difference) > 0.005) {
+        const varianceLedger = await tx.ledgerAccount.findUnique({
+          where: { ledgerCode: 'SYS-CASH-OVER-SHORT' },
+        });
+        if (!varianceLedger) {
+          throw new Error('Cash over / short ledger missing');
+        }
+        const adjustment = await tx.transaction.create({
+          data: {
+            transactionNumber:
+              'CADJ-' + Date.now().toString(36).toUpperCase(),
+            transactionType: TransactionType.CASH_ADJUSTMENT,
+            transactionAt: new Date(),
+            grossAmount: new Prisma.Decimal(Math.abs(difference)),
+            netAmount: new Prisma.Decimal(Math.abs(difference)),
+            status: TransactionStatus.COMPLETED,
+            referenceNumber: 'CASH-SESSION-' + session.id,
+            notes:
+              dto.notes ??
+              (difference > 0 ? 'Cash over adjustment' : 'Cash short adjustment'),
+            createdById: userId,
+          },
+        });
+        adjustmentTransactionId = adjustment.id;
+        const cashEntryType =
+          difference > 0 ? EntryType.DEBIT : EntryType.CREDIT;
+        const varianceEntryType =
+          difference > 0 ? EntryType.CREDIT : EntryType.DEBIT;
+        await this.ledger.post(
+          tx,
+          adjustment.id,
+          userId,
+          'Cash counter physical variance adjustment',
+          [
+            {
+              ledgerAccountId: account.ledgerAccount!.id,
+              entryType: cashEntryType,
+              amount: Math.abs(difference),
+              description: 'Physical cash variance',
+            },
+            {
+              ledgerAccountId: varianceLedger.id,
+              entryType: varianceEntryType,
+              amount: Math.abs(difference),
+              description:
+                difference > 0 ? 'Cash over' : 'Cash shortage',
+            },
+          ],
+        );
+      }
+
       const updated = await tx.cashSession.update({
         where: { id },
         data: {
           expectedClosingTotal: new Prisma.Decimal(expected),
           actualClosingTotal: new Prisma.Decimal(actual),
           differenceAmount: new Prisma.Decimal(difference),
+          adjustmentTransactionId,
           closedById: userId,
           closedAt: new Date(),
           closingNotes: dto.notes,
@@ -125,12 +206,15 @@ export class CashCounterService {
               countType: CountType.CLOSING,
               denomination: new Prisma.Decimal(d.denomination),
               quantity: d.quantity,
-              totalAmount: new Prisma.Decimal(d.denomination * d.quantity),
+              totalAmount: new Prisma.Decimal(
+                d.denomination * d.quantity,
+              ),
             })),
           },
         },
         include: { denominationCounts: true, cashAccount: true },
       });
+
       await tx.auditLog.create({
         data: {
           userId,
@@ -140,9 +224,13 @@ export class CashCounterService {
           oldValues: { status: session.status },
           newValues: {
             status: updated.status,
-            expectedClosingTotal: updated.expectedClosingTotal?.toString() ?? null,
-            actualClosingTotal: updated.actualClosingTotal?.toString() ?? null,
-            differenceAmount: updated.differenceAmount?.toString() ?? null,
+            expectedClosingTotal:
+              updated.expectedClosingTotal?.toString() ?? null,
+            actualClosingTotal:
+              updated.actualClosingTotal?.toString() ?? null,
+            differenceAmount:
+              updated.differenceAmount?.toString() ?? null,
+            adjustmentTransactionId,
           },
           reason: dto.notes,
         },

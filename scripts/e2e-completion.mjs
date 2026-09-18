@@ -95,11 +95,14 @@ await request('/accounts/' + bankA.id, {
   method:'PATCH',
   body:JSON.stringify({accountName:'Completion Bank A Updated '+suffix,usageType:'BUSINESS',bankName:'Lifecycle Bank',accountReference:'XX1234'}),
 }, token);
-await request('/accounts/' + bankA.id + '/active', {method:'PATCH',body:JSON.stringify({isActive:false})}, token);
+const blockedDeactivate = await raw('/accounts/' + bankA.id + '/active', {method:'PATCH',body:JSON.stringify({isActive:false})}, token);
+assert(blockedDeactivate.status===400,'Non-zero account deactivation should be blocked');
+const zeroLifecycle = await createAccount('Completion Zero Lifecycle','BANK','ASSET',0);
+await request('/accounts/' + zeroLifecycle.id + '/active', {method:'PATCH',body:JSON.stringify({isActive:false})}, token);
 let accounts = await request('/accounts', {}, token);
-assert(accounts.find(x=>x.id===bankA.id)?.isActive === false, 'Account deactivate failed');
-await request('/accounts/' + bankA.id + '/active', {method:'PATCH',body:JSON.stringify({isActive:true})}, token);
-console.log('✓ account edit, retire and reactivate');
+assert(accounts.find(x=>x.id===zeroLifecycle.id)?.isActive === false, 'Zero account deactivate failed');
+await request('/accounts/' + zeroLifecycle.id + '/active', {method:'PATCH',body:JSON.stringify({isActive:true})}, token);
+console.log('✓ account edit, non-zero protection, retire and reactivate');
 
 const customer = await request('/customers', {
   method:'POST',
@@ -237,7 +240,9 @@ for(const action of ['CREATE','UPDATE','PASSWORD_RESET','DEACTIVATE','REACTIVATE
 console.log('✓ user edit/reset/disable/reactivate and immediate session enforcement');
 
 const accountAudit=await request('/audit?entityType=FINANCIAL_ACCOUNT&entityId='+bankA.id,{},token);
-assert(accountAudit.some(x=>x.action==='UPDATE') && accountAudit.some(x=>x.action==='DEACTIVATE') && accountAudit.some(x=>x.action==='REACTIVATE'),'Account lifecycle audit incomplete');
+const zeroAccountAudit=await request('/audit?entityType=FINANCIAL_ACCOUNT&entityId='+zeroLifecycle.id,{},token);
+assert(accountAudit.some(x=>x.action==='UPDATE'),'Account update audit missing');
+assert(zeroAccountAudit.some(x=>x.action==='DEACTIVATE') && zeroAccountAudit.some(x=>x.action==='REACTIVATE'),'Zero-balance account lifecycle audit incomplete');
 const providerAudit=await request('/audit?entityType=PROVIDER&entityId='+provider.id,{},token);
 assert(providerAudit.some(x=>x.action==='UPDATE') && providerAudit.some(x=>x.action==='DEACTIVATE') && providerAudit.some(x=>x.action==='REACTIVATE'),'Provider lifecycle audit incomplete');
 console.log('✓ lifecycle audit coverage');

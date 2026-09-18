@@ -27,6 +27,8 @@ export default function AepsPage(){
  const [commissionRate,setCommissionRate]=useState("1");
  const [cashAccountId,setCashAccountId]=useState("");
  const [settlementAccountId,setSettlementAccountId]=useState("");
+ const [settledNow,setSettledNow]=useState(false);
+ const [settlementDueAt,setSettlementDueAt]=useState("");
  const [reference,setReference]=useState("");
  const [notes,setNotes]=useState("");
  const [error,setError]=useState("");
@@ -72,6 +74,8 @@ export default function AepsPage(){
     commissionRate:Number(commissionRate),
     cashAccountId,
     settlementAccountId,
+    settledNow,
+    settlementDueAt:settlementDueAt?new Date(settlementDueAt).toISOString():undefined,
     providerReference:reference||undefined,
     notes:notes||undefined,
    })});
@@ -81,7 +85,7 @@ export default function AepsPage(){
  }
 
  return <AppShell><div className="mx-auto max-w-4xl space-y-6">
-  <div><h2 className="text-2xl font-bold">AePS Withdrawal</h2><p className="text-sm text-slate-500">Record the external biometric/platform transaction only. No OTP or biometric data is stored.</p></div>
+  <div><h2 className="text-2xl font-bold">AePS Withdrawal</h2><p className="text-sm text-slate-500">Record the authorized external AePS transaction and track provider settlement separately. No OTP or biometric data is stored.</p></div>
   {error?<p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>:null}
   <form onSubmit={submit} className="grid gap-4 rounded-xl border bg-white p-5 md:grid-cols-2">
    <select className="rounded-lg border px-3 py-2.5" value={customerId} onChange={e=>{setCustomerId(e.target.value);setBank("");}} required><option value="">Customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</select>
@@ -100,7 +104,9 @@ export default function AepsPage(){
    <input className="rounded-lg border px-3 py-2.5" type="number" step="0.0001" min="0" placeholder="Business commission %" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/>
 
    <select className="rounded-lg border px-3 py-2.5" value={cashAccountId} onChange={e=>setCashAccountId(e.target.value)} required><option value="">Cash account paying customer</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>
-   <select className="rounded-lg border px-3 py-2.5" value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Settlement wallet / bank</option>{accounts.filter(a=>a.accountType!=="CASH"&&a.accountType!=="OWNER_CREDIT_CARD").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>
+   <select className="rounded-lg border px-3 py-2.5" value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Settlement target wallet / bank</option>{accounts.filter(a=>["BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>
+   <input className="rounded-lg border px-3 py-2.5" type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)} placeholder="Expected settlement"/>
+   <label className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm md:col-span-2"><input type="checkbox" checked={settledNow} onChange={e=>setSettledNow(e.target.checked)} className="h-4 w-4"/><span><strong>Provider settlement already received</strong><span className="block text-xs text-emerald-800">Check only when the settlement is already visible in the target account. Otherwise it stays in Provider Clearing.</span></span></label>
 
    <input className="rounded-lg border px-3 py-2.5 md:col-span-2" placeholder="Provider reference" value={reference} onChange={e=>setReference(e.target.value)}/>
    <textarea className="rounded-lg border px-3 py-2.5 md:col-span-2" placeholder="Notes (optional)" value={notes} onChange={e=>setNotes(e.target.value)}/>

@@ -1,20 +1,19 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import {
-  AccountNature,
-  AccountType,
   EntryType,
   PaymentStatus,
   Prisma,
+  ReceivableReasonCategory,
   ReceivableStatus,
   TransactionStatus,
   TransactionType,
 } from '@prisma/client';
+import { FinancialValidationService } from '../finance/financial-validation.service.js';
+import { IdempotencyService } from '../finance/idempotency.service.js';
 import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CancelReceivableDto } from './dto/cancel-receivable.dto.js';
@@ -26,30 +25,9 @@ export class ReceivablesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly validation: FinancialValidationService,
+    private readonly idempotency: IdempotencyService,
   ) {}
-
-  private async collectionDedupeKey(
-    receivableId: string,
-    userId: string,
-    payload: unknown,
-  ) {
-    const bucket = Math.floor(Date.now() / 30000);
-    const fingerprint = createHash('sha256')
-      .update(JSON.stringify({ receivableId, payload }))
-      .digest('hex')
-      .slice(0, 24);
-    const key = 'CUSTOMER_RECEIPT:' + userId + ':' + bucket + ':' + fingerprint;
-    const existing = await this.prisma.transaction.findUnique({
-      where: { idempotencyKey: key },
-      select: { transactionNumber: true },
-    });
-    if (existing) {
-      throw new ConflictException(
-        'Duplicate request detected: ' + existing.transactionNumber,
-      );
-    }
-    return key;
-  }
 
   async list(options?: {
     page?: number;
@@ -178,33 +156,34 @@ export class ReceivablesService {
     };
   }
 
-  async create(dto: CreateReceivableDto, userId: string) {
+  async create(
+    dto: CreateReceivableDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.CUSTOMER_RECEIVABLE,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
     return this.prisma.$transaction(async (tx) => {
-      const customer = await tx.customer.findUnique({
-        where: { id: dto.customerId },
-      });
-      if (!customer?.isActive) {
-        throw new NotFoundException('Active customer not found');
-      }
+      await this.validation.activeCustomer(tx, dto.customerId);
 
       let sourceLedgerId: string | null = null;
       if (dto.sourceAccountId) {
-        const sourceAccount = await tx.financialAccount.findUnique({
-          where: { id: dto.sourceAccountId },
-          include: { ledgerAccount: true },
-        });
-        if (!sourceAccount?.ledgerAccount || !sourceAccount.isActive) {
-          throw new NotFoundException('Active source account or ledger not found');
-        }
-        if (
-          sourceAccount.accountNature !== AccountNature.ASSET ||
-          sourceAccount.accountType === AccountType.OWNER_CREDIT_CARD
-        ) {
-          throw new BadRequestException(
-            'Receivable source must be a cash, bank, UPI or provider-wallet asset account',
-          );
-        }
-        sourceLedgerId = sourceAccount.ledgerAccount.id;
+        await this.validation.lockAccount(tx, dto.sourceAccountId);
+        const sourceAccount = await this.validation.liquidAsset(
+          tx,
+          dto.sourceAccountId,
+          'Receivable source account',
+        );
+        await this.validation.ensureSufficientFunds(
+          tx,
+          sourceAccount,
+          dto.amount,
+        );
+        sourceLedgerId = sourceAccount.ledgerAccount!.id;
       }
 
       const systemLedgers = await tx.ledgerAccount.findMany({
@@ -232,6 +211,7 @@ export class ReceivablesService {
           grossAmount: new Prisma.Decimal(dto.amount),
           netAmount: new Prisma.Decimal(dto.amount),
           status: TransactionStatus.COMPLETED,
+          idempotencyKey,
           referenceNumber: dto.referenceNumber,
           notes: dto.notes,
           createdById: userId,
@@ -244,6 +224,7 @@ export class ReceivablesService {
           sourceTransactionId: transaction.id,
           sourceAccountId: dto.sourceAccountId || null,
           reason: dto.reason,
+          reasonCategory: dto.reasonCategory ?? ReceivableReasonCategory.OTHER,
           description: dto.description,
           originalAmount: new Prisma.Decimal(dto.amount),
           receivedAmount: new Prisma.Decimal(0),
@@ -294,6 +275,7 @@ export class ReceivablesService {
             customerId: dto.customerId,
             originalAmount: dto.amount,
             reason: dto.reason,
+            reasonCategory: dto.reasonCategory ?? ReceivableReasonCategory.OTHER,
             sourceAccountId: dto.sourceAccountId ?? null,
             dueAt: dto.dueAt ?? null,
             sourceTransactionId: transaction.id,
@@ -309,9 +291,19 @@ export class ReceivablesService {
     id: string,
     dto: CreateReceivableCollectionDto,
     userId: string,
+    providedIdempotencyKey?: string,
   ) {
-    const idempotencyKey = await this.collectionDedupeKey(id, userId, dto);
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.CUSTOMER_RECEIPT,
+      userId,
+      { receivableId: id, ...dto },
+      providedIdempotencyKey,
+    );
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT "id" FROM "CustomerReceivable" WHERE "id" = $1 FOR UPDATE',
+        id,
+      );
       const receivable = await tx.customerReceivable.findUnique({
         where: { id },
       });
@@ -325,25 +317,15 @@ export class ReceivablesService {
       }
 
       const remaining = Number(receivable.remainingAmount);
-      if (dto.amount > remaining) {
+      if (dto.amount > remaining + 0.001) {
         throw new BadRequestException('Collection exceeds remaining receivable');
       }
 
-      const destinationAccount = await tx.financialAccount.findUnique({
-        where: { id: dto.destinationAccountId },
-        include: { ledgerAccount: true },
-      });
-      if (!destinationAccount?.ledgerAccount || !destinationAccount.isActive) {
-        throw new NotFoundException('Active destination account or ledger not found');
-      }
-      if (
-        destinationAccount.accountNature !== AccountNature.ASSET ||
-        destinationAccount.accountType === AccountType.OWNER_CREDIT_CARD
-      ) {
-        throw new BadRequestException(
-          'Receivable collection must go to cash, bank, UPI or provider wallet',
-        );
-      }
+      const destinationAccount = await this.validation.liquidAsset(
+        tx,
+        dto.destinationAccountId,
+        'Receivable collection destination',
+      );
 
       const receivableLedger = await tx.ledgerAccount.findUnique({
         where: { ledgerCode: 'SYS-CUST-RECEIVABLE' },
@@ -386,7 +368,7 @@ export class ReceivablesService {
       const receivedAmount = Number(receivable.receivedAmount) + dto.amount;
       const remainingAmount = Math.max(0, remaining - dto.amount);
       const status =
-        remainingAmount <= 0
+        remainingAmount <= 0.001
           ? ReceivableStatus.RECEIVED
           : receivable.dueAt && receivable.dueAt < now
             ? ReceivableStatus.OVERDUE
@@ -408,7 +390,7 @@ export class ReceivablesService {
         'Customer receivable collection',
         [
           {
-            ledgerAccountId: destinationAccount.ledgerAccount.id,
+            ledgerAccountId: destinationAccount.ledgerAccount!.id,
             entryType: EntryType.DEBIT,
             amount: dto.amount,
             customerId: receivable.customerId,
@@ -452,6 +434,10 @@ export class ReceivablesService {
 
   async cancel(id: string, dto: CancelReceivableDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT "id" FROM "CustomerReceivable" WHERE "id" = $1 FOR UPDATE',
+        id,
+      );
       const receivable = await tx.customerReceivable.findUnique({
         where: { id },
         include: {

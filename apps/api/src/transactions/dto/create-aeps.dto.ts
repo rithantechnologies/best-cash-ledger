@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
 
 export class CreateAepsDto {
   @IsString() customerId!: string;
@@ -12,6 +12,8 @@ export class CreateAepsDto {
   @IsNumber() @Min(0) commissionRate!: number;
   @IsString() cashAccountId!: string;
   @IsString() settlementAccountId!: string;
+  @IsOptional() @IsBoolean() settledNow?: boolean;
+  @IsOptional() @IsDateString() settlementDueAt?: string;
   @IsOptional() @IsString() providerReference?: string;
   @IsOptional() @IsString() notes?: string;
 }
