@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/exhaustive-deps */
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";

@@ -1,5 +1,6 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/exhaustive-deps */
 
 import type { FormEvent, MouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";

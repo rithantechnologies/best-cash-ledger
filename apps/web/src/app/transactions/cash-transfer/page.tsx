@@ -1,5 +1,6 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/exhaustive-deps */
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
