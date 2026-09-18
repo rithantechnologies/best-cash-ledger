@@ -183,8 +183,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link href="/receivables" className="hidden min-h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 sm:flex">
               <Icon name="in" className="h-4 w-4"/>Receive
             </Link>
-            <Link href="/transactions/new" className="flex min-h-10 items-center gap-2 rounded-xl bg-[linear-gradient(135deg,#111827,#312e81)] px-3 text-sm font-semibold text-white shadow-sm sm:min-h-11 sm:px-4">
-              <Icon name="plus" className="h-4 w-4"/><span className="hidden sm:inline">Transaction</span><span className="sm:hidden">New</span>
+            <Link href="/transactions/new" className="hidden min-h-11 items-center gap-2 rounded-xl bg-[linear-gradient(135deg,#111827,#312e81)] px-4 text-sm font-semibold text-white shadow-sm sm:flex">
+              <Icon name="plus" className="h-4 w-4"/><span>Transaction</span>
             </Link>
           </div>
         </div>
@@ -215,11 +215,22 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
     </div>:null}
 
-    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white/95 px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-8px_30px_rgba(15,23,42,.08)] backdrop-blur-xl lg:hidden">
-      {navItems.filter(item=>["/","/transactions","/customers"].includes(item.href)).map(item=><Link key={item.href} href={item.href}
-        className={"flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold "+(active(item.href)?"text-indigo-700":"text-slate-500")}>
-        <Icon name={item.icon} className="h-5 w-5"/><span>{item.short}</span>
-      </Link>)}
+    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-slate-200 bg-white/95 px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-8px_30px_rgba(15,23,42,.08)] backdrop-blur-xl lg:hidden">
+      <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold "+(active("/")?"text-indigo-700":"text-slate-500")}>
+        <Icon name="home" className="h-5 w-5"/><span>Home</span>
+      </Link>
+      <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold "+(pathname==="/transactions"?"text-indigo-700":"text-slate-500")}>
+        <Icon name="activity" className="h-5 w-5"/><span>Activity</span>
+      </Link>
+      <Link href="/transactions/new" aria-label="New transaction" className="group relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[10px] font-bold text-indigo-700">
+        <span className={"absolute -top-5 grid h-14 w-14 place-items-center rounded-full border-[4px] border-white bg-[linear-gradient(135deg,#111827,#312e81)] text-white shadow-[0_10px_28px_rgba(49,46,129,.35)] transition active:scale-95 "+(pathname==="/transactions/new"?"ring-4 ring-indigo-100":"")}>
+          <Icon name="plus" className="h-6 w-6"/>
+        </span>
+        <span>New</span>
+      </Link>
+      <Link href="/customers" className={"flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold "+(active("/customers")?"text-indigo-700":"text-slate-500")}>
+        <Icon name="people" className="h-5 w-5"/><span>Customers</span>
+      </Link>
       <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold text-slate-500">
         <Icon name="more" className="h-5 w-5"/><span>More</span>
       </button>
