@@ -98,13 +98,13 @@ export default function ReceivablesPage(){
 
   const liquidAccounts=useMemo(()=>accounts.filter(a=>a.isActive&&a.accountType!=="OWNER_CREDIT_CARD"),[accounts]);
 
-  return <AppShell><div className="mx-auto max-w-7xl space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div><p className="text-xs font-semibold uppercase tracking-[.18em] text-indigo-600">Money to receive</p><h2 className="mt-1 text-3xl font-bold tracking-tight">Customer Receivables</h2><p className="mt-1 text-sm text-slate-500">Track what must come back to the business, partial collections, due dates and the account that receives the money.</p></div>
+  return <AppShell><div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div><p className="text-[11px] font-semibold uppercase tracking-[.18em] text-indigo-600">Money to receive</p><h2 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Customer Receivables</h2><p className="mt-1 text-sm text-slate-500">Track what must come back to the business, partial collections, due dates and the account that receives the money.</p></div>
       <div className="rounded-2xl bg-slate-950 px-5 py-4 text-white shadow-lg"><p className="text-xs uppercase tracking-wider text-slate-300">Outstanding</p><p className="mt-1 text-2xl font-bold">{money(summary?.customerReceivable??0)}</p></div>
     </div>
 
-    {summary?<section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    {summary?<section className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
       {[
         ["Pending",summary.receivableBreakdown.pendingAmount,summary.receivableBreakdown.pendingCount,"text-amber-700"],
         ["Partially received",summary.receivableBreakdown.partialAmount,summary.receivableBreakdown.partialCount,"text-blue-700"],
@@ -149,7 +149,26 @@ export default function ReceivablesPage(){
     </section>
 
     {error?<p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>:null}
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm"><table className="w-full min-w-[1050px] text-sm">
+    <div className="space-y-2 md:hidden">
+      {items.map(r=><div key={r.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0"><p className="truncate font-bold">{r.customer.fullName}</p><p className="mt-0.5 truncate text-xs text-slate-500">{r.reasonCategory.replaceAll("_"," ")} · {r.reason}</p></div>
+          <span className={"shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ring-inset "+badge(r.status)}>{r.status.replaceAll("_"," ")}</span>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center">
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Original</p><p className="mt-1 text-sm font-semibold">{money(r.originalAmount)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Received</p><p className="mt-1 text-sm font-semibold text-emerald-700">{money(r.receivedAmount)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Remaining</p><p className="mt-1 text-sm font-bold">{money(r.remainingAmount)}</p></div>
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500"><span className="truncate">{r.sourceAccount?.accountName??"Opening / adjustment"}</span><span className="shrink-0">{r.dueAt?"Due "+new Date(r.dueAt).toLocaleDateString("en-IN"):"No due date"}</span></div>
+        <div className="mt-3 flex gap-2">
+          <Link href={"/receivables/"+r.id} className="flex min-h-10 flex-1 items-center justify-center rounded-xl border border-slate-200 text-sm font-semibold">View</Link>
+          <button onClick={()=>{setSelected(r);setCollectAmount(r.remainingAmount);setDestination("");}} disabled={Number(r.remainingAmount)<=0||["RECEIVED","CANCELLED","REVERSED"].includes(r.status)} className="min-h-10 flex-1 rounded-xl bg-emerald-700 text-sm font-semibold text-white disabled:opacity-40">Collect</button>
+        </div>
+      </div>)}
+      {!items.length?<div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No matching receivables.</div>:null}
+    </div>
+    <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block"><table className="w-full min-w-[1050px] text-sm">
       <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Customer / Reason</th><th>Original</th><th>Received</th><th>Remaining</th><th>Source</th><th>Due</th><th>Status</th><th className="px-4">Actions</th></tr></thead>
       <tbody>{items.map(r=><tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/60">
         <td className="px-4 py-4"><p className="font-semibold">{r.customer.fullName}</p><p className="text-xs text-slate-500">{r.reasonCategory.replaceAll("_"," ")} · {r.reason}{r.description?" · "+r.description:""}</p></td>

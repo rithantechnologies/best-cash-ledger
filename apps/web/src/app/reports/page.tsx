@@ -70,18 +70,18 @@ export default function ReportsPage(){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);
  }
 
- return <AppShell><div className="mx-auto max-w-7xl space-y-6">
-  <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-2xl font-bold">Reports</h2><p className="text-sm text-slate-500">Transactions, ledgers, provider clearing and saved end-of-day positions.</p></div><button onClick={downloadCsv} className="rounded-lg border px-4 py-2 text-sm font-semibold">Export Current CSV</button></div>
+ return <AppShell><div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
+  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Reports</h2><p className="text-sm text-slate-500">Transactions, ledgers, provider clearing and saved end-of-day positions.</p></div><button onClick={downloadCsv} className="rounded-lg border px-4 py-2 text-sm font-semibold">Export Current CSV</button></div>
   {error?<p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>:null}
 
-  <div className="inline-flex rounded-xl border bg-white p-1 text-sm font-semibold">
+  <div className="w-full overflow-x-auto pb-1"><div className="inline-flex min-w-max rounded-xl border border-slate-200 bg-white p-1 text-sm font-semibold shadow-sm">
    <button onClick={()=>setTab("transactions")} className={"rounded-lg px-4 py-2 "+(tab==="transactions"?"bg-slate-950 text-white":"text-slate-600")}>Transactions & Ledgers</button>
    <button onClick={()=>setTab("settlements")} className={"rounded-lg px-4 py-2 "+(tab==="settlements"?"bg-slate-950 text-white":"text-slate-600")}>Provider Settlements</button>
    <button onClick={()=>setTab("eod")} className={"rounded-lg px-4 py-2 "+(tab==="eod"?"bg-slate-950 text-white":"text-slate-600")}>End of Day</button>
-  </div>
+  </div></div>
 
   {tab==="transactions"?<>
-   <section className="grid gap-3 rounded-xl border bg-white p-5 sm:grid-cols-2 lg:grid-cols-4">
+   <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
     <label className="text-sm"><span className="mb-1 block">From</span><input className="w-full rounded-lg border px-3 py-2" type="date" value={from} onChange={e=>setFrom(e.target.value)}/></label>
     <label className="text-sm"><span className="mb-1 block">To</span><input className="w-full rounded-lg border px-3 py-2" type="date" value={to} onChange={e=>setTo(e.target.value)}/></label>
     <label className="text-sm"><span className="mb-1 block">Type</span><select className="w-full rounded-lg border px-3 py-2" value={type} onChange={e=>setType(e.target.value)}><option value="">All types</option>{["CARD_SWIPE","CASH_TRANSFER","AEPS_WITHDRAWAL","CUSTOMER_PAYOUT","CUSTOMER_RECEIVABLE","CUSTOMER_RECEIPT","PROVIDER_SETTLEMENT","INTERNAL_TRANSFER","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","CASH_ADJUSTMENT","REVERSAL"].map(x=><option key={x}>{x}</option>)}</select></label>

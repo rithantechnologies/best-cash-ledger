@@ -29,9 +29,9 @@ const shortMoney=(v:number)=>new Intl.NumberFormat("en-IN",{notation:"compact",m
 
 function Metric({label,value,hint,tone="slate"}:{label:string;value:number;hint?:string;tone?:string}){
   const tones:Record<string,string>={slate:"text-slate-950",emerald:"text-emerald-700",red:"text-red-700",indigo:"text-indigo-700",amber:"text-amber-700"};
-  return <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+  return <div className="rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,.04)] sm:p-4">
     <p className="text-xs font-semibold uppercase tracking-[.12em] text-slate-500">{label}</p>
-    <p className={"mt-2 text-2xl font-bold tracking-tight "+(tones[tone]||tones.slate)}>{money(value)}</p>
+    <p className={"mt-1.5 text-xl font-bold tracking-tight sm:text-2xl "+(tones[tone]||tones.slate)}>{money(value)}</p>
     {hint?<p className="mt-1 text-xs text-slate-500">{hint}</p>:null}
   </div>;
 }
@@ -69,7 +69,7 @@ function PositionChart({rows}:{rows:Trend[]}){
   const zeroY=height-pad-((0-min)/range)*(height-pad*2);
   return <div>
     <div className="flex flex-wrap gap-4 text-xs text-slate-500"><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-indigo-600"/>Net position</span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-cyan-500"/>Operating position</span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-500"/>Available funds</span></div>
-    <div className="mt-4 overflow-x-auto"><svg viewBox={"0 0 "+width+" "+height} className="min-w-[640px] w-full">
+    <div className="mt-4 w-full overflow-hidden"><svg viewBox={"0 0 "+width+" "+height} className="h-auto w-full">
       {[0.25,0.5,0.75].map(n=><line key={n} x1={pad} x2={width-pad} y1={pad+n*(height-pad*2)} y2={pad+n*(height-pad*2)} stroke="#e2e8f0" strokeDasharray="4 6"/>)}
       {min<0?<line x1={pad} x2={width-pad} y1={zeroY} y2={zeroY} stroke="#94a3b8" strokeDasharray="5 5"/>:null}
       <polyline fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={pts("availableFunds")}/>
@@ -77,7 +77,7 @@ function PositionChart({rows}:{rows:Trend[]}){
       <polyline fill="none" stroke="#4f46e5" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={pts("netPosition")}/>
       {rows.map((r,i)=>{const x=pad+(rows.length<=1?0:i*(width-pad*2)/(rows.length-1));const y=height-pad-((r.netPosition-min)/range)*(height-pad*2);return <g key={r.date}><circle cx={x} cy={y} r="5" fill="#4f46e5"><title>{r.date+" · Net "+money(r.netPosition)+" · Operating "+money(r.operatingPosition)+" · Available "+money(r.availableFunds)+" · Clearing "+money(r.pendingProviderSettlements)}</title></circle><text x={x} y={height-6} textAnchor="middle" fontSize="10" fill="#64748b">{r.date.slice(5)}</text></g>})}
     </svg></div>
-    <div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>{rows[0]?money(rows[0].netPosition):"—"}</span><span>10-day movement</span><strong className="text-slate-800">{rows.at(-1)?money(rows.at(-1)!.netPosition):"—"}</strong></div>
+    <div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>{rows[0]?money(rows[0].netPosition):"—"}</span><span>10-day movement</span><strong className="text-slate-800">{rows.length?money(rows[rows.length-1].netPosition):"—"}</strong></div>
   </div>;
 }
 
@@ -120,29 +120,29 @@ export default function DashboardPage(){
   const compareMax=Math.max(1,summary.customerReceivable,summary.customerPayable,summary.creditCardOutstanding,summary.pendingProviderSettlements);
   const scopedAccounts=accounts.filter(a=>accountScope==="ALL"||a.usageType===accountScope);
 
-  return <AppShell><div className="mx-auto max-w-[1500px] space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div><p className="text-xs font-bold uppercase tracking-[.2em] text-indigo-600">Live financial position</p><h2 className="mt-1 text-3xl font-bold tracking-tight">Dashboard</h2><p className="mt-1 text-sm text-slate-500">Everything the business has, has to receive, and has to pay — in one place.</p></div>
-      <div className="flex gap-2"><Link href="/receivables" className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700">Receivables</Link><Link href="/payables" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold">Payables</Link></div>
+  return <AppShell><div className="mx-auto max-w-[1440px] space-y-4 sm:space-y-6">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-indigo-600">Live financial position</p><h2 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Dashboard</h2><p className="mt-1 max-w-2xl text-sm text-slate-500">Your available funds, money to receive and obligations at a glance.</p></div>
+      <div className="grid grid-cols-2 gap-2 sm:flex"><Link href="/receivables" className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-center text-sm font-semibold text-indigo-700">Receivables</Link><Link href="/payables" className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-sm font-semibold">Payables</Link></div>
     </div>
 
-    <section className="overflow-hidden rounded-3xl bg-slate-950 text-white shadow-xl">
-      <div className="grid gap-6 p-6 lg:grid-cols-[1.25fr_2fr] lg:p-8">
-        <div><p className="text-xs font-semibold uppercase tracking-[.2em] text-indigo-300">Net financial position</p><p className={"mt-3 text-4xl font-black tracking-tight sm:text-5xl "+(summary.netFinancialPosition<0?"text-rose-300":"text-white")}>{money(summary.netFinancialPosition)}</p><p className="mt-3 text-sm font-semibold text-cyan-300">Operating position {money(summary.operatingPosition)}</p><p className="mt-2 max-w-lg text-sm leading-6 text-slate-300">Operating position includes liquid funds, provider clearing and customer receivables less customer payables. Net position also subtracts owner credit-card outstanding.</p></div>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <section className="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-lg sm:rounded-3xl">
+      <div className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[1.15fr_2fr] lg:p-8">
+        <div><p className="text-[11px] font-semibold uppercase tracking-[.18em] text-indigo-300">Net financial position</p><p className={"mt-2 text-4xl font-black tracking-tight sm:text-5xl "+(summary.netFinancialPosition<0?"text-rose-300":"text-white")}>{money(summary.netFinancialPosition)}</p><p className="mt-3 text-sm font-semibold text-cyan-300">Operating position {money(summary.operatingPosition)}</p><p className="mt-2 max-w-lg text-sm leading-6 text-slate-300">Operating position includes liquid funds, provider clearing and customer receivables less customer payables. Net position also subtracts owner credit-card outstanding.</p></div>
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
           {[["Available now",summary.availableFunds,"text-emerald-300"],["Provider clearing",summary.pendingProviderSettlements,"text-cyan-300"],["Customer receive",summary.customerReceivable,"text-sky-300"],["To pay",summary.customerPayable,"text-amber-300"],["Card outstanding",summary.creditCardOutstanding,"text-rose-300"]].map(([l,v,c])=><div key={String(l)} className="rounded-2xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-slate-400">{l}</p><p className={"mt-2 text-xl font-bold "+c}>{money(Number(v))}</p></div>)}
         </div>
       </div>
       <div className="border-t border-white/10 bg-white/[.03] px-6 py-3 text-xs text-slate-400">Net formula: {money(summary.availableFunds)} + {money(summary.pendingProviderSettlements)} clearing + {money(summary.customerReceivable)} receivables − {money(summary.customerPayable)} payables − {money(summary.creditCardOutstanding)} owner CC</div>
     </section>
 
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <section className="grid grid-cols-2 gap-2.5 sm:gap-3 md:grid-cols-3 lg:grid-cols-5">
       <Metric label="Cash in hand" value={summary.cashBalance}/><Metric label="Bank balance" value={summary.bankBalance}/><Metric label="UPI balance" value={summary.upiBalance}/><Metric label="Provider wallets" value={summary.walletBalance}/><Metric label="Pending provider settlement" value={summary.pendingProviderSettlements} hint={summary.pendingProviderSettlementCount+" item(s)"} tone="indigo"/>
     </section>
 
     <section className="grid gap-6 xl:grid-cols-[1.7fr_1fr]">
-      <div className="rounded-2xl border bg-white p-5 shadow-sm"><div className="mb-5"><h3 className="font-semibold">Financial Position Trend</h3><p className="text-xs text-slate-500">10-day running net position from posted ledger entries.</p></div><PositionChart rows={trend}/></div>
-      <div className="rounded-2xl border bg-white p-5 shadow-sm"><div className="mb-5"><h3 className="font-semibold">Where the Money Is</h3><p className="text-xs text-slate-500">Current liquid funds by account category.</p></div><Donut segments={fundSegments}/></div>
+      <div className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 sm:mb-5"><h3 className="font-semibold">Financial Position Trend</h3><p className="text-xs text-slate-500">10-day running net position from posted ledger entries.</p></div><PositionChart rows={trend}/></div>
+      <div className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 sm:mb-5"><h3 className="font-semibold">Where the Money Is</h3><p className="text-xs text-slate-500">Current liquid funds by account category.</p></div><Donut segments={fundSegments}/></div>
     </section>
 
     <section className="grid gap-6 xl:grid-cols-2">
@@ -156,7 +156,7 @@ export default function DashboardPage(){
     </section>
 
     <section className="rounded-2xl border bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-semibold">Today’s Activity</h3><p className="text-xs text-slate-500">Posted movements and operating activity.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">India day</span></div>
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-6">{[
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 md:grid-cols-4 xl:grid-cols-6">{[
         ["Cash in",today.cashIn,"emerald"],["Cash out",today.cashOut,"red"],["Receipts collected",today.customerReceipt,"emerald"],["Receivables created",today.receivableCreated,"indigo"],
         ["Customer payouts",today.customerPayout,"amber"],["Card swipe",today.cardSwipe,"slate"],["AePS",today.aeps,"slate"],["Commission",today.commission,"emerald"],
         ["Charges",today.providerCharges,"red"],["Business expense",today.businessExpense,"red"],["Bank in",today.bankIn,"slate"],["Wallet in",today.walletIn,"slate"],
@@ -174,7 +174,7 @@ export default function DashboardPage(){
       </div></div>
     </section>
 
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <section className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
       <Metric label="Receivable due today" value={summary.receivableBreakdown.dueTodayAmount} hint={summary.receivableBreakdown.dueTodayCount+" item(s)"} tone="indigo"/>
       <Metric label="Receivable partial" value={summary.receivableBreakdown.partialAmount} hint={summary.receivableBreakdown.partialCount+" item(s)"} tone="emerald"/>
       <Metric label="Payable due today" value={summary.payableBreakdown.dueTodayAmount} hint={summary.payableBreakdown.dueTodayCount+" item(s)"} tone="amber"/>

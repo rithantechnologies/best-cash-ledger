@@ -74,8 +74,8 @@ export default function PayablesPage(){
   }
   const sh=(label:string,col:string)=><button onClick={()=>sort(col)} className="font-semibold">{label}{sortBy===col?(sortDir==="asc"?" ↑":" ↓"):""}</button>;
 
-  return <AppShell><div className="mx-auto max-w-7xl space-y-6">
-    <div><h2 className="text-2xl font-bold">Customer Payables</h2><p className="text-sm text-slate-500">Pending, partial, due, overdue, paid and cancelled customer obligations.</p></div>
+  return <AppShell><div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
+    <div><h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Customer Payables</h2><p className="mt-1 text-sm text-slate-500">Track what the business still owes customers and record payouts.</p></div>
 
     {cancelTarget?<form onSubmit={cancelPayable} className="rounded-xl border border-red-200 bg-red-50 p-5">
       <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-red-950">Cancel payable for {cancelTarget.customer.fullName}</p><p className="text-sm text-red-800">This reverses the source transaction. Existing payouts must be reversed first.</p></div><button type="button" onClick={()=>{setCancelTarget(null);setCancelReason("");}} className="text-sm font-semibold text-red-800">Close</button></div>
@@ -91,7 +91,7 @@ export default function PayablesPage(){
       <button className="rounded-lg bg-slate-950 px-4 py-2 font-semibold text-white">Record Payment</button>
     </form>:null}
 
-    <section className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-4">
+    <section className="grid gap-2.5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 sm:p-4 lg:grid-cols-4">
       <input className="rounded-lg border px-3 py-2" placeholder="Search customer..." value={q} onChange={e=>setQ(e.target.value)}/>
       <select className="rounded-lg border px-3 py-2" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_PAID","PAID","OVERDUE","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</select>
       <select className="rounded-lg border px-3 py-2" value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="dueAt">Due date</option><option value="createdAt">Created</option><option value="remainingAmount">Remaining</option><option value="originalAmount">Original</option><option value="paidAmount">Paid</option><option value="status">Status</option></select>
@@ -99,12 +99,30 @@ export default function PayablesPage(){
     </section>
 
     {error?<p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>:null}
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white"><table className="w-full min-w-[900px] text-sm">
+    <div className="space-y-2 md:hidden">
+      {items.map(p=><div key={p.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0"><p className="truncate font-bold">{p.customer.fullName}</p><p className="mt-0.5 text-xs text-slate-500">Due {new Date(p.dueAt).toLocaleDateString("en-IN")}</p></div>
+          <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">{p.status.replaceAll("_"," ")}</span>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center">
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Original</p><p className="mt-1 text-sm font-semibold">{money(p.originalAmount)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Paid</p><p className="mt-1 text-sm font-semibold text-emerald-700">{money(p.paidAmount)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Remaining</p><p className="mt-1 text-sm font-bold">{money(p.remainingAmount)}</p></div>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <Link href={"/payables/"+p.id} className="flex min-h-10 flex-1 items-center justify-center rounded-xl border border-slate-200 text-sm font-semibold">View</Link>
+          <button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setSource("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="min-h-10 flex-1 rounded-xl bg-slate-950 text-sm font-semibold text-white disabled:opacity-40">Pay</button>
+        </div>
+      </div>)}
+      {!items.length?<div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No matching payables.</div>:null}
+    </div>
+    <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block"><table className="w-full min-w-[900px] text-sm">
       <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Customer</th><th className="px-4 py-3">{sh("Original","originalAmount")}</th><th className="px-4 py-3">{sh("Paid","paidAmount")}</th><th className="px-4 py-3">{sh("Remaining","remainingAmount")}</th><th className="px-4 py-3">{sh("Due","dueAt")}</th><th className="px-4 py-3">{sh("Status","status")}</th><th className="px-4 py-3">Actions</th></tr></thead>
       <tbody>{items.map(p=><tr key={p.id} className="border-t"><td className="px-4 py-3 font-medium">{p.customer.fullName}</td><td className="px-4 py-3">{money(p.originalAmount)}</td><td className="px-4 py-3">{money(p.paidAmount)}</td><td className="px-4 py-3 font-semibold">{money(p.remainingAmount)}</td><td className="px-4 py-3">{new Date(p.dueAt).toLocaleString("en-IN")}</td><td className="px-4 py-3">{p.status}</td><td className="px-4 py-3"><div className="flex gap-2"><Link href={"/payables/"+p.id} className="rounded-lg border px-3 py-1.5 font-medium">View</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setSource("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="rounded-lg border px-3 py-1.5 font-medium disabled:opacity-40">Pay</button>{(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="rounded-lg border border-red-300 px-3 py-1.5 font-medium text-red-700">Cancel</button>:null}</div></td></tr>)}
       {!items.length?<tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">No matching payables.</td></tr>:null}</tbody>
     </table></div>
 
-    <div className="flex items-center justify-between text-sm"><span className="text-slate-500">{pagination.total} payable(s) · Page {pagination.page} of {pagination.totalPages}</span><div className="flex gap-2"><button className="rounded border px-3 py-2 disabled:opacity-40" disabled={pagination.page<=1} onClick={()=>load(pagination.page-1).catch(()=>{})}>Previous</button><button className="rounded border px-3 py-2 disabled:opacity-40" disabled={pagination.page>=pagination.totalPages} onClick={()=>load(pagination.page+1).catch(()=>{})}>Next</button></div></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><span className="text-slate-500">{pagination.total} payable(s) · Page {pagination.page} of {pagination.totalPages}</span><div className="flex gap-2"><button className="rounded border px-3 py-2 disabled:opacity-40" disabled={pagination.page<=1} onClick={()=>load(pagination.page-1).catch(()=>{})}>Previous</button><button className="rounded border px-3 py-2 disabled:opacity-40" disabled={pagination.page>=pagination.totalPages} onClick={()=>load(pagination.page+1).catch(()=>{})}>Next</button></div></div>
   </div></AppShell>;
 }
