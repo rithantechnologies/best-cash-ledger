@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent, MouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -55,6 +55,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [role, setRole] = useState("");
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navigating, setNavigating] = useState(false);
+  const [showTransition, setShowTransition] = useState(false);
 
   useEffect(() => {
     try {
@@ -62,7 +64,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       setRole(user.role || "");
     } catch { setRole(""); }
   }, []);
-  useEffect(()=>setMenuOpen(false),[pathname]);
+  useEffect(()=>{
+    setMenuOpen(false);
+    setNavigating(false);
+    setShowTransition(false);
+  },[pathname]);
+  useEffect(()=>{
+    if(!navigating){setShowTransition(false);return;}
+    const timer=window.setTimeout(()=>setShowTransition(true),120);
+    return()=>window.clearTimeout(timer);
+  },[navigating]);
   useEffect(()=>{
     document.body.style.overflow=menuOpen?"hidden":"";
     return ()=>{document.body.style.overflow="";};
@@ -78,8 +89,23 @@ export function AppShell({ children }: { children: ReactNode }) {
     event.preventDefault();
     if(search.trim()){
       setMenuOpen(false);
+      setNavigating(true);
       router.push("/search?q="+encodeURIComponent(search.trim()));
     }
+  }
+
+  function handleNavigationCapture(event:MouseEvent<HTMLDivElement>) {
+    const target=event.target as HTMLElement;
+    const anchor=target.closest("a");
+    if(!anchor||event.defaultPrevented||anchor.target==="_blank"||anchor.hasAttribute("download"))return;
+    const href=anchor.getAttribute("href");
+    if(!href||href.startsWith("#")||href.startsWith("mailto:")||href.startsWith("tel:"))return;
+    try{
+      const url=new URL(anchor.href,window.location.href);
+      if(url.origin===window.location.origin&&(url.pathname!==window.location.pathname||url.search!==window.location.search)){
+        setNavigating(true);
+      }
+    }catch{}
   }
 
   async function logout() {
@@ -98,7 +124,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     </Link>
   );
 
-  return <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-950">
+  return <div onClickCapture={handleNavigationCapture} className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-950">
+    {navigating?<div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-indigo-100"><div className="h-full w-1/2 bg-indigo-600 [animation:cashledger-progress_.9s_ease-in-out_infinite]"/></div>:null}
+    {showTransition?<div className="pointer-events-none fixed inset-0 z-[70] grid place-items-center bg-slate-50/25 backdrop-blur-[1px]">
+      <div className="flex items-center gap-3 rounded-2xl border border-white/80 bg-white/95 px-4 py-3 shadow-[0_18px_55px_rgba(15,23,42,.14)]">
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600"/>
+        <span className="text-sm font-semibold text-slate-700">Opening {currentTitle==="Cash Ledger"?"page":currentTitle.toLowerCase()}…</span>
+      </div>
+    </div>:null}
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 border-r border-slate-200/80 bg-white lg:flex lg:flex-col">
       <div className="flex h-20 items-center gap-3 border-b border-slate-100 px-5">
         <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-950 text-sm font-black text-white shadow-sm">CL</div>

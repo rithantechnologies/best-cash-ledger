@@ -28,9 +28,37 @@ button, a, input, select, textarea {
 
 button, a { touch-action: manipulation; }
 
-input, select, textarea { font: inherit; }
+input, select, textarea {
+  font: inherit;
+  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #a5b4fc !important;
+  box-shadow: 0 0 0 4px rgba(99,102,241,.08);
+}
+
+button, a {
+  transition: transform .16s ease, opacity .16s ease, background-color .16s ease, border-color .16s ease, color .16s ease;
+}
+
+button:active, a:active { transform: translateY(1px); }
 
 ::selection { background: #e0e7ff; color: #312e81; }
+
+@keyframes cashledger-progress {
+  0% { transform: translateX(-100%); }
+  45% { transform: translateX(-30%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes cashledger-fade-up {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.page-enter { animation: cashledger-fade-up .24s ease-out both; }
 
 @media (max-width: 767px) {
   input, select, textarea { font-size: 16px; }

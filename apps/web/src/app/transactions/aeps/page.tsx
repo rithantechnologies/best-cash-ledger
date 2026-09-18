@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { Field, FormSection, PageLoader, SummaryRow, TransactionFrame } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Customer={id:string;fullName:string;bankAccounts:{id:string;bankName:string;accountReference:string;isActive:boolean}[]};
@@ -33,12 +34,13 @@ export default function AepsPage(){
  const [notes,setNotes]=useState("");
  const [error,setError]=useState("");
  const [saving,setSaving]=useState(false);
+ const [loading,setLoading]=useState(true);
 
  useEffect(()=>{Promise.all([
   apiFetch<Customer[]>("/customers"),
   apiFetch<Account[]>("/dashboard/accounts"),
   apiFetch<Provider[]>("/providers"),
- ]).then(([c,a,p])=>{setCustomers(c);setAccounts(a);setProviders(p);}).catch(()=>setError("Failed to load form"));},[]);
+ ]).then(([c,a,p])=>{setCustomers(c);setAccounts(a);setProviders(p);}).catch(()=>setError("Failed to load form")).finally(()=>setLoading(false));},[]);
 
  const customer=customers.find(c=>c.id===customerId);
  const provider=providers.find(p=>p.id===providerId);
@@ -84,35 +86,52 @@ export default function AepsPage(){
   finally{setSaving(false);}
  }
 
- return <AppShell><div className="mx-auto max-w-4xl space-y-6">
-  <div><h2 className="text-2xl font-bold">AePS Withdrawal</h2><p className="text-sm text-slate-500">Record the authorized external AePS transaction and track provider settlement separately. No OTP or biometric data is stored.</p></div>
-  {error?<p className="rounded-lg bg-red-50 p-3 text-red-700">{error}</p>:null}
-  <form onSubmit={submit} className="grid gap-4 rounded-xl border bg-white p-5 md:grid-cols-2">
-   <select className="rounded-lg border px-3 py-2.5" value={customerId} onChange={e=>{setCustomerId(e.target.value);setBank("");}} required><option value="">Customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</select>
-   <input className="rounded-lg border px-3 py-2.5" placeholder="Aadhaar last 4" maxLength={4} value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} required/>
+ if(loading)return <AppShell><PageLoader label="Preparing AePS withdrawal…"/></AppShell>;
+ const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ return <AppShell><form onSubmit={submit}>
+  <TransactionFrame eyebrow="Customer service" title="AePS withdrawal" description="Record the external AePS withdrawal, customer cash payout and provider clearing without storing biometric or OTP data."
+   summary={<>
+    <SummaryRow label="Withdrawal" value={money(withdrawal)}/>
+    <SummaryRow label="Platform charge" value={money(charge)} tone="rose"/>
+    <SummaryRow label="Business commission" value={money(commission)} tone="emerald"/>
+    <SummaryRow label="Cash given" value={money(cashGiven)} tone="amber"/>
+    <SummaryRow label={settledNow?"Settlement received":"Provider clearing"} value={money(settlement)} tone="cyan"/>
+   </>}
+   footer={<button disabled={saving||aadhaar.length!==4||cashGiven<=0||settlement<=0} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white shadow-sm disabled:opacity-40">{saving?"Saving transaction…":"Save AePS withdrawal"}</button>}>
 
-   <div>
-    <input list="aeps-customer-banks" className="w-full rounded-lg border px-3 py-2.5" placeholder="Customer bank" value={bank} onChange={e=>setBank(e.target.value)} required/>
-    <datalist id="aeps-customer-banks">{customer?.bankAccounts.filter(x=>x.isActive).map(x=><option key={x.id} value={x.bankName}>{x.accountReference}</option>)}</datalist>
-   </div>
-   <input className="rounded-lg border px-3 py-2.5" type="number" step="0.01" min="0.01" placeholder="Withdrawal amount" value={amount} onChange={e=>setAmount(e.target.value)} required/>
+   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
-   <input className="rounded-lg border px-3 py-2.5" placeholder="Platform ID / terminal (optional)" value={platformId} onChange={e=>setPlatformId(e.target.value)}/>
-   <select className="rounded-lg border px-3 py-2.5" value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");}}><option value="">Platform / Provider (optional)</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-   <select className="rounded-lg border px-3 py-2.5" value={gatewayId} onChange={e=>{setGatewayId(e.target.value);const g=provider?.gateways.find(x=>x.id===e.target.value);if(g)setChargeRate(String(Number(g.defaultChargeRate)));}}><option value="">Gateway (optional)</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select>
-   <input className="rounded-lg border px-3 py-2.5" type="number" step="0.0001" min="0" placeholder="Platform charge %" value={chargeRate} onChange={e=>setChargeRate(e.target.value)} required/>
-   <input className="rounded-lg border px-3 py-2.5" type="number" step="0.0001" min="0" placeholder="Business commission %" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/>
+   <FormSection step="1" title="Customer & withdrawal" description="Identify the customer and the external bank account used for the AePS withdrawal.">
+    <div className="grid gap-3 sm:grid-cols-2">
+     <Field label="Customer"><select className={control} value={customerId} onChange={e=>{setCustomerId(e.target.value);setBank("");}} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</select></Field>
+     <Field label="Aadhaar last 4" hint="Only the last four digits are stored."><input className={control} inputMode="numeric" placeholder="Last 4 digits" maxLength={4} value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
+     <Field label="Customer bank"><div><input list="aeps-customer-banks" className={control} placeholder="Bank name" value={bank} onChange={e=>setBank(e.target.value)} required/><datalist id="aeps-customer-banks">{customer?.bankAccounts.filter(x=>x.isActive).map(x=><option key={x.id} value={x.bankName}>{x.accountReference}</option>)}</datalist></div></Field>
+     <Field label="Withdrawal amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
+    </div>
+   </FormSection>
 
-   <select className="rounded-lg border px-3 py-2.5" value={cashAccountId} onChange={e=>setCashAccountId(e.target.value)} required><option value="">Cash account paying customer</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>
-   <select className="rounded-lg border px-3 py-2.5" value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Settlement target wallet / bank</option>{accounts.filter(a=>["BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>
-   <input className="rounded-lg border px-3 py-2.5" type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)} placeholder="Expected settlement"/>
-   <label className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm md:col-span-2"><input type="checkbox" checked={settledNow} onChange={e=>setSettledNow(e.target.checked)} className="h-4 w-4"/><span><strong>Provider settlement already received</strong><span className="block text-xs text-emerald-800">Check only when the settlement is already visible in the target account. Otherwise it stays in Provider Clearing.</span></span></label>
+   <FormSection step="2" title="Platform & charges" description="Select the AePS provider and keep charges and commission visible.">
+    <div className="grid gap-3 sm:grid-cols-2">
+     <Field label="Platform / terminal ID"><input className={control} placeholder="Optional terminal ID" value={platformId} onChange={e=>setPlatformId(e.target.value)}/></Field>
+     <Field label="Provider"><select className={control} value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");}}><option value="">Optional provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+     <Field label="Gateway"><select className={control} value={gatewayId} onChange={e=>{setGatewayId(e.target.value);const g=provider?.gateways.find(x=>x.id===e.target.value);if(g)setChargeRate(String(Number(g.defaultChargeRate)));}}><option value="">Optional gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select></Field>
+     <Field label="Platform charge %"><input className={control} type="number" step="0.0001" min="0" value={chargeRate} onChange={e=>setChargeRate(e.target.value)} required/></Field>
+     <Field label="Business commission %"><input className={control} type="number" step="0.0001" min="0" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/></Field>
+    </div>
+   </FormSection>
 
-   <input className="rounded-lg border px-3 py-2.5 md:col-span-2" placeholder="Provider reference" value={reference} onChange={e=>setReference(e.target.value)}/>
-   <textarea className="rounded-lg border px-3 py-2.5 md:col-span-2" placeholder="Notes (optional)" value={notes} onChange={e=>setNotes(e.target.value)}/>
+   <FormSection step="3" title="Cash & provider settlement" description="Choose the cash drawer paying the customer and where provider settlement is expected.">
+    <div className="grid gap-3 sm:grid-cols-2">
+     <Field label="Cash account"><select className={control} value={cashAccountId} onChange={e=>setCashAccountId(e.target.value)} required><option value="">Cash account paying customer</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field>
+     <Field label="Settlement target"><select className={control} value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Wallet / bank receiving settlement</option>{accounts.filter(a=>["BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field>
+     <Field label="Expected settlement"><input className={control} type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)}/></Field>
+     <label className="flex min-h-11 items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm"><input type="checkbox" checked={settledNow} onChange={e=>setSettledNow(e.target.checked)} className="h-4 w-4"/><span><strong className="block text-emerald-900">Settlement already received</strong><span className="text-[11px] text-emerald-700">Only when visible in the target account.</span></span></label>
+    </div>
+   </FormSection>
 
-   <div className="md:col-span-2 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-4"><div><p className="text-xs text-slate-500">Withdrawal</p><p className="font-semibold">{money(withdrawal)}</p></div><div><p className="text-xs text-slate-500">Platform Charge</p><p className="font-semibold">{money(charge)}</p></div><div><p className="text-xs text-slate-500">Cash Given</p><p className="font-semibold">{money(cashGiven)}</p></div><div><p className="text-xs text-slate-500">Settlement</p><p className="font-semibold">{money(settlement)}</p></div></div>
-   <div className="md:col-span-2 flex justify-end"><button disabled={saving||aadhaar.length!==4||cashGiven<=0||settlement<=0} className="rounded-lg bg-slate-950 px-6 py-2.5 font-semibold text-white disabled:opacity-50">{saving?"Saving...":"Save AePS"}</button></div>
-  </form>
- </div></AppShell>;
+   <FormSection step="4" title="Reference & notes" description="Optional reconciliation information.">
+    <div className="grid gap-3 sm:grid-cols-2"><Field label="Provider reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Reference / transaction ID"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div>
+   </FormSection>
+  </TransactionFrame>
+ </form></AppShell>;
 }
