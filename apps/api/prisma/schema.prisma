@@ -1,0 +1,702 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  OWNER
+  ADMIN
+  STAFF
+}
+
+enum CustomerType {
+  WALK_IN
+  REGULAR
+}
+
+enum AccountType {
+  CASH
+  BANK
+  UPI
+  PROVIDER_WALLET
+  OWNER_CREDIT_CARD
+}
+
+enum AccountNature {
+  ASSET
+  LIABILITY
+}
+
+enum UsageType {
+  BUSINESS
+  PERSONAL
+  MIXED
+}
+
+enum TransactionType {
+  CARD_SWIPE
+  CASH_TRANSFER
+  AEPS_WITHDRAWAL
+  CUSTOMER_PAYOUT
+  INTERNAL_TRANSFER
+  BUSINESS_EXPENSE
+  PERSONAL_EXPENSE
+  ATM_WITHDRAWAL
+  OWNER_CC_PAYMENT
+  CASH_ADJUSTMENT
+  REVERSAL
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  FAILED
+  CANCELLED
+  REVERSED
+}
+
+enum CalculationType {
+  PERCENTAGE
+  FIXED
+}
+
+enum PayableStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+  REVERSED
+}
+
+enum PaymentStatus {
+  COMPLETED
+  REVERSED
+}
+
+enum CommissionMethod {
+  ADD_ON
+  DEDUCT
+}
+
+enum LedgerType {
+  ASSET
+  LIABILITY
+  INCOME
+  EXPENSE
+}
+
+enum EntryType {
+  DEBIT
+  CREDIT
+}
+
+enum JournalStatus {
+  POSTED
+  REVERSED
+}
+
+enum CashSessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum CountType {
+  OPENING
+  CLOSING
+}
+
+model Role {
+  id        String   @id @default(uuid())
+  name      RoleName @unique
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id           String     @id @default(uuid())
+  fullName     String
+  mobile       String?    @unique
+  email        String?    @unique
+  passwordHash String
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id])
+  isActive     Boolean    @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  customers    Customer[]
+}
+
+model Customer {
+  id            String                @id @default(uuid())
+  customerCode  String                @unique
+  customerType  CustomerType
+  fullName      String
+  mobile        String?
+  notes         String?
+  isActive      Boolean               @default(true)
+  createdById   String
+  createdBy     User                  @relation(fields: [createdById], references: [id])
+  cards         CustomerCard[]
+  bankAccounts  CustomerBankAccount[]
+  upiAccounts   CustomerUpiAccount[]
+  beneficiaries Beneficiary[]
+  transactions  Transaction[]
+  payables      CustomerPayable[]
+  ledgerEntries LedgerEntry[]
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([fullName])
+  @@index([mobile])
+}
+
+model CustomerCard {
+  id               String            @id @default(uuid())
+  customerId       String
+  customer         Customer          @relation(fields: [customerId], references: [id])
+  bankName         String
+  cardType         String?
+  lastFourDigits   String
+  nickname         String?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  cardSwipeDetails CardSwipeDetail[]
+}
+
+model CustomerBankAccount {
+  id                String               @id @default(uuid())
+  customerId        String
+  customer          Customer             @relation(fields: [customerId], references: [id])
+  accountHolderName String
+  bankName          String
+  accountReference  String
+  ifsc              String?
+  isActive          Boolean              @default(true)
+  cashTransfers     CashTransferDetail[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+}
+
+model CustomerUpiAccount {
+  id            String               @id @default(uuid())
+  customerId    String
+  customer      Customer             @relation(fields: [customerId], references: [id])
+  accountName   String
+  upiId         String?
+  mobileNumber  String?
+  providerName  String?
+  isActive      Boolean              @default(true)
+  cashTransfers CashTransferDetail[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+}
+
+model Beneficiary {
+  id               String               @id @default(uuid())
+  customerId       String
+  customer         Customer             @relation(fields: [customerId], references: [id])
+  beneficiaryName  String
+  relationshipNote String?
+  notes            String?
+  isActive         Boolean              @default(true)
+  accounts         BeneficiaryAccount[]
+  cashTransfers    CashTransferDetail[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+}
+
+model BeneficiaryAccount {
+  id               String               @id @default(uuid())
+  beneficiaryId    String
+  beneficiary      Beneficiary          @relation(fields: [beneficiaryId], references: [id])
+  accountType      String
+  bankName         String?
+  accountReference String?
+  ifsc             String?
+  upiId            String?
+  mobileNumber     String?
+  isActive         Boolean              @default(true)
+  cashTransfers    CashTransferDetail[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+}
+
+model Provider {
+  id           String              @id @default(uuid())
+  name         String              @unique
+  providerType String
+  notes        String?
+  isActive     Boolean             @default(true)
+  gateways     ProviderGateway[]
+  accounts     FinancialAccount[]
+  charges      TransactionCharge[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+}
+
+model ProviderGateway {
+  id                String          @id @default(uuid())
+  providerId        String
+  provider          Provider        @relation(fields: [providerId], references: [id])
+  gatewayName       String
+  gatewayCode       String?
+  defaultChargeType CalculationType
+  defaultChargeRate Decimal         @db.Decimal(10, 4)
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([providerId, gatewayName])
+}
+
+model PaymentTerm {
+  id                    String            @id @default(uuid())
+  name                  String            @unique
+  durationValue         Int
+  durationUnit          String
+  defaultCommissionType CalculationType
+  defaultCommissionRate Decimal           @db.Decimal(10, 4)
+  isActive              Boolean           @default(true)
+  commissionRules       CommissionRule[]
+  cardSwipes            CardSwipeDetail[]
+  payables              CustomerPayable[]
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+}
+
+model CommissionRule {
+  id              String          @id @default(uuid())
+  customerId      String?
+  providerId      String?
+  gatewayId       String?
+  paymentTermId   String?
+  transactionType TransactionType
+  commissionType  CalculationType
+  commissionRate  Decimal         @db.Decimal(10, 4)
+  isActive        Boolean         @default(true)
+  paymentTerm     PaymentTerm?    @relation(fields: [paymentTermId], references: [id])
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([customerId, providerId, gatewayId, paymentTermId])
+}
+
+model FinancialAccount {
+  id                         String                    @id @default(uuid())
+  accountCode                String                    @unique
+  accountName                String
+  accountType                AccountType
+  accountNature              AccountNature
+  providerId                 String?
+  provider                   Provider?                 @relation(fields: [providerId], references: [id])
+  bankName                   String?
+  accountReference           String?
+  lastFourDigits             String?
+  creditLimit                Decimal?                  @db.Decimal(18, 2)
+  usageType                  UsageType
+  openingBalance             Decimal                   @default(0) @db.Decimal(18, 2)
+  isActive                   Boolean                   @default(true)
+  ledgerAccount              LedgerAccount?
+  dailyBalances              DailyAccountBalance[]
+  cardSwipeSettlements       CardSwipeDetail[]
+  payablePayments            PayablePayment[]
+  cashTransfersOut           CashTransferDetail[]      @relation("CashTransferSource")
+  cashTransfersCash          CashTransferDetail[]      @relation("CashTransferCash")
+  aepsSettlements            AepsDetail[]              @relation("AepsSettlement")
+  aepsCash                   AepsDetail[]              @relation("AepsCash")
+  internalTransfersOut       InternalTransferDetail[]  @relation("InternalTransferSource")
+  internalTransfersIn        InternalTransferDetail[]  @relation("InternalTransferDestination")
+  expensePayments            ExpenseDetail[]
+  atmWithdrawalsFromBank     AtmWithdrawalDetail[]     @relation("AtmBankAccount")
+  atmWithdrawalsToCash       AtmWithdrawalDetail[]     @relation("AtmCashAccount")
+  creditCardPaymentsAsCard   CreditCardPaymentDetail[] @relation("CreditCardPaymentCard")
+  creditCardPaymentsAsSource CreditCardPaymentDetail[] @relation("CreditCardPaymentSource")
+  cashSessions               CashSession[]
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+}
+
+model ExpenseCategory {
+  id           String          @id @default(uuid())
+  name         String          @unique
+  expenseUsage UsageType
+  isActive     Boolean         @default(true)
+  expenses     ExpenseDetail[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model Transaction {
+  id                    String                   @id @default(uuid())
+  transactionNumber     String                   @unique
+  transactionType       TransactionType
+  transactionAt         DateTime
+  customerId            String?
+  customer              Customer?                @relation(fields: [customerId], references: [id])
+  grossAmount           Decimal                  @db.Decimal(18, 2)
+  netAmount             Decimal?                 @db.Decimal(18, 2)
+  status                TransactionStatus
+  referenceNumber       String?
+  notes                 String?
+  idempotencyKey        String?                  @unique
+  reversedTransactionId String?
+  reversalReason        String?
+  createdById           String
+  updatedById           String?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  charges               TransactionCharge[]
+  commissions           TransactionCommission[]
+  cardSwipe             CardSwipeDetail?
+  cashTransfer          CashTransferDetail?
+  aeps                  AepsDetail?
+  internalTransfer      InternalTransferDetail?
+  expense               ExpenseDetail?
+  atmWithdrawal         AtmWithdrawalDetail?
+  creditCardPayment     CreditCardPaymentDetail?
+  payable               CustomerPayable?
+  payablePayment        PayablePayment?
+  journal               LedgerJournal?
+
+  @@index([transactionAt])
+  @@index([transactionType, transactionAt])
+  @@index([customerId, transactionAt])
+  @@index([status])
+}
+
+model TransactionCharge {
+  id              String          @id @default(uuid())
+  transactionId   String
+  transaction     Transaction     @relation(fields: [transactionId], references: [id])
+  chargeType      String
+  providerId      String?
+  provider        Provider?       @relation(fields: [providerId], references: [id])
+  gatewayId       String?
+  calculationType CalculationType
+  rate            Decimal?        @db.Decimal(10, 4)
+  amount          Decimal         @db.Decimal(18, 2)
+  notes           String?
+  createdAt       DateTime        @default(now())
+
+  @@index([transactionId])
+  @@index([providerId])
+}
+
+model TransactionCommission {
+  id              String          @id @default(uuid())
+  transactionId   String
+  transaction     Transaction     @relation(fields: [transactionId], references: [id])
+  commissionType  String
+  calculationType CalculationType
+  rate            Decimal         @db.Decimal(10, 4)
+  amount          Decimal         @db.Decimal(18, 2)
+  createdAt       DateTime        @default(now())
+
+  @@index([transactionId])
+}
+
+model CardSwipeDetail {
+  id                    String           @id @default(uuid())
+  transactionId         String           @unique
+  transaction           Transaction      @relation(fields: [transactionId], references: [id])
+  customerCardId        String
+  customerCard          CustomerCard     @relation(fields: [customerCardId], references: [id])
+  swipeAmount           Decimal          @db.Decimal(18, 2)
+  providerId            String
+  gatewayId             String
+  providerChargeRate    Decimal          @db.Decimal(10, 4)
+  providerChargeAmount  Decimal          @db.Decimal(18, 2)
+  commissionRate        Decimal          @db.Decimal(10, 4)
+  commissionAmount      Decimal          @db.Decimal(18, 2)
+  customerPayableAmount Decimal          @db.Decimal(18, 2)
+  paymentTermId         String
+  paymentTerm           PaymentTerm      @relation(fields: [paymentTermId], references: [id])
+  dueAt                 DateTime
+  settlementAccountId   String
+  settlementAccount     FinancialAccount @relation(fields: [settlementAccountId], references: [id])
+  settlementAmount      Decimal          @db.Decimal(18, 2)
+  createdAt             DateTime         @default(now())
+
+  @@index([providerId, gatewayId])
+  @@index([dueAt])
+}
+
+model CustomerPayable {
+  id                  String           @id @default(uuid())
+  customerId          String
+  customer            Customer         @relation(fields: [customerId], references: [id])
+  sourceTransactionId String           @unique
+  sourceTransaction   Transaction      @relation(fields: [sourceTransactionId], references: [id])
+  paymentTermId       String?
+  paymentTerm         PaymentTerm?     @relation(fields: [paymentTermId], references: [id])
+  originalAmount      Decimal          @db.Decimal(18, 2)
+  paidAmount          Decimal          @default(0) @db.Decimal(18, 2)
+  remainingAmount     Decimal          @db.Decimal(18, 2)
+  dueAt               DateTime
+  status              PayableStatus
+  payments            PayablePayment[]
+  ledgerEntries       LedgerEntry[]
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([customerId])
+  @@index([status, dueAt])
+}
+
+model PayablePayment {
+  id              String           @id @default(uuid())
+  payableId       String
+  payable         CustomerPayable  @relation(fields: [payableId], references: [id])
+  transactionId   String           @unique
+  transaction     Transaction      @relation(fields: [transactionId], references: [id])
+  paymentDate     DateTime
+  sourceAccountId String
+  sourceAccount   FinancialAccount @relation(fields: [sourceAccountId], references: [id])
+  amount          Decimal          @db.Decimal(18, 2)
+  referenceNumber String?
+  notes           String?
+  status          PaymentStatus
+  createdById     String
+  createdAt       DateTime         @default(now())
+
+  @@index([payableId])
+}
+
+model CashTransferDetail {
+  id                    String               @id @default(uuid())
+  transactionId         String               @unique
+  transaction           Transaction          @relation(fields: [transactionId], references: [id])
+  beneficiaryId         String?
+  beneficiary           Beneficiary?         @relation(fields: [beneficiaryId], references: [id])
+  beneficiaryAccountId  String?
+  beneficiaryAccount    BeneficiaryAccount?  @relation(fields: [beneficiaryAccountId], references: [id])
+  customerBankAccountId String?
+  customerBankAccount   CustomerBankAccount? @relation(fields: [customerBankAccountId], references: [id])
+  customerUpiAccountId  String?
+  customerUpiAccount    CustomerUpiAccount?  @relation(fields: [customerUpiAccountId], references: [id])
+  requestedAmount       Decimal              @db.Decimal(18, 2)
+  commissionMethod      CommissionMethod
+  commissionRate        Decimal              @db.Decimal(10, 4)
+  commissionAmount      Decimal              @db.Decimal(18, 2)
+  cashReceived          Decimal              @db.Decimal(18, 2)
+  actualTransferAmount  Decimal              @db.Decimal(18, 2)
+  transferChargeAmount  Decimal              @default(0) @db.Decimal(18, 2)
+  transferChargeType    String?
+  sourceAccountId       String
+  sourceAccount         FinancialAccount     @relation("CashTransferSource", fields: [sourceAccountId], references: [id])
+  cashAccountId         String
+  cashAccount           FinancialAccount     @relation("CashTransferCash", fields: [cashAccountId], references: [id])
+  transferReference     String?
+  createdAt             DateTime             @default(now())
+}
+
+model AepsDetail {
+  id                   String           @id @default(uuid())
+  transactionId        String           @unique
+  transaction          Transaction      @relation(fields: [transactionId], references: [id])
+  aadhaarLastFour      String
+  customerBankName     String
+  withdrawalAmount     Decimal          @db.Decimal(18, 2)
+  platformId           String?
+  providerId           String?
+  gatewayId            String?
+  platformChargeRate   Decimal?         @db.Decimal(10, 4)
+  platformChargeAmount Decimal          @db.Decimal(18, 2)
+  commissionRate       Decimal?         @db.Decimal(10, 4)
+  commissionAmount     Decimal          @db.Decimal(18, 2)
+  cashGiven            Decimal          @db.Decimal(18, 2)
+  cashAccountId        String
+  cashAccount          FinancialAccount @relation("AepsCash", fields: [cashAccountId], references: [id])
+  settlementAccountId  String
+  settlementAccount    FinancialAccount @relation("AepsSettlement", fields: [settlementAccountId], references: [id])
+  settlementAmount     Decimal          @db.Decimal(18, 2)
+  providerReference    String?
+  createdAt            DateTime         @default(now())
+}
+
+model InternalTransferDetail {
+  id                   String           @id @default(uuid())
+  transactionId        String           @unique
+  transaction          Transaction      @relation(fields: [transactionId], references: [id])
+  sourceAccountId      String
+  sourceAccount        FinancialAccount @relation("InternalTransferSource", fields: [sourceAccountId], references: [id])
+  destinationAccountId String
+  destinationAccount   FinancialAccount @relation("InternalTransferDestination", fields: [destinationAccountId], references: [id])
+  transferAmount       Decimal          @db.Decimal(18, 2)
+  chargeAmount         Decimal          @default(0) @db.Decimal(18, 2)
+  referenceNumber      String?
+  createdAt            DateTime         @default(now())
+}
+
+model ExpenseDetail {
+  id                String           @id @default(uuid())
+  transactionId     String           @unique
+  transaction       Transaction      @relation(fields: [transactionId], references: [id])
+  expenseCategoryId String
+  expenseCategory   ExpenseCategory  @relation(fields: [expenseCategoryId], references: [id])
+  expenseType       UsageType
+  paymentAccountId  String
+  paymentAccount    FinancialAccount @relation(fields: [paymentAccountId], references: [id])
+  amount            Decimal          @db.Decimal(18, 2)
+  description       String
+  createdAt         DateTime         @default(now())
+}
+
+model AtmWithdrawalDetail {
+  id               String           @id @default(uuid())
+  transactionId    String           @unique
+  transaction      Transaction      @relation(fields: [transactionId], references: [id])
+  bankAccountId    String
+  bankAccount      FinancialAccount @relation("AtmBankAccount", fields: [bankAccountId], references: [id])
+  cashAccountId    String
+  cashAccount      FinancialAccount @relation("AtmCashAccount", fields: [cashAccountId], references: [id])
+  withdrawalAmount Decimal          @db.Decimal(18, 2)
+  cashReceived     Decimal          @db.Decimal(18, 2)
+  atmCharge        Decimal          @db.Decimal(18, 2)
+  referenceNumber  String?
+  createdAt        DateTime         @default(now())
+}
+
+model CreditCardPaymentDetail {
+  id                  String           @id @default(uuid())
+  transactionId       String           @unique
+  transaction         Transaction      @relation(fields: [transactionId], references: [id])
+  creditCardAccountId String
+  creditCardAccount   FinancialAccount @relation("CreditCardPaymentCard", fields: [creditCardAccountId], references: [id])
+  sourceAccountId     String
+  sourceAccount       FinancialAccount @relation("CreditCardPaymentSource", fields: [sourceAccountId], references: [id])
+  paymentAmount       Decimal          @db.Decimal(18, 2)
+  referenceNumber     String?
+  createdAt           DateTime         @default(now())
+}
+
+model CashSession {
+  id                   String                  @id @default(uuid())
+  cashAccountId        String
+  cashAccount          FinancialAccount        @relation(fields: [cashAccountId], references: [id])
+  businessDate         DateTime                @db.Date
+  openedById           String
+  openedAt             DateTime
+  openingTotal         Decimal                 @db.Decimal(18, 2)
+  expectedClosingTotal Decimal?                @db.Decimal(18, 2)
+  actualClosingTotal   Decimal?                @db.Decimal(18, 2)
+  differenceAmount     Decimal?                @db.Decimal(18, 2)
+  closedById           String?
+  closedAt             DateTime?
+  closingNotes         String?
+  status               CashSessionStatus
+  denominationCounts   CashDenominationCount[]
+
+  @@unique([cashAccountId, businessDate])
+}
+
+model CashDenominationCount {
+  id            String      @id @default(uuid())
+  cashSessionId String
+  cashSession   CashSession @relation(fields: [cashSessionId], references: [id])
+  countType     CountType
+  denomination  Decimal     @db.Decimal(10, 2)
+  quantity      Int
+  totalAmount   Decimal     @db.Decimal(18, 2)
+  createdAt     DateTime    @default(now())
+
+  @@index([cashSessionId, countType])
+}
+
+model LedgerAccount {
+  id                 String            @id @default(uuid())
+  ledgerCode         String            @unique
+  ledgerName         String
+  ledgerType         LedgerType
+  ledgerCategory     String
+  financialAccountId String?           @unique
+  financialAccount   FinancialAccount? @relation(fields: [financialAccountId], references: [id])
+  isActive           Boolean           @default(true)
+  entries            LedgerEntry[]
+  createdAt          DateTime          @default(now())
+}
+
+model LedgerJournal {
+  id            String        @id @default(uuid())
+  transactionId String        @unique
+  transaction   Transaction   @relation(fields: [transactionId], references: [id])
+  journalNumber String        @unique
+  postingDate   DateTime
+  description   String
+  status        JournalStatus
+  createdById   String
+  entries       LedgerEntry[]
+  createdAt     DateTime      @default(now())
+
+  @@index([postingDate])
+}
+
+model LedgerEntry {
+  id              String           @id @default(uuid())
+  journalId       String
+  journal         LedgerJournal    @relation(fields: [journalId], references: [id])
+  ledgerAccountId String
+  ledgerAccount   LedgerAccount    @relation(fields: [ledgerAccountId], references: [id])
+  entryType       EntryType
+  amount          Decimal          @db.Decimal(18, 2)
+  customerId      String?
+  customer        Customer?        @relation(fields: [customerId], references: [id])
+  payableId       String?
+  payable         CustomerPayable? @relation(fields: [payableId], references: [id])
+  description     String?
+  createdAt       DateTime         @default(now())
+
+  @@index([ledgerAccountId])
+  @@index([journalId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  entityType String
+  entityId   String
+  action     String
+  oldValues  Json?
+  newValues  Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+}
+
+model DailyAccountBalance {
+  id                 String           @id @default(uuid())
+  businessDate       DateTime         @db.Date
+  financialAccountId String
+  financialAccount   FinancialAccount @relation(fields: [financialAccountId], references: [id])
+  openingBalance     Decimal          @db.Decimal(18, 2)
+  totalIn            Decimal          @db.Decimal(18, 2)
+  totalOut           Decimal          @db.Decimal(18, 2)
+  closingBalance     Decimal          @db.Decimal(18, 2)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([businessDate, financialAccountId])
+}
+
+model DailyPayableSummary {
+  id             String   @id @default(uuid())
+  businessDate   DateTime @unique @db.Date
+  openingPayable Decimal  @db.Decimal(18, 2)
+  newPayables    Decimal  @db.Decimal(18, 2)
+  paymentsMade   Decimal  @db.Decimal(18, 2)
+  closingPayable Decimal  @db.Decimal(18, 2)
+  createdAt      DateTime @default(now())
+}
