@@ -35,7 +35,7 @@ export class LedgerService {
     return tx.ledgerJournal.create({
       data: {
         transactionId,
-        journalNumber: 'JRN-' + Date.now().toString(36).toUpperCase(),
+        journalNumber: 'JRN-' + transactionId,
         postingDate,
         description,
         status: JournalStatus.POSTED,

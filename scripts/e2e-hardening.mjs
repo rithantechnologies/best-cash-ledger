@@ -72,13 +72,13 @@ const swipe=await request('/transactions/card-swipe',{method:'POST',headers:{'id
  customerId:customer.id,customerCardId:card.id,swipeAmount:1000,providerId:provider.id,gatewayId:gateway.id,providerChargeRate:2,commissionRate:3,paymentTermId:term.id,dueAt:new Date(Date.now()+7*86400000).toISOString(),settlementAccountId:cash.id,settlementDueAt:new Date(Date.now()+86400000).toISOString(),referenceNumber:'HARD-SWIPE-'+suffix
 })},token);
 assert(swipe.providerSettlement.destinationAccountId===wallet.id,'Card swipe must force the provider built-in wallet');
-close(swipe.payable.originalAmount,970,'Card customer payable formula');
+close(swipe.payable.originalAmount,950,'Card customer payable formula');
 close(swipe.providerSettlement.expectedAmount,980,'Provider settlement amount');
 let accounts=await request('/dashboard/accounts',{},token);
 close(accounts.find(x=>x.id===wallet.id).currentBalance,0,'Wallet must not be credited before settlement');
 let summary=await request('/dashboard/summary',{},token);
 close(summary.pendingProviderSettlements,980,'Provider clearing pending');
-close(summary.operatingPosition,20010,'Operating position after card swipe');
+close(summary.operatingPosition,20030,'Operating position after card swipe');
 console.log('✓ card swipe uses conservative provider clearing and correct margin');
 
 let settlement=await request('/provider-settlements/'+swipe.providerSettlement.id+'/receipts',{method:'POST',headers:{'idempotency-key':key('settle1')},body:JSON.stringify({amount:400,destinationAccountId:wallet.id,referenceNumber:'SETTLE-1-'+suffix})},token);
@@ -87,7 +87,7 @@ accounts=await request('/dashboard/accounts',{},token);
 close(accounts.find(x=>x.id===wallet.id).currentBalance,400,'Wallet after partial settlement');
 summary=await request('/dashboard/summary',{},token);
 close(summary.pendingProviderSettlements,580,'Clearing after partial settlement');
-close(summary.operatingPosition,20010,'Operating position unchanged by clearing movement');
+close(summary.operatingPosition,20030,'Operating position unchanged by clearing movement');
 
 await request('/provider-settlements/'+swipe.providerSettlement.id+'/receipts',{method:'POST',headers:{'idempotency-key':key('settle2')},body:JSON.stringify({amount:580,destinationAccountId:wallet.id,referenceNumber:'SETTLE-2-'+suffix})},token);
 const settledDetail=await request('/provider-settlements/'+swipe.providerSettlement.id,{},token);
@@ -117,7 +117,7 @@ const payRace=await Promise.all([
 assert(payRace.filter(x=>x.status>=200&&x.status<300).length===1,'Exactly one concurrent payable payment should succeed');
 assert(payRace.filter(x=>x.status===400).length===1,'One concurrent payable payment should be rejected');
 const payAfter=await request('/payables/'+swipe.payable.id,{},token);
-close(payAfter.remainingAmount,270,'Payable remaining after concurrent race');
+close(payAfter.remainingAmount,250,'Payable remaining after concurrent race');
 console.log('✓ concurrent payable payout protection');
 
 const receivable=await request('/receivables',{method:'POST',headers:{'idempotency-key':key('recv')},body:JSON.stringify({

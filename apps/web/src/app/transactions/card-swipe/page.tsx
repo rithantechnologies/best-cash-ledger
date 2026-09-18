@@ -14,6 +14,7 @@ type Account={id:string;accountName:string;accountType:string;currentBalance:num
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionRate:string};
 type CommissionRule={commissionType:string;commissionRate:string}|null;
 type QuickCustomerResult={customer:{id:string;fullName:string};card:{id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean}};
+type PaymentLeg={sourceAccountId:string;amount:string};
 
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(v);
 
@@ -41,7 +42,9 @@ export default function CardSwipePage(){
   const [commissionRate,setCommissionRate]=useState("0");
   const [termId,setTermId]=useState("");
   const [dueAt,setDueAt]=useState(dateTimeLocal(new Date()));
-  const [settledNow,setSettledNow]=useState(false);
+  const [settledNow,setSettledNow]=useState(true);
+  const [recordCustomerPayment,setRecordCustomerPayment]=useState(false);
+  const [paymentLegs,setPaymentLegs]=useState<PaymentLeg[]>([{sourceAccountId:"",amount:""}]);
   const [settlementDueAt,setSettlementDueAt]=useState("");
   const [reference,setReference]=useState("");
   const [notes,setNotes]=useState("");
@@ -76,13 +79,27 @@ export default function CardSwipePage(){
   const swipe=Number(amount||0);
   const pRate=Number(providerRate||0);
   const cRate=Number(commissionRate||0);
-  const providerCharge=swipe*pRate/100;
-  const commission=swipe*cRate/100;
-  const settlement=swipe-providerCharge;
-  const payable=swipe-commission;
+  const providerCharge=Math.round(swipe*pRate)/100;
+  const commission=Math.round(swipe*cRate)/100;
+  const settlement=Math.round((swipe-providerCharge)*100)/100;
+  const rawPayable=Math.round((swipe-providerCharge-commission)*100)/100;
+  const payable=Math.max(0,rawPayable);
+  const liquidAccounts=accounts.filter(a=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType));
+  const paymentTotal=Math.round(paymentLegs.reduce((sum,leg)=>sum+Number(leg.amount||0),0)*100)/100;
+  const paidAmount=recordCustomerPayment?paymentTotal:0;
+  const remainingAmount=Math.max(0,Math.round((payable-paidAmount)*100)/100);
+  const payoutRequiredByAccount=(recordCustomerPayment?paymentLegs:[]).reduce((map,leg)=>{
+    if(leg.sourceAccountId)map.set(leg.sourceAccountId,(map.get(leg.sourceAccountId)??0)+Number(leg.amount||0));
+    return map;
+  },new Map<string,number>());
+  const payoutBalanceShort=[...payoutRequiredByAccount.entries()].some(([id,required])=>{
+    const account=liquidAccounts.find(a=>a.id===id);
+    const incoming=settledNow&&providerWallet?.id===id?settlement:0;
+    return !account||required>account.currentBalance+incoming+0.001;
+  });
 
   useEffect(()=>{
-    if(gateway) setProviderRate(String(Number(gateway.defaultChargeRate)));
+    setProviderRate(gateway?String(Number(gateway.defaultChargeRate)):"0");
   },[gatewayId, gateway]);
 
   useEffect(()=>{
@@ -143,6 +160,19 @@ export default function CardSwipePage(){
     finally{setQuickSaving(false);}
   }
 
+  function startCustomerPayment(){
+    if(recordCustomerPayment)return;
+    const remembered=localStorage.getItem("cashledger_card_payout_source");
+    const source=liquidAccounts.find(a=>a.id===remembered)?.id??"";
+    setPaymentLegs([{sourceAccountId:source,amount:payable>0?String(payable):""}]);
+    setRecordCustomerPayment(true);
+  }
+
+  function updatePaymentLeg(index:number,patch:Partial<PaymentLeg>){
+    setPaymentLegs(current=>current.map((leg,i)=>i===index?{...leg,...patch}:leg));
+    if(index===0&&patch.sourceAccountId)localStorage.setItem("cashledger_card_payout_source",patch.sourceAccountId);
+  }
+
   async function submit(e:FormEvent){
     e.preventDefault();setError("");setSaving(true);
     try{
@@ -151,6 +181,9 @@ export default function CardSwipePage(){
         providerChargeRate:pRate,commissionRate:cRate,paymentTermId:termId,
         dueAt:new Date(dueAt).toISOString(),
         settledNow,
+        customerPayments:recordCustomerPayment?paymentLegs.map(leg=>({
+          sourceAccountId:leg.sourceAccountId,amount:Number(leg.amount),
+        })):undefined,
         settlementDueAt:settlementDueAt?new Date(settlementDueAt).toISOString():undefined,
         referenceNumber:reference||undefined,
         notes:notes||undefined,
@@ -162,7 +195,12 @@ export default function CardSwipePage(){
 
   if(loading)return <AppShell><PageLoader label="Preparing card swipe…"/></AppShell>;
   const control="min-h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50";
-  const canSave=!saving&&payable>=0&&swipe>0&&!!customerId&&!!cardId&&!!termId&&!!providerId&&!!gatewayId&&!!providerWallet;
+  const payoutValid=!recordCustomerPayment||(
+    paymentLegs.length>0&&
+    paymentLegs.every(leg=>!!leg.sourceAccountId&&Number(leg.amount)>0)&&
+    paidAmount>0&&paidAmount<=payable+0.001&&!payoutBalanceShort
+  );
+  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&!!customerId&&!!cardId&&!!termId&&!!providerId&&!!gatewayId&&!!providerWallet&&payoutValid;
   return <AppShell><form onSubmit={submit}>
     <div className="page-enter mx-auto max-w-3xl space-y-3">
       <div className="px-1">
@@ -191,13 +229,16 @@ export default function CardSwipePage(){
           <div className="mt-5 grid gap-3 border-t border-slate-100 pt-5 sm:grid-cols-2">
             <Field label="Swipe amount"><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-400">₹</span><input className={control+" pl-8 text-xl font-black tracking-tight"} type="number" inputMode="decimal" step="0.01" min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" required/></div></Field>
             <Field label="Payment term"><select className={control} value={termId} onChange={e=>setTermId(e.target.value)} required><option value="">Select term</option>{terms.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
-            <Field label="Business commission %"><input className={control} type="number" inputMode="decimal" step="0.0001" min="0" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/></Field>
+            <Field label="Business commission">
+              <div className="relative"><input className={control+" pr-9 font-bold"} type="number" inputMode="decimal" step="0.1" min="0" max="5" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">%</span></div>
+              <div className="mt-2 grid grid-cols-5 gap-1.5">{[0.5,1,1.5,2,3].map(rate=><button key={rate} type="button" onClick={()=>setCommissionRate(String(rate))} className={"min-h-8 rounded-lg text-[11px] font-bold transition "+(Number(commissionRate)===rate?"bg-indigo-700 text-white":"bg-slate-100 text-slate-600")}>{rate}%</button>)}</div>
+            </Field>
             {!instantTerm?<Field label="Payable due"><input className={control} type="datetime-local" value={dueAt} onChange={e=>setDueAt(e.target.value)} required/></Field>:null}
           </div>
 
           <div className="mt-5 grid gap-3 border-t border-slate-100 pt-5 sm:grid-cols-3">
-            <Field label="Provider"><select className={control} value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");}} required><option value="">Select provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-            <Field label="Gateway"><select className={control} value={gatewayId} onChange={e=>setGatewayId(e.target.value)} required><option value="">Select gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select></Field>
+            <Field label="Provider"><select className={control} value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");setProviderRate("0");}} required><option value="">Select provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+            <Field label="Gateway"><select className={control} value={gatewayId} onChange={e=>setGatewayId(e.target.value)} disabled={!provider?.gateways.length} required><option value="">{provider&&provider.gateways.length===0?"No gateway set":"Select gateway"}</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select></Field>
             <Field label="Provider fee %"><input className={control} type="number" inputMode="decimal" step="0.0001" min="0" value={providerRate} onChange={e=>setProviderRate(e.target.value)} required/></Field>
           </div>
 
@@ -211,6 +252,30 @@ export default function CardSwipePage(){
             <input type="checkbox" checked={settledNow} onChange={e=>setSettledNow(e.target.checked)} className="h-4 w-4"/>
           </label>
 
+          <div className="mt-5 border-t border-slate-100 pt-5">
+            <div className="flex items-center justify-between gap-3"><p className="text-sm font-black text-slate-900">Customer payment</p>{recordCustomerPayment&&remainingAmount<=0.001?<span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">Settled</span>:null}</div>
+            <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+              <button type="button" onClick={()=>setRecordCustomerPayment(false)} className={"min-h-10 rounded-lg text-xs font-bold "+(!recordCustomerPayment?"bg-white text-slate-950 shadow-sm":"text-slate-500")}>Not paid</button>
+              <button type="button" onClick={startCustomerPayment} className={"min-h-10 rounded-lg text-xs font-bold "+(recordCustomerPayment?"bg-white text-indigo-700 shadow-sm":"text-slate-500")}>Paid / paying now</button>
+            </div>
+            {recordCustomerPayment?<div className="mt-3 space-y-2">
+              {paymentLegs.map((leg,index)=><div key={index} className="grid grid-cols-[minmax(0,1fr)_110px_auto] gap-2">
+                <select className={control} value={leg.sourceAccountId} onChange={e=>updatePaymentLeg(index,{sourceAccountId:e.target.value})}>
+                  <option value="">Paid from</option>
+                  {liquidAccounts.map(a=>{
+                    const incoming=settledNow&&providerWallet?.id===a.id?settlement:0;
+                    const usedElsewhere=paymentLegs.some((other,i)=>i!==index&&other.sourceAccountId===a.id);
+                    return <option key={a.id} value={a.id} disabled={usedElsewhere}>{a.accountName} · {money(a.currentBalance+incoming)}</option>;
+                  })}
+                </select>
+                <div className="relative"><span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">₹</span><input className={control+" pl-6 pr-2 font-bold"} type="number" inputMode="decimal" step="0.01" min="0.01" value={leg.amount} onChange={e=>updatePaymentLeg(index,{amount:e.target.value})}/></div>
+                <button type="button" aria-label="Remove payment source" disabled={paymentLegs.length===1} onClick={()=>setPaymentLegs(current=>current.filter((_,i)=>i!==index))} className="h-12 w-9 rounded-xl text-lg font-bold text-slate-400 disabled:opacity-20">×</button>
+              </div>)}
+              {paymentLegs.length<5&&paidAmount<payable-0.001?<button type="button" onClick={()=>setPaymentLegs(current=>[...current,{sourceAccountId:"",amount:""}])} className="min-h-9 text-xs font-bold text-indigo-700">+ Add payment source</button>:null}
+              {paidAmount>payable+0.001?<p className="text-xs font-semibold text-rose-600">Paid amount is more than customer payable.</p>:payoutBalanceShort?<p className="text-xs font-semibold text-rose-600">One of the selected accounts does not have enough balance.</p>:null}
+            </div>:null}
+          </div>
+
           <button type="button" onClick={()=>setShowOptional(v=>!v)} className="mt-3 flex min-h-10 w-full items-center justify-between text-left text-xs font-bold text-slate-500">
             <span>More details</span><span className="text-base">{showOptional?"−":"+"}</span>
           </button>
@@ -223,13 +288,15 @@ export default function CardSwipePage(){
       </Surface>
 
       <div className="rounded-2xl bg-slate-950 p-4 text-white shadow-sm">
-        <div className="flex items-end justify-between gap-3 border-b border-white/10 pb-3">
-          <span className="text-xs font-semibold text-slate-300">Customer payable</span>
-          <strong className="text-2xl font-black tracking-tight">{money(payable)}</strong>
+        <div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">Reconciliation</p>{recordCustomerPayment&&remainingAmount<=0.001?<span className="rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold text-emerald-300">Settled</span>:null}</div>
+        <div className="mt-3 grid grid-cols-3 gap-3 border-b border-white/10 pb-4 text-center">
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Payable</p><p className="mt-1 text-base font-black">{money(payable)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Paid</p><p className="mt-1 text-base font-black text-emerald-300">{money(paidAmount)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Remaining</p><p className={"mt-1 text-base font-black "+(remainingAmount>0.001?"text-amber-300":"text-emerald-300")}>{money(remainingAmount)}</p></div>
         </div>
         <div className="grid grid-cols-3 gap-3 pt-3 text-center">
-          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Wallet</p><p className="mt-1 text-xs font-bold text-cyan-300">{money(settlement)}</p></div>
-          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Fee</p><p className="mt-1 text-xs font-bold text-rose-300">{money(providerCharge)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Wallet credit</p><p className="mt-1 text-xs font-bold text-cyan-300">{money(settlement)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Provider fee</p><p className="mt-1 text-xs font-bold text-rose-300">{money(providerCharge)}</p></div>
           <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Commission</p><p className="mt-1 text-xs font-bold text-emerald-300">{money(commission)}</p></div>
         </div>
       </div>

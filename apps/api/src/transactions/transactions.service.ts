@@ -152,7 +152,14 @@ export class TransactionsService {
       dto.swipeAmount - providerChargeAmount,
     );
     const customerPayableAmount = this.money(
-      dto.swipeAmount - commissionAmount,
+      dto.swipeAmount - providerChargeAmount - commissionAmount,
+    );
+    const customerPayments = (dto.customerPayments ?? []).map((payment) => ({
+      sourceAccountId: payment.sourceAccountId,
+      amount: this.money(payment.amount),
+    }));
+    const customerPaidAmount = this.money(
+      customerPayments.reduce((sum, payment) => sum + payment.amount, 0),
     );
 
     if (
@@ -164,6 +171,9 @@ export class TransactionsService {
       throw new BadRequestException(
         'Invalid swipe amount, provider charge or customer commission',
       );
+    }
+    if (customerPaidAmount > customerPayableAmount + 0.001) {
+      throw new BadRequestException('Customer payment exceeds customer payable');
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -192,13 +202,39 @@ export class TransactionsService {
         throw new BadRequestException('Provider wallet is missing');
       }
 
+      const payoutRequiredByAccount = new Map<string, number>();
+      for (const payment of customerPayments) {
+        payoutRequiredByAccount.set(
+          payment.sourceAccountId,
+          this.money(
+            (payoutRequiredByAccount.get(payment.sourceAccountId) ?? 0) +
+              payment.amount,
+          ),
+        );
+      }
+      const payoutAccountIds = [...payoutRequiredByAccount.keys()].sort();
+      for (const accountId of payoutAccountIds) {
+        await this.validation.lockAccount(tx, accountId);
+      }
+      const payoutAccounts = await Promise.all(
+        payoutAccountIds.map((accountId) =>
+          this.validation.liquidAsset(
+            tx,
+            accountId,
+            'Customer payment source',
+          ),
+        ),
+      );
+      const payoutAccountById = new Map(
+        payoutAccounts.map((account) => [account.id, account]),
+      );
+
       const systemLedgers = await tx.ledgerAccount.findMany({
         where: {
           ledgerCode: {
             in: [
               'SYS-CUST-PAYABLE',
               'SYS-COMMISSION',
-              'SYS-PROVIDER-CHARGE',
               'SYS-PROVIDER-CLEARING',
             ],
           },
@@ -209,14 +245,8 @@ export class TransactionsService {
       );
       const payableLedger = byCode.get('SYS-CUST-PAYABLE');
       const commissionLedger = byCode.get('SYS-COMMISSION');
-      const providerChargeLedger = byCode.get('SYS-PROVIDER-CHARGE');
       const clearingLedger = byCode.get('SYS-PROVIDER-CLEARING');
-      if (
-        !payableLedger ||
-        !commissionLedger ||
-        !providerChargeLedger ||
-        !clearingLedger
-      ) {
+      if (!payableLedger || !commissionLedger || !clearingLedger) {
         throw new Error('Required system ledgers are missing');
       }
 
@@ -325,16 +355,6 @@ export class TransactionsService {
         },
       ];
 
-      if (providerChargeAmount > 0) {
-        entries.push({
-          ledgerAccountId: providerChargeLedger.id,
-          entryType: EntryType.DEBIT,
-          amount: providerChargeAmount,
-          customerId: dto.customerId,
-          providerSettlementId: providerSettlement.id,
-          description: 'Provider charge expense',
-        });
-      }
       if (commissionAmount > 0) {
         entries.push({
           ledgerAccountId: commissionLedger.id,
@@ -366,8 +386,124 @@ export class TransactionsService {
         );
       }
 
+      for (const accountId of payoutAccountIds) {
+        const account = payoutAccountById.get(accountId)!;
+        await this.validation.ensureSufficientFunds(
+          tx,
+          account,
+          payoutRequiredByAccount.get(accountId) ?? 0,
+        );
+      }
+
+      const payoutTransactions = [];
+      for (let index = 0; index < customerPayments.length; index += 1) {
+        const payment = customerPayments[index];
+        const sourceAccount = payoutAccountById.get(payment.sourceAccountId)!;
+        const payoutTransaction = await tx.transaction.create({
+          data: {
+            transactionNumber:
+              'PAY-' +
+              transaction.transactionNumber.slice(4) +
+              '-' +
+              (index + 1),
+            transactionType: TransactionType.CUSTOMER_PAYOUT,
+            transactionAt: new Date(),
+            customerId: dto.customerId,
+            grossAmount: new Prisma.Decimal(payment.amount),
+            netAmount: new Prisma.Decimal(payment.amount),
+            status: TransactionStatus.COMPLETED,
+            idempotencyKey:
+              'CARDPAYOUT:' + transaction.id + ':' + (index + 1),
+            referenceNumber: dto.referenceNumber,
+            notes: 'Recorded with ' + transaction.transactionNumber,
+            createdById: userId,
+          },
+        });
+        await tx.payablePayment.create({
+          data: {
+            payableId: payable.id,
+            transactionId: payoutTransaction.id,
+            paymentDate: new Date(),
+            sourceAccountId: sourceAccount.id,
+            amount: new Prisma.Decimal(payment.amount),
+            referenceNumber: dto.referenceNumber,
+            notes: 'Recorded with card swipe',
+            status: PaymentStatus.COMPLETED,
+            createdById: userId,
+          },
+        });
+        await this.ledger.post(
+          tx,
+          payoutTransaction.id,
+          userId,
+          'Customer payable payment',
+          [
+            {
+              ledgerAccountId: payableLedger.id,
+              entryType: EntryType.DEBIT,
+              amount: payment.amount,
+              customerId: dto.customerId,
+              payableId: payable.id,
+            },
+            {
+              ledgerAccountId: sourceAccount.ledgerAccount!.id,
+              entryType: EntryType.CREDIT,
+              amount: payment.amount,
+              customerId: dto.customerId,
+              payableId: payable.id,
+            },
+          ],
+        );
+        await this.auditCreated(tx, payoutTransaction, userId);
+        payoutTransactions.push(payoutTransaction);
+      }
+
+      let updatedPayable = payable;
+      if (customerPaidAmount > 0) {
+        const remainingAmount = this.money(
+          Math.max(0, customerPayableAmount - customerPaidAmount),
+        );
+        const payableStatus =
+          remainingAmount <= 0.001
+            ? PayableStatus.PAID
+            : PayableStatus.PARTIALLY_PAID;
+        updatedPayable = await tx.customerPayable.update({
+          where: { id: payable.id },
+          data: {
+            paidAmount: new Prisma.Decimal(customerPaidAmount),
+            remainingAmount: new Prisma.Decimal(remainingAmount),
+            status: payableStatus,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            userId,
+            entityType: 'CUSTOMER_PAYABLE',
+            entityId: payable.id,
+            action: 'PAY_AT_SOURCE',
+            oldValues: {
+              paidAmount: '0',
+              remainingAmount: customerPayableAmount.toString(),
+              status: PayableStatus.PENDING,
+            },
+            newValues: {
+              paidAmount: customerPaidAmount.toString(),
+              remainingAmount: remainingAmount.toString(),
+              status: payableStatus,
+              paymentCount: customerPayments.length,
+            },
+          },
+        });
+      }
+
       await this.auditCreated(tx, transaction, userId);
-      return { transaction, payable, providerSettlement, settlementReceipt };
+      return {
+        transaction,
+        payable: updatedPayable,
+        providerSettlement,
+        settlementReceipt,
+        payoutTransactions,
+      };
     });
   }
 

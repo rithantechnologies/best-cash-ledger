@@ -1,4 +1,20 @@
-import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+
+class CardSwipeCustomerPaymentDto {
+  @IsNumber() @Min(0.01) amount!: number;
+  @IsString() sourceAccountId!: string;
+}
 
 export class CreateCardSwipeDto {
   @IsString() customerId!: string;
@@ -13,6 +29,12 @@ export class CreateCardSwipeDto {
   @IsOptional() @IsString() settlementAccountId?: string;
   @IsOptional() @IsBoolean() settledNow?: boolean;
   @IsOptional() @IsDateString() settlementDueAt?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => CardSwipeCustomerPaymentDto)
+  customerPayments?: CardSwipeCustomerPaymentDto[];
   @IsOptional() @IsString() referenceNumber?: string;
   @IsOptional() @IsString() notes?: string;
 }
