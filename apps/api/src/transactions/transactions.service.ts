@@ -12,6 +12,7 @@ import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
 import { CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
+import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 
 @Injectable()
@@ -23,6 +24,10 @@ export class TransactionsService {
     private readonly idempotency: IdempotencyService,
     private readonly settlements: ProviderSettlementsService,
   ) {}
+
+  private money(value: number) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
 
   private auditCreated(tx: Prisma.TransactionClient, transaction: {
     id: string;
@@ -137,11 +142,18 @@ export class TransactionsService {
       dto,
       providedIdempotencyKey,
     );
-    const providerChargeAmount =
-      dto.swipeAmount * dto.providerChargeRate / 100;
-    const commissionAmount = dto.swipeAmount * dto.commissionRate / 100;
-    const settlementAmount = dto.swipeAmount - providerChargeAmount;
-    const customerPayableAmount = dto.swipeAmount - commissionAmount;
+    const providerChargeAmount = this.money(
+      dto.swipeAmount * dto.providerChargeRate / 100,
+    );
+    const commissionAmount = this.money(
+      dto.swipeAmount * dto.commissionRate / 100,
+    );
+    const settlementAmount = this.money(
+      dto.swipeAmount - providerChargeAmount,
+    );
+    const customerPayableAmount = this.money(
+      dto.swipeAmount - commissionAmount,
+    );
 
     if (
       settlementAmount <= 0 ||
@@ -172,6 +184,7 @@ export class TransactionsService {
         await this.validation.providerSettlementDestination(
           tx,
           dto.settlementAccountId,
+          dto.providerId,
         );
 
       const systemLedgers = await tx.ledgerAccount.findMany({
@@ -364,16 +377,21 @@ export class TransactionsService {
       dto,
       providedIdempotencyKey,
     );
-    const commissionAmount =
-      dto.requestedAmount * dto.commissionRate / 100;
+    const commissionAmount = this.money(
+      dto.requestedAmount * dto.commissionRate / 100,
+    );
     const addOn = dto.commissionMethod === 'ADD_ON';
-    const cashReceived = addOn
-      ? dto.requestedAmount + commissionAmount
-      : dto.requestedAmount;
-    const actualTransferAmount = addOn
-      ? dto.requestedAmount
-      : dto.requestedAmount - commissionAmount;
-    const transferChargeAmount = dto.transferChargeAmount ?? 0;
+    const cashReceived = this.money(
+      addOn
+        ? dto.requestedAmount + commissionAmount
+        : dto.requestedAmount,
+    );
+    const actualTransferAmount = this.money(
+      addOn
+        ? dto.requestedAmount
+        : dto.requestedAmount - commissionAmount,
+    );
+    const transferChargeAmount = this.money(dto.transferChargeAmount ?? 0);
     const destinationCount = [
       dto.beneficiaryAccountId,
       dto.customerBankAccountId,
@@ -610,12 +628,18 @@ export class TransactionsService {
       dto,
       providedIdempotencyKey,
     );
-    const platformChargeAmount =
-      dto.withdrawalAmount * dto.platformChargeRate / 100;
-    const commissionAmount =
-      dto.withdrawalAmount * dto.commissionRate / 100;
-    const cashGiven = dto.withdrawalAmount - commissionAmount;
-    const settlementAmount = dto.withdrawalAmount - platformChargeAmount;
+    const platformChargeAmount = this.money(
+      dto.withdrawalAmount * dto.platformChargeRate / 100,
+    );
+    const commissionAmount = this.money(
+      dto.withdrawalAmount * dto.commissionRate / 100,
+    );
+    const cashGiven = this.money(
+      dto.withdrawalAmount - commissionAmount,
+    );
+    const settlementAmount = this.money(
+      dto.withdrawalAmount - platformChargeAmount,
+    );
 
     if (
       cashGiven <= 0 ||
@@ -646,6 +670,7 @@ export class TransactionsService {
           this.validation.providerSettlementDestination(
             tx,
             dto.settlementAccountId,
+            dto.providerId,
           ),
           tx.ledgerAccount.findUnique({
             where: { ledgerCode: 'SYS-PROVIDER-CHARGE' },
@@ -784,6 +809,179 @@ export class TransactionsService {
         transaction.id,
         userId,
         'AePS withdrawal',
+        entries,
+      );
+
+      let settlementReceipt = null;
+      if (dto.settledNow) {
+        settlementReceipt = await this.settlements.autoReceive(
+          tx,
+          providerSettlement.id,
+          settlementAccount.id,
+          settlementAmount,
+          userId,
+          dto.providerReference,
+        );
+      }
+
+      await this.auditCreated(tx, transaction, userId);
+      return { transaction, providerSettlement, settlementReceipt };
+    });
+  }
+
+  async createMicroAtm(
+    dto: CreateMicroAtmDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.MICRO_ATM,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
+    const withdrawalAmount = this.money(dto.withdrawalAmount);
+    const providerCommissionAmount = this.money(
+      withdrawalAmount * dto.providerCommissionRate / 100,
+    );
+    const settlementAmount = this.money(
+      withdrawalAmount + providerCommissionAmount,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.validation.activeCustomer(tx, dto.customerId);
+      await this.validation.providerGateway(
+        tx,
+        dto.providerId,
+        dto.gatewayId,
+        false,
+      );
+      await this.validation.lockAccount(tx, dto.cashAccountId);
+
+      const [cashAccount, settlementAccount, commissionLedger, clearingLedger] =
+        await Promise.all([
+          this.validation.cashAccount(
+            tx,
+            dto.cashAccountId,
+            'Micro ATM cash account',
+          ),
+          this.validation.providerSettlementDestination(
+            tx,
+            dto.settlementAccountId,
+            dto.providerId,
+          ),
+          tx.ledgerAccount.findUnique({
+            where: { ledgerCode: 'SYS-COMMISSION' },
+          }),
+          tx.ledgerAccount.findUnique({
+            where: { ledgerCode: 'SYS-PROVIDER-CLEARING' },
+          }),
+        ]);
+      if (!commissionLedger || !clearingLedger) {
+        throw new NotFoundException('Required Micro ATM system ledger not found');
+      }
+
+      await this.validation.ensureSufficientFunds(
+        tx,
+        cashAccount,
+        withdrawalAmount,
+      );
+
+      const transaction = await tx.transaction.create({
+        data: {
+          transactionNumber: 'MAT-' + Date.now().toString(36).toUpperCase(),
+          transactionType: TransactionType.MICRO_ATM,
+          transactionAt: new Date(),
+          customerId: dto.customerId,
+          grossAmount: new Prisma.Decimal(withdrawalAmount),
+          netAmount: new Prisma.Decimal(withdrawalAmount),
+          status: TransactionStatus.COMPLETED,
+          idempotencyKey,
+          referenceNumber: dto.providerReference,
+          notes: dto.notes,
+          createdById: userId,
+        },
+      });
+
+      await tx.microAtmDetail.create({
+        data: {
+          transactionId: transaction.id,
+          cardLastFour: dto.cardLastFour,
+          customerBankName: dto.customerBankName,
+          withdrawalAmount: new Prisma.Decimal(withdrawalAmount),
+          providerId: dto.providerId,
+          gatewayId: dto.gatewayId,
+          providerCommissionRate: new Prisma.Decimal(
+            dto.providerCommissionRate,
+          ),
+          providerCommissionAmount: new Prisma.Decimal(
+            providerCommissionAmount,
+          ),
+          cashGiven: new Prisma.Decimal(withdrawalAmount),
+          cashAccountId: dto.cashAccountId,
+          settlementAccountId: dto.settlementAccountId,
+          settlementAmount: new Prisma.Decimal(settlementAmount),
+          providerReference: dto.providerReference,
+        },
+      });
+
+      if (providerCommissionAmount > 0) {
+        await tx.transactionCommission.create({
+          data: {
+            transactionId: transaction.id,
+            commissionType: 'MICRO_ATM_PROVIDER',
+            calculationType: 'PERCENTAGE',
+            rate: new Prisma.Decimal(dto.providerCommissionRate),
+            amount: new Prisma.Decimal(providerCommissionAmount),
+          },
+        });
+      }
+
+      const providerSettlement = await this.settlements.createForSource(tx, {
+        sourceTransactionId: transaction.id,
+        providerId: dto.providerId,
+        gatewayId: dto.gatewayId,
+        expectedAmount: settlementAmount,
+        destinationAccountId: settlementAccount.id,
+        dueAt: dto.settlementDueAt
+          ? new Date(dto.settlementDueAt)
+          : null,
+        createdById: userId,
+      });
+
+      const entries: JournalEntry[] = [
+        {
+          ledgerAccountId: clearingLedger.id,
+          entryType: EntryType.DEBIT,
+          amount: settlementAmount,
+          customerId: dto.customerId,
+          providerSettlementId: providerSettlement.id,
+          description: 'Micro ATM provider settlement pending',
+        },
+        {
+          ledgerAccountId: cashAccount.ledgerAccount!.id,
+          entryType: EntryType.CREDIT,
+          amount: withdrawalAmount,
+          customerId: dto.customerId,
+          description: 'Micro ATM cash paid to customer',
+        },
+      ];
+      if (providerCommissionAmount > 0) {
+        entries.push({
+          ledgerAccountId: commissionLedger.id,
+          entryType: EntryType.CREDIT,
+          amount: providerCommissionAmount,
+          customerId: dto.customerId,
+          providerSettlementId: providerSettlement.id,
+          description: 'Micro ATM provider commission income',
+        });
+      }
+
+      await this.ledger.post(
+        tx,
+        transaction.id,
+        userId,
+        'Micro ATM withdrawal',
         entries,
       );
 
@@ -1285,6 +1483,7 @@ export class TransactionsService {
         cardSwipe: true,
         cashTransfer: true,
         aeps: true,
+        microAtm: true,
         internalTransfer: true,
         expense: true,
         atmWithdrawal: true,
@@ -1312,6 +1511,10 @@ export class TransactionsService {
 
   async reverse(id: string, dto: ReverseTransactionDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE',
+        id,
+      );
       const original = await tx.transaction.findUnique({
         where: { id },
         include: {
@@ -1348,6 +1551,11 @@ export class TransactionsService {
       if (!original.journal) {
         throw new BadRequestException('Transaction has no posted journal to reverse');
       }
+
+      await this.validation.ensureReversalCapacity(
+        tx,
+        original.journal.entries,
+      );
 
       const reversal = await tx.transaction.create({
         data: {

@@ -10,6 +10,7 @@ import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
 import { CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
+import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { TransactionsService } from './transactions.service.js';
 
@@ -57,6 +58,11 @@ export class TransactionsController {
   @Post('aeps')
   createAeps(@Body() dto: CreateAepsDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
     return this.transactions.createAeps(dto, req.user.userId, key);
+  }
+
+  @Post('micro-atm')
+  createMicroAtm(@Body() dto: CreateMicroAtmDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.transactions.createMicroAtm(dto, req.user.userId, key);
   }
 
   @Post('internal-transfer')

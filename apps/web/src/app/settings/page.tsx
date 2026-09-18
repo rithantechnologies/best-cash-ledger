@@ -175,7 +175,7 @@ export default function SettingsPage(){
       <select className={input} value={ruleProvider} onChange={e=>{setRuleProvider(e.target.value);setRuleGateway("");}}><option value="">Any provider</option>{providers.filter(p=>p.isActive).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
       <select className={input} value={ruleGateway} onChange={e=>setRuleGateway(e.target.value)}><option value="">Any gateway</option>{selectedProvider?.gateways.filter(g=>g.isActive).map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select>
       <select className={input} value={ruleTerm} onChange={e=>setRuleTerm(e.target.value)}><option value="">Any payment term</option>{terms.filter(t=>t.isActive).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
-      <select className={input} value={ruleType} onChange={e=>setRuleType(e.target.value)}><option value="CARD_SWIPE">Card Swipe</option><option value="CASH_TRANSFER">Cash Transfer</option><option value="AEPS_WITHDRAWAL">AePS</option></select>
+      <select className={input} value={ruleType} onChange={e=>setRuleType(e.target.value)}><option value="CARD_SWIPE">Card Swipe</option><option value="CASH_TRANSFER">Cash Transfer</option><option value="AEPS_WITHDRAWAL">AePS</option><option value="MICRO_ATM">Micro ATM provider commission</option></select>
       <select className={input} value={ruleCalc} onChange={e=>setRuleCalc(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed</option></select>
       <input className={input} type="number" step="0.0001" min="0" placeholder="Rate / amount" value={ruleRate} onChange={e=>setRuleRate(e.target.value)} required/>
       <button className={primary}>Add Rule</button>

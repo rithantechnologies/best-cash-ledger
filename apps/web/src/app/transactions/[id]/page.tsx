@@ -17,6 +17,7 @@ type Tx={
  commissions:{id:string;commissionType:string;rate:string;amount:string}[];
  journal:{journalNumber:string;description:string;entries:Entry[]}|null;
  payable:{id:string;originalAmount:string;paidAmount:string;remainingAmount:string;status:string}|null;
+ microAtm:{cardLastFour:string;customerBankName:string|null;withdrawalAmount:string;providerCommissionRate:string;providerCommissionAmount:string;cashGiven:string;settlementAmount:string;providerReference:string|null}|null;
 };
 const money=(v:string|number|null)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(Number(v||0));
 const tone=(s:string)=>s==="COMPLETED"?"emerald":s==="PENDING"?"amber":s==="REVERSED"?"rose":"slate";
@@ -56,6 +57,12 @@ export default function TransactionDetailPage(){
    <DetailStat label="Reference" value={tx.referenceNumber??"—"}/>
   </div>
 
+  {tx.microAtm?<Surface className="p-4 sm:p-5">
+   <div className="mb-4"><h3 className="text-sm font-bold">Micro ATM details</h3><p className="text-[11px] text-slate-400">Customer cash withdrawal and provider settlement values.</p></div>
+   <div className="grid grid-cols-2 gap-x-5 gap-y-4 text-sm lg:grid-cols-4">
+    {[["Card","•••• "+tx.microAtm.cardLastFour],["Customer bank",tx.microAtm.customerBankName||"—"],["Withdrawal",money(tx.microAtm.withdrawalAmount)],["Cash given",money(tx.microAtm.cashGiven)],["Provider commission",money(tx.microAtm.providerCommissionAmount)+" · "+Number(tx.microAtm.providerCommissionRate)+"%"],["Provider settlement",money(tx.microAtm.settlementAmount)],["Provider reference",tx.microAtm.providerReference||tx.referenceNumber||"—"]].map(([l,v])=><div key={l}><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{l}</p><p className="mt-1 break-words font-semibold">{v}</p></div>)}
+   </div>
+  </Surface>:null}
   {tx.payable?<Surface className="p-4 sm:p-5">
    <div className="mb-4 flex items-center justify-between"><div><h3 className="text-sm font-bold">Customer payable</h3><p className="text-[11px] text-slate-400">Obligation created by this transaction.</p></div><StatusBadge tone={tx.payable.status==="PAID"?"emerald":"amber"}>{tx.payable.status.replaceAll("_"," ")}</StatusBadge></div>
    <div className="grid grid-cols-3 gap-2.5"><div><p className="text-[10px] uppercase text-slate-400">Original</p><p className="mt-1 font-bold">{money(tx.payable.originalAmount)}</p></div><div><p className="text-[10px] uppercase text-slate-400">Paid</p><p className="mt-1 font-bold text-emerald-700">{money(tx.payable.paidAmount)}</p></div><div><p className="text-[10px] uppercase text-slate-400">Remaining</p><p className="mt-1 font-bold text-amber-700">{money(tx.payable.remainingAmount)}</p></div></div>

@@ -10,6 +10,7 @@ const groups = [
       ["CS","Credit Card Swipe","/transactions/card-swipe","Record a swipe, customer payable, charges and provider clearing.","bg-violet-50 text-violet-700"],
       ["CT","Cash Transfer","/transactions/cash-transfer","Receive cash and transfer from bank, UPI or wallet.","bg-emerald-50 text-emerald-700"],
       ["AP","AePS Withdrawal","/transactions/aeps","Record Aadhaar-enabled withdrawal and settlement.","bg-cyan-50 text-cyan-700"],
+      ["MA","Micro ATM","/transactions/micro-atm","Pay customer cash and track provider principal plus commission settlement.","bg-sky-50 text-sky-700"],
     ],
   },
   {

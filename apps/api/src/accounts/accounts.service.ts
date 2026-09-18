@@ -105,6 +105,19 @@ export class AccountsService {
       include: { ledgerAccount: true },
     });
     if (!existing) throw new NotFoundException('Account not found');
+    if (
+      dto.providerId !== undefined &&
+      dto.providerId !== existing.providerId
+    ) {
+      if (existing.accountType !== AccountType.PROVIDER_WALLET) {
+        throw new BadRequestException(
+          'Only provider-wallet accounts can be linked to a provider',
+        );
+      }
+      throw new BadRequestException(
+        'Provider wallet link cannot be changed after creation; create a new wallet account to preserve ledger history',
+      );
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.financialAccount.update({

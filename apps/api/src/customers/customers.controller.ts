@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { CreateCardDto } from './dto/create-card.dto.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
+import { CreateQuickCustomerCardDto } from './dto/create-quick-customer-card.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 import { CreateUpiAccountDto } from './dto/create-upi-account.dto.js';
 import { CreateBeneficiaryDto } from './dto/create-beneficiary.dto.js';
@@ -47,6 +48,11 @@ export class CustomersController {
   @Post()
   create(@Body() dto: CreateCustomerDto, @Req() req: any) {
     return this.customers.create(dto, req.user.userId);
+  }
+
+  @Post('quick-card')
+  createQuickCard(@Body() dto: CreateQuickCustomerCardDto, @Req() req: any) {
+    return this.customers.createQuickCard(dto, req.user.userId);
   }
 
   @Patch(':id')

@@ -22,6 +22,9 @@ export default function PayablesPage(){
  const [role,setRole]=useState(""),[cancelTarget,setCancelTarget]=useState<Payable|null>(null),[cancelReason,setCancelReason]=useState("");
  const [error,setError]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
  const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const sourceAccount=accounts.find(a=>a.id===source);
+ const payoutAmount=Number(amount||0);
+ const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount>sourceAccount.currentBalance+0.001:false;
  function load(page=pagination.page){
   const params=new URLSearchParams({page:String(page),pageSize:String(pagination.pageSize),sortBy,sortDir});
   if(q.trim())params.set("q",q.trim());if(status)params.set("status",status);
@@ -74,10 +77,10 @@ export default function PayablesPage(){
   </>}
 
   <Modal open={!!selected} title={selected?"Pay "+selected.customer.fullName:"Record payout"} description={selected?"Remaining "+money(selected.remainingAmount):undefined} onClose={()=>setSelected(null)}
-   footer={<button form="pay-form" disabled={busy} className="min-h-11 w-full rounded-xl bg-slate-950 text-sm font-bold text-white disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
+   footer={<button form="pay-form" disabled={busy||sourceShort||payoutAmount<=0} className="min-h-11 w-full rounded-xl bg-slate-950 text-sm font-bold text-white disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
    <form id="pay-form" onSubmit={pay} className="grid gap-3 sm:grid-cols-2">
     <Field label="Amount"><input className={control} type="number" step="0.01" max={selected?.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
-    <Field label="Paid from"><select className={control} value={source} onChange={e=>setSource(e.target.value)} required><option value="">Source account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select></Field>
+    <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance):undefined}><select className={control} value={source} onChange={e=>setSource(e.target.value)} required><option value="">Source account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select>{sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Amount is higher than this account&apos;s available balance.</span>:null}</Field>
     <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Optional reference"/></Field>
     <Field label="Notes"><input className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Optional notes"/></Field>
    </form>

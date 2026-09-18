@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { CustomerType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
+import { CreateQuickCustomerCardDto } from './dto/create-quick-customer-card.dto.js';
 import { CreateCardDto } from './dto/create-card.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 import { CreateUpiAccountDto } from './dto/create-upi-account.dto.js';
@@ -116,6 +117,58 @@ export class CustomersService {
         },
       });
       return customer;
+    });
+  }
+
+  createQuickCard(dto: CreateQuickCustomerCardDto, userId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.create({
+        data: {
+          customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
+          customerType: CustomerType.REGULAR,
+          fullName: dto.fullName.trim(),
+          mobile: dto.mobile.trim(),
+          createdById: userId,
+        },
+      });
+      const card = await tx.customerCard.create({
+        data: {
+          customerId: customer.id,
+          bankName: dto.bankName?.trim() || 'Card',
+          cardType: 'CREDIT',
+          lastFourDigits: dto.lastFourDigits,
+        },
+      });
+      await tx.auditLog.createMany({
+        data: [
+          {
+            userId,
+            entityType: 'CUSTOMER',
+            entityId: customer.id,
+            action: 'CREATE',
+            newValues: {
+              customerCode: customer.customerCode,
+              customerType: customer.customerType,
+              fullName: customer.fullName,
+              mobile: customer.mobile,
+              isActive: customer.isActive,
+            },
+          },
+          {
+            userId,
+            entityType: 'CUSTOMER_CARD',
+            entityId: card.id,
+            action: 'CREATE',
+            newValues: {
+              customerId: customer.id,
+              bankName: card.bankName,
+              cardType: card.cardType,
+              lastFourDigits: card.lastFourDigits,
+            },
+          },
+        ],
+      });
+      return { customer, card };
     });
   }
 

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import {
   AccountNature,
   AccountType,
+  EntryType,
   Prisma,
   UsageType,
 } from '@prisma/client';
@@ -79,8 +80,12 @@ export class FinancialValidationService {
     });
   }
 
-  providerSettlementDestination(db: Db, accountId: string) {
-    return this.account(db, accountId, {
+  async providerSettlementDestination(
+    db: Db,
+    accountId: string,
+    providerId?: string | null,
+  ) {
+    const account = await this.account(db, accountId, {
       label: 'Provider settlement destination',
       nature: AccountNature.ASSET,
       types: [
@@ -89,6 +94,16 @@ export class FinancialValidationService {
         AccountType.PROVIDER_WALLET,
       ],
     });
+    if (
+      providerId &&
+      account.accountType === AccountType.PROVIDER_WALLET &&
+      account.providerId !== providerId
+    ) {
+      throw new BadRequestException(
+        'Provider wallet must belong to the selected provider',
+      );
+    }
+    return account;
   }
 
   cashAccount(db: Db, accountId: string, label = 'Cash account') {
@@ -193,7 +208,10 @@ export class FinancialValidationService {
     }
     const rows = await db.ledgerEntry.groupBy({
       by: ['entryType'],
-      where: { ledgerAccountId: account.ledgerAccount.id },
+      where: {
+        ledgerAccountId: account.ledgerAccount.id,
+        journal: { status: 'POSTED' },
+      },
       _sum: { amount: true },
     });
     let debit = 0;
@@ -257,6 +275,51 @@ export class FinancialValidationService {
       );
     }
     return outstanding;
+  }
+
+  async ensureReversalCapacity(
+    tx: Prisma.TransactionClient,
+    entries: Array<{
+      ledgerAccountId: string;
+      entryType: EntryType;
+      amount: Prisma.Decimal | number;
+    }>,
+  ) {
+    const ledgerIds = [...new Set(entries.map((entry) => entry.ledgerAccountId))];
+    const accounts = await tx.financialAccount.findMany({
+      where: { ledgerAccount: { id: { in: ledgerIds } } },
+      include: { ledgerAccount: true },
+    });
+
+    const reductions = new Map<string, number>();
+    for (const account of accounts) {
+      if (!account.ledgerAccount) continue;
+      const reduction = entries
+        .filter((entry) => entry.ledgerAccountId === account.ledgerAccount!.id)
+        .filter((entry) =>
+          account.accountNature === AccountNature.ASSET
+            ? entry.entryType === EntryType.DEBIT
+            : entry.entryType === EntryType.CREDIT,
+        )
+        .reduce((sum, entry) => sum + Number(entry.amount), 0);
+      if (reduction > 0) reductions.set(account.id, reduction);
+    }
+
+    for (const accountId of [...reductions.keys()].sort()) {
+      await this.lockAccount(tx, accountId);
+    }
+    for (const account of accounts) {
+      const required = reductions.get(account.id) ?? 0;
+      if (required <= 0) continue;
+      const current = await this.balance(tx, account);
+      if (current + 0.001 < required) {
+        throw new BadRequestException(
+          'Cannot reverse because ' +
+            account.accountName +
+            ' no longer has enough available balance/outstanding',
+        );
+      }
+    }
   }
 
   async activeAccountBalance(accountId: string) {

@@ -15,6 +15,7 @@ type AccountBalance = {
   bankName: string | null;
   accountReference: string | null;
   lastFourDigits: string | null;
+  providerId: string | null;
 };
 
 @Injectable()
@@ -45,7 +46,10 @@ export class DashboardService {
     const grouped = ledgerIds.length
       ? await this.prisma.ledgerEntry.groupBy({
           by: ['ledgerAccountId', 'entryType'],
-          where: { ledgerAccountId: { in: ledgerIds } },
+          where: {
+            ledgerAccountId: { in: ledgerIds },
+            journal: { status: 'POSTED' },
+          },
           _sum: { amount: true },
         })
       : [];
@@ -85,6 +89,7 @@ export class DashboardService {
         bankName: account.bankName,
         accountReference: account.accountReference,
         lastFourDigits: account.lastFourDigits,
+        providerId: account.providerId,
       };
     }).filter(
       (account) => account.isActive || Math.abs(account.currentBalance) > 0.005,
@@ -230,6 +235,7 @@ export class DashboardService {
     const [
       cardSwipe,
       aeps,
+      microAtm,
       customerPayout,
       customerReceipt,
       receivableCreated,
@@ -238,6 +244,7 @@ export class DashboardService {
     ] = await Promise.all([
       txSum(TransactionType.CARD_SWIPE),
       txSum(TransactionType.AEPS_WITHDRAWAL),
+      txSum(TransactionType.MICRO_ATM),
       txSum(TransactionType.CUSTOMER_PAYOUT),
       txSum(TransactionType.CUSTOMER_RECEIPT),
       txSum(TransactionType.CUSTOMER_RECEIVABLE),
@@ -295,6 +302,7 @@ export class DashboardService {
       upiOut,
       cardSwipe,
       aeps,
+      microAtm,
       customerPayout,
       customerReceipt,
       receivableCreated,

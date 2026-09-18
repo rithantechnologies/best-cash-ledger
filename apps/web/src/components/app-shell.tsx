@@ -129,14 +129,20 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return <div onClickCapture={handleNavigationCapture} className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-950">
     {navigating?<div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-indigo-100"><div className="h-full w-1/2 bg-indigo-600 [animation:cashledger-progress_.9s_ease-in-out_infinite]"/></div>:null}
-    {showTransition?<div className="pointer-events-none fixed inset-0 z-[70] grid place-items-center bg-slate-50/45 backdrop-blur-[2px]">
-      <div className="flex min-w-[190px] flex-col items-center rounded-[24px] border border-white/90 bg-white/95 px-6 py-5 text-center shadow-[0_24px_70px_rgba(15,23,42,.16)] ring-1 ring-slate-200/60">
-        <div className="relative grid h-11 w-11 place-items-center">
-          <span className="absolute inset-0 animate-ping rounded-full bg-indigo-100 opacity-70"/>
-          <span className="relative h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200 border-t-indigo-600"/>
+    {showTransition?<div className="pointer-events-none fixed inset-0 z-[70] bg-slate-50/70 backdrop-blur-[2px] lg:left-60">
+      <div className="mx-auto max-w-7xl space-y-4 px-3 py-20 sm:px-5 lg:px-7">
+        <span className="sr-only">Opening {transitionLabel.toLowerCase()}</span>
+        <div className="space-y-2">
+          <span className="cashledger-shimmer block h-3 w-24 rounded-xl"/>
+          <span className="cashledger-shimmer block h-8 w-64 max-w-[70%] rounded-xl"/>
+          <span className="cashledger-shimmer block h-4 w-80 max-w-[85%] rounded-xl"/>
         </div>
-        <span className="mt-3 max-w-[240px] truncate text-sm font-bold text-slate-800">Opening {transitionLabel.toLowerCase()}…</span>
-        <span className="mt-1 text-[11px] text-slate-400">Loading the latest data</span>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+          {[0,1,2,3,4].map(i=><div key={i} className="rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm"><span className="cashledger-shimmer block h-3 w-20 rounded-xl"/><span className="cashledger-shimmer mt-3 block h-7 w-24 rounded-xl"/></div>)}
+        </div>
+        <div className="rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm">
+          <div className="space-y-3">{[0,1,2,3,4].map(i=><span key={i} className="cashledger-shimmer block h-11 w-full rounded-xl"/>)}</div>
+        </div>
       </div>
     </div>:null}
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 border-r border-slate-200/80 bg-white lg:flex lg:flex-col">

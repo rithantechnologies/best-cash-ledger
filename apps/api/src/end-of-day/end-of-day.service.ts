@@ -3,7 +3,7 @@ import {
   ConflictException,
   Injectable,
 } from '@nestjs/common';
-import { AccountNature, EntryType, Prisma } from '@prisma/client';
+import { AccountNature, AccountType, EntryType, Prisma } from '@prisma/client';
 import { DashboardService } from '../dashboard/dashboard.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -113,6 +113,7 @@ export class EndOfDayService {
 
       rows.push({
         financialAccountId: account.id,
+        accountType: account.accountType,
         openingBalance: opening,
         totalIn,
         totalOut,
@@ -177,28 +178,32 @@ export class EndOfDayService {
 
   async snapshot(userId: string) {
     const { businessDate, start, end } = this.indiaDayRange();
-    const existing = await this.prisma.dailyPositionSummary.findUnique({
-      where: { businessDate },
-    });
-    if (existing) {
-      throw new ConflictException(
-        'End-of-day snapshot has already been saved for today',
-      );
-    }
-
-    const openCashSessions = await this.prisma.cashSession.count({
-      where: { status: 'OPEN' },
-    });
-    if (openCashSessions > 0) {
-      throw new BadRequestException(
-        'Close all cash-counter sessions before saving end-of-day',
-      );
-    }
-
-    const summary = await this.dashboard.summary();
-
     return this.prisma.$transaction(async (tx) => {
-      const [accountRows, payable, receivable, cashVariance] =
+      const existing = await tx.dailyPositionSummary.findUnique({
+        where: { businessDate },
+      });
+      if (existing) {
+        throw new ConflictException(
+          'End-of-day snapshot has already been saved for today',
+        );
+      }
+
+      const openCashSessions = await tx.cashSession.count({
+        where: { status: 'OPEN' },
+      });
+      if (openCashSessions > 0) {
+        throw new BadRequestException(
+          'Close all cash-counter sessions before saving end-of-day',
+        );
+      }
+
+      const [
+        accountRows,
+        payable,
+        receivable,
+        providerClearing,
+        cashVariance,
+      ] =
         await Promise.all([
           this.accountDayRows(tx, start, end),
           this.systemLedgerDay(
@@ -211,6 +216,13 @@ export class EndOfDayService {
           this.systemLedgerDay(
             tx,
             'SYS-CUST-RECEIVABLE',
+            'DEBIT',
+            start,
+            end,
+          ),
+          this.systemLedgerDay(
+            tx,
+            'SYS-PROVIDER-CLEARING',
             'DEBIT',
             start,
             end,
@@ -253,6 +265,38 @@ export class EndOfDayService {
           closingReceivable: new Prisma.Decimal(receivable.closing),
         },
       });
+
+      const liquidTypes = new Set<AccountType>([
+        AccountType.CASH,
+        AccountType.BANK,
+        AccountType.UPI,
+        AccountType.PROVIDER_WALLET,
+      ]);
+      const availableFunds = accountRows
+        .filter((row) => liquidTypes.has(row.accountType))
+        .reduce((sum, row) => sum + row.closingBalance, 0);
+      const creditCardOutstanding = accountRows
+        .filter((row) => row.accountType === AccountType.OWNER_CREDIT_CARD)
+        .reduce((sum, row) => sum + row.closingBalance, 0);
+      const customerPayable = payable.closing;
+      const customerReceivable = receivable.closing;
+      const pendingProviderSettlements = providerClearing.closing;
+      const operatingPosition =
+        availableFunds +
+        pendingProviderSettlements +
+        customerReceivable -
+        customerPayable;
+      const netFinancialPosition =
+        operatingPosition - creditCardOutstanding;
+      const summary = {
+        availableFunds,
+        pendingProviderSettlements,
+        customerReceivable,
+        customerPayable,
+        creditCardOutstanding,
+        operatingPosition,
+        netFinancialPosition,
+      };
 
       const position = await tx.dailyPositionSummary.create({
         data: {
@@ -306,6 +350,8 @@ export class EndOfDayService {
         payable,
         receivable,
       };
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
   }
 }

@@ -20,6 +20,7 @@ export class LedgerService {
     createdById: string,
     description: string,
     entries: JournalEntry[],
+    postingDate = new Date(),
   ) {
     const debit = entries
       .filter((entry) => entry.entryType === EntryType.DEBIT)
@@ -35,7 +36,7 @@ export class LedgerService {
       data: {
         transactionId,
         journalNumber: 'JRN-' + Date.now().toString(36).toUpperCase(),
-        postingDate: new Date(),
+        postingDate,
         description,
         status: JournalStatus.POSTED,
         createdById,

@@ -5,19 +5,38 @@ export function Spinner({size="md"}:{size?:"sm"|"md"|"lg"}) {
   return <span className={"inline-block animate-spin rounded-full border-slate-200 border-t-indigo-600 "+sizes[size]} aria-hidden="true"/>;
 }
 
+export function Shimmer({className=""}:{className?:string}) {
+  return <span className={"cashledger-shimmer block rounded-xl "+className} aria-hidden="true"/>;
+}
+
 export function PageLoader({label="Loading workspace…"}:{label?:string}) {
-  return <div className="grid min-h-[62vh] place-items-center">
-    <div className="flex flex-col items-center text-center">
-      <div className="relative grid h-20 w-20 place-items-center">
-        <span className="absolute inset-0 rounded-[28px] bg-[radial-gradient(circle_at_35%_25%,#eef2ff_0%,#ffffff_55%,#f8fafc_100%)] shadow-[0_20px_70px_rgba(15,23,42,.12)] ring-1 ring-slate-200/70"/>
-        <span className="absolute inset-2 animate-pulse rounded-[22px] bg-indigo-50/70"/>
-        <span className="relative h-10 w-10 animate-spin rounded-full border-[4px] border-slate-200 border-t-indigo-600"/>
+  return <div className="mx-auto min-h-[62vh] w-full max-w-7xl space-y-5 py-1" role="status" aria-live="polite" aria-label={label}>
+    <span className="sr-only">{label}</span>
+    <div className="flex items-end justify-between gap-4">
+      <div className="w-full max-w-xl space-y-2">
+        <Shimmer className="h-3 w-24"/>
+        <Shimmer className="h-8 w-64 max-w-[70%]"/>
+        <Shimmer className="h-4 w-full max-w-md"/>
       </div>
-      <p className="mt-5 text-sm font-bold tracking-tight text-slate-800">{label}</p>
-      <div className="mt-2 flex items-center gap-1" aria-hidden="true">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400"/>
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-300 [animation-delay:120ms]"/>
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-200 [animation-delay:240ms]"/>
+      <Shimmer className="hidden h-10 w-28 sm:block"/>
+    </div>
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+      {[0,1,2,3,4].map(i=><div key={i} className="rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm">
+        <Shimmer className="h-3 w-20"/>
+        <Shimmer className="mt-3 h-7 w-28 max-w-[85%]"/>
+        <Shimmer className="mt-2 h-3 w-16"/>
+      </div>)}
+    </div>
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,.6fr)]">
+      <div className="overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-sm">
+        <div className="border-b border-slate-100 p-4"><Shimmer className="h-4 w-40"/><Shimmer className="mt-2 h-3 w-64 max-w-[70%]"/></div>
+        <div className="space-y-3 p-4">{[0,1,2,3,4].map(i=><div key={i} className="grid grid-cols-[1.2fr_.8fr_.6fr] gap-3"><Shimmer className="h-10"/><Shimmer className="h-10"/><Shimmer className="h-10"/></div>)}</div>
+      </div>
+      <div className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm">
+        <Shimmer className="h-4 w-36"/>
+        <Shimmer className="h-20"/>
+        <Shimmer className="h-20"/>
+        <Shimmer className="h-12"/>
       </div>
     </div>
   </div>;

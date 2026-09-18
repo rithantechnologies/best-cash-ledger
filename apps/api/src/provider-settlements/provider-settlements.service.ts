@@ -46,6 +46,7 @@ export class ProviderSettlementsService {
     await this.validation.providerSettlementDestination(
       tx,
       input.destinationAccountId,
+      input.providerId,
     );
     await this.validation.providerGateway(
       tx,
@@ -134,7 +135,7 @@ export class ProviderSettlementsService {
       gateway: true,
       destinationAccount: true,
       sourceTransaction: {
-        include: { customer: true, cardSwipe: true, aeps: true },
+        include: { customer: true, cardSwipe: true, aeps: true, microAtm: true },
       },
       receipts: {
         include: { destinationAccount: true, transaction: true },
@@ -177,6 +178,7 @@ export class ProviderSettlementsService {
             customer: true,
             cardSwipe: true,
             aeps: true,
+            microAtm: true,
             charges: true,
             commissions: true,
           },
@@ -244,6 +246,7 @@ export class ProviderSettlementsService {
     const destination = await this.validation.providerSettlementDestination(
       tx,
       dto.destinationAccountId,
+      settlement.providerId,
     );
     const clearingLedger = await tx.ledgerAccount.findUnique({
       where: { ledgerCode: 'SYS-PROVIDER-CLEARING' },
@@ -320,6 +323,7 @@ export class ProviderSettlementsService {
           description: 'Reduce provider settlement clearing',
         },
       ],
+      now,
     );
 
     await tx.auditLog.create({

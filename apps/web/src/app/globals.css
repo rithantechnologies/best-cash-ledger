@@ -79,6 +79,17 @@ button:active, a:active { transform: translateY(1px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes cashledger-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.cashledger-shimmer {
+  background: linear-gradient(90deg, #f1f5f9 20%, #e2e8f0 38%, #f8fafc 52%, #f1f5f9 70%);
+  background-size: 220% 100%;
+  animation: cashledger-shimmer 1.45s ease-in-out infinite;
+}
+
 .page-enter { animation: cashledger-fade-up .24s ease-out both; }
 
 @media (max-width: 767px) {

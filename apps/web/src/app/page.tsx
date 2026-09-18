@@ -17,7 +17,7 @@ type Summary={
 type Account={id:string;accountName:string;accountType:string;accountNature:string;usageType:string;currentBalance:number;creditLimit:number|null;availableCredit:number|null;isActive:boolean};
 type Today={
   cashIn:number;cashOut:number;bankIn:number;bankOut:number;walletIn:number;walletOut:number;upiIn:number;upiOut:number;
-  cardSwipe:number;aeps:number;customerPayout:number;customerReceipt:number;receivableCreated:number;
+  cardSwipe:number;aeps:number;microAtm:number;customerPayout:number;customerReceipt:number;receivableCreated:number;
   commission:number;providerCharges:number;businessExpense:number;personalExpense:number;
 };
 type Payable={id:string;remainingAmount:string;dueAt:string;bucket:string;customer:{fullName:string}};
@@ -86,6 +86,7 @@ function TodayPulse({today}:{today:Today}) {
   const services=[
     {label:"Card swipe",value:today.cardSwipe,tone:"indigo"},
     {label:"AePS",value:today.aeps,tone:"cyan"},
+    {label:"Micro ATM",value:today.microAtm,tone:"cyan"},
     {label:"Receivables created",value:today.receivableCreated,tone:"indigo"},
     {label:"Business expense",value:today.businessExpense,tone:"rose"},
     {label:"Personal expense",value:today.personalExpense,tone:"amber"},

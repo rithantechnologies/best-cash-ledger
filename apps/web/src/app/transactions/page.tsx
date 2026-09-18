@@ -45,16 +45,17 @@ export default function TransactionsPage(){
    action={<Link href="/transactions/new" className="inline-flex min-h-11 items-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white shadow-sm">+ New transaction</Link>}/>
   <Surface className="p-3 sm:p-4">
    <p className="mb-2 text-[10px] font-bold uppercase tracking-[.16em] text-slate-400">Quick entry</p>
-   <div className="grid grid-cols-3 gap-2">
+   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
     <Link href="/transactions/cash-transfer" className="surface-hover rounded-xl bg-emerald-50 px-3 py-3 text-center text-xs font-bold text-emerald-800 ring-1 ring-inset ring-emerald-100">Cash transfer</Link>
     <Link href="/transactions/card-swipe" className="surface-hover rounded-xl bg-indigo-50 px-3 py-3 text-center text-xs font-bold text-indigo-800 ring-1 ring-inset ring-indigo-100">Card swipe</Link>
     <Link href="/transactions/aeps" className="surface-hover rounded-xl bg-cyan-50 px-3 py-3 text-center text-xs font-bold text-cyan-800 ring-1 ring-inset ring-cyan-100">AePS</Link>
+    <Link href="/transactions/micro-atm" className="surface-hover rounded-xl bg-sky-50 px-3 py-3 text-center text-xs font-bold text-sky-800 ring-1 ring-inset ring-sky-100">Micro ATM</Link>
    </div>
   </Surface>
 
   <Toolbar>
    <input className="min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm lg:col-span-1" placeholder="Search no, customer, reference…" value={q} onChange={e=>setQ(e.target.value)}/>
-   <select className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm" value={type} onChange={e=>setType(e.target.value)}><option value="">All transaction types</option>{["CARD_SWIPE","CASH_TRANSFER","AEPS_WITHDRAWAL","CUSTOMER_PAYOUT","INTERNAL_TRANSFER","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x}>{x}</option>)}</select>
+   <select className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm" value={type} onChange={e=>setType(e.target.value)}><option value="">All transaction types</option>{["CARD_SWIPE","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","CUSTOMER_PAYOUT","INTERNAL_TRANSFER","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x}>{x}</option>)}</select>
    <select className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</select>
    <select className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm" value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</select>
   </Toolbar>
