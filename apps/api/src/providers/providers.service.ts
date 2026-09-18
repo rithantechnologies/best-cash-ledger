@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AccountNature, AccountType, LedgerType, UsageType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateGatewayDto } from './dto/create-gateway.dto.js';
 import { CreateProviderDto } from './dto/create-provider.dto.js';
@@ -23,6 +24,27 @@ export class ProvidersService {
   create(dto: CreateProviderDto, actorId: string) {
     return this.prisma.$transaction(async (tx) => {
       const provider = await tx.provider.create({ data: dto });
+      const accountCode = 'WAL-' + provider.id.replaceAll('-', '').slice(0, 12).toUpperCase();
+      const wallet = await tx.financialAccount.create({
+        data: {
+          accountCode,
+          accountName: provider.name + ' Wallet',
+          accountType: AccountType.PROVIDER_WALLET,
+          accountNature: AccountNature.ASSET,
+          providerId: provider.id,
+          usageType: UsageType.BUSINESS,
+          openingBalance: 0,
+        },
+      });
+      await tx.ledgerAccount.create({
+        data: {
+          ledgerCode: 'LED-' + accountCode,
+          ledgerName: wallet.accountName,
+          ledgerType: LedgerType.ASSET,
+          ledgerCategory: AccountType.PROVIDER_WALLET,
+          financialAccountId: wallet.id,
+        },
+      });
       await tx.auditLog.create({
         data: {
           userId: actorId,
@@ -33,6 +55,21 @@ export class ProvidersService {
             name: provider.name,
             providerType: provider.providerType,
             isActive: provider.isActive,
+          },
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'FINANCIAL_ACCOUNT',
+          entityId: wallet.id,
+          action: 'CREATE',
+          newValues: {
+            accountName: wallet.accountName,
+            accountCode: wallet.accountCode,
+            accountType: wallet.accountType,
+            providerId: provider.id,
+            openingBalance: '0',
           },
         },
       });
@@ -69,6 +106,25 @@ export class ProvidersService {
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.provider.update({ where: { id }, data: dto });
+      if (dto.name && dto.name !== existing.name) {
+        const wallet = await tx.financialAccount.findFirst({
+          where: { providerId: id, accountType: AccountType.PROVIDER_WALLET },
+          include: { ledgerAccount: true },
+        });
+        if (wallet) {
+          const walletName = updated.name + ' Wallet';
+          await tx.financialAccount.update({
+            where: { id: wallet.id },
+            data: { accountName: walletName },
+          });
+          if (wallet.ledgerAccount) {
+            await tx.ledgerAccount.update({
+              where: { id: wallet.ledgerAccount.id },
+              data: { ledgerName: walletName },
+            });
+          }
+        }
+      }
       await tx.auditLog.create({
         data: {
           userId: actorId,

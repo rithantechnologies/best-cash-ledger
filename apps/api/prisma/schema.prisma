@@ -365,6 +365,8 @@ model FinancialAccount {
   providerSettlementReceipts     ProviderSettlementReceipt[] @relation("ProviderSettlementReceiptAccount")
   createdAt                      DateTime                    @default(now())
   updatedAt                      DateTime                    @updatedAt
+
+  @@unique([providerId, accountType])
 }
 
 model ExpenseCategory {

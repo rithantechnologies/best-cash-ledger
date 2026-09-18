@@ -180,12 +180,17 @@ export class TransactionsService {
         true,
       );
       await this.validation.paymentTerm(tx, dto.paymentTermId);
-      const settlementAccount =
-        await this.validation.providerSettlementDestination(
-          tx,
-          dto.settlementAccountId,
-          dto.providerId,
-        );
+      const settlementAccount = await tx.financialAccount.findFirst({
+        where: {
+          providerId: dto.providerId,
+          accountType: AccountType.PROVIDER_WALLET,
+          isActive: true,
+        },
+        include: { ledgerAccount: true },
+      });
+      if (!settlementAccount?.ledgerAccount) {
+        throw new BadRequestException('Provider wallet is missing');
+      }
 
       const systemLedgers = await tx.ledgerAccount.findMany({
         where: {
@@ -245,7 +250,7 @@ export class TransactionsService {
           customerPayableAmount: new Prisma.Decimal(customerPayableAmount),
           paymentTermId: dto.paymentTermId,
           dueAt: new Date(dto.dueAt),
-          settlementAccountId: dto.settlementAccountId,
+          settlementAccountId: settlementAccount.id,
           settlementAmount: new Prisma.Decimal(settlementAmount),
         },
       });

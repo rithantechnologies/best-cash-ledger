@@ -10,7 +10,7 @@ export class CreateCardSwipeDto {
   @IsNumber() @Min(0) commissionRate!: number;
   @IsString() paymentTermId!: string;
   @IsDateString() dueAt!: string;
-  @IsString() settlementAccountId!: string;
+  @IsOptional() @IsString() settlementAccountId?: string;
   @IsOptional() @IsBoolean() settledNow?: boolean;
   @IsOptional() @IsDateString() settlementDueAt?: string;
   @IsOptional() @IsString() referenceNumber?: string;

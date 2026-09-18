@@ -66,15 +66,12 @@ invalid=await raw('/transactions/card-swipe',{method:'POST',headers:{'idempotenc
 })},token);
 assert(invalid.status===400,'Gateway from another provider should be rejected');
 
-invalid=await raw('/transactions/card-swipe',{method:'POST',headers:{'idempotency-key':key('cash-settlement')},body:JSON.stringify({
- customerId:customer.id,customerCardId:card.id,swipeAmount:1000,providerId:provider.id,gatewayId:gateway.id,providerChargeRate:2,commissionRate:3,paymentTermId:term.id,dueAt:new Date(Date.now()+86400000).toISOString(),settlementAccountId:cash.id
-})},token);
-assert(invalid.status===400,'Cash cannot be provider settlement destination');
-console.log('✓ customer/card/provider/gateway/account relationship validation');
+console.log('✓ customer/card/provider/gateway relationship validation');
 
 const swipe=await request('/transactions/card-swipe',{method:'POST',headers:{'idempotency-key':key('swipe')},body:JSON.stringify({
- customerId:customer.id,customerCardId:card.id,swipeAmount:1000,providerId:provider.id,gatewayId:gateway.id,providerChargeRate:2,commissionRate:3,paymentTermId:term.id,dueAt:new Date(Date.now()+7*86400000).toISOString(),settlementAccountId:wallet.id,settlementDueAt:new Date(Date.now()+86400000).toISOString(),referenceNumber:'HARD-SWIPE-'+suffix
+ customerId:customer.id,customerCardId:card.id,swipeAmount:1000,providerId:provider.id,gatewayId:gateway.id,providerChargeRate:2,commissionRate:3,paymentTermId:term.id,dueAt:new Date(Date.now()+7*86400000).toISOString(),settlementAccountId:cash.id,settlementDueAt:new Date(Date.now()+86400000).toISOString(),referenceNumber:'HARD-SWIPE-'+suffix
 })},token);
+assert(swipe.providerSettlement.destinationAccountId===wallet.id,'Card swipe must force the provider built-in wallet');
 close(swipe.payable.originalAmount,970,'Card customer payable formula');
 close(swipe.providerSettlement.expectedAmount,980,'Provider settlement amount');
 let accounts=await request('/dashboard/accounts',{},token);

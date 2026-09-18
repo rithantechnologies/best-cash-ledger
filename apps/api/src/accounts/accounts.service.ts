@@ -19,7 +19,7 @@ export class AccountsService {
     });
   }
 
-  create(dto: CreateAccountDto, actorId: string) {
+  async create(dto: CreateAccountDto, actorId: string) {
     const expectedNature =
       dto.accountType === AccountType.OWNER_CREDIT_CARD
         ? AccountNature.LIABILITY
@@ -31,12 +31,26 @@ export class AccountsService {
           : 'Cash, bank, UPI and provider-wallet accounts must be assets',
       );
     }
-    if (
-      dto.accountType === AccountType.PROVIDER_WALLET &&
-      !dto.providerId
-    ) {
+    if (dto.accountType === AccountType.PROVIDER_WALLET) {
+      if (!dto.providerId) {
+        throw new BadRequestException('Provider wallet requires a provider');
+      }
+      const existingWallet = await this.prisma.financialAccount.findFirst({
+        where: {
+          providerId: dto.providerId,
+          accountType: AccountType.PROVIDER_WALLET,
+        },
+      });
+      if (existingWallet) {
+        if (Number(dto.openingBalance ?? 0) !== 0) {
+          throw new BadRequestException(
+            'Provider wallet opening balance cannot be changed through account creation',
+          );
+        }
+        return existingWallet;
+      }
       throw new BadRequestException(
-        'Provider wallet must be linked to a provider',
+        'Provider wallets are created automatically with providers',
       );
     }
     if (
@@ -105,17 +119,17 @@ export class AccountsService {
       include: { ledgerAccount: true },
     });
     if (!existing) throw new NotFoundException('Account not found');
+    if (existing.accountType === AccountType.PROVIDER_WALLET) {
+      throw new BadRequestException(
+        'Provider wallets are managed automatically with providers',
+      );
+    }
     if (
       dto.providerId !== undefined &&
       dto.providerId !== existing.providerId
     ) {
-      if (existing.accountType !== AccountType.PROVIDER_WALLET) {
-        throw new BadRequestException(
-          'Only provider-wallet accounts can be linked to a provider',
-        );
-      }
       throw new BadRequestException(
-        'Provider wallet link cannot be changed after creation; create a new wallet account to preserve ledger history',
+        'Provider links are managed automatically with provider wallets',
       );
     }
 
@@ -169,6 +183,11 @@ export class AccountsService {
       include: { ledgerAccount: true },
     });
     if (!existing) throw new NotFoundException('Account not found');
+    if (existing.accountType === AccountType.PROVIDER_WALLET) {
+      throw new BadRequestException(
+        'Provider wallets are managed automatically with providers',
+      );
+    }
 
     if (!isActive && existing.isActive) {
       const balance = await this.validation.balance(this.prisma, existing);
