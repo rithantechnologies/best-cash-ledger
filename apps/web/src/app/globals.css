@@ -265,16 +265,20 @@ html[data-theme="dark"] .swipe-commerce-page {
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface-soft) 72%, var(--surface));
-  padding: 8px 9px;
+  padding: 8px 7px;
 }
 .wallet-money {
   display: block;
   max-width: 100%;
-  overflow: hidden;
-  font-size: clamp(.78rem, 3.35vw, 1rem);
+  font-size: clamp(.68rem, 2.85vw, .95rem);
   line-height: 1.15rem;
-  text-overflow: ellipsis;
+  font-weight: 800;
+  letter-spacing: -.025em;
   white-space: nowrap;
+}
+.sticky-money {
+  font-size: clamp(1.35rem, 6.1vw, 1.75rem);
+  line-height: 1.05;
 }
 .provider-fee-money {
   font-size: clamp(.8rem, 3.7vw, 1rem);
