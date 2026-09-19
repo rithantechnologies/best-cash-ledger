@@ -78,6 +78,7 @@ const quickActions=[
 
 export function AppShell({ children }: { children: ReactNode }) {
   const router=useRouter(), pathname=usePathname();
+  const isDashboard=pathname==="/";
   const [role,setRole]=useState(""),[search,setSearch]=useState("");
   const [menuOpen,setMenuOpen]=useState(false),[newOpen,setNewOpen]=useState(false),[navigating,setNavigating]=useState(false);
   const [theme,setTheme]=useState<ThemeMode>("system");
@@ -100,7 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const active=(href:string)=>href==="/"?pathname==="/":pathname===href||pathname.startsWith(href+"/");
   const taskTitle=transactionTaskTitles[pathname];
   const isTaskFlow=!!taskTitle;
-  const currentTitle=taskTitle??visibleNav.find(item=>active(item.href))?.label??"Cash Ledger";
+  const currentTitle=isDashboard?"Cash Ledger":taskTitle??visibleNav.find(item=>active(item.href))?.label??"Cash Ledger";
 
   function applyTheme(mode:ThemeMode){
     setTheme(mode);localStorage.setItem("cashledger_theme",mode);
@@ -111,10 +112,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   async function logout(){try{await apiFetch("/auth/logout",{method:"POST"});}catch{}localStorage.removeItem("cashledger_token");localStorage.removeItem("cashledger_user");router.replace("/login");}
   const navLink=(item:(typeof navItems)[number])=><Link key={item.href} href={item.href} className={"app-nav-link flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm font-semibold "+(active(item.href)?"app-nav-link-active":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}><Icon name={item.icon} className="h-[18px] w-[18px]"/><span>{item.label}</span></Link>;
 
-  return <div className="min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)]">
+  return <div className={"min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)] "+(isDashboard?"dashboard-neon-shell":"")}>
     {navigating?<div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-[var(--accent-soft)]"><div className="h-full w-1/2 bg-[var(--accent)] [animation:cashledger-progress_.9s_ease-in-out_infinite]"/></div>:null}
     <aside className="app-sidebar fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-[var(--border)] bg-[var(--surface)] lg:flex lg:flex-col">
-      <Link href="/" className="flex h-16 items-center gap-3 border-b border-[var(--border)] px-4"><BrandMark className="h-9 w-9 shrink-0"/><div className="min-w-0"><p className="truncate text-sm font-bold tracking-tight">Best Agency</p><p className="truncate text-[10px] font-semibold uppercase tracking-[.16em] text-[var(--text-muted)]">Cash Ledger</p></div></Link>
+      <Link href="/" className="flex h-16 items-center gap-3 border-b border-[var(--border)] px-4"><BrandMark className="h-9 w-9 shrink-0"/><div className="min-w-0">{isDashboard?<><p className="truncate text-sm font-black tracking-tight">Cash Ledger</p><p className="truncate text-[9px] font-medium text-[var(--text-muted)]">Track Today. Stronger Tomorrow.</p></>:<><p className="truncate text-sm font-bold tracking-tight">Best Agency</p><p className="truncate text-[10px] font-semibold uppercase tracking-[.16em] text-[var(--text-muted)]">Cash Ledger</p></>}</div></Link>
       <nav className="flex-1 overflow-y-auto p-3">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-4"><p className="mb-1.5 px-3 text-[10px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group}</p><div className="space-y-1">{rows.map(navLink)}</div></div>:null;})}</nav>
       <div className="border-t border-[var(--border)] p-3">
         <div className="mb-2 grid grid-cols-3 gap-1 rounded-lg bg-[var(--surface-soft)] p-1">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-8 rounded-md text-[10px] font-semibold capitalize "+(theme===mode?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>{mode}</button>)}</div>
@@ -142,7 +143,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="home" className="h-5 w-5"/><span>Home</span></Link>
       <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="activity" className="h-5 w-5"/><span>Activity</span></Link>
       <button onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[10px] font-bold text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-full border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#1d4ed8)] text-white shadow-[0_10px_24px_rgba(37,99,235,.35)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
-      <Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="settle" className="h-5 w-5"/><span>Dues</span></Link>
+      {isDashboard?<Link href="/reports" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/reports")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="chart" className="h-5 w-5"/><span>Reports</span></Link>:<Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="settle" className="h-5 w-5"/><span>Dues</span></Link>}
       <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-[var(--text-muted)]"><Icon name="more" className="h-5 w-5"/><span>More</span></button>
     </nav>:null}
   </div>;
