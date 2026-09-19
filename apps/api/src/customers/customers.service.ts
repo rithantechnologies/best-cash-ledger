@@ -34,6 +34,13 @@ export class CustomersService {
           { fullName: { contains: options.search, mode: 'insensitive' } },
           { mobile: { contains: options.search } },
           { customerCode: { contains: options.search, mode: 'insensitive' } },
+          {
+            cards: {
+              some: {
+                lastFourDigits: { contains: options.search },
+              },
+            },
+          },
         ],
       } : {}),
     };
@@ -81,6 +88,20 @@ export class CustomersService {
         bankAccounts: true,
         upiAccounts: true,
         beneficiaries: { include: { accounts: true } },
+        transactions: {
+          orderBy: { transactionAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            transactionNumber: true,
+            transactionType: true,
+            transactionAt: true,
+            grossAmount: true,
+            netAmount: true,
+            status: true,
+            referenceNumber: true,
+          },
+        },
         payables: { orderBy: { dueAt: 'asc' } },
         receivables: {
           include: { collections: { include: { destinationAccount: true } } },

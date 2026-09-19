@@ -16,6 +16,7 @@ type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;
 type Customer={
  id:string;customerCode:string;customerType:string;fullName:string;mobile:string|null;notes:string|null;isActive:boolean;
  cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];beneficiaries:Beneficiary[];
+ transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null}[];
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
  receivables:{id:string;reason:string;remainingAmount:string;receivedAmount:string;originalAmount:string;dueAt:string|null;status:string}[];
 };
@@ -88,6 +89,10 @@ export default function CustomerDetailPage(){
    <DetailStat label="Saved cards" value={c.cards.filter(x=>x.isActive).length} tone="indigo"/>
    <DetailStat label="Recipients" value={c.beneficiaries.filter(x=>x.isActive).length} tone="cyan"/>
   </div>
+  <Surface className="overflow-hidden">
+   <PanelHeader title="Recent transactions" description={c.transactions.length+" recent transaction(s)"} action={<Link href={"/search?q="+encodeURIComponent(c.customerCode)} className="text-xs font-bold text-indigo-600">Search all →</Link>}/>
+   {c.transactions.length?<div className="divide-y divide-slate-100">{c.transactions.map(t=><Link key={t.id} href={"/transactions/"+t.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"><div className="min-w-0"><p className="truncate text-sm font-semibold">{t.transactionType.replaceAll("_"," ")} · {t.transactionNumber}</p><p className="mt-0.5 text-[11px] text-slate-400">{new Date(t.transactionAt).toLocaleString("en-IN")} · {t.status.replaceAll("_"," ")}</p></div><strong className="shrink-0 text-sm">{money(t.grossAmount)}</strong></Link>)}</div>:<div className="p-4"><EmptyState title="No transactions yet"/></div>}
+  </Surface>
   <div className="grid gap-4 lg:grid-cols-2">
    <Surface className="overflow-hidden"><PanelHeader title="Money to receive" description="Open and recent receivables." action={<Link href="/receivables" className="text-xs font-bold text-indigo-600">View all →</Link>}/><div className="divide-y divide-slate-100">{c.receivables.slice(0,5).map(x=><Link key={x.id} href={"/receivables/"+x.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"><div className="min-w-0"><p className="truncate text-sm font-semibold">{x.reason}</p><p className="text-[11px] text-slate-400">{x.status.replaceAll("_"," ")}{x.dueAt?" · "+new Date(x.dueAt).toLocaleDateString("en-IN"):""}</p></div><strong className="text-sm text-emerald-700">{money(x.remainingAmount)}</strong></Link>)}{!c.receivables.length?<div className="p-4"><EmptyState title="No receivables"/></div>:null}</div></Surface>
    <Surface className="overflow-hidden"><PanelHeader title="Money to pay" description="Open and recent customer payables." action={<Link href="/payables" className="text-xs font-bold text-indigo-600">View all →</Link>}/><div className="divide-y divide-slate-100">{c.payables.slice(0,5).map(x=><Link key={x.id} href={"/payables/"+x.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"><div><p className="text-sm font-semibold">{x.status.replaceAll("_"," ")}</p><p className="text-[11px] text-slate-400">Due {new Date(x.dueAt).toLocaleDateString("en-IN")}</p></div><strong className="text-sm text-amber-700">{money(x.remainingAmount)}</strong></Link>)}{!c.payables.length?<div className="p-4"><EmptyState title="No payables"/></div>:null}</div></Surface>

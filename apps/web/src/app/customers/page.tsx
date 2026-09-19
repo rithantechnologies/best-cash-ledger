@@ -71,14 +71,14 @@ export default function CustomersPage(){
   </div>
 
   <Toolbar>
-   <input className={control+" bg-slate-50 lg:col-span-2"} placeholder="Search code, name or mobile…" value={q} onChange={e=>setQ(e.target.value)}/>
+   <input inputMode="search" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Search name, mobile or card last 4…" value={q} onChange={e=>setQ(e.target.value)}/>
    <select className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="createdAt">Created date</option><option value="fullName">Name</option><option value="customerCode">Customer code</option><option value="customerType">Type</option><option value="mobile">Mobile</option></select>
    <select className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</select>
   </Toolbar>
   {loading?<PageLoader label="Loading customers…"/>:<>
    <div className="space-y-2 md:hidden">{items.map(c=><Surface key={c.id} className={!c.isActive?"p-4 opacity-60":"p-4"}>
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Link href={"/customers/"+c.id} className="block truncate font-bold">{c.fullName}</Link><p className="mt-0.5 text-[11px] text-slate-400">{c.customerCode}{c.mobile?" · "+c.mobile:""}</p></div><StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge></div>
-    <div className="mt-3 flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-xs"><span className="font-semibold text-slate-500">{c.customerType.replaceAll("_"," ")}</span><span className="font-bold">{c.cards.filter(x=>x.isActive).length} saved card(s)</span></div>
+    <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs"><div className="flex items-center justify-between gap-3"><span className="font-semibold text-slate-500">{c.customerType.replaceAll("_"," ")}</span><span className="font-bold">{c.cards.filter(x=>x.isActive).length} saved card(s)</span></div>{c.cards.some(x=>x.isActive)?<div className="mt-2 flex flex-wrap gap-1.5">{c.cards.filter(x=>x.isActive).slice(0,3).map(card=><span key={card.id} className="rounded-md bg-white px-2 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">••••{card.lastFourDigits}</span>)}</div>:null}</div>
     <div className="mt-3 grid grid-cols-2 gap-2"><Link href={"/customers/"+c.id} className="flex min-h-10 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold">Open profile</Link>{admin?<button onClick={()=>beginEdit(c)} className="min-h-10 rounded-xl border border-slate-200 text-xs font-bold">Edit</button>:null}</div>
     {admin?<button onClick={()=>setToggleTarget(c)} className="mt-2 min-h-9 w-full text-xs font-bold text-slate-500">{c.isActive?"Retire customer":"Reactivate customer"}</button>:null}
    </Surface>)}{!items.length?<EmptyState title="No matching customers" description="Try a different search or create a customer."/>:null}</div>

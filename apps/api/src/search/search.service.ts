@@ -9,28 +9,83 @@ export class SearchService {
     const query = q.trim();
     if (!query) return { customers: [], transactions: [], accounts: [], providers: [] };
 
-    const [customers, transactions, accounts, providers] = await Promise.all([
-      this.prisma.customer.findMany({
-        where: {
-          OR: [
-            { fullName: { contains: query, mode: 'insensitive' } },
-            { mobile: { contains: query } },
-            { customerCode: { contains: query, mode: 'insensitive' } },
-          ],
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        OR: [
+          { fullName: { contains: query, mode: 'insensitive' } },
+          { mobile: { contains: query } },
+          { customerCode: { contains: query, mode: 'insensitive' } },
+          {
+            cards: {
+              some: {
+                lastFourDigits: { contains: query },
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        customerCode: true,
+        fullName: true,
+        mobile: true,
+        isActive: true,
+        cards: {
+          select: {
+            id: true,
+            bankName: true,
+            lastFourDigits: true,
+            nickname: true,
+            isActive: true,
+          },
+          orderBy: { createdAt: 'desc' },
         },
-        take: 10,
-      }),
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 10,
+    });
+
+    const matchedCustomerIds = customers.map((customer) => customer.id);
+    const [transactions, accounts, providers] = await Promise.all([
       this.prisma.transaction.findMany({
         where: {
           OR: [
             { transactionNumber: { contains: query, mode: 'insensitive' } },
             { referenceNumber: { contains: query, mode: 'insensitive' } },
-            { customer: { fullName: { contains: query, mode: 'insensitive' } } },
+            ...(matchedCustomerIds.length
+              ? [{ customerId: { in: matchedCustomerIds } }]
+              : []),
           ],
         },
-        include: { customer: true },
+        select: {
+          id: true,
+          transactionNumber: true,
+          transactionType: true,
+          transactionAt: true,
+          grossAmount: true,
+          netAmount: true,
+          status: true,
+          referenceNumber: true,
+          customer: {
+            select: {
+              id: true,
+              fullName: true,
+              mobile: true,
+            },
+          },
+          cardSwipe: {
+            select: {
+              customerCard: {
+                select: {
+                  lastFourDigits: true,
+                  bankName: true,
+                },
+              },
+            },
+          },
+        },
         orderBy: { transactionAt: 'desc' },
-        take: 10,
+        take: 20,
       }),
       this.prisma.financialAccount.findMany({
         where: {

@@ -175,7 +175,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <form onSubmit={submitSearch} className="mx-auto hidden w-full max-w-xl md:block">
             <div className="relative">
               <Icon name="search" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
-              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search customers, transactions, accounts…"
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, mobile, card last 4…"
                 className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-50"/>
             </div>
           </form>
@@ -203,7 +203,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <form onSubmit={submitSearch} className="border-b border-slate-100 p-3">
           <div className="relative"><Icon name="search" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search Cash Ledger"
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile or card last 4"
               className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none focus:border-indigo-300 focus:bg-white"/>
           </div>
         </form>
