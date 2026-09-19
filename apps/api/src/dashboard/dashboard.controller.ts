@@ -32,6 +32,11 @@ export class DashboardController {
     return this.dashboard.receivables();
   }
 
+  @Get('obligation-insights')
+  obligationInsights() {
+    return this.dashboard.obligationInsights();
+  }
+
   @Get('position-trend')
   positionTrend() {
     return this.dashboard.positionTrend();

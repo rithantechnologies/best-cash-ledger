@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AccountNature, AccountType, EntryType, PayableStatus, ReceivableStatus, TransactionType } from '@prisma/client';
+import { AccountNature, AccountType, EntryType, PayableStatus, Prisma, ReceivableStatus, TransactionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 type AccountBalance = {
@@ -356,6 +356,71 @@ export class DashboardService {
               : 'UPCOMING',
       })),
     );
+  }
+
+  async obligationInsights() {
+    const { start: todayStart, end: todayEnd } = this.indiaDayRange();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const thirtyDaysAgo = new Date(todayStart.getTime() - 30 * dayMs);
+    const sixtyDaysAgo = new Date(todayStart.getTime() - 60 * dayMs);
+    const nextSevenEnd = new Date(todayEnd.getTime() + 7 * dayMs);
+
+    const receivableOpen = [ReceivableStatus.PENDING, ReceivableStatus.PARTIALLY_RECEIVED, ReceivableStatus.OVERDUE];
+    const payableOpen = [PayableStatus.PENDING, PayableStatus.PARTIALLY_PAID, PayableStatus.OVERDUE];
+
+    const receivableAggregate = (dueAt: Prisma.DateTimeNullableFilter) => this.prisma.customerReceivable.aggregate({
+      where: { remainingAmount: { gt: 0 }, status: { in: receivableOpen }, dueAt },
+      _sum: { remainingAmount: true }, _count: true,
+    });
+    const payableAggregate = (dueAt: Prisma.DateTimeFilter) => this.prisma.customerPayable.aggregate({
+      where: { remainingAmount: { gt: 0 }, status: { in: payableOpen }, dueAt },
+      _sum: { remainingAmount: true }, _count: true,
+    });
+
+    const [
+      rCurrent, r0to30, r31to60, r60plus,
+      pOverdue, pToday, pNext7, pLater,
+    ] = await Promise.all([
+      this.prisma.customerReceivable.aggregate({
+        where: {
+          remainingAmount: { gt: 0 },
+          status: { in: receivableOpen },
+          OR: [{ dueAt: null }, { dueAt: { gte: todayStart } }],
+        },
+        _sum: { remainingAmount: true }, _count: true,
+      }),
+      receivableAggregate({ gte: thirtyDaysAgo, lt: todayStart }),
+      receivableAggregate({ gte: sixtyDaysAgo, lt: thirtyDaysAgo }),
+      receivableAggregate({ lt: sixtyDaysAgo }),
+      payableAggregate({ lt: todayStart }),
+      payableAggregate({ gte: todayStart, lt: todayEnd }),
+      payableAggregate({ gte: todayEnd, lt: nextSevenEnd }),
+      payableAggregate({ gte: nextSevenEnd }),
+    ]);
+
+    const bucket = (
+      label: string,
+      row: { _sum: { remainingAmount: Prisma.Decimal | null }; _count: number },
+    ) => ({
+      label,
+      amount: Number(row._sum.remainingAmount ?? 0),
+      count: row._count,
+    });
+
+    return {
+      receivables: [
+        bucket('Current / future', rCurrent),
+        bucket('0–30 days overdue', r0to30),
+        bucket('31–60 days overdue', r31to60),
+        bucket('60+ days overdue', r60plus),
+      ],
+      payables: [
+        bucket('Overdue', pOverdue),
+        bucket('Due today', pToday),
+        bucket('Next 7 days', pNext7),
+        bucket('Later', pLater),
+      ],
+    };
   }
 
   async recentTransactions(limit = 10) {
