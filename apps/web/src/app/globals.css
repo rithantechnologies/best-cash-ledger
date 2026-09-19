@@ -306,7 +306,29 @@ html[data-theme="dark"] .swipe-commerce-page {
 }
 .result-metric {
   max-width: 100%;
-  font-size: clamp(.64rem, 3vw, .95rem);
+  font-size: clamp(.72rem, 3.15vw, .95rem);
+  letter-spacing: -.02em;
+  white-space: nowrap;
+}
+.section-money {
+  max-width: 100%;
+  font-size: clamp(1rem, 5vw, 1.25rem);
+  line-height: 1.2;
+  letter-spacing: -.03em;
+  white-space: nowrap;
+}
+.saved-total {
+  max-width: 100%;
+  font-size: clamp(1.55rem, 8vw, 1.875rem);
+  line-height: 1.05;
+  letter-spacing: -.035em;
+  white-space: nowrap;
+}
+.saved-metric {
+  display: block;
+  max-width: 100%;
+  font-size: clamp(.72rem, 3.4vw, .82rem);
+  line-height: 1.1rem;
   letter-spacing: -.02em;
   white-space: nowrap;
 }
@@ -552,6 +574,23 @@ html[data-theme="dark"] .text-amber-700 { color: #fcd34d !important; }
 html[data-theme="dark"] .text-rose-700,
 html[data-theme="dark"] .text-red-700 { color: #fda4af !important; }
 
+@media (max-width: 379px) {
+  .swipe-result-head {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .swipe-result-earn {
+    display: flex;
+    width: 100%;
+    max-width: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: left;
+  }
+  .customer-mode-switch { min-width: 152px; }
+  .provider-fee-money { font-size: .78rem; }
+}
 @media (max-width: 767px) {
   input, select, textarea { font-size: 16px; }
   table { font-size: 0.8125rem; }
