@@ -125,6 +125,48 @@ button:active, a:active { transform: translateY(1px); }
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+@keyframes cashledger-draw {
+  from { stroke-dashoffset: 1500; opacity: .3; }
+  to { stroke-dashoffset: 0; opacity: 1; }
+}
+@keyframes cashledger-pop {
+  from { opacity: 0; transform: translateY(6px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes cashledger-donut {
+  from { opacity: 0; transform: rotate(-12deg) scale(.92); }
+  to { opacity: 1; transform: rotate(0) scale(1); }
+}
+
+.cashledger-chart-line {
+  stroke-dasharray: 1500;
+  stroke-dashoffset: 1500;
+  animation: cashledger-draw .9s cubic-bezier(.2,.75,.25,1) forwards;
+}
+.cashledger-chart-dot { opacity: 0; animation: cashledger-pop .28s ease-out forwards; }
+.cashledger-metric { opacity: 0; animation: cashledger-pop .32s ease-out forwards; }
+.cashledger-donut { animation: cashledger-donut .55s cubic-bezier(.2,.75,.25,1) both; }
+.cashledger-hero { box-shadow: 0 18px 44px rgba(10,16,28,.14); }
+
+@keyframes dashboard-line-draw {
+  from { stroke-dashoffset: 1; opacity: .3; }
+  to { stroke-dashoffset: 0; opacity: 1; }
+}
+.dashboard-chart-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: dashboard-line-draw .85s cubic-bezier(.2,.75,.25,1) forwards;
+}
+.dashboard-chart-delay { animation-delay: .12s; }
+.dashboard-chart-delay-2 { animation-delay: .22s; }
+.dashboard-chart-area { animation: cashledger-pop .5s ease-out .12s both; }
+.dashboard-chart-dot { opacity: 0; animation: cashledger-pop .28s ease-out .58s forwards; }
+.dashboard-ring { animation: cashledger-donut .55s cubic-bezier(.2,.75,.25,1) both; }
+.dashboard-hero {
+  background:
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 36%),
+    var(--surface);
+}
 
 .cashledger-shimmer {
   background: linear-gradient(90deg,

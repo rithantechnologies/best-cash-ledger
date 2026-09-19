@@ -45,6 +45,7 @@ export default function AepsPage(){
   setCustomers(c);setAccounts(a);setProviders(p);
   const cash=a.filter(x=>x.accountType==="CASH");if(cash.length===1)setCashAccountId(cash[0].id);
   const remembered=localStorage.getItem("cashledger_aeps_provider");const first=p.find(x=>x.id===remembered)?.id??p[0]?.id??"";if(first)setProviderId(first);
+  const preset=new URLSearchParams(window.location.search).get("customerId");if(preset&&c.some(x=>x.id===preset))setCustomerId(preset);
  }).catch(()=>setError("Failed to load form")).finally(()=>setLoading(false));},[]);
 
  const customer=customers.find(c=>c.id===customerId);

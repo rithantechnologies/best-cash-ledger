@@ -53,11 +53,23 @@ export default function SearchPage(){
      const digits=q.replace(/\D/g,"");
      const matchingCards=c.cards.filter(card=>card.isActive&&digits&&card.lastFourDigits.includes(digits));
      const shownCards=matchingCards.length?matchingCards:c.cards.filter(card=>card.isActive).slice(0,3);
-     return <Link key={c.id} href={"/customers/"+c.id} className="surface-hover block rounded-2xl border border-slate-100 bg-slate-50/70 p-3.5">
-      <div className="flex items-center justify-between gap-3"><strong className="truncate text-sm">{c.fullName}</strong><span className={"text-[10px] font-bold "+(c.isActive?"text-indigo-600":"text-slate-400")}>{c.isActive?"CUSTOMER":"INACTIVE"}</span></div>
-      <p className="mt-1 text-xs text-slate-500">{c.mobile||"No mobile"} <span className="text-slate-300">·</span> {c.customerCode}</p>
-      {shownCards.length?<div className="mt-2 flex flex-wrap gap-1.5">{shownCards.map(card=><span key={card.id} className={"rounded-lg px-2 py-1 text-[10px] font-bold "+(matchingCards.some(x=>x.id===card.id)?"bg-indigo-100 text-indigo-700":"bg-white text-slate-500 ring-1 ring-slate-200")}>{card.bankName} ••••{card.lastFourDigits}</span>)}</div>:null}
-     </Link>;
+     const activeCards=c.cards.filter(card=>card.isActive);
+     const selectedCard=matchingCards[0]??(activeCards.length===1?activeCards[0]:undefined);
+     const swipeHref="/transactions/card-swipe?customerId="+encodeURIComponent(c.id)+(selectedCard?"&cardId="+encodeURIComponent(selectedCard.id):"");
+     const microHref="/transactions/micro-atm?customerId="+encodeURIComponent(c.id)+(selectedCard?"&cardLastFour="+encodeURIComponent(selectedCard.lastFourDigits):"");
+     return <div key={c.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3.5">
+      <Link href={"/customers/"+c.id} className="block">
+       <div className="flex items-center justify-between gap-3"><strong className="truncate text-sm">{c.fullName}</strong><span className={"text-[10px] font-semibold "+(c.isActive?"text-[var(--accent)]":"text-[var(--text-muted)]")}>{c.isActive?"Customer":"Inactive"}</span></div>
+       <p className="mt-1 text-xs text-[var(--text-muted)]">{c.mobile||"No mobile"} <span className="opacity-40">·</span> {c.customerCode}</p>
+       {shownCards.length?<div className="mt-2 flex flex-wrap gap-1.5">{shownCards.map(card=><span key={card.id} className={"rounded-lg px-2 py-1 text-[10px] font-semibold "+(matchingCards.some(x=>x.id===card.id)?"bg-[var(--accent-soft)] text-[var(--accent)]":"bg-[var(--surface-soft)] text-[var(--text-muted)]")}>{card.bankName} ••••{card.lastFourDigits}</span>)}</div>:null}
+      </Link>
+      {c.isActive?<div className="mt-3 grid grid-cols-4 gap-1.5 border-t border-[var(--border)] pt-3">
+       <Link href={swipeHref} className="rounded-lg bg-[var(--text)] px-2 py-2 text-center text-[11px] font-semibold text-[var(--surface)]">Swipe</Link>
+       <Link href={"/transactions/cash-transfer?customerId="+encodeURIComponent(c.id)} className="rounded-lg bg-[var(--surface-soft)] px-2 py-2 text-center text-[11px] font-semibold">Transfer</Link>
+       <Link href={"/transactions/aeps?customerId="+encodeURIComponent(c.id)} className="rounded-lg bg-[var(--surface-soft)] px-2 py-2 text-center text-[11px] font-semibold">AePS</Link>
+       <Link href={microHref} className="rounded-lg bg-[var(--surface-soft)] px-2 py-2 text-center text-[11px] font-semibold">Micro ATM</Link>
+      </div>:null}
+     </div>;
     })}
    </ResultGroup>
    <ResultGroup title="Related transactions" count={data.transactions.length}>

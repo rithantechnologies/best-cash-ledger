@@ -38,7 +38,11 @@ export default function CashTransferPage(){
   const [saving,setSaving]=useState(false);
   const [loading,setLoading]=useState(true);
 
-  useEffect(()=>{Promise.all([apiFetch<Customer[]>("/customers"),apiFetch<Account[]>("/dashboard/accounts")]).then(([c,a])=>{setCustomers(c);setAccounts(a);}).catch(()=>setError("Failed to load form")).finally(()=>setLoading(false));},[]);
+  useEffect(()=>{Promise.all([apiFetch<Customer[]>("/customers"),apiFetch<Account[]>("/dashboard/accounts")]).then(([c,a])=>{
+    setCustomers(c);setAccounts(a);
+    const preset=new URLSearchParams(window.location.search).get("customerId");
+    if(preset&&c.some(x=>x.id===preset))setCustomerId(preset);
+  }).catch(()=>setError("Failed to load form")).finally(()=>setLoading(false));},[]);
 
   const customer=customers.find(c=>c.id===customerId);
   const beneficiary=customer?.beneficiaries.find(b=>b.id===beneficiaryId);

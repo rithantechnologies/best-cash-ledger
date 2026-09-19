@@ -7,7 +7,7 @@ import { AppShell } from "@/components/app-shell";
 import { Field, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
-type Customer={id:string;fullName:string;cards:{id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean}[]};
+type Customer={id:string;fullName:string;mobile:string|null;cards:{id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean}[]};
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string};
 type Provider={id:string;name:string;gateways:Gateway[]};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null};
@@ -30,6 +30,7 @@ export default function CardSwipePage(){
   const [terms,setTerms]=useState<Term[]>([]);
   const [customerId,setCustomerId]=useState("");
   const [cardId,setCardId]=useState("");
+  const [customerSearch,setCustomerSearch]=useState("");
   const [customerMode,setCustomerMode]=useState<"existing"|"new">("existing");
   const [quickName,setQuickName]=useState("");
   const [quickMobile,setQuickMobile]=useState("");
@@ -66,11 +67,28 @@ export default function CardSwipePage(){
       const remembered=localStorage.getItem("cashledger_card_provider");
       const initial=p.find(x=>x.id===remembered)?.id||(p.length===1?p[0].id:"");
       if(initial)setProviderId(initial);
+      const params=new URLSearchParams(window.location.search);
+      const presetCustomerId=params.get("customerId");
+      const presetCardId=params.get("cardId");
+      const presetCustomer=c.find(x=>x.id===presetCustomerId);
+      if(presetCustomer){
+        setCustomerId(presetCustomer.id);
+        setCustomerSearch(presetCustomer.fullName+(presetCustomer.mobile?" · "+presetCustomer.mobile:""));
+        if(presetCardId&&presetCustomer.cards.some(card=>card.id===presetCardId&&card.isActive))setCardId(presetCardId);
+      }
     })
       .catch(e=>setError(e instanceof Error?e.message:"Failed to load form"))
       .finally(()=>setLoading(false));
   },[]);
   const customer=customers.find(c=>c.id===customerId);
+  const customerLabel=customer?customer.fullName+(customer.mobile?" · "+customer.mobile:""):"";
+  const customerNeedle=customerSearch.trim().toLowerCase();
+  const customerDigits=customerSearch.replace(/\D/g,"");
+  const customerMatches=customerNeedle?customers.filter(c=>
+    c.fullName.toLowerCase().includes(customerNeedle)||
+    (c.mobile??"").includes(customerSearch.trim())||
+    (!!customerDigits&&c.cards.some(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)))
+  ).slice(0,8):[];
   const provider=providers.find(p=>p.id===providerId);
   const gateway=provider?.gateways.find(g=>g.id===gatewayId);
   const providerWallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId);
@@ -142,6 +160,14 @@ export default function CardSwipePage(){
       .catch(()=>{});
   },[customerId,providerId,gatewayId,termId]);
 
+  function selectCustomer(next:Customer){
+    const matchingCard=customerDigits?next.cards.find(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):undefined;
+    const activeCards=next.cards.filter(card=>card.isActive);
+    setCustomerId(next.id);
+    setCustomerSearch(next.fullName+(next.mobile?" · "+next.mobile:""));
+    setCardId(matchingCard?.id??(activeCards.length===1?activeCards[0].id:""));
+  }
+
   async function createQuickCustomer(){
     if(!quickName.trim()||!quickMobile.trim()||quickLastFour.length!==4)return;
     setError("");setQuickSaving(true);
@@ -150,9 +176,10 @@ export default function CardSwipePage(){
         method:"POST",
         body:JSON.stringify({fullName:quickName.trim(),mobile:quickMobile.trim(),lastFourDigits:quickLastFour}),
       });
-      const next:Customer={id:created.customer.id,fullName:created.customer.fullName,cards:[created.card]};
+      const next:Customer={id:created.customer.id,fullName:created.customer.fullName,mobile:quickMobile.trim(),cards:[created.card]};
       setCustomers(current=>[next,...current]);
       setCustomerId(created.customer.id);
+      setCustomerSearch(created.customer.fullName+" · "+quickMobile.trim());
       setCardId(created.card.id);
       setQuickName("");setQuickMobile("");setQuickLastFour("");
       setCustomerMode("existing");
@@ -221,9 +248,22 @@ export default function CardSwipePage(){
             <Field label="Phone"><input className={control} type="tel" inputMode="tel" value={quickMobile} onChange={e=>setQuickMobile(e.target.value.slice(0,20))} maxLength={20}/></Field>
             <Field label="Card last 4"><input className={control} inputMode="numeric" value={quickLastFour} onChange={e=>setQuickLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4}/></Field>
             <button type="button" onClick={createQuickCustomer} disabled={quickSaving||!quickName.trim()||!quickMobile.trim()||quickLastFour.length!==4} className="min-h-11 rounded-xl bg-indigo-700 px-4 text-sm font-bold text-white disabled:opacity-40 sm:col-span-3">{quickSaving?"Creating…":"Create customer"}</button>
-          </div>:<div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Field label="Customer"><select className={control} value={customerId} onChange={e=>{setCustomerId(e.target.value);setCardId("");}} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</select></Field>
-            <Field label="Card"><select className={control} value={cardId} onChange={e=>setCardId(e.target.value)} required><option value="">Select card</option>{customer?.cards.filter(c=>c.isActive).map(c=><option key={c.id} value={c.id}>{c.bankName} ••••{c.lastFourDigits}{c.nickname?" · "+c.nickname:""}</option>)}</select></Field>
+          </div>:<div className="mt-4 grid items-start gap-3 sm:grid-cols-2">
+            <Field label="Customer">
+              <div className="relative">
+                <input className={control} inputMode="search" value={customerSearch} onChange={e=>{setCustomerSearch(e.target.value);setCustomerId("");setCardId("");}} placeholder="Name, mobile or card last 4" autoComplete="off" required/>
+                {customerSearch.trim()&&(!customerId||customerSearch!==customerLabel)?<div className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-lg">
+                  {customerMatches.length?customerMatches.map(match=>{
+                    const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];
+                    return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-[var(--surface-soft)]">
+                      <div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{match.mobile||"No mobile"}{matchDigits.length?" · ••••"+matchDigits[0].lastFourDigits:""}</p></div>
+                      {matchDigits.length?<span className="shrink-0 rounded-md bg-[var(--accent-soft)] px-2 py-1 text-[10px] font-semibold text-[var(--accent)]">Card match</span>:null}
+                    </button>;
+                  }):<button type="button" onClick={()=>setCustomerMode("new")} className="w-full rounded-lg px-3 py-3 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}
+                </div>:null}
+              </div>
+            </Field>
+            <Field label="Card"><select className={control} value={cardId} onChange={e=>setCardId(e.target.value)} disabled={!customerId} required><option value="">{customerId?"Select card":"Select customer first"}</option>{customer?.cards.filter(c=>c.isActive).map(c=><option key={c.id} value={c.id}>{c.bankName} ••••{c.lastFourDigits}{c.nickname?" · "+c.nickname:""}</option>)}</select></Field>
           </div>}
 
           <div className="mt-5 grid gap-3 border-t border-slate-100 pt-5 sm:grid-cols-2">

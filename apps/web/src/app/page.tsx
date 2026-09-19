@@ -1,95 +1,140 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
-type Breakdown={dueTodayAmount:number;dueTodayCount:number;overdueAmount:number;overdueCount:number};
-type Summary={cashBalance:number;customerPayable:number;customerReceivable:number;pendingProviderSettlements:number;payableBreakdown:Breakdown;receivableBreakdown:Breakdown};
+type Breakdown={pendingAmount:number;pendingCount:number;partialAmount:number;partialCount:number;dueTodayAmount:number;dueTodayCount:number;overdueAmount:number;overdueCount:number};
+type Summary={
+ cashBalance:number;bankBalance:number;upiBalance:number;walletBalance:number;availableFunds:number;
+ customerPayable:number;customerReceivable:number;pendingProviderSettlements:number;pendingProviderSettlementCount:number;
+ operatingPosition:number;netFinancialPosition:number;payableBreakdown:Breakdown;receivableBreakdown:Breakdown;
+ creditCardOutstanding:number;creditCardAvailable:number;
+};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;isActive:boolean};
-type Today={commission:number;providerCharges:number;cardSwipe:number;aeps:number;microAtm:number;cashIn:number;cashOut:number};
+type Today={
+ cashIn:number;cashOut:number;bankIn:number;bankOut:number;walletIn:number;walletOut:number;upiIn:number;upiOut:number;
+ cardSwipe:number;aeps:number;microAtm:number;customerPayout:number;customerReceipt:number;receivableCreated:number;
+ commission:number;providerCharges:number;businessExpense:number;personalExpense:number;
+};
 type Payable={id:string;remainingAmount:string;dueAt:string;bucket:string;customer:{fullName:string}};
 type Receivable={id:string;remainingAmount:string;dueAt:string|null;bucket:string;reason:string;customer:{fullName:string}};
-type Settlement={id:string;remainingAmount:string;dueAt:string|null;status:string;provider:{name:string}|null;sourceTransaction:{transactionNumber:string;customer:{fullName:string}|null}};
-type Tx={id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;status:string;customer:{fullName:string}|null};
-type Paged<T>={items:T[]};
-type Counter={id:string;status:string;cashAccount:{accountName:string};openingTotal:string}|null;
-type Eod={businessDate:string;snapshot:{id:string}|null;openCashSessions:number};
+type Trend={date:string;availableFunds:number;pendingProviderSettlements:number;receivables:number;payables:number;creditCardOutstanding:number;operatingPosition:number;netPosition:number};
+type Counter={id:string;cashAccount:{accountName:string}}|null;
+type Eod={snapshot:{id:string}|null;openCashSessions:number};
 
 const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(v||0));
 const compact=(v:number)=>new Intl.NumberFormat("en-IN",{notation:"compact",maximumFractionDigits:1,style:"currency",currency:"INR"}).format(v);
-function dueWithin(date:string|null,days:number){if(!date)return false;const now=new Date();now.setHours(0,0,0,0);const end=new Date(now);end.setDate(end.getDate()+days);const d=new Date(date);return d>=now&&d<end;}
-function rel(date:string|null){if(!date)return "No due date";const d=new Date(date);d.setHours(0,0,0,0);const n=new Date();n.setHours(0,0,0,0);const x=Math.round((d.getTime()-n.getTime())/86400000);if(x===0)return "Today";if(x===1)return "Tomorrow";if(x<0)return Math.abs(x)+"d late";return "in "+x+"d";}
+
+function PositionChart({rows}:{rows:Trend[]}){
+ const width=760,height=250,pad=26;
+ const values=rows.flatMap(r=>[r.netPosition,r.operatingPosition,r.availableFunds]);
+ const min=Math.min(0,...values),max=Math.max(1,...values),range=max-min||1;
+ const point=(v:number,i:number)=>({x:pad+(rows.length<=1?0:i*(width-pad*2)/(rows.length-1)),y:height-pad-((v-min)/range)*(height-pad*2)});
+ const path=(key:"netPosition"|"operatingPosition"|"availableFunds")=>rows.map((r,i)=>{const p=point(r[key],i);return (i?"L":"M")+p.x.toFixed(1)+" "+p.y.toFixed(1);}).join(" ");
+ const area=rows.length?path("netPosition")+" L "+(width-pad)+" "+(height-pad)+" L "+pad+" "+(height-pad)+" Z":"";
+ if(!rows.length)return <EmptyState title="Trend will appear after EOD snapshots"/>;
+ return <div>
+  <div className="mb-3 flex flex-wrap gap-4 text-xs text-[var(--text-muted)]"><span className="flex items-center gap-2"><i className="h-2 w-2 rounded-full bg-[var(--accent)]"/>Net position</span><span className="flex items-center gap-2"><i className="h-2 w-2 rounded-full bg-cyan-500"/>Operating</span><span className="flex items-center gap-2"><i className="h-2 w-2 rounded-full bg-emerald-500"/>Available</span></div>
+  <svg viewBox={"0 0 "+width+" "+height} className="h-auto w-full overflow-visible" role="img" aria-label="Financial position trend">
+   {[.25,.5,.75].map(n=><line key={n} x1={pad} x2={width-pad} y1={pad+n*(height-pad*2)} y2={pad+n*(height-pad*2)} stroke="var(--border)" strokeDasharray="4 7"/>)}
+   {area?<path d={area} fill="var(--accent-soft)" className="dashboard-chart-area"/>:null}
+   <path d={path("availableFunds")} pathLength="1" fill="none" stroke="#10b981" strokeWidth="2.3" strokeLinecap="round" className="dashboard-chart-line"/>
+   <path d={path("operatingPosition")} pathLength="1" fill="none" stroke="#06b6d4" strokeWidth="2.3" strokeLinecap="round" className="dashboard-chart-line dashboard-chart-delay"/>
+   <path d={path("netPosition")} pathLength="1" fill="none" stroke="var(--accent)" strokeWidth="3.3" strokeLinecap="round" className="dashboard-chart-line dashboard-chart-delay-2"/>
+   {rows.map((r,i)=>{const p=point(r.netPosition,i);return <g key={r.date}><circle cx={p.x} cy={p.y} r="3.8" fill="var(--accent)" className="dashboard-chart-dot"><title>{r.date+" · "+money(r.netPosition)}</title></circle><text x={p.x} y={height-3} textAnchor="middle" fontSize="9" fill="var(--text-muted)">{r.date.slice(5)}</text></g>})}
+  </svg>
+  <div className="mt-1 flex justify-between text-xs text-[var(--text-muted)]"><span>{money(rows[0].netPosition)}</span><span>10-day movement</span><strong className="text-[var(--text)]">{money(rows[rows.length-1].netPosition)}</strong></div>
+ </div>;
+}
+
+function MoneyMix({summary}:{summary:Summary}){
+ const items=[
+  {label:"Cash",value:Math.max(0,summary.cashBalance),color:"#475569"},
+  {label:"Banks",value:Math.max(0,summary.bankBalance),color:"#6366f1"},
+  {label:"UPI",value:Math.max(0,summary.upiBalance),color:"#06b6d4"},
+  {label:"Wallets",value:Math.max(0,summary.walletBalance),color:"#10b981"},
+ ];
+ const total=items.reduce((s,x)=>s+x.value,0);let cursor=0;
+ const stops=items.map(x=>{const start=cursor,end=total?cursor+x.value/total*100:cursor;cursor=end;return x.color+" "+start+"% "+end+"%";}).join(",");
+ return <div className="grid gap-5 sm:grid-cols-[150px_1fr] sm:items-center">
+  <div className="dashboard-ring relative mx-auto h-36 w-36 rounded-full" style={{background:total?"conic-gradient("+stops+")":"var(--surface-soft)"}}><div className="absolute inset-[22px] grid place-items-center rounded-full bg-[var(--surface)]"><div className="text-center"><p className="text-[11px] text-[var(--text-muted)]">Available</p><strong className="money text-xl">{compact(total)}</strong></div></div></div>
+  <div className="space-y-3">{items.map(x=><div key={x.label} className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-xs text-[var(--text-muted)]"><i className="h-2.5 w-2.5 rounded-full" style={{background:x.color}}/>{x.label}</span><strong className="money text-sm">{money(x.value)}</strong></div>)}</div>
+ </div>;
+}
+
+function TodayPulse({today}:{today:Today}){
+ const rows=[
+  ["Cash",today.cashIn,today.cashOut],["Bank",today.bankIn,today.bankOut],["UPI",today.upiIn,today.upiOut],["Wallet",today.walletIn,today.walletOut],["Customers",today.customerReceipt,today.customerPayout],["Fees",today.commission,today.providerCharges],
+ ] as [string,number,number][];
+ const max=Math.max(1,...rows.flatMap(r=>[Math.abs(r[1]),Math.abs(r[2])]));
+ return <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
+  <div>
+   <div className="grid grid-cols-[minmax(80px,1fr)_minmax(90px,.8fr)_minmax(90px,.8fr)] gap-2 border-b border-[var(--border)] pb-2 text-[11px] text-[var(--text-muted)]"><span>Channel</span><span className="text-right text-[var(--money-in)]">In</span><span className="text-right text-[var(--money-out)]">Out</span></div>
+   <div className="divide-y divide-[var(--border)]">{rows.map(([label,inc,out])=><div key={label} className="grid grid-cols-[minmax(80px,1fr)_minmax(90px,.8fr)_minmax(90px,.8fr)] items-center gap-2 py-2.5"><div><p className="text-xs font-semibold">{label}</p><div className="mt-1 flex h-1 overflow-hidden rounded-full bg-[var(--surface-soft)]"><span className="bg-emerald-400" style={{width:(Math.abs(inc)/max*50)+"%"}}/><span className="ml-auto bg-rose-400" style={{width:(Math.abs(out)/max*50)+"%"}}/></div></div><strong className="money truncate text-right text-sm text-[var(--money-in)]">{money(inc)}</strong><strong className="money truncate text-right text-sm text-[var(--money-out)]">{money(out)}</strong></div>)}</div>
+  </div>
+  <div className="grid grid-cols-2 gap-2 self-start">
+   {[["Card swipe",today.cardSwipe],["AePS",today.aeps],["Micro ATM",today.microAtm],["Commission",today.commission],["Business expense",today.businessExpense],["Personal expense",today.personalExpense]].map(([label,value])=><div key={String(label)} className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[11px] text-[var(--text-muted)]">{label}</p><p className="money mt-1 text-base font-semibold">{money(Number(value))}</p></div>)}
+  </div>
+ </div>;
+}
 
 export default function DashboardPage(){
  const [summary,setSummary]=useState<Summary|null>(null),[accounts,setAccounts]=useState<Account[]>([]),[today,setToday]=useState<Today|null>(null);
- const [payables,setPayables]=useState<Payable[]>([]),[receivables,setReceivables]=useState<Receivable[]>([]),[settlements,setSettlements]=useState<Settlement[]>([]),[activity,setActivity]=useState<Tx[]>([]);
+ const [payables,setPayables]=useState<Payable[]>([]),[receivables,setReceivables]=useState<Receivable[]>([]),[trend,setTrend]=useState<Trend[]>([]);
  const [counter,setCounter]=useState<Counter>(null),[eod,setEod]=useState<Eod|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
- useEffect(()=>{Promise.all([
-  apiFetch<Summary>("/dashboard/summary"),
-  apiFetch<Account[]>("/dashboard/accounts"),
-  apiFetch<Today>("/dashboard/today"),
-  apiFetch<Payable[]>("/dashboard/payables"),
-  apiFetch<Receivable[]>("/dashboard/receivables"),
-  apiFetch<Paged<Settlement>>("/provider-settlements?page=1&pageSize=100"),
-  apiFetch<Paged<Tx>>("/transactions?page=1&pageSize=10&sortBy=transactionAt&sortDir=desc"),
-  apiFetch<Counter>("/cash-counter/current"),
-  apiFetch<Eod>("/end-of-day/status"),
- ]).then(([s,a,t,p,r,ps,tx,c,e])=>{setSummary(s);setAccounts(a);setToday(t);setPayables(p);setReceivables(r);setSettlements(ps.items);setActivity(tx.items);setCounter(c);setEod(e);}).catch(err=>setError(err instanceof Error?err.message:"Dashboard failed to load")).finally(()=>setLoading(false));},[]);
+ const load=useCallback(async()=>{
+  setLoading(true);setError("");
+  try{
+   const [s,a,t,p,r,tr,c,e]=await Promise.all([
+    apiFetch<Summary>("/dashboard/summary"),apiFetch<Account[]>("/dashboard/accounts"),apiFetch<Today>("/dashboard/today"),
+    apiFetch<Payable[]>("/dashboard/payables"),apiFetch<Receivable[]>("/dashboard/receivables"),apiFetch<Trend[]>("/dashboard/position-trend"),
+    apiFetch<Counter>("/cash-counter/current"),apiFetch<Eod>("/end-of-day/status"),
+   ]);
+   setSummary(s);setAccounts(a);setToday(t);setPayables(p);setReceivables(r);setTrend(tr);setCounter(c);setEod(e);
+  }catch(err){setError(err instanceof Error?err.message:"Failed to load dashboard");}
+  finally{setLoading(false);}
+ },[]);
+ useEffect(()=>{load();},[load]);
 
- const arrivingWeek=useMemo(()=>receivables.filter(x=>dueWithin(x.dueAt,7)).reduce((s,x)=>s+Number(x.remainingAmount),0)+settlements.filter(x=>Number(x.remainingAmount)>0&&dueWithin(x.dueAt,7)).reduce((s,x)=>s+Number(x.remainingAmount),0),[receivables,settlements]);
- const earned=today?.commission??0;
- const liquid=accounts.filter(a=>a.isActive&&a.accountType!=="OWNER_CREDIT_CARD");
- const tasks=useMemo(()=>{
-  const rows:{title:string;meta:string;amount?:string;href:string;action:string;tone?:"rose"|"amber"}[]=[];
-  payables.filter(x=>Number(x.remainingAmount)>0).slice(0,2).forEach(x=>rows.push({title:"Pay "+x.customer.fullName,meta:rel(x.dueAt),amount:money(x.remainingAmount),href:"/payables/"+x.id,action:"Pay",tone:x.bucket==="OVERDUE"?"rose":"amber"}));
-  settlements.filter(x=>Number(x.remainingAmount)>0&&!["SETTLED","CANCELLED","REVERSED"].includes(x.status)).slice(0,2).forEach(x=>rows.push({title:(x.provider?.name??"Provider")+" settlement",meta:rel(x.dueAt),amount:money(x.remainingAmount),href:"/provider-settlements",action:"Receive",tone:rel(x.dueAt).includes("late")?"rose":"amber"}));
-  if(counter)rows.push({title:"Cash counter is open",meta:counter.cashAccount.accountName,href:"/cash-counter",action:"Close"});
-  if(eod&&!eod.snapshot)rows.push({title:"End of day not saved",meta:eod.openCashSessions?eod.openCashSessions+" counter open":"Ready to review",href:"/end-of-day",action:"Review"});
-  return rows.slice(0,6);
- },[payables,settlements,counter,eod]);
+ const alerts=useMemo(()=>summary?[
+  ["Receivable overdue",summary.receivableBreakdown.overdueAmount,summary.receivableBreakdown.overdueCount,"/receivables","rose"],
+  ["Payable overdue",summary.payableBreakdown.overdueAmount,summary.payableBreakdown.overdueCount,"/payables","rose"],
+  ["Receive today",summary.receivableBreakdown.dueTodayAmount,summary.receivableBreakdown.dueTodayCount,"/receivables","emerald"],
+  ["Pay today",summary.payableBreakdown.dueTodayAmount,summary.payableBreakdown.dueTodayCount,"/payables","amber"],
+ ] as const:[],[summary]);
+ if(loading)return <AppShell><PageLoader label="Preparing dashboard…"/></AppShell>;
+ if(error||!summary||!today)return <AppShell><div className="mx-auto max-w-md py-20"><Surface className="p-6 text-center"><h2 className="font-semibold">Dashboard couldn’t load</h2><p className="mt-1 text-sm text-[var(--text-muted)]">{error||"Please try again."}</p><button onClick={load} className="mt-4 rounded-lg bg-[var(--text)] px-4 py-2 text-sm font-semibold text-[var(--surface)]">Try again</button></Surface></div></AppShell>;
 
- const days=useMemo(()=>Array.from({length:7},(_,i)=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+i);const next=new Date(d);next.setDate(next.getDate()+1);const amount=settlements.filter(s=>s.dueAt&&new Date(s.dueAt)>=d&&new Date(s.dueAt)<next&&Number(s.remainingAmount)>0).reduce((sum,s)=>sum+Number(s.remainingAmount),0);return {date:d,amount};}),[settlements]);
- if(loading)return <AppShell><PageLoader label="Loading today…"/></AppShell>;
+ const activeAccounts=accounts.filter(a=>a.isActive&&a.accountType!=="OWNER_CREDIT_CARD").sort((a,b)=>Math.abs(b.currentBalance)-Math.abs(a.currentBalance)).slice(0,6);
+ return <AppShell><div className="page-enter mx-auto max-w-[1440px] space-y-4">
+  <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-xl font-bold sm:text-2xl">Dashboard</h1><div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]"><span>{new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"})}</span><span>·</span><Link href="/cash-counter" className="font-semibold">{counter?"Counter open · "+counter.cashAccount.accountName:"Counter closed"}</Link><span>·</span><Link href="/end-of-day" className="font-semibold">{eod?.snapshot?"EOD saved":"EOD pending"}</Link></div></div><div className="flex gap-2"><Link href="/receivables" className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold">Receive</Link><Link href="/payables" className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold">Pay</Link><Link href="/transactions/new" className="rounded-lg bg-[var(--text)] px-3 py-2 text-xs font-semibold text-[var(--surface)]">+ New</Link></div></div>
 
- return <AppShell><div className="page-enter mx-auto max-w-7xl space-y-4">
-  <div className="flex flex-wrap items-center justify-between gap-2">
-   <div><h1 className="text-xl font-bold sm:text-2xl">Today</h1><p className="mt-0.5 text-sm text-[var(--text-muted)]">{new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"})}</p></div>
-   <div className="flex flex-wrap gap-2 text-xs"><Link href="/cash-counter" className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-semibold">{counter?"Counter open":"Counter closed"}</Link><Link href="/end-of-day" className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-semibold">{eod?.snapshot?"EOD saved":"EOD pending"}</Link></div>
-  </div>
-  {error?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
-
-  <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-   {[
-    ["Cash in hand",summary?.cashBalance??0,"/accounts"],
-    ["To pay today",summary?.payableBreakdown.dueTodayAmount??0,"/dues"],
-    ["Arriving this week",arrivingWeek,"/dues"],
-    ["Commission today",earned,"/reports"],
-   ].map(([label,value,href])=><Link key={String(label)} href={String(href)} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3.5 hover:bg-[var(--surface-soft)]"><p className="text-xs font-medium text-[var(--text-muted)]">{label}</p><p className="money mt-2 text-xl font-semibold sm:text-2xl">{compact(Number(value))}</p></Link>)}
-  </div>
-
-  <div className="grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
-   <Surface className="overflow-hidden">
-    <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Do now</h2><Link href="/dues" className="text-xs font-semibold text-[var(--accent)]">All dues</Link></div>
-    {tasks.length?<div className="divide-y divide-[var(--border)]">{tasks.map((t,i)=><div key={i} className="flex items-center gap-3 px-4 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{t.title}</p><p className={"mt-0.5 text-xs "+(t.tone==="rose"?"text-rose-600":"text-[var(--text-muted)]")}>{t.meta}</p></div>{t.amount?<strong className="money text-sm">{t.amount}</strong>:null}<Link href={t.href} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold text-[var(--accent)]">{t.action}</Link></div>)}</div>:<div className="p-4"><EmptyState title="Nothing urgent" description="No open tasks need attention right now."/></div>}
-   </Surface>
-
-   <Surface className="overflow-hidden">
-    <div className="border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Settlement week</h2></div>
-    <div className="grid grid-cols-7 gap-px bg-[var(--border)]">{days.map((x,i)=><div key={i} className="min-w-0 bg-[var(--surface)] px-1.5 py-3 text-center"><p className="text-[10px] text-[var(--text-muted)]">{x.date.toLocaleDateString("en-IN",{weekday:"short"})}</p><p className="mt-1 text-xs font-semibold">{x.amount?compact(x.amount):"—"}</p></div>)}</div>
-   </Surface>
-  </div>
-
-  <div>
-   <div className="mb-2 flex items-center justify-between"><h2 className="text-sm font-semibold">Balances</h2><Link href="/accounts" className="text-xs font-semibold text-[var(--accent)]">Accounts →</Link></div>
-   <div className="flex gap-2 overflow-x-auto pb-2">{liquid.map(a=><Link key={a.id} href="/accounts" className="min-w-[150px] rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-3"><p className="truncate text-xs text-[var(--text-muted)]">{a.accountName}</p><p className="money mt-1 text-base font-semibold">{money(a.currentBalance)}</p></Link>)}</div>
-  </div>
-
-  <Surface className="overflow-hidden">
-   <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Recent activity</h2><Link href="/transactions" className="text-xs font-semibold text-[var(--accent)]">View all</Link></div>
-   {activity.length?<div className="divide-y divide-[var(--border)]">{activity.map(t=><Link key={t.id} href={"/transactions/"+t.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-medium">{t.transactionType.replaceAll("_"," ")}{t.customer?" · "+t.customer.fullName:""}</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">{new Date(t.transactionAt).toLocaleString("en-IN")}</p></div><div className="text-right"><p className="money text-sm font-semibold">{money(t.grossAmount)}</p><p className="text-[11px] text-[var(--text-muted)]">{t.status.replaceAll("_"," ")}</p></div></Link>)}</div>:<div className="p-4"><EmptyState title="No activity yet" description="New transactions will appear here."/></div>}
+  <Surface className="dashboard-hero overflow-hidden">
+   <div className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[1.05fr_1.5fr]">
+    <div><p className="text-xs font-medium text-[var(--text-muted)]">Net financial position</p><p className={"money mt-2 text-4xl font-semibold tracking-[-.04em] sm:text-5xl "+(summary.netFinancialPosition<0?"text-rose-600":"")}>{money(summary.netFinancialPosition)}</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]">Operating {money(summary.operatingPosition)}</span><span className="rounded-full bg-[var(--surface-soft)] px-3 py-1.5 text-xs text-[var(--text-muted)]">Available {money(summary.availableFunds)}</span></div></div>
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-[var(--border)] sm:grid-cols-3">{[["Available",summary.availableFunds,""],["Provider clearing",summary.pendingProviderSettlements,"text-cyan-600"],["To receive",summary.customerReceivable,"text-[var(--money-in)]"],["To pay",summary.customerPayable,"text-amber-600"],["Card outstanding",summary.creditCardOutstanding,"text-[var(--money-out)]"],["Card available",summary.creditCardAvailable,"text-[var(--accent)]"]].map(([label,value,tone])=><div key={String(label)} className="bg-[var(--surface)] p-3.5"><p className="text-[11px] text-[var(--text-muted)]">{label}</p><p className={"money mt-1.5 text-lg font-semibold "+tone}>{money(Number(value))}</p></div>)}</div>
+   </div>
   </Surface>
+
+  <Surface className="p-4 sm:p-5"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">Today’s operating pulse</h2><span className="text-xs text-[var(--text-muted)]">Live</span></div><TodayPulse today={today}/></Surface>
+
+  <div className="grid gap-4 xl:grid-cols-[1.65fr_1fr]">
+   <Surface className="min-w-0 p-4 sm:p-5"><div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">Position trend</h2><Link href="/reports" className="text-xs font-semibold text-[var(--accent)]">Reports →</Link></div><PositionChart rows={trend}/></Surface>
+   <Surface className="p-4 sm:p-5"><div className="mb-4"><h2 className="font-semibold">Where the money is</h2></div><MoneyMix summary={summary}/></Surface>
+  </div>
+
+  <div className="grid gap-4 xl:grid-cols-2">
+   <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Needs attention</h2></div><div className="grid grid-cols-2 gap-px bg-[var(--border)]">{alerts.map(([label,value,count,href,tone])=><Link key={label} href={href} className="bg-[var(--surface)] p-4 hover:bg-[var(--surface-soft)]"><p className="text-xs text-[var(--text-muted)]">{label}</p><p className={"money mt-2 text-xl font-semibold "+(tone==="rose"?"text-rose-600":tone==="emerald"?"text-[var(--money-in)]":"text-amber-600")}>{money(value)}</p><p className="mt-1 text-[11px] text-[var(--text-muted)]">{count} item{count===1?"":"s"} · Open →</p></Link>)}</div></Surface>
+   <Surface className="overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Account balances</h2><Link href="/accounts" className="text-xs font-semibold text-[var(--accent)]">View all</Link></div>{activeAccounts.length?<div className="divide-y divide-[var(--border)]">{activeAccounts.map(a=><Link key={a.id} href={"/accounts/"+a.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-soft)]"><div><p className="text-sm font-medium">{a.accountName}</p><p className="text-[11px] text-[var(--text-muted)]">{a.accountType.replaceAll("_"," ")}</p></div><strong className="money text-sm">{money(a.currentBalance)}</strong></Link>)}</div>:<div className="p-4"><EmptyState title="No account balances yet"/></div>}</Surface>
+  </div>
+
+  <div className="grid gap-4 xl:grid-cols-2">
+   <Surface className="overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Money to receive</h2><Link href="/receivables" className="text-xs font-semibold text-[var(--accent)]">View all</Link></div>{receivables.length?<div className="divide-y divide-[var(--border)]">{receivables.slice(0,5).map(r=><Link key={r.id} href={"/receivables/"+r.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-medium">{r.customer.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{r.reason}{r.dueAt?" · "+new Date(r.dueAt).toLocaleDateString("en-IN"):""}</p></div><div className="text-right"><strong className="money text-sm text-[var(--money-in)]">{money(r.remainingAmount)}</strong>{r.bucket==="OVERDUE"?<p className="text-[10px] font-semibold text-rose-600">OVERDUE</p>:null}</div></Link>)}</div>:<div className="p-4"><EmptyState title="Nothing outstanding to receive"/></div>}</Surface>
+   <Surface className="overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Money to pay</h2><Link href="/payables" className="text-xs font-semibold text-[var(--accent)]">View all</Link></div>{payables.length?<div className="divide-y divide-[var(--border)]">{payables.slice(0,5).map(p=><Link key={p.id} href={"/payables/"+p.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-soft)]"><div><p className="text-sm font-medium">{p.customer.fullName}</p><p className="text-[11px] text-[var(--text-muted)]">Due {new Date(p.dueAt).toLocaleDateString("en-IN")}</p></div><div className="text-right"><strong className="money text-sm text-amber-600">{money(p.remainingAmount)}</strong>{p.bucket==="OVERDUE"?<p className="text-[10px] font-semibold text-rose-600">OVERDUE</p>:null}</div></Link>)}</div>:<div className="p-4"><EmptyState title="No open customer payables"/></div>}</Surface>
+  </div>
  </div></AppShell>;
 }

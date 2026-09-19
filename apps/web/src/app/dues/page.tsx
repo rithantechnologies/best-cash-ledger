@@ -48,7 +48,7 @@ export default function DuesPage(){
  if(loading)return <AppShell><PageLoader label="Loading dues…"/></AppShell>;
 
  return <AppShell><PageFrame width="max-w-5xl">
-  <div className="flex items-end justify-between gap-3"><div><h1 className="text-xl font-bold sm:text-2xl">Dues</h1><p className="mt-1 text-sm text-[var(--text-muted)]">{money(total)} open in {tab==="payables"?"customer payables":tab==="receivables"?"receivables":"provider clearing"}</p></div></div>
+  <div className="flex items-end justify-between gap-3"><div><h1 className="text-xl font-bold sm:text-2xl">Dues</h1><p className="mt-1 text-sm text-[var(--text-muted)]">{money(total)} open in {tab==="payables"?"customer payables":tab==="receivables"?"receivables":"provider clearing"}</p></div><Link href={tab==="payables"?"/payables":tab==="receivables"?"/receivables":"/provider-settlements"} className="shrink-0 text-xs font-semibold text-[var(--accent)]">Full list →</Link></div>
   {error?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
   <SegmentedTabs<Tab> value={tab} onChange={v=>{setTab(v);setFilter("all");}} items={[
     {value:"payables",label:"To pay",count:openPayables.length},

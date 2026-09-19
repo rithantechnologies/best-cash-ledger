@@ -75,6 +75,8 @@ export default function CustomerDetailPage(){
  if(!c)return <AppShell><PageLoader label="Loading customer profile…"/></AppShell>;
  const openPayable=c.payables.filter(x=>!["PAID","CANCELLED","REVERSED"].includes(x.status)).reduce((s,x)=>s+Number(x.remainingAmount),0);
  const openReceivable=c.receivables.filter(x=>!["RECEIVED","CANCELLED","REVERSED"].includes(x.status)).reduce((s,x)=>s+Number(x.remainingAmount),0);
+ const primaryCard=c.cards.find(x=>x.isActive);
+ const customerParam="customerId="+encodeURIComponent(c.id);
  return <AppShell><PageFrame>
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href="/customers" className="text-xs font-bold text-indigo-600">← Customers</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{c.customerCode} · {c.customerType.replaceAll("_"," ")}</p><h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{c.fullName}</h2><p className="mt-1 text-sm text-slate-500">{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</p></div>
@@ -82,6 +84,13 @@ export default function CustomerDetailPage(){
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
+
+  {c.isActive?<div className="flex gap-2 overflow-x-auto pb-1">
+   <Link href={"/transactions/card-swipe?"+customerParam+(primaryCard?"&cardId="+encodeURIComponent(primaryCard.id):"")} className="min-h-10 shrink-0 rounded-lg bg-[var(--text)] px-4 py-2.5 text-xs font-semibold text-[var(--surface)]">Card swipe</Link>
+   <Link href={"/transactions/cash-transfer?"+customerParam} className="min-h-10 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-semibold">Cash transfer</Link>
+   <Link href={"/transactions/aeps?"+customerParam} className="min-h-10 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-semibold">AePS</Link>
+   <Link href={"/transactions/micro-atm?"+customerParam+(primaryCard?"&cardLastFour="+encodeURIComponent(primaryCard.lastFourDigits):"")} className="min-h-10 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-semibold">Micro ATM</Link>
+  </div>:null}
 
   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
    <DetailStat label="To receive" value={money(openReceivable)} tone="emerald"/>
