@@ -79,6 +79,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [role,setRole]=useState(""),[search,setSearch]=useState("");
   const [menuOpen,setMenuOpen]=useState(false),[newOpen,setNewOpen]=useState(false),[navigating,setNavigating]=useState(false);
   const [theme,setTheme]=useState<ThemeMode>("system");
+  const [counterOpen,setCounterOpen]=useState<boolean|null>(null);
 
   useEffect(()=>{
     try{
@@ -88,6 +89,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     }catch{}
   },[]);
   useEffect(()=>{setMenuOpen(false);setNewOpen(false);setNavigating(false);},[pathname]);
+  useEffect(()=>{
+    if(!transactionTaskTitles[pathname]){setCounterOpen(null);return;}
+    apiFetch<{id:string}|null>("/cash-counter/current")
+      .then(current=>setCounterOpen(!!current))
+      .catch(()=>setCounterOpen(null));
+  },[pathname]);
   useEffect(()=>{
     const locked=menuOpen||newOpen;
     document.body.style.overflow=locked?"hidden":"";
@@ -124,7 +131,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] backdrop-blur-xl">
         <div className="flex h-15 items-center gap-3 px-3 sm:px-5 lg:px-6">
           <button onClick={()=>isTaskFlow?router.push("/transactions/new"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] lg:hidden" aria-label={isTaskFlow?"Back to new transaction":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"}/></button>
-          <div className="min-w-0 flex-1 lg:flex-none"><p className="truncate text-sm font-semibold">{currentTitle}</p></div>
+          <div className="min-w-0 flex-1 lg:flex-none">{isTaskFlow?<><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-[var(--text-muted)]">New transaction</p><p className="truncate text-sm font-semibold">{currentTitle}</p></>:<p className="truncate text-sm font-semibold">{currentTitle}</p>}</div>
+          {isTaskFlow&&counterOpen!==null?<span className={"shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold "+(counterOpen?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-700")}>{counterOpen?"Counter open":"Counter closed"}</span>:null}
           {!isTaskFlow?<><form onSubmit={submitSearch} className="mx-auto hidden w-full max-w-xl md:block"><div className="relative"><Icon name="search" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile, card last 4…" className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-soft)] pl-10 pr-3 text-sm"/></div></form>
           <Link href="/transactions/new" className="hidden min-h-10 items-center gap-2 rounded-lg bg-[var(--text)] px-4 text-sm font-semibold text-[var(--surface)] sm:flex"><Icon name="plus" className="h-4 w-4"/>New</Link></>:<div className="hidden flex-1 lg:block"/>}
         </div>

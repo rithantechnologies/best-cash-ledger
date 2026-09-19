@@ -112,6 +112,31 @@ button:active, a:active { transform: translateY(1px); }
 }
 .app-control::placeholder { color: color-mix(in srgb, var(--text-muted) 75%, transparent); }
 
+.counter-surface {
+  border-radius: 22px !important;
+  border-color: color-mix(in srgb, var(--border) 84%, transparent) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--accent) 2%), var(--surface));
+  box-shadow: 0 10px 30px color-mix(in srgb, #0f172a 6%, transparent);
+}
+.counter-section-title {
+  font-size: 1.05rem;
+  line-height: 1.3;
+  font-weight: 750;
+  letter-spacing: -.018em;
+}
+.counter-card-tile {
+  transition: border-color .16s ease, background-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+.counter-card-tile:active { transform: scale(.99); }
+.rate-strip {
+  scrollbar-width: none;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.rate-strip::-webkit-scrollbar { display: none; }
+
 @keyframes cashledger-progress {
   0% { transform: translateX(-100%); }
   45% { transform: translateX(-30%); }
