@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui";
+import { BrandMark } from "@/components/brand-mark";
 import { apiFetch } from "@/lib/api";
 
 type LoginResponse={
@@ -32,8 +33,8 @@ export default function LoginPage(){
   <div className="relative mx-auto grid min-h-screen max-w-7xl items-stretch lg:grid-cols-[1.05fr_.95fr]">
    <section className="hidden flex-col justify-between p-10 text-white lg:flex xl:p-14">
     <div className="flex items-center gap-3">
-     <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white text-sm font-black text-slate-950 shadow-xl">CL</div>
-     <div><p className="text-[10px] font-bold uppercase tracking-[.24em] text-indigo-300">Financial operations</p><h1 className="text-xl font-bold tracking-tight">Cash Ledger</h1></div>
+     <BrandMark className="h-12 w-12 drop-shadow-[0_12px_28px_rgba(109,40,217,.35)]" />
+     <div><p className="text-xl font-bold tracking-tight">Best Agency</p><p className="mt-0.5 text-[10px] font-bold uppercase tracking-[.22em] text-indigo-300">Cash Ledger</p></div>
     </div>
     <div className="max-w-xl">
      <p className="text-xs font-bold uppercase tracking-[.22em] text-cyan-300">Built for the counter</p>
@@ -47,8 +48,8 @@ export default function LoginPage(){
    <section className="flex items-center justify-center p-4 sm:p-8 lg:bg-white/[.025]">
     <div className="w-full max-w-md">
      <div className="mb-6 flex items-center gap-3 text-white lg:hidden">
-      <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-xs font-black text-slate-950">CL</div>
-      <div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-indigo-300">Financial operations</p><p className="font-bold">Cash Ledger</p></div>
+      <BrandMark className="h-11 w-11" />
+      <div><p className="font-bold">Best Agency</p><p className="text-[10px] font-bold uppercase tracking-[.2em] text-indigo-300">Cash Ledger</p></div>
      </div>
 
      <div className="rounded-[30px] border border-white/70 bg-white/95 p-5 shadow-[0_30px_90px_rgba(0,0,0,.35)] backdrop-blur-xl sm:p-8">
