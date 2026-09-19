@@ -40,6 +40,11 @@ const detail=await req('/customers/'+swipe.createdCustomer.customer.id,{},token)
 assert(detail.cards.some(x=>x.lastFourDigits==='6789'&&x.bankName==='HDFC'),'Saved card missing');
 assert(detail.transactions.some(x=>x.id===swipe.transaction.id),'Swipe missing from customer history');
 console.log('✓ atomic new customer + card + swipe');
+const duplicate=await raw('/transactions/card-swipe',{method:'POST',headers:{'idempotency-key':'atomic-dup-'+suffix},body:JSON.stringify({...payload,newCustomer:{...payload.newCustomer,fullName:'Duplicate '+suffix},swipeAmount:1200})},token);
+assert(duplicate.status===400,'Duplicate mobile should be rejected');
+const invalid=await raw('/transactions/card-swipe',{method:'POST',headers:{'idempotency-key':'atomic-invalid-'+suffix},body:JSON.stringify({...payload,newCustomer:{...payload.newCustomer,mobile:'12345'},swipeAmount:1300})},token);
+assert(invalid.status===400,'Invalid Indian mobile should be rejected');
+console.log('✓ invalid and duplicate Indian mobiles rejected');
 const failMobile='95555'+String(Date.now()).slice(-5);
 const failPayload={
   newCustomer:{fullName:'Rollback Customer '+suffix,mobile:failMobile,bankName:'ICICI',lastFourDigits:'4321'},

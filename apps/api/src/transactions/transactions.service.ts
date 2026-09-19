@@ -206,12 +206,25 @@ export class TransactionsService {
             'Use either an existing customer or a new customer, not both',
           );
         }
+        const mobile = dto.newCustomer.mobile.trim();
+        const duplicateCustomer = await tx.customer.findFirst({
+          where: {
+            isActive: true,
+            OR: [{ mobile }, { mobile: { endsWith: mobile } }],
+          },
+          select: { id: true, fullName: true, mobile: true },
+        });
+        if (duplicateCustomer) {
+          throw new BadRequestException(
+            'A customer with this mobile already exists. Use the existing customer.',
+          );
+        }
         const customer = await tx.customer.create({
           data: {
             customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
             customerType: CustomerType.REGULAR,
             fullName: dto.newCustomer.fullName.trim(),
-            mobile: dto.newCustomer.mobile.trim(),
+            mobile,
             createdById: userId,
           },
         });

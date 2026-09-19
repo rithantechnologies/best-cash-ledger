@@ -1,5 +1,5 @@
 import { CustomerType } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class CreateCustomerDto {
   @IsEnum(CustomerType)
@@ -11,7 +11,9 @@ export class CreateCustomerDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(20)
+  @Matches(/^[6-9]\d{9}$/, {
+    message: 'Mobile must be a valid 10-digit Indian number',
+  })
   mobile?: string;
 
   @IsOptional()

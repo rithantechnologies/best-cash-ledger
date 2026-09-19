@@ -53,6 +53,25 @@ function rateText(value:number){
   return Number(value.toFixed(2)).toString();
 }
 
+const INDIAN_BANKS=[
+  "State Bank of India","HDFC Bank","ICICI Bank","Axis Bank","Kotak Mahindra Bank",
+  "IndusInd Bank","Yes Bank","IDFC FIRST Bank","Federal Bank","RBL Bank",
+  "AU Small Finance Bank","Bandhan Bank","Bank of Baroda","Bank of India",
+  "Bank of Maharashtra","Canara Bank","Central Bank of India","Indian Bank",
+  "Indian Overseas Bank","Punjab National Bank","Punjab & Sind Bank","UCO Bank",
+  "Union Bank of India","South Indian Bank","Karur Vysya Bank","Karnataka Bank",
+  "City Union Bank","Tamilnad Mercantile Bank","DCB Bank","CSB Bank",
+];
+
+function mobileDigits(value:string|null|undefined){
+  let digits=(value??"").replace(/\D/g,"");
+  if(digits.length===12&&digits.startsWith("91"))digits=digits.slice(2);
+  return digits;
+}
+function isIndianMobile(value:string){
+  return /^[6-9]\d{9}$/.test(value);
+}
+
 function RateControl({
   value,onChange,recent,suggested,
 }:{value:number;onChange:(value:number)=>void;recent:number[];suggested:number|null}){
@@ -130,6 +149,7 @@ export default function CardSwipePage(){
   const [termOpen,setTermOpen]=useState(false);
   const [showOptional,setShowOptional]=useState(false);
   const [mobileSummaryOpen,setMobileSummaryOpen]=useState(false);
+  const [zeroCommissionConfirmed,setZeroCommissionConfirmed]=useState(false);
   const [saved,setSaved]=useState<SavedSwipe|null>(null);
   const [error,setError]=useState("");
   const [saving,setSaving]=useState(false);
@@ -200,6 +220,20 @@ export default function CardSwipePage(){
     const incoming=settledNow&&providerWallet?.id===id?settlement:0;
     return !account||required>account.currentBalance+incoming+0.001;
   });
+  const quickMobileValid=isIndianMobile(quickMobile);
+  const possibleExistingCustomers=quickMobile.length>=6
+    ? customers.filter(c=>mobileDigits(c.mobile).includes(quickMobile)).slice(0,3)
+    : [];
+  const exactMobileCustomer=quickMobileValid
+    ? customers.find(c=>mobileDigits(c.mobile).endsWith(quickMobile))
+    : undefined;
+  const providerWalletPayout=providerWallet
+    ? (payoutRequiredByAccount.get(providerWallet.id)??0)
+    : 0;
+  const providerWalletAfterCredit=providerWallet
+    ? providerWallet.currentBalance+settlement
+    : 0;
+  const providerWalletAfterPayout=providerWalletAfterCredit-providerWalletPayout;
 
   useEffect(()=>{
     setProviderRate(gateway?String(Number(gateway.defaultChargeRate)):"0");
@@ -280,12 +314,24 @@ export default function CardSwipePage(){
     });
   },[payable,recordCustomerPayment,payoutTouched,paymentLegs.length]);
 
+  useEffect(()=>{
+    if(cRate>0)setZeroCommissionConfirmed(false);
+  },[cRate]);
+
   function selectCustomer(next:Customer){
     const matchingCard=customerDigits?next.cards.find(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):undefined;
     const activeCards=next.cards.filter(card=>card.isActive);
     setCustomerId(next.id);
+    setCustomerMode("existing");
     setCustomerSearch(next.fullName+(next.mobile?" · "+next.mobile:""));
     setCardId(matchingCard?.id??(activeCards.length===1?activeCards[0].id:""));
+    try{
+      const hasPreference=!!localStorage.getItem("cashledger_card_customer_pref_"+next.id);
+      if(!hasPreference&&!providerId){
+        const remembered=localStorage.getItem("cashledger_card_provider");
+        if(remembered&&providers.some(p=>p.id===remembered))setProviderId(remembered);
+      }
+    }catch{}
   }
 
   function clearCustomer(){
@@ -295,8 +341,17 @@ export default function CardSwipePage(){
   function beginNewCustomer(){
     clearCustomer();
     setCustomerMode("new");
+    setQuickName("");
+    setQuickMobile("");
+    setQuickBank("");
+    setQuickLastFour("");
+    setProviderId("");
+    setGatewayId("");
+    setProviderRate("0");
+    setRoutingOpen(true);
     setSuggestedCommission(null);
     setCommissionRate(String(Number(selectedTerm?.defaultCommissionRate??0)));
+    setZeroCommissionConfirmed(false);
   }
 
   function startCustomerPayment(){
@@ -335,6 +390,7 @@ export default function CardSwipePage(){
   }
 
   function updateCommission(next:number){
+    setZeroCommissionConfirmed(false);
     setCommissionRate(rateText(Math.min(5,Math.max(0,next))));
   }
 
@@ -348,7 +404,12 @@ export default function CardSwipePage(){
   }
 
   async function submit(e:FormEvent){
-    e.preventDefault();setError("");setSaving(true);
+    e.preventDefault();setError("");
+    if(cRate===0&&!zeroCommissionConfirmed){
+      setZeroCommissionConfirmed(true);
+      return;
+    }
+    setSaving(true);
     try{
       const result=await apiFetch<SavedSwipe>("/transactions/card-swipe",{method:"POST",body:JSON.stringify({
         ...(customerMode==="new"?{
@@ -402,6 +463,7 @@ export default function CardSwipePage(){
     setNotes("");
     setShowOptional(false);
     setMobileSummaryOpen(false);
+    setZeroCommissionConfirmed(false);
     window.scrollTo({top:0,behavior:"smooth"});
   }
 
@@ -450,14 +512,15 @@ export default function CardSwipePage(){
     paidAmount>0&&paidAmount<=payable+0.001&&!payoutBalanceShort
   );
   const customerReady=customerMode==="new"
-    ? !!quickName.trim()&&!!quickMobile.trim()&&!!quickBank.trim()&&quickLastFour.length===4
+    ? !!quickName.trim()&&quickMobileValid&&!!quickBank.trim()&&quickLastFour.length===4&&!exactMobileCustomer
     : !!customerId&&!!cardId;
   const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&!!termId&&!!providerId&&!!gatewayId&&!!providerWallet&&payoutValid;
   const routingReady=!!provider&&!!gateway&&!!providerWallet;
   const displayCustomerName=customer?.fullName??(customerMode==="new"?quickName.trim():"");
-  const saveLabel=swipe<=0?"Save card swipe":recordCustomerPayment
+  const normalSaveLabel=swipe<=0?"Save card swipe":recordCustomerPayment
     ? (remainingAmount<=.001?"Save & pay "+money(payable):"Save & record "+money(paidAmount))
     : "Save · pay "+money(payable)+" later";
+  const saveLabel=cRate===0&&zeroCommissionConfirmed?"Confirm · no commission":normalSaveLabel;
 
   return <AppShell><form onSubmit={submit}>
     <div className="page-enter mx-auto max-w-7xl pb-28 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-5 lg:pb-0">
@@ -478,9 +541,16 @@ export default function CardSwipePage(){
 
             {customerMode==="new"?<div className="mt-4 grid gap-3 sm:grid-cols-2">
               <Field label="Name"><input className={control} value={quickName} onChange={e=>setQuickName(e.target.value)} maxLength={150} autoFocus/></Field>
-              <Field label="Phone"><input className={control} type="tel" inputMode="tel" value={quickMobile} onChange={e=>setQuickMobile(e.target.value.slice(0,20))} maxLength={20}/></Field>
-              <Field label="Card bank"><input className={control} value={quickBank} onChange={e=>setQuickBank(e.target.value)} maxLength={100} placeholder="HDFC, ICICI, SBI…"/></Field>
-              <Field label="Card last 4"><input className={control} inputMode="numeric" value={quickLastFour} onChange={e=>setQuickLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4}/></Field>
+              <Field label="Mobile">
+                <div className="flex overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--accent)]">
+                  <span className="grid h-11 place-items-center border-r border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-semibold text-[var(--text-muted)]">+91</span>
+                  <input className="h-11 min-w-0 flex-1 bg-transparent px-3 text-base outline-none" type="tel" inputMode="numeric" value={quickMobile} onChange={e=>setQuickMobile(e.target.value.replace(/\D/g,"").slice(0,10))} maxLength={10} placeholder="10-digit mobile"/>
+                </div>
+                {quickMobile.length>0&&!quickMobileValid?<p className="mt-1 text-[11px] text-amber-600">Enter a valid 10-digit Indian mobile number.</p>:null}
+              </Field>
+              <Field label="Card bank"><select className={control} value={quickBank} onChange={e=>setQuickBank(e.target.value)}><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</select></Field>
+              <Field label="Card last 4"><input className={control} inputMode="numeric" value={quickLastFour} onChange={e=>setQuickLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="1234"/></Field>
+              {possibleExistingCustomers.length?<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:col-span-2"><p className="text-xs font-semibold text-amber-900">Possible existing customer</p><div className="mt-2 space-y-1.5">{possibleExistingCustomers.map(match=><button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg bg-white/70 px-3 py-2 text-left"><span><strong className="block text-xs text-slate-900">{match.fullName}</strong><span className="text-[11px] text-slate-500">{match.mobile}</span></span><span className="text-xs font-semibold text-indigo-700">Use existing →</span></button>)}</div></div>:null}
               <p className="text-[11px] text-[var(--text-muted)] sm:col-span-2">Customer and card will be created together when this swipe is saved.</p>
             </div>:customer?<div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3.5">
               <div className="flex items-start justify-between gap-3">
@@ -512,7 +582,7 @@ export default function CardSwipePage(){
                   <input
                     className="h-16 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] pl-10 pr-4 text-3xl font-semibold tracking-[-.04em] outline-none"
                     type="text" inputMode="decimal" value={formatAmountInput(amount)}
-                    onChange={e=>setAmount(cleanAmountInput(e.target.value))}
+                    onChange={e=>{setAmount(cleanAmountInput(e.target.value));setZeroCommissionConfirmed(false);}}
                     placeholder="0.00" aria-label="Swipe amount" required
                   />
                 </div>
@@ -530,6 +600,7 @@ export default function CardSwipePage(){
             <div className="mt-5 border-t border-[var(--border)] pt-5">
               <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold">Business commission</h2>{swipe>0?<span className="money text-sm font-semibold text-[var(--money-in)]">{money(commission)}</span>:null}</div>
               <RateControl value={cRate} onChange={updateCommission} recent={recentRates} suggested={suggestedCommission}/>
+              {cRate===0?<div className={"mt-3 rounded-xl border px-3 py-2.5 text-xs "+(zeroCommissionConfirmed?"border-amber-300 bg-amber-50 text-amber-900":"border-[var(--border)] bg-[var(--surface-soft)] text-[var(--text-muted)]")}>{zeroCommissionConfirmed?"No commission on this swipe. Save again to confirm.":"No business commission on this swipe."}</div>:null}
             </div>
           </div>
         </Surface>
@@ -552,8 +623,12 @@ export default function CardSwipePage(){
             {providerWallet?<div className="mt-4 space-y-2">
               <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3.5">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate text-sm font-semibold">{providerWallet.accountName}</p>{settledNow?<span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Credited</span>:<span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Pending</span>}</div><p className="mt-1 text-xs text-[var(--text-muted)]">{money(providerWallet.currentBalance)} now → <strong className="font-semibold text-[var(--text)]">{money(providerWallet.currentBalance+settlement)}</strong> after credit</p></div>
-                  <div className="text-right"><p className="text-[10px] text-[var(--text-muted)]">Credit</p><p className="money text-sm font-semibold text-cyan-600">{money(settlement)}</p></div>
+                  <div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate text-sm font-semibold">{providerWallet.accountName}</p>{settledNow?<span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Credited</span>:<span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Pending</span>}</div><p className="mt-1 text-xs text-[var(--text-muted)]">Provider credit <strong className="money font-semibold text-cyan-600">{money(settlement)}</strong></p></div>
+                </div>
+                <div className={"mt-3 grid gap-px overflow-hidden rounded-lg bg-[var(--border)] "+(providerWalletPayout>0?"grid-cols-3":"grid-cols-2")}>
+                  <div className="bg-[var(--surface-soft)] p-2.5"><p className="text-[10px] text-[var(--text-muted)]">Now</p><p className="money mt-1 text-xs font-semibold">{money(providerWallet.currentBalance)}</p></div>
+                  <div className="bg-[var(--surface-soft)] p-2.5"><p className="text-[10px] text-[var(--text-muted)]">After credit</p><p className="money mt-1 text-xs font-semibold">{money(providerWalletAfterCredit)}</p></div>
+                  {providerWalletPayout>0?<div className="bg-[var(--surface-soft)] p-2.5"><p className="text-[10px] text-[var(--text-muted)]">After payout</p><p className="money mt-1 text-xs font-semibold text-[var(--money-in)]">{money(providerWalletAfterPayout)}</p></div>:null}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
@@ -577,18 +652,25 @@ export default function CardSwipePage(){
             </div>
 
             {!recordCustomerPayment?<div className="mt-3 flex items-center justify-between rounded-xl border border-dashed border-[var(--border)] px-3.5 py-3"><span className="text-xs text-[var(--text-muted)]">Remaining payable</span><strong className="money text-sm text-amber-600">{money(payable)}</strong></div>:<div className="mt-3 space-y-2">
-              {paymentLegs.map((leg,index)=><div key={index} className="grid grid-cols-[minmax(0,1fr)_116px_32px] items-center gap-2 rounded-xl border border-[var(--border)] p-2 sm:grid-cols-[minmax(0,1fr)_150px_36px]">
-                <select className={control+" min-w-0 text-xs"} value={leg.sourceAccountId} onChange={e=>updatePaymentLeg(index,{sourceAccountId:e.target.value})}>
-                  <option value="">Paid from</option>
-                  {liquidAccounts.map(a=>{
-                    const incoming=settledNow&&providerWallet?.id===a.id?settlement:0;
-                    const usedElsewhere=paymentLegs.some((other,i)=>i!==index&&other.sourceAccountId===a.id);
-                    return <option key={a.id} value={a.id} disabled={usedElsewhere}>{a.accountName} · {money(a.currentBalance+incoming)}</option>;
-                  })}
-                </select>
-                <div className="relative"><span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-[var(--text-muted)]">₹</span><input className={control+" min-w-0 pl-7 pr-2 text-right text-sm font-semibold"} type="text" inputMode="decimal" value={formatAmountInput(leg.amount)} onChange={e=>updatePaymentLeg(index,{amount:cleanAmountInput(e.target.value)})}/></div>
-                <button type="button" aria-label="Remove payment source" disabled={paymentLegs.length===1} onClick={()=>removePaymentSource(index)} className="grid h-10 w-8 place-items-center rounded-lg text-base font-semibold text-[var(--text-muted)] disabled:opacity-20 sm:w-9">×</button>
-              </div>)}
+              {paymentLegs.map((leg,index)=>{
+                const source=liquidAccounts.find(a=>a.id===leg.sourceAccountId);
+                const sourceIncoming=settledNow&&providerWallet?.id===source?.id?settlement:0;
+                const sourceAvailable=(source?.currentBalance??0)+sourceIncoming;
+                return <div key={index} className="grid grid-cols-[minmax(0,1fr)_116px_32px] items-start gap-2 rounded-xl border border-[var(--border)] p-2 sm:grid-cols-[minmax(0,1fr)_150px_36px]">
+                  <div className="min-w-0">
+                    <select className={control+" min-w-0 text-xs font-semibold"} value={leg.sourceAccountId} onChange={e=>updatePaymentLeg(index,{sourceAccountId:e.target.value})}>
+                      <option value="">Paid from</option>
+                      {liquidAccounts.map(a=>{
+                        const usedElsewhere=paymentLegs.some((other,i)=>i!==index&&other.sourceAccountId===a.id);
+                        return <option key={a.id} value={a.id} disabled={usedElsewhere}>{a.accountName}</option>;
+                      })}
+                    </select>
+                    {source?<p className="mt-1 truncate px-1 text-[10px] text-[var(--text-muted)]">Available {money(sourceAvailable)}</p>:null}
+                  </div>
+                  <div className="relative"><span className="pointer-events-none absolute left-2.5 top-[22px] -translate-y-1/2 text-sm font-semibold text-[var(--text-muted)]">₹</span><input className={control+" min-w-0 pl-7 pr-2 text-right text-sm font-semibold"} type="text" inputMode="decimal" value={formatAmountInput(leg.amount)} onChange={e=>updatePaymentLeg(index,{amount:cleanAmountInput(e.target.value)})}/></div>
+                  <button type="button" aria-label="Remove payment source" disabled={paymentLegs.length===1} onClick={()=>removePaymentSource(index)} className="grid h-10 w-8 place-items-center rounded-lg text-base font-semibold text-[var(--text-muted)] disabled:opacity-20 sm:w-9">×</button>
+                </div>;
+              })}
               <div className="flex items-center justify-between gap-3 pt-1">
                 {paymentLegs.length<5&&paidAmount<payable-.001?<button type="button" onClick={addPaymentSource} className="min-h-9 text-xs font-semibold text-[var(--accent)]">+ Pay from another account</button>:<span/>}
                 <div className="text-right text-xs"><span className="text-[var(--text-muted)]">Remaining </span><strong className={remainingAmount>.001?"text-amber-600":"text-[var(--money-in)]"}>{money(remainingAmount)}</strong></div>

@@ -21,7 +21,11 @@ class CardSwipeCustomerPaymentDto {
 
 class CardSwipeNewCustomerDto {
   @IsString() @MaxLength(150) fullName!: string;
-  @IsString() @MaxLength(20) mobile!: string;
+  @IsString()
+  @Matches(/^[6-9]\d{9}$/, {
+    message: 'Mobile must be a valid 10-digit Indian number',
+  })
+  mobile!: string;
   @IsString() @MaxLength(100) bankName!: string;
   @IsString() @Length(4, 4) @Matches(/^\d{4}$/) lastFourDigits!: string;
 }

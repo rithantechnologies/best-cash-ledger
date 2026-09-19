@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomerType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
@@ -115,6 +115,20 @@ export class CustomersService {
 
   create(dto: CreateCustomerDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      if (dto.mobile) {
+        const duplicateCustomer = await tx.customer.findFirst({
+          where: {
+            isActive: true,
+            OR: [{ mobile: dto.mobile }, { mobile: { endsWith: dto.mobile } }],
+          },
+          select: { id: true },
+        });
+        if (duplicateCustomer) {
+          throw new BadRequestException(
+            'A customer with this mobile already exists.',
+          );
+        }
+      }
       const customer = await tx.customer.create({
         data: {
           ...dto,
@@ -143,12 +157,25 @@ export class CustomersService {
 
   createQuickCard(dto: CreateQuickCustomerCardDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      const mobile = dto.mobile.trim();
+      const duplicateCustomer = await tx.customer.findFirst({
+        where: {
+          isActive: true,
+          OR: [{ mobile }, { mobile: { endsWith: mobile } }],
+        },
+        select: { id: true },
+      });
+      if (duplicateCustomer) {
+        throw new BadRequestException(
+          'A customer with this mobile already exists. Use the existing customer.',
+        );
+      }
       const customer = await tx.customer.create({
         data: {
           customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
           customerType: CustomerType.REGULAR,
           fullName: dto.fullName.trim(),
-          mobile: dto.mobile.trim(),
+          mobile,
           createdById: userId,
         },
       });
@@ -197,6 +224,21 @@ export class CustomersService {
     const old = await this.prisma.customer.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('Customer not found');
     return this.prisma.$transaction(async (tx) => {
+      if (dto.mobile) {
+        const duplicateCustomer = await tx.customer.findFirst({
+          where: {
+            id: { not: id },
+            isActive: true,
+            OR: [{ mobile: dto.mobile }, { mobile: { endsWith: dto.mobile } }],
+          },
+          select: { id: true },
+        });
+        if (duplicateCustomer) {
+          throw new BadRequestException(
+            'Another customer with this mobile already exists.',
+          );
+        }
+      }
       const updated = await tx.customer.update({ where: { id }, data: dto });
       await tx.auditLog.create({
         data: {

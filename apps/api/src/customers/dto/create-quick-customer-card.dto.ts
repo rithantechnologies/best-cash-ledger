@@ -6,7 +6,9 @@ export class CreateQuickCustomerCardDto {
   fullName!: string;
 
   @IsString()
-  @MaxLength(20)
+  @Matches(/^[6-9]\d{9}$/, {
+    message: 'Mobile must be a valid 10-digit Indian number',
+  })
   mobile!: string;
 
   @IsString()
