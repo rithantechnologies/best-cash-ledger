@@ -112,40 +112,80 @@ button:active, a:active { transform: translateY(1px); }
 }
 .app-control::placeholder { color: color-mix(in srgb, var(--text-muted) 75%, transparent); }
 
+.swipe-commerce-page {
+  --accent: #5b4cf0;
+  --accent-soft: #f1efff;
+}
+html[data-theme="dark"] .swipe-commerce-page {
+  --accent: #9b94ff;
+  --accent-soft: #272440;
+}
+
 .entry-sheet {
-  border-radius: 18px !important;
-  border-color: color-mix(in srgb, var(--border) 92%, transparent) !important;
-  box-shadow: 0 8px 28px color-mix(in srgb, #0f172a 4%, transparent);
+  overflow: hidden;
+  border-radius: 20px !important;
+  border-color: color-mix(in srgb, var(--border) 90%, transparent) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--accent) 2%), var(--surface));
+  box-shadow:
+    0 1px 1px color-mix(in srgb, #0f172a 4%, transparent),
+    0 14px 36px color-mix(in srgb, #0f172a 6%, transparent);
 }
 .entry-section {
   padding: 16px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
 }
 .entry-section:last-child { border-bottom: 0; }
+.entry-section-amount {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 32%, var(--surface)), var(--surface) 62%);
+}
+.entry-section-commission {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--money-in) 3%, var(--surface)), var(--surface) 65%);
+}
 .entry-title {
-  font-size: .95rem;
-  line-height: 1.25rem;
-  font-weight: 750;
-  letter-spacing: -.012em;
+  font-size: 1rem;
+  line-height: 1.3rem;
+  font-weight: 780;
+  letter-spacing: -.018em;
 }
 .entry-amount-input {
-  height: 58px;
+  height: 60px;
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--surface);
-  padding: 0 12px 0 38px;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, var(--accent) 14%);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--surface) 98%, var(--accent) 2%);
+  padding: 0 12px 0 40px;
   color: var(--text);
-  font-size: 1.85rem;
+  font-size: 2.1rem;
   line-height: 1;
-  font-weight: 800;
-  letter-spacing: -.035em;
+  font-weight: 850;
+  letter-spacing: -.045em;
   outline: none;
   font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 55%, transparent);
 }
 .entry-amount-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.swipe-card-choice {
+  transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease, background-color .14s ease;
+}
+.swipe-card-choice-selected {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent),
+    0 7px 18px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.provider-summary-card {
+  border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 42%, var(--surface)), var(--surface));
+}
+.wallet-summary-card {
+  border-color: color-mix(in srgb, var(--money-in) 13%, var(--border)) !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--money-in) 4%, var(--surface)), var(--surface));
+}
+.commission-rate-input {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 45%, transparent);
 }
 .swipe-rate-range {
   appearance: none;
@@ -153,27 +193,31 @@ button:active, a:active { transform: translateY(1px); }
   background: transparent;
 }
 .swipe-rate-range::-webkit-slider-runnable-track {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), var(--border));
+  background:
+    repeating-linear-gradient(90deg, transparent 0 18%, color-mix(in srgb, var(--border) 65%, transparent) 18% 18.5%, transparent 18.5% 20%),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 30%, var(--border)), var(--border));
 }
 .swipe-rate-range::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
-  margin-top: -7.5px;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
   border-radius: 999px;
-  border: 3px solid var(--surface);
+  border: 4px solid var(--surface);
   background: var(--accent);
-  box-shadow: 0 2px 8px color-mix(in srgb, #0f172a 18%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent),
+    0 4px 12px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .swipe-rate-range::-moz-range-track {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
   background: var(--border);
 }
 .swipe-rate-range::-moz-range-progress {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
   background: var(--accent);
 }
@@ -181,8 +225,29 @@ button:active, a:active { transform: translateY(1px); }
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  border: 3px solid var(--surface);
+  border: 4px solid var(--surface);
   background: var(--accent);
+}
+.swipe-result-card {
+  border-color: color-mix(in srgb, var(--accent) 12%, var(--border)) !important;
+  background:
+    radial-gradient(circle at 88% 10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 34%),
+    linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 38%, var(--surface)), var(--surface) 58%);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.swipe-sticky-bar {
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 -10px 30px color-mix(in srgb, #0f172a 8%, transparent);
+}
+.swipe-primary-action {
+  background: linear-gradient(135deg, #6555f5, #4a3ee4);
+  box-shadow: 0 8px 20px color-mix(in srgb, #4f46e5 26%, transparent);
+}
+.swipe-primary-action:active {
+  box-shadow: 0 4px 12px color-mix(in srgb, #4f46e5 20%, transparent);
+}
+html[data-theme="dark"] .swipe-primary-action {
+  background: linear-gradient(135deg, #8178ff, #655cff);
 }
 
 .counter-surface {
