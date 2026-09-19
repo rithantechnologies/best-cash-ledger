@@ -28,6 +28,8 @@ export class TransactionsController {
     @Query('q') q?: string,
     @Query('type') type?: TransactionType,
     @Query('status') status?: TransactionStatus,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     return this.transactions.list({
       page: page ? Number(page) : undefined,
@@ -37,6 +39,8 @@ export class TransactionsController {
       q,
       type,
       status,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
     });
   }
 

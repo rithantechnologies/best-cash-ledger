@@ -79,6 +79,8 @@ export class TransactionsService {
     q?: string;
     type?: TransactionType;
     status?: TransactionStatus;
+    from?: Date;
+    to?: Date;
   }) {
     const where: Prisma.TransactionWhereInput = {
       ...(options?.q ? {
@@ -90,6 +92,14 @@ export class TransactionsService {
       } : {}),
       ...(options?.type ? { transactionType: options.type } : {}),
       ...(options?.status ? { status: options.status } : {}),
+      ...(options?.from || options?.to
+        ? {
+            transactionAt: {
+              ...(options?.from ? { gte: options.from } : {}),
+              ...(options?.to ? { lte: options.to } : {}),
+            },
+          }
+        : {}),
     };
 
     const allowedSort = new Set(['transactionAt', 'transactionNumber', 'transactionType', 'grossAmount', 'netAmount', 'status']);

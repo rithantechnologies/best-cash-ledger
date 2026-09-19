@@ -58,6 +58,11 @@ export default function ReportsPage(){
  useEffect(()=>{if(!customerId){setCustomerLedger(null);return;}apiFetch<CustomerLedger>("/reports/customers/"+customerId).then(setCustomerLedger).catch(()=>setError("Failed to load customer ledger"));},[customerId]);
 
  const totals=useMemo(()=>transactions.reduce((a,t)=>({gross:a.gross+Number(t.grossAmount),net:a.net+Number(t.netAmount??t.grossAmount),commission:a.commission+t.commissions.reduce((s,c)=>s+Number(c.amount),0),charges:a.charges+t.charges.reduce((s,c)=>s+Number(c.amount),0)}),{gross:0,net:0,commission:0,charges:0}),[transactions]);
+ const serviceEarnings=useMemo(()=>{
+  const map=new Map<string,{gross:number;commission:number;charges:number}>();
+  for(const t of transactions){const row=map.get(t.transactionType)??{gross:0,commission:0,charges:0};row.gross+=Number(t.grossAmount);row.commission+=t.commissions.reduce((s,c)=>s+Number(c.amount),0);row.charges+=t.charges.reduce((s,c)=>s+Number(c.amount),0);map.set(t.transactionType,row);}
+  return [...map.entries()].filter(([kind])=>["CARD_SWIPE","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM"].includes(kind)).map(([kind,row])=>({kind,...row,earned:kind==="CARD_SWIPE"?row.commission:row.commission-row.charges}));
+ },[transactions]);
  const settlementTotals=useMemo(()=>settlements.reduce((a,s)=>({expected:a.expected+Number(s.expectedAmount),received:a.received+Number(s.receivedAmount),remaining:a.remaining+Number(s.remainingAmount)}),{expected:0,received:0,remaining:0}),[settlements]);
  const latestEod=eod[0]??null;
 
@@ -72,8 +77,7 @@ export default function ReportsPage(){
  }
  if(loading)return <AppShell><PageLoader label="Preparing reports…"/></AppShell>;
  return <AppShell><PageFrame>
-  <SectionHeading eyebrow="Analysis & reconciliation" title="Reports" description="Understand activity, clearing, account movement and end-of-day position without scanning raw tables."
-   action={<button onClick={downloadCsv} className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm">Export CSV</button>}/>
+  <SectionHeading title="Reports" action={<button onClick={downloadCsv} className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-semibold">Export CSV</button>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <SegmentedTabs<Tab> value={tab} onChange={setTab} items={[
    {value:"transactions",label:"Transactions & ledgers",count:transactions.length},
@@ -82,6 +86,7 @@ export default function ReportsPage(){
   ]}/>
 
   {tab==="transactions"?<>
+   {serviceEarnings.length?<Surface className="overflow-hidden"><PanelHeader title="Service earnings"/><div className="grid divide-y divide-[var(--border)] sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">{serviceEarnings.map(x=><div key={x.kind} className="p-4"><p className="text-xs font-medium text-[var(--text-muted)]">{x.kind.replaceAll("_"," ")}</p><p className={"money mt-2 text-xl font-semibold "+(x.earned<0?"text-rose-600":"text-[var(--money-in)]")}>{money(x.earned)}</p><p className="mt-1 text-[11px] text-[var(--text-muted)]">Commission {money(x.commission)} · Charges {money(x.charges)}</p></div>)}</div></Surface>:null}
    <Surface className="overflow-hidden">
     <PanelHeader title="Report filters" description="Narrow activity by period, operator, customer, account or provider." action={<button onClick={clearFilters} className="text-xs font-bold text-indigo-600">Clear filters</button>}/>
     <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">

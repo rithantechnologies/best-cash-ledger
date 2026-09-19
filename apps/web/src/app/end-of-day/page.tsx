@@ -2,66 +2,50 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { PageLoader, SectionHeading, Surface } from "@/components/ui";
+import { EmptyState, PageLoader, SectionHeading, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
-type Summary={
-  availableFunds:number;pendingProviderSettlements:number;customerReceivable:number;customerPayable:number;
-  operatingPosition:number;netFinancialPosition:number;creditCardOutstanding:number;
-};
-type Position={
-  id:string;businessDate:string;availableFunds:string;pendingProviderSettlements:string;customerReceivable:string;
-  customerPayable:string;ownerCreditCardOutstanding:string;operatingPosition:string;netFinancialPosition:string;cashVariance:string;createdAt:string;
-};
+type Summary={availableFunds:number;pendingProviderSettlements:number;customerReceivable:number;customerPayable:number;operatingPosition:number;netFinancialPosition:number;creditCardOutstanding:number};
+type Position={id:string;businessDate:string;availableFunds:string;pendingProviderSettlements:string;customerReceivable:string;customerPayable:string;ownerCreditCardOutstanding:string;operatingPosition:string;netFinancialPosition:string;cashVariance:string;createdAt:string};
 type Status={businessDate:string;snapshot:Position|null;openCashSessions:number;summary:Summary};
-const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(v||0));
+const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(v||0));
 
 export default function EndOfDayPage(){
-  const [status,setStatus]=useState<Status|null>(null);
-  const [history,setHistory]=useState<Position[]>([]);
-  const [role,setRole]=useState("");
-  const [busy,setBusy]=useState(false),[error,setError]=useState(""),[loading,setLoading]=useState(true);
+ const [status,setStatus]=useState<Status|null>(null),[history,setHistory]=useState<Position[]>([]),[role,setRole]=useState("");
+ const [reviewed,setReviewed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[loading,setLoading]=useState(true);
+ async function load(){const [s,h]=await Promise.all([apiFetch<Status>("/end-of-day/status"),apiFetch<Position[]>("/end-of-day/history")]);setStatus(s);setHistory(h);}
+ useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{};load().catch(e=>setError(e instanceof Error?e.message:"Failed to load end-of-day")).finally(()=>setLoading(false));},[]);
+ async function snapshot(){setBusy(true);setError("");try{await apiFetch("/end-of-day/snapshot",{method:"POST"});await load();}catch(e){setError(e instanceof Error?e.message:"Failed to save end-of-day");}finally{setBusy(false);}}
+ if(loading||!status)return <AppShell><PageLoader label="Loading end of day…"/></AppShell>;
+ const admin=role==="OWNER"||role==="ADMIN",s=status.summary;
+ const ready=status.openCashSessions===0&&reviewed;
 
-  async function load(){
-    const [s,h]=await Promise.all([apiFetch<Status>("/end-of-day/status"),apiFetch<Position[]>("/end-of-day/history")]);
-    setStatus(s);setHistory(h);
-  }
-  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{};load().catch(e=>setError(e instanceof Error?e.message:"Failed to load end-of-day")).finally(()=>setLoading(false));},[]);
+ return <AppShell><div className="page-enter mx-auto max-w-5xl space-y-4">
+  <SectionHeading title="End of day"/>
+  {error?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
 
-  async function snapshot(){
-    setBusy(true);setError("");
-    try{await apiFetch("/end-of-day/snapshot",{method:"POST"});await load();}
-    catch(e){setError(e instanceof Error?e.message:"Failed to save end-of-day");}
-    finally{setBusy(false);}
-  }
+  {status.snapshot?<Surface className="p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-[var(--money-in)]">Day saved</p><h2 className="money mt-2 text-2xl font-semibold">{money(status.snapshot.netFinancialPosition)}</h2><p className="mt-1 text-xs text-[var(--text-muted)]">{new Date(status.snapshot.businessDate).toLocaleDateString("en-IN")} · Cash variance {money(status.snapshot.cashVariance)}</p></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Complete</span></div></Surface>:<>
+   <Surface className="overflow-hidden">
+    <div className="border-b border-[var(--border)] px-4 py-3"><strong>Close checklist</strong></div>
+    <div className="divide-y divide-[var(--border)]">
+     <Link href="/cash-counter" className="flex items-center gap-3 px-4 py-3.5 hover:bg-[var(--surface-soft)]"><span className={"grid h-7 w-7 place-items-center rounded-full text-sm font-bold "+(status.openCashSessions===0?"bg-emerald-100 text-emerald-700":"bg-amber-100 text-amber-700")}>{status.openCashSessions===0?"✓":"!"}</span><div className="flex-1"><p className="text-sm font-semibold">Cash counters closed</p><p className="text-xs text-[var(--text-muted)]">{status.openCashSessions===0?"All counters are closed":status.openCashSessions+" still open"}</p></div><span className="text-xs text-[var(--accent)]">Open →</span></Link>
+     <Link href="/dues" className="flex items-center gap-3 px-4 py-3.5 hover:bg-[var(--surface-soft)]"><span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--accent-soft)] text-sm font-bold text-[var(--accent)]">₹</span><div className="flex-1"><p className="text-sm font-semibold">Provider clearing reviewed</p><p className="money text-xs text-[var(--text-muted)]">{money(s.pendingProviderSettlements)} pending</p></div><span className="text-xs text-[var(--accent)]">Review →</span></Link>
+     <label className="flex cursor-pointer items-center gap-3 px-4 py-3.5"><input type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)} className="h-5 w-5"/><div><p className="text-sm font-semibold">Financial position reviewed</p><p className="text-xs text-[var(--text-muted)]">Payables, receivables and balances look correct.</p></div></label>
+    </div>
+   </Surface>
 
-  if(loading||!status)return <AppShell><PageLoader label="Preparing end-of-day…"/></AppShell>;
-  const admin=role==="OWNER"||role==="ADMIN";
-  const s=status.summary;
+   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+    {[["Available",s.availableFunds],["To receive",s.customerReceivable],["To pay",s.customerPayable],["Net position",s.netFinancialPosition]].map(([l,v])=><Surface key={String(l)} className="p-3.5"><p className="text-xs text-[var(--text-muted)]">{l}</p><p className="money mt-1 text-lg font-semibold">{money(Number(v))}</p></Surface>)}
+   </div>
 
-  return <AppShell><div className="page-enter mx-auto max-w-7xl space-y-5">
-    <SectionHeading eyebrow="Daily control" title="End of day" description="Close the day with confidence: verify cash sessions, review the financial position, then save an immutable snapshot."/>
+   {admin?<button onClick={snapshot} disabled={busy||!ready} className="min-h-12 w-full rounded-xl bg-[var(--text)] text-sm font-semibold text-[var(--surface)] disabled:opacity-35">{busy?"Saving…":"Save day"}</button>:<p className="text-sm text-[var(--text-muted)]">Owner/Admin access is required to save the day.</p>}
+  </>}
 
-    {error?<p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>:null}
-    {status.openCashSessions>0?<div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900"><strong>{status.openCashSessions} cash counter session(s) still open.</strong><p className="mt-1 text-sm">Close them before saving the EOD snapshot so physical cash and ledger cash agree.</p></div>:null}
-
-    <section className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
-      {[["Available funds",s.availableFunds],["Provider clearing",s.pendingProviderSettlements],["Customer receivables",s.customerReceivable],["Customer payables",s.customerPayable],["Operating position",s.operatingPosition],["Owner CC outstanding",s.creditCardOutstanding],["Net financial position",s.netFinancialPosition]].map(([label,value])=><Surface key={String(label)} className="p-3.5 sm:p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 text-2xl font-bold">{money(Number(value))}</p></Surface>)}
-    </section>
-
-    <section className="rounded-2xl border bg-slate-950 p-6 text-white shadow-lg">
-      {status.snapshot?<><p className="text-xs font-semibold uppercase tracking-[.16em] text-emerald-300">Snapshot saved</p><h3 className="mt-2 text-2xl font-bold">{new Date(status.snapshot.businessDate).toLocaleDateString("en-IN")}</h3><p className="mt-1 text-sm text-slate-300">Net position {money(status.snapshot.netFinancialPosition)} · Cash variance {money(status.snapshot.cashVariance)}</p></>:<>
-        <p className="text-xs font-semibold uppercase tracking-[.16em] text-indigo-300">Ready to save</p><h3 className="mt-2 text-2xl font-bold">Capture today’s final position</h3><p className="mt-2 max-w-2xl text-sm text-slate-300">This stores account balances, payable/receivable movement, provider clearing, cash variance, operating position and net financial position for the day.</p>
-        {admin?<button onClick={snapshot} disabled={busy||status.openCashSessions>0} className="mt-5 rounded-xl bg-white px-5 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">{busy?"Saving...":"Save EOD Snapshot"}</button>:<p className="mt-4 text-sm text-slate-400">Owner/Admin access is required to save the snapshot.</p>}
-      </>}
-    </section>
-
-    <section className="rounded-2xl border bg-white shadow-sm"><div className="border-b px-5 py-4"><h3 className="font-semibold">Daily Position History</h3><p className="text-xs text-slate-500">Saved snapshots do not change when accounts are later edited or deactivated.</p></div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-5 py-3">Date</th><th>Available</th><th>Provider Clearing</th><th>Receivable</th><th>Payable</th><th>Operating</th><th>Owner CC</th><th>Net Position</th><th>Cash Variance</th></tr></thead><tbody>
-        {history.map(x=><tr key={x.id} className="border-t"><td className="px-5 py-3 font-medium">{new Date(x.businessDate).toLocaleDateString("en-IN")}</td><td>{money(x.availableFunds)}</td><td>{money(x.pendingProviderSettlements)}</td><td>{money(x.customerReceivable)}</td><td>{money(x.customerPayable)}</td><td className="font-semibold">{money(x.operatingPosition)}</td><td>{money(x.ownerCreditCardOutstanding)}</td><td className="font-bold">{money(x.netFinancialPosition)}</td><td className={Math.abs(Number(x.cashVariance))>0.005?"font-semibold text-red-700":""}>{money(x.cashVariance)}</td></tr>)}
-        {!history.length?<tr><td colSpan={9} className="px-5 py-10 text-center text-slate-500">No EOD snapshots saved yet.</td></tr>:null}
-      </tbody></table></div>
-    </section>
-  </div></AppShell>;
+  <Surface className="overflow-hidden">
+   <div className="border-b border-[var(--border)] px-4 py-3"><strong>History</strong></div>
+   {history.length?<div className="divide-y divide-[var(--border)]">{history.slice(0,14).map(x=><div key={x.id} className="flex items-center justify-between gap-3 px-4 py-3"><div><p className="text-sm font-medium">{new Date(x.businessDate).toLocaleDateString("en-IN")}</p><p className="text-xs text-[var(--text-muted)]">Available {money(x.availableFunds)} · Clearing {money(x.pendingProviderSettlements)}</p></div><div className="text-right"><p className="money text-sm font-semibold">{money(x.netFinancialPosition)}</p><p className={Math.abs(Number(x.cashVariance))>.005?"text-xs text-rose-600":"text-xs text-[var(--text-muted)]"}>Variance {money(x.cashVariance)}</p></div></div>)}</div>:<div className="p-4"><EmptyState title="No saved days yet"/></div>}
+  </Surface>
+ </div></AppShell>;
 }

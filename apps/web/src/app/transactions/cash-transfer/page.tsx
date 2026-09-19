@@ -104,17 +104,17 @@ export default function CashTransferPage(){
 
       {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
-      <FormSection step="1" title="Customer & destination" description="Choose the customer and where the transfer should be sent.">
+      <FormSection step="1" title="Transfer">
         <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Amount"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-400">₹</span><input className={control+" pl-8 text-xl font-bold"} inputMode="decimal" type="number" min="0.01" step="0.01" placeholder="0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></div></Field>
           <Field label="Customer"><select className={control} value={customerId} onChange={e=>{setCustomerId(e.target.value);setOwnDestination("");setBeneficiaryId("");setBeneficiaryAccountId("");}} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</select></Field>
-          <Field label="Requested amount"><input className={control} type="number" min="0.01" step="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
           <Field label="Customer bank / UPI" hint="Use this when the transfer is going to the customer's own saved account."><select className={control} value={ownDestination} onChange={e=>{setOwnDestination(e.target.value);if(e.target.value){setBeneficiaryId("");setBeneficiaryAccountId("");}}}><option value="">Not selected</option>{customer?.bankAccounts.filter(a=>a.isActive).map(a=><option key={a.id} value={"BANK:"+a.id}>Bank — {a.bankName} {a.accountReference}</option>)}{customer?.upiAccounts.filter(a=>a.isActive).map(a=><option key={a.id} value={"UPI:"+a.id}>UPI — {a.upiId||a.mobileNumber||a.accountName}</option>)}</select></Field>
           <Field label="Saved beneficiary"><select className={control} value={beneficiaryId} onChange={e=>{setBeneficiaryId(e.target.value);setBeneficiaryAccountId("");if(e.target.value)setOwnDestination("");}}><option value="">Not selected</option>{customer?.beneficiaries.filter(b=>b.isActive).map(b=><option key={b.id} value={b.id}>{b.beneficiaryName}</option>)}</select></Field>
           {beneficiaryId?<Field label="Beneficiary account" className="sm:col-span-2"><select className={control} value={beneficiaryAccountId} onChange={e=>setBeneficiaryAccountId(e.target.value)}><option value="">Select beneficiary account</option>{beneficiary?.accounts.filter(a=>a.isActive).map(a=><option key={a.id} value={a.id}>{a.accountType} — {a.bankName?(a.bankName+" "+(a.accountReference||"")):(a.upiId||a.mobileNumber||"")}</option>)}</select></Field>:null}
         </div>
       </FormSection>
 
-      <FormSection step="2" title="Commission & funding" description="How commission is calculated, where cash is received, and which account funds the transfer.">
+      <FormSection step="2" title="Funding & commission">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Commission method"><select className={control} value={method} onChange={e=>setMethod(e.target.value)}><option value="ADD_ON">Added on top</option><option value="DEDUCT">Deducted from transfer</option></select></Field>
           <Field label="Commission %"><input className={control} type="number" min="0" step="0.0001" value={rate} onChange={e=>setRate(e.target.value)} required/></Field>
@@ -125,7 +125,7 @@ export default function CashTransferPage(){
         </div>
       </FormSection>
 
-      <FormSection step="3" title="Reference & notes" description="Optional reconciliation information for audit and search.">
+      <FormSection step="3" title="More details">
         <div className="grid gap-3 sm:grid-cols-2"><Field label="Transfer reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="UTR / reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div>
       </FormSection>
     </TransactionFrame>

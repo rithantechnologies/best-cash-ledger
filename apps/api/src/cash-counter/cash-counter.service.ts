@@ -25,7 +25,7 @@ export class CashCounterService {
   }
 
   async current(cashAccountId?: string) {
-    return this.prisma.cashSession.findFirst({
+    const session = await this.prisma.cashSession.findFirst({
       where: {
         status: 'OPEN',
         ...(cashAccountId ? { cashAccountId } : {}),
@@ -33,6 +33,9 @@ export class CashCounterService {
       include: { cashAccount: true, denominationCounts: true },
       orderBy: { openedAt: 'desc' },
     });
+    if (!session) return null;
+    const { expected } = await this.expectedClosing(this.prisma, session);
+    return { ...session, liveExpectedClosingTotal: expected };
   }
   async open(dto: OpenCashSessionDto, userId: string) {
     const existing = await this.prisma.cashSession.findFirst({
@@ -40,7 +43,7 @@ export class CashCounterService {
     });
     if (existing) throw new BadRequestException('Cash session is already open');
 
-    const account = await this.validation.cashAccount(
+    await this.validation.cashAccount(
       this.prisma,
       dto.cashAccountId,
       'Cash counter account',

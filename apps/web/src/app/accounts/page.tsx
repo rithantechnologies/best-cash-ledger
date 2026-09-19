@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Modal, PageLoader, SectionHeading, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
@@ -71,22 +72,21 @@ export default function AccountsPage(){
 
  if(loading)return <AppShell><PageLoader label="Loading accounts…"/></AppShell>;
  return <AppShell><div className="page-enter mx-auto max-w-7xl space-y-5">
-  <SectionHeading eyebrow="Money containers" title="Accounts" description="Cash, banks, UPI, provider wallets and owner credit cards—kept separate but visible in one place."
-   action={admin?<button onClick={()=>setAdding(true)} className={primary}>+ Add account</button>:undefined}/>
+  <SectionHeading title="Accounts" action={admin?<button onClick={()=>setAdding(true)} className={primary}>+ Add account</button>:undefined}/>
 
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
   <div className="grid grid-cols-3 gap-2.5">
-   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Liquid funds</p><p className="mt-1 text-lg font-black sm:text-2xl">{money(totals.liquid)}</p></Surface>
-   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Card outstanding</p><p className="mt-1 text-lg font-black text-rose-700 sm:text-2xl">{money(totals.cards)}</p></Surface>
-   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Active accounts</p><p className="mt-1 text-lg font-black sm:text-2xl">{totals.active}</p></Surface>
+   <Surface className="p-3.5"><p className="text-xs text-[var(--text-muted)]">Liquid funds</p><p className="money mt-1 text-lg font-semibold sm:text-2xl">{money(totals.liquid)}</p></Surface>
+   <Surface className="p-3.5"><p className="text-xs text-[var(--text-muted)]">Card outstanding</p><p className="money mt-1 text-lg font-semibold text-rose-600 sm:text-2xl">{money(totals.cards)}</p></Surface>
+   <Surface className="p-3.5"><p className="text-xs text-[var(--text-muted)]">Active</p><p className="money mt-1 text-lg font-semibold sm:text-2xl">{totals.active}</p></Surface>
   </div>
 
   {items.length?<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map(a=><Surface key={a.id} className={!a.isActive?"p-4 opacity-60":"p-4"}>
    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-bold">{a.accountName}</h3><StatusBadge tone={a.isActive?"emerald":"slate"}>{a.isActive?"Active":"Inactive"}</StatusBadge></div><p className="mt-1 text-[11px] font-semibold uppercase tracking-[.12em] text-slate-400">{a.accountType.replaceAll("_"," ")}</p></div><div className={"grid h-10 w-10 shrink-0 place-items-center rounded-2xl text-xs font-black "+(a.accountType==="CASH"?"bg-emerald-50 text-emerald-700":a.accountType==="OWNER_CREDIT_CARD"?"bg-rose-50 text-rose-700":"bg-indigo-50 text-indigo-700")}>{a.accountType==="OWNER_CREDIT_CARD"?"CC":a.accountType.slice(0,2)}</div></div>
-   <p className={"mt-4 text-2xl font-black tracking-tight "+(a.currentBalance<0?"text-rose-700":"")}>{money(a.currentBalance)}</p>
+   <div className="mt-4 flex items-end justify-between gap-3"><p className={"money text-2xl font-semibold "+(a.currentBalance<0?"text-rose-600":"")}>{money(a.currentBalance)}</p><Link href={"/accounts/"+a.id} className="text-xs font-semibold text-[var(--accent)]">Ledger →</Link></div>
    <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500"><span className="rounded-lg bg-slate-50 px-2 py-1">{a.usageType.toLowerCase()}</span>{a.bankName?<span className="rounded-lg bg-slate-50 px-2 py-1">{a.bankName}</span>:null}{a.accountReference?<span className="rounded-lg bg-slate-50 px-2 py-1">{a.accountReference}</span>:null}</div>
-   {a.creditLimit!==null?<div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs"><div><p className="text-slate-400">Limit</p><strong>{money(a.creditLimit)}</strong></div><div><p className="text-slate-400">Available</p><strong>{money(a.availableCredit??0)}</strong></div></div>:null}
+   {a.creditLimit!==null?<div className="mt-3 rounded-xl bg-[var(--surface-soft)] p-3 text-xs"><div className="flex justify-between gap-3"><span className="text-[var(--text-muted)]">Used {money(a.currentBalance)}</span><strong>{Math.min(100,Math.max(0,a.creditLimit?Math.abs(a.currentBalance)/a.creditLimit*100:0)).toFixed(0)}%</strong></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--border)]"><div className="h-full rounded-full bg-[var(--money-out)]" style={{width:Math.min(100,Math.max(0,a.creditLimit?Math.abs(a.currentBalance)/a.creditLimit*100:0))+"%"}}/></div><div className="mt-2 flex justify-between text-[var(--text-muted)]"><span>Limit {money(a.creditLimit)}</span><span>Available {money(a.availableCredit??0)}</span></div></div>:null}
    {admin&&a.accountType!=="PROVIDER_WALLET"?<div className="mt-4 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3"><button onClick={()=>beginEdit(a)} className={secondary}>Edit</button><button onClick={()=>setToggleTarget(a)} className={secondary}>{a.isActive?"Deactivate":"Reactivate"}</button></div>:null}
   </Surface>)}</div>:<EmptyState title="No accounts configured" description="Create a cash, bank or UPI account to get started."/>}
   <Modal open={adding} title="Add account" description="Opening balance is posted to the ledger once when the account is created." onClose={()=>setAdding(false)}>

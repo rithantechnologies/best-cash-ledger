@@ -43,16 +43,16 @@ export function PageLoader({label="Loading workspace…"}:{label?:string}) {
 }
 
 export function Surface({children,className=""}:{children:ReactNode;className?:string}) {
-  return <section className={"rounded-[22px] border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,.03),0_12px_32px_rgba(15,23,42,.035)] "+className}>{children}</section>;
+  return <section className={"rounded-xl border border-[var(--border)] bg-[var(--surface)] "+className}>{children}</section>;
 }
 export function SectionHeading({
-  eyebrow,title,description,action,
+  eyebrow:_eyebrow,title,description,action,
 }:{eyebrow?:string;title:string;description?:string;action?:ReactNode}) {
-  return <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+  void _eyebrow;
+  return <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
     <div className="min-w-0">
-      {eyebrow?<p className="text-[10px] font-bold uppercase tracking-[.2em] text-indigo-600">{eyebrow}</p>:null}
-      <h2 className="mt-0.5 text-2xl font-bold tracking-[-.025em] text-slate-950 sm:text-[28px]">{title}</h2>
-      {description?<p className="mt-1 max-w-2xl text-sm leading-5 text-slate-500">{description}</p>:null}
+      <h2 className="text-xl font-bold tracking-[-.02em] text-[var(--text)] sm:text-2xl">{title}</h2>
+      {description?<p className="mt-1 hidden max-w-2xl text-sm text-[var(--text-muted)] sm:block">{description}</p>:null}
     </div>
     {action?<div className="shrink-0">{action}</div>:null}
   </div>;
@@ -93,13 +93,12 @@ export function StatusBadge({children,tone="slate"}:{children:ReactNode;tone?:"s
     indigo:"bg-indigo-50 text-indigo-700",amber:"bg-amber-50 text-amber-700",
     rose:"bg-rose-50 text-rose-700",cyan:"bg-cyan-50 text-cyan-700",
   };
-  return <span className={"inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide "+tones[tone]}>{children}</span>;
+  return <span className={"inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold "+tones[tone]}>{children}</span>;
 }
 export function EmptyState({title,description}:{title:string;description?:string}) {
-  return <div className="grid min-h-36 place-items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center">
-    <div><div className="mx-auto grid h-10 w-10 place-items-center rounded-2xl bg-white text-slate-400 shadow-sm ring-1 ring-slate-200">—</div>
-      <p className="mt-3 text-sm font-semibold text-slate-700">{title}</p>
-      {description?<p className="mt-1 text-xs text-slate-400">{description}</p>:null}
+  return <div className="grid min-h-32 place-items-center rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-soft)] p-5 text-center">
+    <div><p className="text-sm font-semibold text-[var(--text)]">{title}</p>
+      {description?<p className="mt-1 text-xs text-[var(--text-muted)]">{description}</p>:null}
     </div>
   </div>;
 }
@@ -110,7 +109,7 @@ export function Modal({
   if(!open)return null;
   return <div className="fixed inset-0 z-[80] grid place-items-end bg-slate-950/35 p-0 backdrop-blur-[2px] sm:place-items-center sm:p-5">
     <button className="absolute inset-0" onClick={onClose} aria-label="Close dialog"/>
-    <div className="relative max-h-[92vh] w-full overflow-hidden rounded-t-[28px] bg-white shadow-2xl sm:max-w-2xl sm:rounded-[28px]">
+    <div className="relative max-h-[92vh] w-full overflow-hidden rounded-t-2xl bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-2xl">
       <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
         <div><h3 className="text-lg font-bold tracking-tight">{title}</h3>{description?<p className="mt-1 text-xs text-slate-500">{description}</p>:null}</div>
         <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-lg text-slate-500">×</button>
@@ -122,12 +121,12 @@ export function Modal({
 }
 
 export function FormSection({
-  step,title,description,children,
+  step:_step,title,description:_description,children,
 }:{step?:string;title:string;description?:string;children:ReactNode}) {
+  void _step; void _description;
   return <Surface className="overflow-hidden">
-    <div className="flex items-start gap-3 border-b border-slate-100 px-4 py-3.5 sm:px-5">
-      {step?<span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-indigo-50 text-xs font-black text-indigo-700">{step}</span>:null}
-      <div><h3 className="text-sm font-bold tracking-tight text-slate-900">{title}</h3>{description?<p className="mt-0.5 text-xs leading-5 text-slate-500">{description}</p>:null}</div>
+    <div className="border-b border-[var(--border)] px-4 py-3 sm:px-5">
+      <h3 className="text-sm font-semibold text-[var(--text)]">{title}</h3>
     </div>
     <div className="p-4 sm:p-5">{children}</div>
   </Surface>;
@@ -137,7 +136,7 @@ export function Field({
   label,hint,children,className="",
 }:{label:string;hint?:string;children:ReactNode;className?:string}) {
   return <label className={"block min-w-0 "+className}>
-    <span className="mb-1.5 block text-xs font-bold text-slate-600">{label}</span>
+    <span className="mb-1.5 block text-xs font-semibold text-[var(--text-muted)]">{label}</span>
     {children}
     {hint?<span className="mt-1.5 block text-[11px] leading-4 text-slate-400">{hint}</span>:null}
   </label>;
@@ -148,16 +147,17 @@ export function SummaryRow({label,value,tone="slate"}:{label:string;value:ReactN
   return <div className="flex items-center justify-between gap-4 py-2.5"><span className="text-xs text-slate-500">{label}</span><strong className={"text-sm "+tones[tone]}>{value}</strong></div>;
 }
 export function TransactionFrame({
-  eyebrow,title,description,children,summary,footer,
+  eyebrow:_eyebrow,title,description:_description,children,summary,footer,
 }:{eyebrow:string;title:string;description:string;children:ReactNode;summary:ReactNode;footer?:ReactNode}) {
-  return <div className="page-enter mx-auto max-w-6xl space-y-5">
-    <SectionHeading eyebrow={eyebrow} title={title} description={description}/>
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="space-y-4">{children}</div>
+  void _eyebrow; void _description;
+  return <div className="page-enter mx-auto max-w-6xl space-y-4">
+    <SectionHeading title={title}/>
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="space-y-3">{children}</div>
       <div className="space-y-3 lg:sticky lg:top-20">
         <Surface className="overflow-hidden">
-          <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-3"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-400">Live calculation</p><h3 className="mt-0.5 text-sm font-bold">Transaction summary</h3></div>
-          <div className="divide-y divide-slate-100 px-4">{summary}</div>
+          <div className="border-b border-[var(--border)] px-4 py-3"><h3 className="text-sm font-semibold">Summary</h3></div>
+          <div className="divide-y divide-[var(--border)] px-4">{summary}</div>
         </Surface>
         {footer}
       </div>
@@ -221,17 +221,17 @@ export function DetailStat({
 }:{label:string;value:ReactNode;detail?:ReactNode;tone?:"slate"|"emerald"|"indigo"|"amber"|"rose"|"cyan"}) {
   const tones={slate:"text-slate-950",emerald:"text-emerald-700",indigo:"text-indigo-700",amber:"text-amber-700",rose:"text-rose-700",cyan:"text-cyan-700"};
   return <Surface className="p-3.5 sm:p-4">
-    <p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">{label}</p>
-    <p className={"mt-1.5 truncate text-lg font-black tracking-tight sm:text-xl "+tones[tone]}>{value}</p>
-    {detail?<p className="mt-1 text-[11px] text-slate-400">{detail}</p>:null}
+    <p className="text-xs font-medium text-[var(--text-muted)]">{label}</p>
+    <p className={"money mt-1.5 truncate text-lg font-semibold sm:text-xl "+tones[tone]}>{value}</p>
+    {detail?<p className="mt-1 text-[11px] text-[var(--text-muted)]">{detail}</p>:null}
   </Surface>;
 }
 
 export function PanelHeader({
   title,description,action,
 }:{title:string;description?:string;action?:ReactNode}) {
-  return <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-    <div><h3 className="text-sm font-bold tracking-tight">{title}</h3>{description?<p className="mt-0.5 text-[11px] text-slate-400">{description}</p>:null}</div>
+  return <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5">
+    <div><h3 className="text-sm font-semibold">{title}</h3>{description?<p className="mt-0.5 hidden text-[11px] text-[var(--text-muted)] sm:block">{description}</p>:null}</div>
     {action?<div className="shrink-0">{action}</div>:null}
   </div>;
 }

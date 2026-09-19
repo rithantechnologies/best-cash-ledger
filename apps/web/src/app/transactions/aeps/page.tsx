@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -7,7 +8,7 @@ import { Field, FormSection, PageLoader, SummaryRow, TransactionFrame } from "@/
 import { apiFetch } from "@/lib/api";
 
 type Customer={id:string;fullName:string;bankAccounts:{id:string;bankName:string;accountReference:string;isActive:boolean}[]};
-type Account={id:string;accountName:string;accountType:string};
+type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null};
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string};
 type Provider={id:string;name:string;gateways:Gateway[]};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(v);
@@ -40,10 +41,26 @@ export default function AepsPage(){
   apiFetch<Customer[]>("/customers"),
   apiFetch<Account[]>("/dashboard/accounts"),
   apiFetch<Provider[]>("/providers"),
- ]).then(([c,a,p])=>{setCustomers(c);setAccounts(a);setProviders(p);}).catch(()=>setError("Failed to load form")).finally(()=>setLoading(false));},[]);
+ ]).then(([c,a,p])=>{
+  setCustomers(c);setAccounts(a);setProviders(p);
+  const cash=a.filter(x=>x.accountType==="CASH");if(cash.length===1)setCashAccountId(cash[0].id);
+  const remembered=localStorage.getItem("cashledger_aeps_provider");const first=p.find(x=>x.id===remembered)?.id??p[0]?.id??"";if(first)setProviderId(first);
+ }).catch(()=>setError("Failed to load form")).finally(()=>setLoading(false));},[]);
 
  const customer=customers.find(c=>c.id===customerId);
  const provider=providers.find(p=>p.id===providerId);
+ const providerWallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId);
+
+ useEffect(()=>{
+  if(!providerId)return;
+  localStorage.setItem("cashledger_aeps_provider",providerId);
+  const remembered=localStorage.getItem("cashledger_aeps_gateway_"+providerId);
+  const next=provider?.gateways.find(g=>g.id===remembered)??provider?.gateways[0];
+  setGatewayId(next?.id??"");setChargeRate(next?String(Number(next.defaultChargeRate)):"0");
+  if(providerWallet)setSettlementAccountId(providerWallet.id);
+ },[providerId,provider,providerWallet]);
+
+ useEffect(()=>{if(gatewayId&&providerId)localStorage.setItem("cashledger_aeps_gateway_"+providerId,gatewayId);},[gatewayId,providerId]);
 
  useEffect(()=>{
   if(!customerId)return;
@@ -101,35 +118,35 @@ export default function AepsPage(){
 
    {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
-   <FormSection step="1" title="Customer & withdrawal" description="Identify the customer and the external bank account used for the AePS withdrawal.">
+   <FormSection step="1" title="Withdrawal">
     <div className="grid gap-3 sm:grid-cols-2">
+     <Field label="Amount"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-400">₹</span><input className={control+" pl-8 text-xl font-bold"} type="number" inputMode="decimal" step="0.01" min="0.01" placeholder="0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></div></Field>
      <Field label="Customer"><select className={control} value={customerId} onChange={e=>{setCustomerId(e.target.value);setBank("");}} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</select></Field>
-     <Field label="Aadhaar last 4" hint="Only the last four digits are stored."><input className={control} inputMode="numeric" placeholder="Last 4 digits" maxLength={4} value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
+     <Field label="Aadhaar last 4"><input className={control} inputMode="numeric" placeholder="Last 4 digits" maxLength={4} value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
      <Field label="Customer bank"><div><input list="aeps-customer-banks" className={control} placeholder="Bank name" value={bank} onChange={e=>setBank(e.target.value)} required/><datalist id="aeps-customer-banks">{customer?.bankAccounts.filter(x=>x.isActive).map(x=><option key={x.id} value={x.bankName}>{x.accountReference}</option>)}</datalist></div></Field>
-     <Field label="Withdrawal amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
     </div>
    </FormSection>
 
-   <FormSection step="2" title="Platform & charges" description="Select the AePS provider and keep charges and commission visible.">
+   <FormSection step="2" title="Provider & rates">
     <div className="grid gap-3 sm:grid-cols-2">
      <Field label="Platform / terminal ID"><input className={control} placeholder="Optional terminal ID" value={platformId} onChange={e=>setPlatformId(e.target.value)}/></Field>
-     <Field label="Provider"><select className={control} value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");}}><option value="">Optional provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-     <Field label="Gateway"><select className={control} value={gatewayId} onChange={e=>{setGatewayId(e.target.value);const g=provider?.gateways.find(x=>x.id===e.target.value);if(g)setChargeRate(String(Number(g.defaultChargeRate)));}}><option value="">Optional gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select></Field>
+     <Field label="Provider"><select className={control} value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");setChargeRate("0");}}><option value="">Optional provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+     <Field label="Gateway"><select className={control} value={gatewayId} onChange={e=>{setGatewayId(e.target.value);const g=provider?.gateways.find(x=>x.id===e.target.value);setChargeRate(g?String(Number(g.defaultChargeRate)):"0");}}><option value="">Optional gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select></Field>
      <Field label="Platform charge %"><input className={control} type="number" step="0.0001" min="0" value={chargeRate} onChange={e=>setChargeRate(e.target.value)} required/></Field>
      <Field label="Business commission %"><input className={control} type="number" step="0.0001" min="0" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/></Field>
     </div>
    </FormSection>
 
-   <FormSection step="3" title="Cash & provider settlement" description="Choose the cash drawer paying the customer and where provider settlement is expected.">
+   <FormSection step="3" title="Cash & settlement">
     <div className="grid gap-3 sm:grid-cols-2">
      <Field label="Cash account"><select className={control} value={cashAccountId} onChange={e=>setCashAccountId(e.target.value)} required><option value="">Cash account paying customer</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field>
-     <Field label="Settlement target"><select className={control} value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Wallet / bank receiving settlement</option>{accounts.filter(a=>["BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field>
+     <Field label="Settlement account">{providerWallet?<div className={control+" flex items-center"}>{providerWallet.accountName}</div>:<select className={control} value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Wallet / bank receiving settlement</option>{accounts.filter(a=>["BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>}</Field>
      <Field label="Expected settlement"><input className={control} type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)}/></Field>
      <label className="flex min-h-11 items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm"><input type="checkbox" checked={settledNow} onChange={e=>setSettledNow(e.target.checked)} className="h-4 w-4"/><span><strong className="block text-emerald-900">Settlement already received</strong><span className="text-[11px] text-emerald-700">Only when visible in the target account.</span></span></label>
     </div>
    </FormSection>
 
-   <FormSection step="4" title="Reference & notes" description="Optional reconciliation information.">
+   <FormSection step="4" title="More details">
     <div className="grid gap-3 sm:grid-cols-2"><Field label="Provider reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Reference / transaction ID"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div>
    </FormSection>
   </TransactionFrame>
