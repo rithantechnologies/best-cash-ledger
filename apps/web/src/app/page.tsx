@@ -67,7 +67,7 @@ function SummaryCard({
   <p className="mt-4 text-[10px] font-bold uppercase tracking-[.1em] text-[var(--text-muted)]">{title}</p>
   <p className="dashboard-summary-money money mt-1.5 font-black">{money(value)}</p>
   <p className="mt-1 text-xs font-semibold text-[var(--text)]">{plainLabel}</p>
-  <p className="mt-1.5 text-[10px] leading-4 text-[var(--text-muted)]">{detail}</p>
+  <p className="mt-1.5 text-[11px] leading-4 text-[var(--text-muted)]">{detail}</p>
  </Link>;
 }
 
@@ -98,8 +98,11 @@ function PositionChart({rows}:{rows:Trend[]}){
 type DonutItem={label:string;value:number;color:string};
 function DonutBreakdown({items,totalLabel="Total"}:{items:DonutItem[];totalLabel?:string}){
  const total=items.reduce((s,x)=>s+Math.max(0,x.value),0);
- let cursor=0;
- const stops=items.map(x=>{const start=cursor,end=total?cursor+Math.max(0,x.value)/total*100:cursor;cursor=end;return x.color+" "+start+"% "+end+"%";}).join(",");
+ const stops=items.map((x,i)=>{
+  const start=total?items.slice(0,i).reduce((s,row)=>s+Math.max(0,row.value),0)/total*100:0;
+  const end=total?items.slice(0,i+1).reduce((s,row)=>s+Math.max(0,row.value),0)/total*100:0;
+  return x.color+" "+start+"% "+end+"%";
+ }).join(",");
  if(total<=0)return <EmptyState title="No positive available balance yet"/>;
  return <div className="grid gap-5 sm:grid-cols-[150px_1fr] sm:items-center">
   <div className="dashboard-ring relative mx-auto h-36 w-36 rounded-full" style={{background:"conic-gradient("+stops+")"}}><div className="absolute inset-[22px] grid place-items-center rounded-full bg-[var(--surface)]"><div className="text-center"><p className="text-[10px] text-[var(--text-muted)]">{totalLabel}</p><strong className="money text-lg">{compact(total)}</strong></div></div></div>
@@ -141,7 +144,7 @@ function TodayMovement({today}:{today:Today}){
    </div>
    <div className="grid grid-cols-2 gap-2 self-start">{tiles.map(tile=><Link key={tile.label} href={tile.href} className="app-metric-tile dashboard-click-tile min-w-0 rounded-2xl p-3"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-semibold text-[var(--text-muted)]">{tile.label}</p><span className="text-[9px] font-black text-[var(--accent)]">{tile.mark}</span></div><p className="dashboard-metric-money money mt-1.5 font-extrabold">{money(tile.value)}</p></Link>)}</div>
   </div>
-  <p className="text-[10px] leading-4 text-[var(--text-muted)]">Money in/out shows today’s ledger movement through cash, bank, UPI and wallets. It is not a profit figure.</p>
+  <p className="text-[10px] leading-4 text-[var(--text-muted)]">Money in/out shows today’s ledger movement through cash, bank, UPI and wallets. Internal transfers can appear on both sides, so this is activity — not profit.</p>
  </div>;
 }
 
@@ -190,7 +193,7 @@ export default function DashboardPage(){
  ];
 
  const localReceivableBuckets=(()=>{
-  const now=asOf,day=86400000;
+  const day=86400000,todayStart=new Date(asOf);todayStart.setHours(0,0,0,0);const now=todayStart.getTime();
   const buckets:Bucket[]=[
    {label:"Current / future",amount:0,count:0,tone:"green"},
    {label:"0–30 days overdue",amount:0,count:0,tone:"blue"},
@@ -251,14 +254,10 @@ export default function DashboardPage(){
      <p className={"dashboard-command-money money mt-5 font-black "+(summary.netFinancialPosition<0?"text-[var(--money-out)]":"")}>{money(summary.netFinancialPosition)}</p>
      <div className="dashboard-money-bridge mt-5">
       <div className="dashboard-bridge-item dashboard-bridge-positive"><span>Available now</span><strong>{money(summary.availableFunds)}</strong><small>Bank + UPI + cash + wallets</small></div>
-      <div className="dashboard-bridge-sign">+</div>
-      <div className="dashboard-bridge-item dashboard-bridge-positive"><span>Provider settlements</span><strong>{money(summary.pendingProviderSettlements)}</strong><small>Expected from providers</small></div>
-      <div className="dashboard-bridge-sign">+</div>
-      <div className="dashboard-bridge-item dashboard-bridge-positive"><span>To receive</span><strong>{money(summary.customerReceivable)}</strong><small>Customer receivables</small></div>
-      <div className="dashboard-bridge-sign">−</div>
-      <div className="dashboard-bridge-item dashboard-bridge-negative"><span>To pay</span><strong>{money(summary.customerPayable)}</strong><small>Customer payables</small></div>
-      <div className="dashboard-bridge-sign">−</div>
-      <div className="dashboard-bridge-item dashboard-bridge-negative"><span>Card outstanding</span><strong>{money(summary.creditCardOutstanding)}</strong><small>Owner credit cards</small></div>
+      <div className="dashboard-bridge-item dashboard-bridge-positive"><span>+ Provider settlements</span><strong>{money(summary.pendingProviderSettlements)}</strong><small>Expected from providers</small></div>
+      <div className="dashboard-bridge-item dashboard-bridge-positive"><span>+ To receive</span><strong>{money(summary.customerReceivable)}</strong><small>Customer receivables</small></div>
+      <div className="dashboard-bridge-item dashboard-bridge-negative"><span>− To pay</span><strong>{money(summary.customerPayable)}</strong><small>Customer payables</small></div>
+      <div className="dashboard-bridge-item dashboard-bridge-negative"><span>− Card outstanding</span><strong>{money(summary.creditCardOutstanding)}</strong><small>Owner credit cards</small></div>
      </div>
     </div>
     <div className="grid content-start gap-2.5 sm:grid-cols-2">
@@ -292,7 +291,7 @@ export default function DashboardPage(){
   <Surface className="dashboard-panel p-4 sm:p-5"><SectionHead eyebrow="Today" title="Money movement today" description="A simple view of how money moved through your main channels and services." action={<span className="dashboard-live-badge"><i/>Live</span>}/><TodayMovement today={today}/></Surface>
 
   <div className="grid gap-4 xl:grid-cols-[.9fr_1.1fr]">
-   <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><p className="dashboard-kicker">Accounts</p><h2 className="mt-1 text-base font-bold">Largest available balances</h2><p className="mt-1 text-[10px] text-[var(--text-muted)]">Tap an account to open its ledger.</p></div><Link href="/accounts" className="text-xs font-bold text-[var(--accent)]">View all</Link></div>
+   <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><p className="dashboard-kicker">Accounts</p><h2 className="mt-1 text-base font-bold">Largest account balances</h2><p className="mt-1 text-[10px] text-[var(--text-muted)]">Tap an account to open its ledger.</p></div><Link href="/accounts" className="text-xs font-bold text-[var(--accent)]">View all</Link></div>
     {activeAccounts.length?<div className="divide-y divide-[var(--border)]">{activeAccounts.map(a=><Link key={a.id} href={"/accounts/"+a.id} className="dashboard-account-row flex items-center justify-between gap-3 px-4 py-3.5 sm:px-5"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--surface-soft)] text-[9px] font-black text-[var(--text-muted)]">{a.accountType.split("_").map(x=>x[0]).join("").slice(0,3)}</span><div className="min-w-0"><p className="truncate text-sm font-bold">{a.accountName}</p><p className="mt-0.5 truncate text-[10px] font-medium text-[var(--text-muted)]">{a.accountType.replaceAll("_"," ")}</p></div></div><strong className={"dashboard-row-money money shrink-0 font-bold "+(a.currentBalance<0?"text-[var(--money-out)]":"")}>{money(a.currentBalance)}</strong></Link>)}</div>:<div className="p-4"><EmptyState title="No account balances yet"/></div>}
    </Surface>
    <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><p className="dashboard-kicker">Recent activity</p><h2 className="mt-1 text-base font-bold">Latest transactions</h2><p className="mt-1 text-[10px] text-[var(--text-muted)]">A quick audit trail of the most recent entries.</p></div><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">View all</Link></div>
