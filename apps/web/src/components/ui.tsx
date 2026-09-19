@@ -136,7 +136,7 @@ export function Field({
   label,hint,children,className="",
 }:{label:string;hint?:string;children:ReactNode;className?:string}) {
   return <label className={"block min-w-0 "+className}>
-    <span className="mb-1.5 block text-[13px] font-semibold leading-5 text-[var(--text-muted)]">{label}</span>
+    <span className="mb-1.5 block text-sm font-semibold leading-5 text-[var(--text-muted)]">{label}</span>
     {children}
     {hint?<span className="mt-1.5 block text-[11px] leading-4 text-slate-400">{hint}</span>:null}
   </label>;

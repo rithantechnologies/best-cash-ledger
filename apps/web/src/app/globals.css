@@ -136,6 +136,46 @@ button:active, a:active { transform: translateY(1px); }
   -webkit-overflow-scrolling: touch;
 }
 .rate-strip::-webkit-scrollbar { display: none; }
+.rate-control .relative:has(.rate-strip)::before,
+.rate-control .relative:has(.rate-strip)::after {
+  content: "";
+  position: absolute;
+  z-index: 6;
+  top: 10px;
+  bottom: 0;
+  width: 30px;
+  pointer-events: none;
+}
+.rate-control .relative:has(.rate-strip)::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--surface), transparent);
+}
+.rate-control .relative:has(.rate-strip)::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--surface), transparent);
+}
+.rate-chip {
+  position: relative;
+  border-color: transparent !important;
+  background: transparent;
+  transition: transform .14s ease, background-color .14s ease, color .14s ease, border-color .14s ease;
+}
+.rate-chip::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 1px;
+  height: 7px;
+  transform: translateX(-50%);
+  background: var(--border);
+}
+.rate-chip[data-selected="true"] {
+  transform: translateY(-1px) scale(1.04);
+  border-color: var(--accent) !important;
+  background: var(--accent-soft);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 15%, transparent);
+}
 
 @keyframes cashledger-progress {
   0% { transform: translateX(-100%); }
