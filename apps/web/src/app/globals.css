@@ -112,6 +112,79 @@ button:active, a:active { transform: translateY(1px); }
 }
 .app-control::placeholder { color: color-mix(in srgb, var(--text-muted) 75%, transparent); }
 
+.entry-sheet {
+  border-radius: 18px !important;
+  border-color: color-mix(in srgb, var(--border) 92%, transparent) !important;
+  box-shadow: 0 8px 28px color-mix(in srgb, #0f172a 4%, transparent);
+}
+.entry-section {
+  padding: 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+}
+.entry-section:last-child { border-bottom: 0; }
+.entry-title {
+  font-size: .95rem;
+  line-height: 1.25rem;
+  font-weight: 750;
+  letter-spacing: -.012em;
+}
+.entry-amount-input {
+  height: 58px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 0 12px 0 38px;
+  color: var(--text);
+  font-size: 1.85rem;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -.035em;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+.entry-amount-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.swipe-rate-range {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+}
+.swipe-rate-range::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--border));
+}
+.swipe-rate-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7.5px;
+  border-radius: 999px;
+  border: 3px solid var(--surface);
+  background: var(--accent);
+  box-shadow: 0 2px 8px color-mix(in srgb, #0f172a 18%, transparent);
+}
+.swipe-rate-range::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+}
+.swipe-rate-range::-moz-range-progress {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.swipe-rate-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 3px solid var(--surface);
+  background: var(--accent);
+}
+
 .counter-surface {
   border-radius: 22px !important;
   border-color: color-mix(in srgb, var(--border) 84%, transparent) !important;
