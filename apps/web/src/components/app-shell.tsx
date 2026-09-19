@@ -24,7 +24,7 @@ const navItems = [
   { group:"Admin", label:"Audit", short:"Audit", href:"/audit", icon:"shield", adminOnly:true },
 ] as const;
 
-type IconName=(typeof navItems)[number]["icon"]|"menu"|"close"|"search"|"plus"|"more"|"logout"|"sun"|"moon";
+type IconName=(typeof navItems)[number]["icon"]|"menu"|"close"|"back"|"search"|"plus"|"more"|"logout"|"sun"|"moon";
 function Icon({name,className="h-5 w-5"}:{name:IconName;className?:string}) {
   const common={fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round" as const,strokeLinejoin:"round" as const};
   const paths:Record<IconName,ReactNode>={
@@ -41,6 +41,7 @@ function Icon({name,className="h-5 w-5"}:{name:IconName;className?:string}) {
     shield:<><path d="M12 3 20 6v5c0 5-3.2 8.5-8 10-4.8-1.5-8-5-8-10V6z"/><path d="m9 12 2 2 4-4"/></>,
     menu:<><path d="M4 7h16M4 12h16M4 17h16"/></>,
     close:<><path d="m6 6 12 12M18 6 6 18"/></>,
+    back:<><path d="m15 18-6-6 6-6"/><path d="M9 12h10"/></>,
     search:<><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></>,
     plus:<><path d="M12 5v14M5 12h14"/></>,
     more:<><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
@@ -52,6 +53,17 @@ function Icon({name,className="h-5 w-5"}:{name:IconName;className?:string}) {
 }
 
 type ThemeMode="system"|"light"|"dark";
+const transactionTaskTitles:Record<string,string>={
+  "/transactions/card-swipe":"Card swipe",
+  "/transactions/cash-transfer":"Cash transfer",
+  "/transactions/aeps":"AePS",
+  "/transactions/micro-atm":"Micro ATM",
+  "/transactions/expense":"Expense",
+  "/transactions/internal-transfer":"Move money",
+  "/transactions/atm-withdrawal":"ATM withdrawal",
+  "/transactions/owner-credit-card-payment":"Card payment",
+};
+
 const quickActions=[
   ["Card swipe","/transactions/card-swipe","Swipe"],
   ["Cash transfer","/transactions/cash-transfer","Transfer"],
@@ -83,7 +95,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const visibleNav=navItems.filter(item=>!("adminOnly" in item)||!item.adminOnly||role==="OWNER"||role==="ADMIN");
   const active=(href:string)=>href==="/"?pathname==="/":pathname===href||pathname.startsWith(href+"/");
-  const currentTitle=visibleNav.find(item=>active(item.href))?.label??"Cash Ledger";
+  const taskTitle=transactionTaskTitles[pathname];
+  const isTaskFlow=!!taskTitle;
+  const currentTitle=taskTitle??visibleNav.find(item=>active(item.href))?.label??"Cash Ledger";
 
   function applyTheme(mode:ThemeMode){
     setTheme(mode);localStorage.setItem("cashledger_theme",mode);
@@ -108,25 +122,25 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="lg:pl-60">
       <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] backdrop-blur-xl">
         <div className="flex h-15 items-center gap-3 px-3 sm:px-5 lg:px-6">
-          <button onClick={()=>setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] lg:hidden" aria-label="Open navigation"><Icon name="menu"/></button>
+          <button onClick={()=>isTaskFlow?router.push("/transactions/new"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] lg:hidden" aria-label={isTaskFlow?"Back to new transaction":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"}/></button>
           <div className="min-w-0 flex-1 lg:flex-none"><p className="truncate text-sm font-semibold">{currentTitle}</p></div>
-          <form onSubmit={submitSearch} className="mx-auto hidden w-full max-w-xl md:block"><div className="relative"><Icon name="search" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile, card last 4…" className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-soft)] pl-10 pr-3 text-sm"/></div></form>
-          <Link href="/transactions/new" className="hidden min-h-10 items-center gap-2 rounded-lg bg-[var(--text)] px-4 text-sm font-semibold text-[var(--surface)] sm:flex"><Icon name="plus" className="h-4 w-4"/>New</Link>
+          {!isTaskFlow?<><form onSubmit={submitSearch} className="mx-auto hidden w-full max-w-xl md:block"><div className="relative"><Icon name="search" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile, card last 4…" className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-soft)] pl-10 pr-3 text-sm"/></div></form>
+          <Link href="/transactions/new" className="hidden min-h-10 items-center gap-2 rounded-lg bg-[var(--text)] px-4 text-sm font-semibold text-[var(--surface)] sm:flex"><Icon name="plus" className="h-4 w-4"/>New</Link></>:<div className="hidden flex-1 lg:block"/>}
         </div>
       </header>
-      <main aria-busy={navigating} className="px-3 py-4 pb-24 sm:px-5 sm:py-5 lg:px-6 lg:pb-8">{children}</main>
+      <main aria-busy={navigating} className={"px-3 py-4 sm:px-5 sm:py-5 lg:px-6 lg:pb-8 "+(isTaskFlow?"pb-8":"pb-24")}>{children}</main>
     </div>
 
     {menuOpen?<div className="fixed inset-0 z-50 lg:hidden"><button className="absolute inset-0 bg-black/40" onClick={()=>setMenuOpen(false)} aria-label="Close navigation"/><aside className="absolute inset-y-0 left-0 flex w-[min(88vw,350px)] flex-col bg-[var(--surface)] shadow-2xl"><div className="flex h-16 items-center justify-between border-b border-[var(--border)] px-4"><strong>Cash Ledger</strong><button onClick={()=>setMenuOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-soft)]"><Icon name="close"/></button></div><form onSubmit={submitSearch} className="border-b border-[var(--border)] p-3"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile or card last 4" className="app-control"/></form><nav className="flex-1 overflow-y-auto p-3">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-4"><p className="mb-1.5 px-3 text-[11px] font-semibold text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p><div className="space-y-0.5">{rows.map(navLink)}</div></div>:null;})}</nav><div className="border-t border-[var(--border)] p-3"><div className="mb-2 grid grid-cols-3 gap-1 rounded-lg bg-[var(--surface-soft)] p-1">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-9 rounded-md text-xs capitalize "+(theme===mode?"bg-[var(--surface)] shadow-sm":"text-[var(--text-muted)]")}>{mode}</button>)}</div><button onClick={logout} className="min-h-10 w-full rounded-lg text-sm text-[var(--text-muted)]">Logout</button></div></aside></div>:null}
 
     {newOpen?<div className="fixed inset-0 z-[60] lg:hidden"><button className="absolute inset-0 bg-black/45" onClick={()=>setNewOpen(false)} aria-label="Close new transaction"/><div className="absolute inset-x-0 bottom-0 rounded-t-[24px] bg-[var(--surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl"><div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border)]"/><div className="mb-3 flex items-center justify-between"><strong>New transaction</strong><Link href="/transactions/new" className="text-xs font-semibold text-[var(--accent)]">All types</Link></div><div className="grid grid-cols-2 gap-2">{quickActions.map(([label,href,short])=><Link key={href} href={href} className="flex min-h-16 items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-4"><span className="font-semibold">{label}</span><span className="text-xs text-[var(--text-muted)]">{short}</span></Link>)}</div></div></div>:null}
 
-    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_95%,transparent)] px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl lg:hidden">
+    {!isTaskFlow?<nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_95%,transparent)] px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl lg:hidden">
       <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="home" className="h-5 w-5"/><span>Home</span></Link>
       <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="activity" className="h-5 w-5"/><span>Activity</span></Link>
       <button onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[10px] font-bold text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-full border-4 border-[var(--surface)] bg-[var(--text)] text-[var(--surface)] shadow-lg"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
       <Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="settle" className="h-5 w-5"/><span>Dues</span></Link>
       <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-[var(--text-muted)]"><Icon name="more" className="h-5 w-5"/><span>More</span></button>
-    </nav>
+    </nav>:null}
   </div>;
 }

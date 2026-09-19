@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountNature, AccountType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountNature, AccountType, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { LedgerService, type JournalEntry } from '../ledger/ledger.service.js';
@@ -187,12 +187,99 @@ export class TransactionsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      await this.validation.activeCustomer(tx, dto.customerId);
-      await this.validation.customerCard(
-        tx,
-        dto.customerId,
-        dto.customerCardId,
-      );
+      let customerId = dto.customerId;
+      let customerCardId = dto.customerCardId;
+      let createdCustomer: {
+        customer: { id: string; fullName: string; mobile: string | null };
+        card: {
+          id: string;
+          bankName: string;
+          lastFourDigits: string;
+          nickname: string | null;
+          isActive: boolean;
+        };
+      } | null = null;
+
+      if (dto.newCustomer) {
+        if (customerId || customerCardId) {
+          throw new BadRequestException(
+            'Use either an existing customer or a new customer, not both',
+          );
+        }
+        const customer = await tx.customer.create({
+          data: {
+            customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
+            customerType: CustomerType.REGULAR,
+            fullName: dto.newCustomer.fullName.trim(),
+            mobile: dto.newCustomer.mobile.trim(),
+            createdById: userId,
+          },
+        });
+        const card = await tx.customerCard.create({
+          data: {
+            customerId: customer.id,
+            bankName: dto.newCustomer.bankName.trim(),
+            cardType: 'CREDIT',
+            lastFourDigits: dto.newCustomer.lastFourDigits,
+          },
+        });
+        await tx.auditLog.createMany({
+          data: [
+            {
+              userId,
+              entityType: 'CUSTOMER',
+              entityId: customer.id,
+              action: 'CREATE',
+              newValues: {
+                customerCode: customer.customerCode,
+                customerType: customer.customerType,
+                fullName: customer.fullName,
+                mobile: customer.mobile,
+                isActive: customer.isActive,
+              },
+            },
+            {
+              userId,
+              entityType: 'CUSTOMER_CARD',
+              entityId: card.id,
+              action: 'CREATE',
+              newValues: {
+                customerId: customer.id,
+                bankName: card.bankName,
+                cardType: card.cardType,
+                lastFourDigits: card.lastFourDigits,
+              },
+            },
+          ],
+        });
+        customerId = customer.id;
+        customerCardId = card.id;
+        createdCustomer = {
+          customer: {
+            id: customer.id,
+            fullName: customer.fullName,
+            mobile: customer.mobile,
+          },
+          card: {
+            id: card.id,
+            bankName: card.bankName,
+            lastFourDigits: card.lastFourDigits,
+            nickname: card.nickname,
+            isActive: card.isActive,
+          },
+        };
+      } else {
+        if (!customerId || !customerCardId) {
+          throw new BadRequestException('Customer and card are required');
+        }
+        await this.validation.activeCustomer(tx, customerId);
+        await this.validation.customerCard(tx, customerId, customerCardId);
+      }
+
+      if (!customerId || !customerCardId) {
+        throw new BadRequestException('Customer and card are required');
+      }
+
       await this.validation.providerGateway(
         tx,
         dto.providerId,
@@ -265,7 +352,7 @@ export class TransactionsService {
           transactionNumber: 'CCS-' + Date.now().toString(36).toUpperCase(),
           transactionType: TransactionType.CARD_SWIPE,
           transactionAt: new Date(),
-          customerId: dto.customerId,
+          customerId: customerId,
           grossAmount: new Prisma.Decimal(dto.swipeAmount),
           netAmount: new Prisma.Decimal(customerPayableAmount),
           status: TransactionStatus.COMPLETED,
@@ -279,7 +366,7 @@ export class TransactionsService {
       await tx.cardSwipeDetail.create({
         data: {
           transactionId: transaction.id,
-          customerCardId: dto.customerCardId,
+          customerCardId: customerCardId,
           swipeAmount: new Prisma.Decimal(dto.swipeAmount),
           providerId: dto.providerId,
           gatewayId: dto.gatewayId,
@@ -323,7 +410,7 @@ export class TransactionsService {
 
       const payable = await tx.customerPayable.create({
         data: {
-          customerId: dto.customerId,
+          customerId: customerId,
           sourceTransactionId: transaction.id,
           paymentTermId: dto.paymentTermId,
           originalAmount: new Prisma.Decimal(customerPayableAmount),
@@ -351,7 +438,7 @@ export class TransactionsService {
           ledgerAccountId: clearingLedger.id,
           entryType: EntryType.DEBIT,
           amount: settlementAmount,
-          customerId: dto.customerId,
+          customerId: customerId,
           providerSettlementId: providerSettlement.id,
           description: 'Provider settlement pending',
         },
@@ -359,7 +446,7 @@ export class TransactionsService {
           ledgerAccountId: payableLedger.id,
           entryType: EntryType.CREDIT,
           amount: customerPayableAmount,
-          customerId: dto.customerId,
+          customerId: customerId,
           payableId: payable.id,
           description: 'Customer payable',
         },
@@ -370,7 +457,7 @@ export class TransactionsService {
           ledgerAccountId: commissionLedger.id,
           entryType: EntryType.CREDIT,
           amount: commissionAmount,
-          customerId: dto.customerId,
+          customerId: customerId,
           providerSettlementId: providerSettlement.id,
           description: 'Customer commission income',
         });
@@ -418,7 +505,7 @@ export class TransactionsService {
               (index + 1),
             transactionType: TransactionType.CUSTOMER_PAYOUT,
             transactionAt: new Date(),
-            customerId: dto.customerId,
+            customerId: customerId,
             grossAmount: new Prisma.Decimal(payment.amount),
             netAmount: new Prisma.Decimal(payment.amount),
             status: TransactionStatus.COMPLETED,
@@ -452,14 +539,14 @@ export class TransactionsService {
               ledgerAccountId: payableLedger.id,
               entryType: EntryType.DEBIT,
               amount: payment.amount,
-              customerId: dto.customerId,
+              customerId: customerId,
               payableId: payable.id,
             },
             {
               ledgerAccountId: sourceAccount.ledgerAccount!.id,
               entryType: EntryType.CREDIT,
               amount: payment.amount,
-              customerId: dto.customerId,
+              customerId: customerId,
               payableId: payable.id,
             },
           ],
@@ -513,6 +600,7 @@ export class TransactionsService {
         providerSettlement,
         settlementReceipt,
         payoutTransactions,
+        createdCustomer,
       };
     });
   }

@@ -7,6 +7,9 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Length,
+  Matches,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -16,9 +19,22 @@ class CardSwipeCustomerPaymentDto {
   @IsString() sourceAccountId!: string;
 }
 
+class CardSwipeNewCustomerDto {
+  @IsString() @MaxLength(150) fullName!: string;
+  @IsString() @MaxLength(20) mobile!: string;
+  @IsString() @MaxLength(100) bankName!: string;
+  @IsString() @Length(4, 4) @Matches(/^\d{4}$/) lastFourDigits!: string;
+}
+
 export class CreateCardSwipeDto {
-  @IsString() customerId!: string;
-  @IsString() customerCardId!: string;
+  @IsOptional() @IsString() customerId?: string;
+  @IsOptional() @IsString() customerCardId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CardSwipeNewCustomerDto)
+  newCustomer?: CardSwipeNewCustomerDto;
+
   @IsNumber() @Min(0.01) swipeAmount!: number;
   @IsString() providerId!: string;
   @IsString() gatewayId!: string;
