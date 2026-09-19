@@ -53,6 +53,7 @@ try {
   const paymentTerms = [
     ['Instant', 0, 'HOURS'],
     ['24 Hours', 24, 'HOURS'],
+    ['3 Days', 3, 'DAYS'],
     ['7 Days', 7, 'DAYS'],
     ['20 Days', 20, 'DAYS'],
     ['22 Days', 22, 'DAYS'],

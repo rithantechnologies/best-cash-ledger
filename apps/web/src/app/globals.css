@@ -130,12 +130,11 @@ html[data-theme="dark"] .swipe-commerce-page {
 .entry-sheet {
   overflow: hidden;
   border-radius: 20px !important;
-  border-color: color-mix(in srgb, var(--border) 90%, transparent) !important;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--accent) 2%), var(--surface));
+  border-color: color-mix(in srgb, var(--border) 94%, transparent) !important;
+  background: var(--surface);
   box-shadow:
-    0 1px 1px color-mix(in srgb, #0f172a 4%, transparent),
-    0 14px 36px color-mix(in srgb, #0f172a 6%, transparent);
+    0 1px 2px color-mix(in srgb, #0f172a 5%, transparent),
+    0 12px 30px color-mix(in srgb, #0f172a 5%, transparent);
 }
 .entry-section {
   padding: 16px;
@@ -143,16 +142,86 @@ html[data-theme="dark"] .swipe-commerce-page {
 }
 .entry-section:last-child { border-bottom: 0; }
 .entry-section-amount {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 32%, var(--surface)), var(--surface) 62%);
+  background: color-mix(in srgb, var(--accent-soft) 22%, var(--surface));
 }
 .entry-section-commission {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--money-in) 3%, var(--surface)), var(--surface) 65%);
+  background: color-mix(in srgb, var(--surface-soft) 42%, var(--surface));
 }
 .entry-title {
-  font-size: 1rem;
-  line-height: 1.3rem;
-  font-weight: 780;
-  letter-spacing: -.018em;
+  font-size: 1.05rem;
+  line-height: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+.operational-label {
+  font-size: .875rem;
+  line-height: 1.2rem;
+  font-weight: 750;
+  color: var(--text);
+}
+.currency-badge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  border-radius: 999px;
+  background: var(--accent-soft);
+  padding: 0 10px;
+  color: var(--accent);
+  font-size: .75rem;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: .03em;
+}
+.status-chip {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: .7rem;
+  line-height: 1;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.status-chip-blue {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.status-chip-green {
+  background: color-mix(in srgb, var(--money-in) 12%, transparent);
+  color: var(--money-in);
+}
+.status-chip-amber {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+}
+.metric-label {
+  font-size: .68rem;
+  line-height: 1rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.payment-term-strip {
+  scrollbar-width: none;
+}
+.payment-term-strip::-webkit-scrollbar { display: none; }
+.payment-term-pill {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 0 14px;
+  color: var(--text-muted);
+  font-size: .8rem;
+  font-weight: 750;
+  transition: background-color .14s ease, border-color .14s ease, color .14s ease, box-shadow .14s ease;
+}
+.payment-term-pill-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .entry-amount-input {
   height: 60px;
@@ -183,12 +252,12 @@ html[data-theme="dark"] .swipe-commerce-page {
     0 7px 18px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .provider-summary-card {
-  border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 42%, var(--surface)), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 32%, var(--surface));
 }
 .wallet-summary-card {
-  border-color: color-mix(in srgb, var(--money-in) 13%, var(--border)) !important;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--money-in) 4%, var(--surface)), var(--surface));
+  border-color: color-mix(in srgb, var(--money-in) 14%, var(--border)) !important;
+  background: color-mix(in srgb, var(--money-in) 3%, var(--surface));
 }
 .commission-rate-input {
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 45%, transparent);
