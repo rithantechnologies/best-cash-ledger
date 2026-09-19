@@ -17,8 +17,8 @@ type RawAccount=Omit<Account,"currentBalance"|"availableCredit"> & {openingBalan
 type BalanceAccount={id:string;currentBalance:number;availableCredit:number|null;isActive:boolean;usageType:string;bankName:string|null;accountReference:string|null;lastFourDigits:string|null};
 const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(v||0));
 const input="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
-const primary="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white";
-const secondary="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600";
+const primary="app-primary-button min-h-11 px-4 text-sm font-bold";
+const secondary="app-secondary-button min-h-10 px-3 text-xs font-bold";
 
 export default function AccountsPage(){
  const [items,setItems]=useState<Account[]>([]),[loading,setLoading]=useState(true);
@@ -76,7 +76,7 @@ export default function AccountsPage(){
 
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
-  <div className="grid grid-cols-3 gap-2.5">
+  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
    <Surface className="p-3.5"><p className="text-xs text-[var(--text-muted)]">Liquid funds</p><p className="money mt-1 text-lg font-semibold sm:text-2xl">{money(totals.liquid)}</p></Surface>
    <Surface className="p-3.5"><p className="text-xs text-[var(--text-muted)]">Card outstanding</p><p className="money mt-1 text-lg font-semibold text-rose-600 sm:text-2xl">{money(totals.cards)}</p></Surface>
    <Surface className="p-3.5"><p className="text-xs text-[var(--text-muted)]">Active</p><p className="money mt-1 text-lg font-semibold sm:text-2xl">{totals.active}</p></Surface>

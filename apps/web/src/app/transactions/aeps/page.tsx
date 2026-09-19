@@ -105,7 +105,7 @@ export default function AepsPage(){
  }
 
  if(loading)return <AppShell><PageLoader label="Preparing AePS withdrawal…"/></AppShell>;
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
  return <AppShell><form onSubmit={submit}>
   <TransactionFrame eyebrow="Customer service" title="AePS withdrawal" description="Record the external AePS withdrawal, customer cash payout and provider clearing without storing biometric or OTP data."
    summary={<>
@@ -115,7 +115,7 @@ export default function AepsPage(){
     <SummaryRow label="Cash given" value={money(cashGiven)} tone="amber"/>
     <SummaryRow label={settledNow?"Settlement received":"Provider clearing"} value={money(settlement)} tone="cyan"/>
    </>}
-   footer={<button disabled={saving||aadhaar.length!==4||cashGiven<=0||settlement<=0} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white shadow-sm disabled:opacity-40">{saving?"Saving transaction…":"Save AePS withdrawal"}</button>}>
+   footer={<button disabled={saving||aadhaar.length!==4||cashGiven<=0||settlement<=0} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save AePS withdrawal"}</button>}>
 
    {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 

@@ -24,10 +24,10 @@ export default function OwnerCcPaymentPage(){
  }
 
  if(loading)return <AppShell><PageLoader label="Preparing card payment…"/></AppShell>;
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
  return <AppShell><form onSubmit={submit}><TransactionFrame eyebrow="Liability payment" title="Owner credit-card payment" description="Repay card liability from cash, bank or UPI without counting the original expense a second time."
   summary={<><SummaryRow label="Payment amount" value={money(payment)} tone="indigo"/>{card?<><SummaryRow label="Current outstanding" value={money(card.currentBalance)} tone="rose"/><SummaryRow label="After payment" value={money(Math.max(0,card.currentBalance-payment))} tone="emerald"/></>:null}{source?<SummaryRow label="Paid from" value={source.accountName}/>:null}</>}
-  footer={<button disabled={saving||payment<=0} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white disabled:opacity-40">{saving?"Saving payment…":"Save card payment"}</button>}>
+  footer={<button disabled={saving||payment<=0} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving payment…":"Save card payment"}</button>}>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <FormSection step="1" title="Payment details" description="Select the card liability, the source account and the amount being paid.">
    <div className="grid gap-3 sm:grid-cols-2">

@@ -16,15 +16,15 @@
 
 :root {
   color-scheme: light;
-  --bg: #f7f6f2;
+  --bg: #f5f7fa;
   --surface: #ffffff;
   --surface-raised: #ffffff;
-  --surface-soft: #f3f4f2;
-  --border: #e7e5df;
-  --text: #17191f;
-  --text-muted: #6d7480;
+  --surface-soft: #f7f8fb;
+  --border: #e3e8ef;
+  --text: #101828;
+  --text-muted: #667085;
   --accent: #2563eb;
-  --accent-soft: #eff6ff;
+  --accent-soft: #eef4ff;
   --money-in: #0b8f68;
   --money-out: #d84b5f;
   --warning: #c56b14;
@@ -33,13 +33,13 @@
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f1115;
-  --surface: #171a20;
-  --surface-raised: #1c2027;
-  --surface-soft: #12151a;
-  --border: #2b3038;
-  --text: #f7f8fa;
-  --text-muted: #9ca5b2;
+  --bg: #0d1117;
+  --surface: #141922;
+  --surface-raised: #181e28;
+  --surface-soft: #10151d;
+  --border: #27303d;
+  --text: #f8fafc;
+  --text-muted: #98a2b3;
   --accent: #60a5fa;
   --accent-soft: #17233a;
   --money-in: #55d6a5;
@@ -102,15 +102,180 @@ button:active, a:active { transform: translateY(1px); }
 .money { font-variant-numeric: tabular-nums; letter-spacing: -.015em; }
 .muted { color: var(--text-muted); }
 .app-control {
-  min-height: 44px;
+  min-height: 46px;
   width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 97%, var(--accent) 3%);
+  padding: 0 13px;
+  color: var(--text);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 45%, transparent);
+}
+.app-control:hover { border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%); }
+.app-control::placeholder { color: color-mix(in srgb, var(--text-muted) 72%, transparent); }
+
+.app-main {
+  min-height: calc(100vh - 60px);
+  background:
+    radial-gradient(circle at 88% -8%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 26rem),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 96%, var(--surface) 4%), var(--bg));
+}
+.app-page-frame { padding-bottom: 4px; }
+.app-surface {
+  border-radius: 20px;
+  border-color: color-mix(in srgb, var(--border) 92%, transparent) !important;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, #0f172a 4%, transparent),
+    0 10px 28px color-mix(in srgb, #0f172a 4.5%, transparent);
+}
+html[data-theme="dark"] .app-surface {
+  box-shadow:
+    0 1px 2px rgba(0,0,0,.22),
+    0 14px 30px rgba(0,0,0,.13);
+}
+.app-section-heading { padding-inline: 1px; }
+.app-panel-header {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 72%, var(--surface)), var(--surface));
+}
+.app-form-section > :first-child {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 25%, var(--surface)), var(--surface));
+}
+.app-summary-card {
+  background:
+    radial-gradient(circle at 100% 0, color-mix(in srgb, var(--accent) 8%, transparent), transparent 45%),
+    var(--surface);
+}
+.app-stat-card {
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 98%, var(--accent) 2%), var(--surface));
+}
+.app-toolbar {
+  background: color-mix(in srgb, var(--surface) 96%, var(--accent-soft) 4%);
+}
+.app-empty-state {
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 0, color-mix(in srgb, var(--accent) 5%, transparent), transparent 9rem),
+    var(--surface-soft);
+}
+.app-metric-tile {
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 74%, var(--surface));
+}
+.app-status-badge {
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  letter-spacing: .005em;
+}
+.app-modal-panel {
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 24px 24px 0 0;
+}
+.app-notice { box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent); }
+.app-segmented-tabs {
+  box-shadow:
+    0 1px 2px color-mix(in srgb, #0f172a 4%, transparent),
+    0 7px 18px color-mix(in srgb, #0f172a 4%, transparent);
+}
+.app-secondary-button {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
-  padding: 0 12px;
+  color: var(--text-muted);
+  box-shadow: 0 1px 2px color-mix(in srgb, #0f172a 4%, transparent);
+}
+.app-secondary-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--border) 68%, var(--accent) 32%);
+  background: var(--surface-soft);
   color: var(--text);
 }
-.app-control::placeholder { color: color-mix(in srgb, var(--text-muted) 75%, transparent); }
+.app-primary-button {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2f6df6, #1d4ed8);
+  color: #fff;
+  box-shadow: 0 9px 22px rgba(37,99,235,.22);
+}
+.app-primary-button:hover:not(:disabled) { box-shadow: 0 12px 26px rgba(37,99,235,.27); }
+.app-nav-link {
+  position: relative;
+  transition: background-color .15s ease, color .15s ease, transform .15s ease;
+}
+.app-nav-link-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.app-nav-link-active::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--accent);
+}
+.app-sidebar {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--accent) 2%), var(--surface));
+}
+.app-topbar {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 72%, transparent);
+}
+.app-shell-search {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 45%, transparent);
+}
+.app-mobile-nav {
+  box-shadow: 0 -10px 30px color-mix(in srgb, #0f172a 8%, transparent);
+}
+.app-quick-action {
+  transition: transform .15s ease, border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+.app-quick-action:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--border) 65%, var(--accent) 35%);
+  background: color-mix(in srgb, var(--accent-soft) 28%, var(--surface));
+  box-shadow: 0 8px 20px color-mix(in srgb, #0f172a 6%, transparent);
+}
+.app-main table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.app-main table th,
+.app-main table td {
+  padding: .78rem .75rem;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.app-main table thead {
+  background: color-mix(in srgb, var(--surface-soft) 82%, var(--surface)) !important;
+}
+.app-main table th {
+  color: var(--text-muted) !important;
+  font-size: .65rem;
+  font-weight: 800;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+.app-main table tbody tr {
+  transition: background-color .14s ease;
+}
+.app-main table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent-soft) 24%, var(--surface)) !important;
+}
+.app-main table tbody td {
+  border-top-color: color-mix(in srgb, var(--border) 78%, transparent) !important;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 75%, transparent);
+  outline-offset: 2px;
+}
+
+@media (min-width: 640px) {
+  .app-modal-panel { border-radius: 24px; }
+}
 
 .swipe-commerce-page {
   --accent: #2563eb;
@@ -521,8 +686,28 @@ html[data-theme="dark"] .swipe-primary-action {
 .dashboard-ring { animation: cashledger-donut .55s cubic-bezier(.2,.75,.25,1) both; }
 .dashboard-hero {
   background:
-    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 36%),
-    var(--surface);
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 38%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 98%, var(--accent) 2%), var(--surface));
+}
+.dashboard-net-money {
+  max-width: 100%;
+  font-size: clamp(2rem, 9vw, 3rem);
+  line-height: 1;
+  white-space: nowrap;
+}
+.dashboard-metric-money {
+  max-width: 100%;
+  font-size: clamp(.82rem, 3.7vw, 1.125rem);
+  line-height: 1.2;
+  letter-spacing: -.025em;
+  white-space: nowrap;
+}
+.dashboard-pulse-money {
+  max-width: 100%;
+  font-size: clamp(.68rem, 3vw, .875rem);
+  line-height: 1.1rem;
+  letter-spacing: -.02em;
+  white-space: nowrap;
 }
 
 .cashledger-shimmer {

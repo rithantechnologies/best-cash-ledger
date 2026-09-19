@@ -24,8 +24,8 @@ type Area="payments"|"rules"|"expenses";
 type ToggleState={path:string;isActive:boolean;label:string}|null;
 
 const input="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400";
-const primary="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white shadow-sm hover:bg-slate-800";
-const secondary="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50";
+const primary="app-primary-button min-h-11 px-4 text-sm font-bold";
+const secondary="app-secondary-button min-h-10 px-3 text-xs font-bold";
 export default function SettingsPage(){
  const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[categories,setCategories]=useState<Category[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[rules,setRules]=useState<Rule[]>([]);
  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[message,setMessage]=useState("");

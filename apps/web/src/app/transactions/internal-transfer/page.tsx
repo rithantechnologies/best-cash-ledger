@@ -26,10 +26,10 @@ export default function InternalTransferPage(){
  }
 
  if(loading)return <AppShell><PageLoader label="Preparing internal transfer…"/></AppShell>;
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
  return <AppShell><form onSubmit={submit}><TransactionFrame eyebrow="Own accounts" title="Internal transfer" description="Move funds between accounts you control. The transfer itself is not treated as income."
   summary={<><SummaryRow label="Transfer amount" value={money(transfer)} tone="indigo"/><SummaryRow label="Transfer charge" value={money(fee)} tone="rose"/><SummaryRow label="Total source outflow" value={money(transfer+fee)} tone="amber"/>{sourceAccount?<SummaryRow label="From" value={sourceAccount.accountName}/>:null}{destinationAccount?<SummaryRow label="To" value={destinationAccount.accountName}/>:null}</>}
-  footer={<button disabled={saving||source===destination||transfer<=0} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white disabled:opacity-40">{saving?"Saving transaction…":"Save internal transfer"}</button>}>
+  footer={<button disabled={saving||source===destination||transfer<=0} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save internal transfer"}</button>}>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <FormSection step="1" title="Move the funds" description="Choose the source, destination and amount.">
    <div className="grid gap-3 sm:grid-cols-2">

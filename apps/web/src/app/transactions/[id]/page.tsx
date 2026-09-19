@@ -65,7 +65,7 @@ export default function TransactionDetailPage(){
   </Surface>:null}
   {tx.payable?<Surface className="p-4 sm:p-5">
    <div className="mb-4 flex items-center justify-between"><div><h3 className="text-sm font-bold">Customer payable</h3><p className="text-[11px] text-slate-400">Obligation created by this transaction.</p></div><StatusBadge tone={tx.payable.status==="PAID"?"emerald":"amber"}>{tx.payable.status.replaceAll("_"," ")}</StatusBadge></div>
-   <div className="grid grid-cols-3 gap-2.5"><div><p className="text-[10px] uppercase text-slate-400">Original</p><p className="mt-1 font-bold">{money(tx.payable.originalAmount)}</p></div><div><p className="text-[10px] uppercase text-slate-400">Paid</p><p className="mt-1 font-bold text-emerald-700">{money(tx.payable.paidAmount)}</p></div><div><p className="text-[10px] uppercase text-slate-400">Remaining</p><p className="mt-1 font-bold text-amber-700">{money(tx.payable.remainingAmount)}</p></div></div>
+   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3"><div><p className="text-[10px] uppercase text-slate-400">Original</p><p className="mt-1 font-bold">{money(tx.payable.originalAmount)}</p></div><div><p className="text-[10px] uppercase text-slate-400">Paid</p><p className="mt-1 font-bold text-emerald-700">{money(tx.payable.paidAmount)}</p></div><div><p className="text-[10px] uppercase text-slate-400">Remaining</p><p className="mt-1 font-bold text-amber-700">{money(tx.payable.remainingAmount)}</p></div></div>
   </Surface>:null}
   <div className="grid gap-4 lg:grid-cols-2">
    <Surface className="overflow-hidden"><PanelHeader title="Charges & commission" description="Pricing components recorded with the transaction."/><div className="divide-y divide-slate-100 px-4 sm:px-5">

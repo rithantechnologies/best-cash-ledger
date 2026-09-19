@@ -29,7 +29,7 @@ export default function ReceivablesPage(){
  const [reason,setReason]=useState(""),[reasonCategory,setReasonCategory]=useState("OTHER"),[description,setDescription]=useState(""),[dueAt,setDueAt]=useState(""),[reference,setReference]=useState("");
  const [selected,setSelected]=useState<Receivable|null>(null),[collectAmount,setCollectAmount]=useState(""),[destination,setDestination]=useState(""),[collectReference,setCollectReference]=useState(""),[collectNotes,setCollectNotes]=useState("");
  const [cancelTarget,setCancelTarget]=useState<Receivable|null>(null),[cancelReason,setCancelReason]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false),[role,setRole]=useState(""),[loading,setLoading]=useState(true);
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
 
  async function load(targetPage=page){
   const params=new URLSearchParams({page:String(targetPage),pageSize:String(pageSize),sortBy,sortDir});
@@ -123,7 +123,7 @@ export default function ReceivablesPage(){
   </Modal>
 
   <Modal open={!!cancelTarget} title="Cancel receivable?" description="Only uncollected receivables can be cancelled. Financial history is preserved." onClose={()=>setCancelTarget(null)}
-   footer={<div className="grid grid-cols-2 gap-2"><button onClick={()=>setCancelTarget(null)} className="min-h-11 rounded-xl border border-slate-200 font-bold">Keep</button><button form="cancel-receivable" disabled={busy} className="min-h-11 rounded-xl bg-rose-700 font-bold text-white disabled:opacity-50">Confirm cancel</button></div>}>
+   footer={<div className="grid grid-cols-2 gap-2"><button onClick={()=>setCancelTarget(null)} className="app-secondary-button min-h-11 font-bold">Keep</button><button form="cancel-receivable" disabled={busy} className="min-h-11 rounded-xl bg-rose-700 font-bold text-white disabled:opacity-50">Confirm cancel</button></div>}>
    <form id="cancel-receivable" onSubmit={cancel}><Field label="Reason"><textarea className="min-h-28 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm" value={cancelReason} onChange={e=>setCancelReason(e.target.value)} minLength={3} required/></Field></form>
   </Modal>
  </PageFrame></AppShell>;

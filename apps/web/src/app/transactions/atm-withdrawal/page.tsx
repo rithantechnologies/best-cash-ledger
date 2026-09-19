@@ -25,10 +25,10 @@ export default function AtmWithdrawalPage(){
  }
 
  if(loading)return <AppShell><PageLoader label="Preparing ATM withdrawal…"/></AppShell>;
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
  return <AppShell><form onSubmit={submit}><TransactionFrame eyebrow="Cash movement" title="ATM withdrawal" description="Move bank funds into physical cash while keeping the ATM or bank charge separate."
   summary={<><SummaryRow label="Cash received" value={money(cashValue)} tone="emerald"/><SummaryRow label="ATM charge" value={money(chargeValue)} tone="rose"/><SummaryRow label="Bank outflow" value={money(cashValue+chargeValue)} tone="amber"/>{bank?<SummaryRow label="From bank" value={bank.accountName}/>:null}{cashAccount?<SummaryRow label="To cash" value={cashAccount.accountName}/>:null}</>}
-  footer={<button disabled={saving||cashValue<=0} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white disabled:opacity-40">{saving?"Saving transaction…":"Save ATM withdrawal"}</button>}>
+  footer={<button disabled={saving||cashValue<=0} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save ATM withdrawal"}</button>}>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <FormSection step="1" title="Withdrawal details" description="Choose the bank and cash accounts, then enter what was physically received.">
    <div className="grid gap-3 sm:grid-cols-2">

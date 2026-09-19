@@ -47,7 +47,7 @@ export default function TransactionsPage(){
    <select className="app-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All status</option>{["PENDING","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</select>
   </Surface>
 
-  <div className="grid grid-cols-3 gap-2.5">
+  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
    <Surface className="p-3"><p className="text-xs text-[var(--text-muted)]">Transactions</p><p className="money mt-1 text-lg font-semibold">{pagination.total}</p></Surface>
    <Surface className="p-3"><p className="text-xs text-[var(--text-muted)]">Gross</p><p className="money mt-1 truncate text-lg font-semibold">{money(totals.gross)}</p></Surface>
    <Surface className="p-3"><p className="text-xs text-[var(--text-muted)]">Net</p><p className="money mt-1 truncate text-lg font-semibold">{money(totals.net)}</p></Surface>

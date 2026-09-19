@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 export function Spinner({size="md"}:{size?:"sm"|"md"|"lg"}) {
   const sizes={sm:"h-4 w-4 border-2",md:"h-7 w-7 border-[3px]",lg:"h-10 w-10 border-4"};
-  return <span className={"inline-block animate-spin rounded-full border-slate-200 border-t-indigo-600 "+sizes[size]} aria-hidden="true"/>;
+  return <span className={"inline-block animate-spin rounded-full border-[var(--border)] border-t-[var(--accent)] "+sizes[size]} aria-hidden="true"/>;
 }
 
 export function Shimmer({className=""}:{className?:string}) {
@@ -21,18 +21,18 @@ export function PageLoader({label="Loading workspace…"}:{label?:string}) {
       <Shimmer className="hidden h-10 w-28 sm:block"/>
     </div>
     <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
-      {[0,1,2,3,4].map(i=><div key={i} className="rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm">
+      {[0,1,2,3,4].map(i=><div key={i} className="app-surface border border-[var(--border)] bg-[var(--surface)] p-4">
         <Shimmer className="h-3 w-20"/>
         <Shimmer className="mt-3 h-7 w-28 max-w-[85%]"/>
         <Shimmer className="mt-2 h-3 w-16"/>
       </div>)}
     </div>
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,.6fr)]">
-      <div className="overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-sm">
-        <div className="border-b border-slate-100 p-4"><Shimmer className="h-4 w-40"/><Shimmer className="mt-2 h-3 w-64 max-w-[70%]"/></div>
+      <div className="app-surface overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--border)] p-4"><Shimmer className="h-4 w-40"/><Shimmer className="mt-2 h-3 w-64 max-w-[70%]"/></div>
         <div className="space-y-3 p-4">{[0,1,2,3,4].map(i=><div key={i} className="grid grid-cols-[1.2fr_.8fr_.6fr] gap-3"><Shimmer className="h-10"/><Shimmer className="h-10"/><Shimmer className="h-10"/></div>)}</div>
       </div>
-      <div className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm">
+      <div className="app-surface space-y-3 border border-[var(--border)] bg-[var(--surface)] p-4">
         <Shimmer className="h-4 w-36"/>
         <Shimmer className="h-20"/>
         <Shimmer className="h-20"/>
@@ -43,16 +43,16 @@ export function PageLoader({label="Loading workspace…"}:{label?:string}) {
 }
 
 export function Surface({children,className=""}:{children:ReactNode;className?:string}) {
-  return <section className={"rounded-xl border border-[var(--border)] bg-[var(--surface)] "+className}>{children}</section>;
+  return <section className={"app-surface border border-[var(--border)] bg-[var(--surface)] "+className}>{children}</section>;
 }
 export function SectionHeading({
-  eyebrow:_eyebrow,title,description,action,
+  eyebrow,title,description,action,
 }:{eyebrow?:string;title:string;description?:string;action?:ReactNode}) {
-  void _eyebrow;
-  return <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+  return <div className="app-section-heading flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
     <div className="min-w-0">
-      <h2 className="text-xl font-bold tracking-[-.02em] text-[var(--text)] sm:text-2xl">{title}</h2>
-      {description?<p className="mt-1 hidden max-w-2xl text-sm text-[var(--text-muted)] sm:block">{description}</p>:null}
+      {eyebrow?<p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-[.18em] text-[var(--accent)]">{eyebrow}</p>:null}
+      <h2 className="text-[1.55rem] font-black leading-tight tracking-[-.035em] text-[var(--text)] sm:text-[1.8rem]">{title}</h2>
+      {description?<p className="mt-1.5 max-w-2xl text-[13px] leading-5 text-[var(--text-muted)] sm:text-sm">{description}</p>:null}
     </div>
     {action?<div className="shrink-0">{action}</div>:null}
   </div>;
@@ -66,9 +66,9 @@ export function MiniStat({
     amber:"text-amber-700",rose:"text-rose-700",cyan:"text-cyan-700",
   };
   return <div className="min-w-0">
-    <p className="truncate text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">{label}</p>
-    <p className={"mt-1 truncate text-lg font-bold tracking-tight "+tones[tone]}>{value}</p>
-    {detail?<p className="mt-0.5 truncate text-[11px] text-slate-400">{detail}</p>:null}
+    <p className="truncate text-[10px] font-extrabold uppercase tracking-[.14em] text-[var(--text-muted)]">{label}</p>
+    <p className={"money mt-1 max-w-full text-lg font-extrabold tracking-[-.025em] "+tones[tone]}>{value}</p>
+    {detail?<p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{detail}</p>:null}
   </div>;
 }
 export function CompactMetric({
@@ -78,12 +78,12 @@ export function CompactMetric({
     slate:"bg-slate-900",emerald:"bg-emerald-500",indigo:"bg-indigo-500",
     amber:"bg-amber-500",rose:"bg-rose-500",cyan:"bg-cyan-500",
   };
-  return <div className="rounded-xl bg-slate-50/90 px-3 py-2.5 ring-1 ring-inset ring-slate-100">
+  return <div className="app-metric-tile rounded-xl px-3 py-2.5">
     <div className="flex items-center justify-between gap-3">
-      <span className="truncate text-xs font-medium text-slate-500">{label}</span>
-      <strong className="shrink-0 text-sm tracking-tight text-slate-900">{value}</strong>
+      <span className="truncate text-xs font-semibold text-[var(--text-muted)]">{label}</span>
+      <strong className="money min-w-0 max-w-[62%] text-right text-sm font-extrabold tracking-tight text-[var(--text)]">{value}</strong>
     </div>
-    {bar!==undefined?<div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-200/70"><div className={"h-full rounded-full "+tones[tone]} style={{width:Math.max(2,Math.min(100,bar))+"%"}}/></div>:null}
+    {bar!==undefined?<div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--border)]"><div className={"h-full rounded-full "+tones[tone]} style={{width:Math.max(2,Math.min(100,bar))+"%"}}/></div>:null}
   </div>;
 }
 
@@ -93,12 +93,14 @@ export function StatusBadge({children,tone="slate"}:{children:ReactNode;tone?:"s
     indigo:"bg-indigo-50 text-indigo-700",amber:"bg-amber-50 text-amber-700",
     rose:"bg-rose-50 text-rose-700",cyan:"bg-cyan-50 text-cyan-700",
   };
-  return <span className={"inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold "+tones[tone]}>{children}</span>;
+  return <span className={"app-status-badge inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold "+tones[tone]}>{children}</span>;
 }
 export function EmptyState({title,description}:{title:string;description?:string}) {
-  return <div className="grid min-h-32 place-items-center rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-soft)] p-5 text-center">
-    <div><p className="text-sm font-semibold text-[var(--text)]">{title}</p>
-      {description?<p className="mt-1 text-xs text-[var(--text-muted)]">{description}</p>:null}
+  return <div className="app-empty-state grid min-h-36 place-items-center border border-dashed border-[var(--border)] p-5 text-center">
+    <div className="max-w-sm">
+      <span className="mx-auto mb-3 grid h-9 w-9 place-items-center rounded-xl bg-[var(--accent-soft)] text-sm font-black text-[var(--accent)]">·</span>
+      <p className="text-sm font-bold text-[var(--text)]">{title}</p>
+      {description?<p className="mt-1.5 text-xs leading-5 text-[var(--text-muted)]">{description}</p>:null}
     </div>
   </div>;
 }
@@ -107,26 +109,26 @@ export function Modal({
   open,title,description,onClose,children,footer,
 }:{open:boolean;title:string;description?:string;onClose:()=>void;children:ReactNode;footer?:ReactNode}) {
   if(!open)return null;
-  return <div className="fixed inset-0 z-[80] grid place-items-end bg-slate-950/35 p-0 backdrop-blur-[2px] sm:place-items-center sm:p-5">
+  return <div className="fixed inset-0 z-[80] grid place-items-end bg-slate-950/45 p-0 backdrop-blur-[4px] sm:place-items-center sm:p-5">
     <button className="absolute inset-0" onClick={onClose} aria-label="Close dialog"/>
-    <div className="relative max-h-[92vh] w-full overflow-hidden rounded-t-2xl bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-2xl">
-      <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
-        <div><h3 className="text-lg font-bold tracking-tight">{title}</h3>{description?<p className="mt-1 text-xs text-slate-500">{description}</p>:null}</div>
-        <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-lg text-slate-500">×</button>
+    <div className="app-modal-panel relative max-h-[92vh] w-full overflow-hidden bg-[var(--surface)] shadow-2xl sm:max-w-2xl">
+      <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6 sm:py-5">
+        <div className="min-w-0"><h3 className="text-lg font-black tracking-[-.02em]">{title}</h3>{description?<p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{description}</p>:null}</div>
+        <button type="button" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-lg text-[var(--text-muted)]">×</button>
       </div>
       <div className="max-h-[65vh] overflow-y-auto p-5 sm:p-6">{children}</div>
-      {footer?<div className="border-t border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">{footer}</div>:null}
+      {footer?<div className="border-t border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4 sm:px-6">{footer}</div>:null}
     </div>
   </div>;
 }
 
 export function FormSection({
-  step:_step,title,description:_description,children,
+  step,title,description,children,
 }:{step?:string;title:string;description?:string;children:ReactNode}) {
-  void _step; void _description;
-  return <Surface className="overflow-hidden">
-    <div className="border-b border-[var(--border)] px-4 py-3 sm:px-5">
-      <h3 className="text-sm font-semibold text-[var(--text)]">{title}</h3>
+  return <Surface className="app-form-section overflow-hidden">
+    <div className="flex items-start gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+      {step?<span className="grid h-7 min-w-7 place-items-center rounded-lg bg-[var(--accent-soft)] px-1.5 text-[10px] font-extrabold text-[var(--accent)]">{step}</span>:null}
+      <div className="min-w-0"><h3 className="text-sm font-bold text-[var(--text)]">{title}</h3>{description?<p className="mt-0.5 text-[11px] leading-4 text-[var(--text-muted)]">{description}</p>:null}</div>
     </div>
     <div className="p-4 sm:p-5">{children}</div>
   </Surface>;
@@ -138,25 +140,24 @@ export function Field({
   return <label className={"block min-w-0 "+className}>
     <span className="mb-1.5 block text-sm font-semibold leading-5 text-[var(--text)]">{label}</span>
     {children}
-    {hint?<span className="mt-1.5 block text-[11px] leading-4 text-slate-400">{hint}</span>:null}
+    {hint?<span className="mt-1.5 block text-[11px] leading-4 text-[var(--text-muted)]">{hint}</span>:null}
   </label>;
 }
 
 export function SummaryRow({label,value,tone="slate"}:{label:string;value:ReactNode;tone?:"slate"|"emerald"|"indigo"|"amber"|"rose"|"cyan"}) {
-  const tones={slate:"text-slate-950",emerald:"text-emerald-700",indigo:"text-indigo-700",amber:"text-amber-700",rose:"text-rose-700",cyan:"text-cyan-700"};
-  return <div className="flex items-center justify-between gap-4 py-2.5"><span className="text-xs text-slate-500">{label}</span><strong className={"text-sm "+tones[tone]}>{value}</strong></div>;
+  const tones={slate:"text-[var(--text)]",emerald:"text-emerald-700",indigo:"text-indigo-700",amber:"text-amber-700",rose:"text-rose-700",cyan:"text-cyan-700"};
+  return <div className="flex items-center justify-between gap-4 py-3"><span className="text-xs font-medium text-[var(--text-muted)]">{label}</span><strong className={"money min-w-0 max-w-[60%] text-right text-sm font-extrabold "+tones[tone]}>{value}</strong></div>;
 }
 export function TransactionFrame({
-  eyebrow:_eyebrow,title,description:_description,children,summary,footer,
+  eyebrow,title,description,children,summary,footer,
 }:{eyebrow:string;title:string;description:string;children:ReactNode;summary:ReactNode;footer?:ReactNode}) {
-  void _eyebrow; void _description;
-  return <div className="page-enter mx-auto max-w-6xl space-y-4">
-    <SectionHeading title={title}/>
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+  return <div className="page-enter mx-auto max-w-6xl space-y-5">
+    <SectionHeading eyebrow={eyebrow} title={title} description={description}/>
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-3">{children}</div>
       <div className="space-y-3 lg:sticky lg:top-20">
-        <Surface className="overflow-hidden">
-          <div className="border-b border-[var(--border)] px-4 py-3"><h3 className="text-sm font-semibold">Summary</h3></div>
+        <Surface className="app-summary-card overflow-hidden">
+          <div className="border-b border-[var(--border)] px-4 py-3.5"><p className="text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--accent)]">Live calculation</p><h3 className="mt-0.5 text-sm font-bold">Summary</h3></div>
           <div className="divide-y divide-[var(--border)] px-4">{summary}</div>
         </Surface>
         {footer}
@@ -169,7 +170,7 @@ export function TransactionFrame({
 export function PageFrame({
   children,className="",width="max-w-7xl",
 }:{children:ReactNode;className?:string;width?:string}) {
-  return <div className={"page-enter mx-auto "+width+" space-y-5 "+className}>{children}</div>;
+  return <div className={"app-page-frame page-enter mx-auto "+width+" space-y-5 "+className}>{children}</div>;
 }
 
 export function Notice({
@@ -182,11 +183,11 @@ export function Notice({
     rose:"border-rose-200 bg-rose-50 text-rose-700",
     indigo:"border-indigo-200 bg-indigo-50 text-indigo-700",
   };
-  return <div className={"rounded-2xl border px-4 py-3 text-sm font-medium "+tones[tone]}>{children}</div>;
+  return <div className={"app-notice rounded-2xl border px-4 py-3 text-sm font-semibold leading-5 "+tones[tone]}>{children}</div>;
 }
 
 export function Toolbar({children}:{children:ReactNode}) {
-  return <Surface className="p-3 sm:p-4"><div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">{children}</div></Surface>;
+  return <Surface className="app-toolbar p-3 sm:p-4"><div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">{children}</div></Surface>;
 }
 
 
@@ -194,10 +195,10 @@ export function SegmentedTabs<T extends string>({
   value,onChange,items,
 }:{value:T;onChange:(value:T)=>void;items:{value:T;label:string;count?:number}[]}) {
   return <div className="w-full overflow-x-auto pb-1">
-    <div className="inline-flex min-w-max rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+    <div className="app-segmented-tabs inline-flex min-w-max rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-1">
       {items.map(item=><button key={item.value} type="button" onClick={()=>onChange(item.value)}
-        className={"min-h-10 rounded-xl px-3.5 text-xs font-bold transition "+(value===item.value?"bg-slate-950 text-white shadow-sm":"text-slate-500 hover:bg-slate-50 hover:text-slate-900")}>
-        {item.label}{item.count!==undefined?<span className={"ml-2 rounded-full px-1.5 py-0.5 text-[10px] "+(value===item.value?"bg-white/15":"bg-slate-100")}>{item.count}</span>:null}
+        className={"min-h-10 rounded-xl px-3.5 text-xs font-bold "+(value===item.value?"bg-[var(--accent)] text-white shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}>
+        {item.label}{item.count!==undefined?<span className={"ml-2 rounded-full px-1.5 py-0.5 text-[10px] "+(value===item.value?"bg-white/15":"bg-[var(--surface-soft)]")}>{item.count}</span>:null}
       </button>)}
     </div>
   </div>;
@@ -207,10 +208,10 @@ export function Pager({
   total,page,totalPages,label="item",onPrevious,onNext,
 }:{total:number;page:number;totalPages:number;label?:string;onPrevious:()=>void;onNext:()=>void}) {
   return <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    <p className="text-xs text-slate-500">{total} {label}{total===1?"":"s"} · Page {page} of {Math.max(1,totalPages)}</p>
+    <p className="text-xs font-medium text-[var(--text-muted)]">{total} {label}{total===1?"":"s"} · Page {page} of {Math.max(1,totalPages)}</p>
     <div className="grid grid-cols-2 gap-2">
-      <button type="button" disabled={page<=1} onClick={onPrevious} className="min-h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 disabled:opacity-40">Previous</button>
-      <button type="button" disabled={page>=totalPages} onClick={onNext} className="min-h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 disabled:opacity-40">Next</button>
+      <button type="button" disabled={page<=1} onClick={onPrevious} className="app-secondary-button min-h-10 px-4 text-xs font-bold disabled:opacity-40">Previous</button>
+      <button type="button" disabled={page>=totalPages} onClick={onNext} className="app-secondary-button min-h-10 px-4 text-xs font-bold disabled:opacity-40">Next</button>
     </div>
   </div>;
 }
@@ -220,18 +221,18 @@ export function DetailStat({
   label,value,tone="slate",detail,
 }:{label:string;value:ReactNode;detail?:ReactNode;tone?:"slate"|"emerald"|"indigo"|"amber"|"rose"|"cyan"}) {
   const tones={slate:"text-slate-950",emerald:"text-emerald-700",indigo:"text-indigo-700",amber:"text-amber-700",rose:"text-rose-700",cyan:"text-cyan-700"};
-  return <Surface className="p-3.5 sm:p-4">
-    <p className="text-xs font-medium text-[var(--text-muted)]">{label}</p>
-    <p className={"money mt-1.5 truncate text-lg font-semibold sm:text-xl "+tones[tone]}>{value}</p>
-    {detail?<p className="mt-1 text-[11px] text-[var(--text-muted)]">{detail}</p>:null}
+  return <Surface className="app-stat-card min-w-0 p-3.5 sm:p-4">
+    <p className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">{label}</p>
+    <p className={"money mt-1.5 max-w-full text-[clamp(1rem,4.4vw,1.25rem)] font-extrabold tracking-[-.03em] sm:text-xl "+tones[tone]}>{value}</p>
+    {detail?<p className="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">{detail}</p>:null}
   </Surface>;
 }
 
 export function PanelHeader({
   title,description,action,
 }:{title:string;description?:string;action?:ReactNode}) {
-  return <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5">
-    <div><h3 className="text-sm font-semibold">{title}</h3>{description?<p className="mt-0.5 hidden text-[11px] text-[var(--text-muted)] sm:block">{description}</p>:null}</div>
+  return <div className="app-panel-header flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+    <div className="min-w-0"><h3 className="text-sm font-bold tracking-[-.01em]">{title}</h3>{description?<p className="mt-0.5 text-[11px] leading-4 text-[var(--text-muted)]">{description}</p>:null}</div>
     {action?<div className="shrink-0">{action}</div>:null}
   </div>;
 }

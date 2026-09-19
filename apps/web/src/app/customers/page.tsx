@@ -21,7 +21,7 @@ export default function CustomersPage(){
  const [addingCard,setAddingCard]=useState(false),[cardCustomerId,setCardCustomerId]=useState(""),[cardBank,setCardBank]=useState(""),[cardType,setCardType]=useState("CREDIT"),[cardLast4,setCardLast4]=useState(""),[cardNickname,setCardNickname]=useState("");
  const [editing,setEditing]=useState<Customer|null>(null),[editName,setEditName]=useState(""),[editMobile,setEditMobile]=useState(""),[editType,setEditType]=useState("REGULAR"),[editNotes,setEditNotes]=useState("");
  const [toggleTarget,setToggleTarget]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
  const admin=role==="OWNER"||role==="ADMIN";
  function load(page=pagination.page){
   const params=new URLSearchParams({page:String(page),pageSize:String(pagination.pageSize),sortBy,sortDir,includeInactive:admin?"true":"false"});
@@ -60,11 +60,11 @@ export default function CustomersPage(){
 
  return <AppShell><PageFrame>
   <SectionHeading eyebrow="Customer directory" title="Customers" description="Profiles, saved cards and recipient details for repeat counter work."
-   action={<div className="flex gap-2"><button onClick={()=>setAddingCard(true)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">+ Saved card</button>{admin?<button onClick={()=>setCreating(true)} className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white">+ Customer</button>:null}</div>}/>
+   action={<div className="flex gap-2"><button onClick={()=>setAddingCard(true)} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>setCreating(true)} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
-  <div className="grid grid-cols-3 gap-2.5">
+  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
    <DetailStat label="Customers" value={pagination.total}/>
    <DetailStat label="Active on page" value={activeCount} tone="emerald"/>
    <DetailStat label="Saved cards on page" value={cardCount} tone="indigo"/>
@@ -90,7 +90,7 @@ export default function CustomersPage(){
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="customer" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
   </>}
   <Modal open={creating} title="Add customer" description="Create a reusable customer profile for faster counter work." onClose={()=>setCreating(false)}
-   footer={<button form="create-customer" disabled={busy} className="min-h-11 w-full rounded-xl bg-slate-950 text-sm font-bold text-white disabled:opacity-50">{busy?"Creating…":"Create customer"}</button>}>
+   footer={<button form="create-customer" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Creating…":"Create customer"}</button>}>
    <form id="create-customer" onSubmit={submit} className="grid gap-3 sm:grid-cols-2"><Field label="Customer name"><input className={control} value={fullName} onChange={e=>setFullName(e.target.value)} required/></Field><Field label="Mobile"><input className={control} inputMode="tel" value={mobile} onChange={e=>setMobile(e.target.value)} placeholder="Optional"/></Field><Field label="Customer type" className="sm:col-span-2"><select className={control} value={customerType} onChange={e=>setCustomerType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></select></Field></form>
   </Modal>
 
@@ -105,12 +105,12 @@ export default function CustomersPage(){
    </form>
   </Modal>
   <Modal open={!!editing} title="Edit customer" description={editing?.customerCode} onClose={()=>setEditing(null)}
-   footer={<button form="edit-customer" disabled={busy} className="min-h-11 w-full rounded-xl bg-slate-950 text-sm font-bold text-white disabled:opacity-50">{busy?"Saving…":"Save changes"}</button>}>
+   footer={<button form="edit-customer" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Save changes"}</button>}>
    <form id="edit-customer" onSubmit={saveEdit} className="grid gap-3 sm:grid-cols-2"><Field label="Name"><input className={control} value={editName} onChange={e=>setEditName(e.target.value)} required/></Field><Field label="Mobile"><input className={control} value={editMobile} onChange={e=>setEditMobile(e.target.value)}/></Field><Field label="Type"><select className={control} value={editType} onChange={e=>setEditType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></select></Field><Field label="Notes"><input className={control} value={editNotes} onChange={e=>setEditNotes(e.target.value)}/></Field></form>
   </Modal>
 
   <Modal open={!!toggleTarget} title={toggleTarget?.isActive?"Retire customer?":"Reactivate customer?"} description="Historical transactions and ledgers are preserved." onClose={()=>setToggleTarget(null)}
-   footer={<div className="grid grid-cols-2 gap-2"><button onClick={()=>setToggleTarget(null)} className="min-h-11 rounded-xl border border-slate-200 font-bold">Cancel</button><button onClick={confirmToggle} disabled={busy} className="min-h-11 rounded-xl bg-slate-950 font-bold text-white disabled:opacity-50">{toggleTarget?.isActive?"Retire":"Reactivate"}</button></div>}>
+   footer={<div className="grid grid-cols-2 gap-2"><button onClick={()=>setToggleTarget(null)} className="app-secondary-button min-h-11 font-bold">Cancel</button><button onClick={confirmToggle} disabled={busy} className="min-h-11 rounded-xl bg-slate-950 font-bold text-white disabled:opacity-50">{toggleTarget?.isActive?"Retire":"Reactivate"}</button></div>}>
    <p className="text-sm leading-6 text-slate-600">{toggleTarget?.isActive?"Retire":"Reactivate"} <strong>{toggleTarget?.fullName}</strong>?</p>
   </Modal>
  </PageFrame></AppShell>;

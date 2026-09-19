@@ -13,7 +13,7 @@ export default function UsersPage(){
  const [editing,setEditing]=useState<User|null>(null),[editName,setEditName]=useState(""),[editEmail,setEditEmail]=useState(""),[editMobile,setEditMobile]=useState(""),[editRole,setEditRole]=useState("STAFF");
  const [passwordUser,setPasswordUser]=useState<User|null>(null),[newPassword,setNewPassword]=useState("");
  const [toggleTarget,setToggleTarget]=useState<User|null>(null),[message,setMessage]=useState(""),[error,setError]=useState("");
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
 
  const load=()=>apiFetch<User[]>("/users").then(setItems);
  useEffect(()=>{load().catch(()=>setError("You need Owner/Admin access to manage users.")).finally(()=>setLoading(false));},[]);
@@ -44,11 +44,11 @@ export default function UsersPage(){
 
  return <AppShell><PageFrame>
   <SectionHeading eyebrow="Access control" title="Users & staff" description="Keep operator access simple, intentional and easy to audit."
-   action={<button onClick={()=>setCreating(true)} className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white">+ Add user</button>}/>
+   action={<button onClick={()=>setCreating(true)} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Add user</button>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
-  <div className="grid grid-cols-3 gap-2.5">
+  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
    <DetailStat label="Users" value={items.length}/>
    <DetailStat label="Active" value={active} tone="emerald"/>
    <DetailStat label="Admins / owners" value={admins} tone="indigo"/>
@@ -60,17 +60,17 @@ export default function UsersPage(){
   </Surface>)}</div>
 
   <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[950px] text-sm"><thead className="bg-slate-50/80 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Name</th><th>Email</th><th>Mobile</th><th>Role</th><th>Status</th><th>Last login</th><th>Created</th><th className="pr-5">Actions</th></tr></thead><tbody>{items.map(u=><tr key={u.id} className={"border-t border-slate-100 hover:bg-slate-50/60 "+(!u.isActive?"opacity-60":"")}><td className="px-5 py-3 font-semibold">{u.fullName}</td><td>{u.email??"—"}</td><td>{u.mobile??"—"}</td><td className="font-bold text-indigo-700">{u.role.name}</td><td><StatusBadge tone={u.isActive?"emerald":"slate"}>{u.isActive?"Active":"Disabled"}</StatusBadge></td><td className="text-xs">{u.lastLoginAt?new Date(u.lastLoginAt).toLocaleString("en-IN"):"—"}</td><td className="text-xs">{new Date(u.createdAt).toLocaleDateString("en-IN")}</td><td className="pr-5"><div className="flex gap-2"><button onClick={()=>beginEdit(u)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold">Edit</button><button onClick={()=>{setPasswordUser(u);setNewPassword("");}} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold">Password</button><button onClick={()=>setToggleTarget(u)} className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-500">{u.isActive?"Disable":"Reactivate"}</button></div></td></tr>)}</tbody></table></div></Surface></>:<EmptyState title="No staff users found"/>}
-  <Modal open={creating} title="Create staff user" description="Give the operator only the access level they need." onClose={()=>setCreating(false)} footer={<button form="create-user" disabled={busy} className="min-h-11 w-full rounded-xl bg-slate-950 text-sm font-bold text-white disabled:opacity-50">{busy?"Creating…":"Create user"}</button>}>
+  <Modal open={creating} title="Create staff user" description="Give the operator only the access level they need." onClose={()=>setCreating(false)} footer={<button form="create-user" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Creating…":"Create user"}</button>}>
    <form id="create-user" onSubmit={submit} className="grid gap-3 sm:grid-cols-2"><Field label="Full name"><input className={control} value={fullName} onChange={e=>setFullName(e.target.value)} required/></Field><Field label="Mobile"><input className={control} value={mobile} onChange={e=>setMobile(e.target.value)}/></Field><Field label="Email"><input className={control} type="email" value={email} onChange={e=>setEmail(e.target.value)}/></Field><Field label="Role"><select className={control} value={role} onChange={e=>setRole(e.target.value)}><option value="STAFF">Staff / Operator</option><option value="ADMIN">Admin</option></select></Field><Field label="Temporary password" className="sm:col-span-2"><input className={control} type="password" minLength={8} value={password} onChange={e=>setPassword(e.target.value)} required/></Field></form>
   </Modal>
 
-  <Modal open={!!editing} title="Edit user" description={editing?.fullName} onClose={()=>setEditing(null)} footer={<button form="edit-user" disabled={busy} className="min-h-11 w-full rounded-xl bg-slate-950 font-bold text-white">Save changes</button>}>
+  <Modal open={!!editing} title="Edit user" description={editing?.fullName} onClose={()=>setEditing(null)} footer={<button form="edit-user" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">Save changes</button>}>
    <form id="edit-user" onSubmit={saveEdit} className="grid gap-3 sm:grid-cols-2"><Field label="Name"><input className={control} value={editName} onChange={e=>setEditName(e.target.value)} required/></Field><Field label="Email"><input className={control} type="email" value={editEmail} onChange={e=>setEditEmail(e.target.value)}/></Field><Field label="Mobile"><input className={control} value={editMobile} onChange={e=>setEditMobile(e.target.value)}/></Field><Field label="Role"><select className={control} value={editRole} onChange={e=>setEditRole(e.target.value)}><option value="OWNER">Owner</option><option value="ADMIN">Admin</option><option value="STAFF">Staff</option></select></Field></form>
   </Modal>
   <Modal open={!!passwordUser} title="Reset password" description={passwordUser?.fullName} onClose={()=>setPasswordUser(null)} footer={<button form="reset-password" disabled={busy} className="min-h-11 w-full rounded-xl bg-amber-600 font-bold text-white">Reset password</button>}>
    <form id="reset-password" onSubmit={resetPassword}><Field label="New temporary password" hint="Use at least 8 characters."><input className={control} type="password" minLength={8} value={newPassword} onChange={e=>setNewPassword(e.target.value)} required/></Field></form>
   </Modal>
 
-  <Modal open={!!toggleTarget} title={toggleTarget?.isActive?"Disable user?":"Reactivate user?"} description="The user record and audit history remain available." onClose={()=>setToggleTarget(null)} footer={<div className="grid grid-cols-2 gap-2"><button onClick={()=>setToggleTarget(null)} className="min-h-11 rounded-xl border border-slate-200 font-bold">Cancel</button><button onClick={toggleUser} disabled={busy} className="min-h-11 rounded-xl bg-slate-950 font-bold text-white">{toggleTarget?.isActive?"Disable":"Reactivate"}</button></div>}><p className="text-sm text-slate-600">Change access for <strong>{toggleTarget?.fullName}</strong>?</p></Modal>
+  <Modal open={!!toggleTarget} title={toggleTarget?.isActive?"Disable user?":"Reactivate user?"} description="The user record and audit history remain available." onClose={()=>setToggleTarget(null)} footer={<div className="grid grid-cols-2 gap-2"><button onClick={()=>setToggleTarget(null)} className="app-secondary-button min-h-11 font-bold">Cancel</button><button onClick={toggleUser} disabled={busy} className="min-h-11 rounded-xl bg-slate-950 font-bold text-white">{toggleTarget?.isActive?"Disable":"Reactivate"}</button></div>}><p className="text-sm text-slate-600">Change access for <strong>{toggleTarget?.fullName}</strong>?</p></Modal>
  </PageFrame></AppShell>;
 }

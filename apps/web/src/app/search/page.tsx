@@ -43,7 +43,7 @@ export default function SearchPage(){
   <SectionHeading title="Search" description={q?total+" result(s) for “"+q+"”":"Search by customer name, mobile number or card last 4 digits."}/>
   <Surface className="p-3 sm:p-4"><form onSubmit={submit} className="flex gap-2">
    <input autoFocus inputMode="search" className="min-h-12 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-50" value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Name, mobile, card last 4, transaction…"/>
-   <button className="min-h-12 rounded-xl bg-slate-950 px-5 text-sm font-bold text-white">Search</button>
+   <button className="app-primary-button min-h-12 px-5 text-sm font-bold">Search</button>
   </form></Surface>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {!data?<PageLoader label="Searching Cash Ledger…"/>:!q?<EmptyState title="Find a customer quickly" description="Type a name, mobile number or the last 4 digits of a saved card."/>:

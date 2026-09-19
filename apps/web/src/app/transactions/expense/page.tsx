@@ -27,10 +27,10 @@ export default function ExpensePage(){
  }
 
  if(loading)return <AppShell><PageLoader label="Preparing expense entry…"/></AppShell>;
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
  return <AppShell><form onSubmit={submit}><TransactionFrame eyebrow="Spending" title="Expense" description="Record business and personal spending cleanly, even when the same account is used for both."
   summary={<><SummaryRow label="Expense amount" value={money(value)} tone="rose"/><SummaryRow label="Usage" value={expenseType==="BUSINESS"?"Business":"Personal"}/>{category?<SummaryRow label="Category" value={category.name}/>:null}{account?<SummaryRow label="Paid from" value={account.accountName}/>:null}</>}
-  footer={<button disabled={saving||value<=0} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white disabled:opacity-40">{saving?"Saving transaction…":"Save expense"}</button>}>
+  footer={<button disabled={saving||value<=0} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save expense"}</button>}>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <FormSection step="1" title="Expense details" description="Choose the usage, category and source account.">
    <div className="grid gap-3 sm:grid-cols-2">

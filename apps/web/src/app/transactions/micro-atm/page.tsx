@@ -92,7 +92,7 @@ export default function MicroAtmPage(){
  }
 
  if(loading)return <AppShell><PageLoader label="Preparing Micro ATM withdrawal…"/></AppShell>;
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
  return <AppShell><form onSubmit={submit}>
   <TransactionFrame eyebrow="Customer service" title="Micro ATM withdrawal" description="Customer card withdrawal: pay cash now, then track the provider principal plus provider commission until settlement."
    summary={<>
@@ -102,7 +102,7 @@ export default function MicroAtmPage(){
     <SummaryRow label="Provider commission" value={money(providerCommission)} tone="emerald"/>
     <SummaryRow label={settledNow?"Settlement received":"Provider clearing"} value={money(settlement)} tone="cyan"/>
    </>}
-   footer={<button disabled={saving||cardLastFour.length!==4||withdrawal<=0||!providerId||!cashAccountId||!settlementAccountId||(cashAccount&&cashAccount.currentBalance+0.001<withdrawal)} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white shadow-sm disabled:opacity-40">{saving?"Saving transaction…":"Save Micro ATM withdrawal"}</button>}>
+   footer={<button disabled={saving||cardLastFour.length!==4||withdrawal<=0||!providerId||!cashAccountId||!settlementAccountId||(cashAccount&&cashAccount.currentBalance+0.001<withdrawal)} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save Micro ATM withdrawal"}</button>}>
 
    {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 

@@ -41,7 +41,7 @@ export default function PayableDetailPage(){
    <StatusBadge tone={statusTone(item.status) as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{item.status.replaceAll("_"," ")}</StatusBadge>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
-  <div className="grid grid-cols-3 gap-2.5">
+  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
    <DetailStat label="Original" value={money(item.originalAmount)}/>
    <DetailStat label="Paid" value={money(item.paidAmount)} tone="emerald"/>
    <DetailStat label="Remaining" value={money(item.remainingAmount)} tone="amber"/>

@@ -36,7 +36,7 @@ export default function AuditPage(){
   <SectionHeading eyebrow="Governance" title="Audit trail" description="Every sensitive operational and administrative change, searchable in one place."/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
-  <div className="grid grid-cols-3 gap-2.5">
+  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
    <Surface className="p-3.5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Records</p><p className="mt-1 text-xl font-black">{items.length}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Today</p><p className="mt-1 text-xl font-black text-indigo-700">{todayCount}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Operators</p><p className="mt-1 text-xl font-black">{operators}</p></Surface>

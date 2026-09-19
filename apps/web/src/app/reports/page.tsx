@@ -27,7 +27,7 @@ export default function ReportsPage(){
  const [settlements,setSettlements]=useState<Settlement[]>([]),[eod,setEod]=useState<Eod[]>([]);
  const [from,setFrom]=useState(""),[to,setTo]=useState(""),[type,setType]=useState(""),[customerId,setCustomerId]=useState(""),[accountId,setAccountId]=useState(""),[providerId,setProviderId]=useState(""),[gatewayId,setGatewayId]=useState(""),[staffId,setStaffId]=useState(""),[reference,setReference]=useState("");
  const [ledger,setLedger]=useState<AccountLedger|null>(null),[customerLedger,setCustomerLedger]=useState<CustomerLedger|null>(null),[error,setError]=useState(""),[loading,setLoading]=useState(true),[filtering,setFiltering]=useState(false);
- const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+ const control="app-control";
 
  const loadTransactions=()=>{
   const q=new URLSearchParams();
@@ -128,7 +128,7 @@ export default function ReportsPage(){
    </div></Surface>:null}
   </>:null}
   {tab==="settlements"?<>
-   <div className="grid grid-cols-3 gap-2.5">
+   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
     <DetailStat label="Expected" value={money(settlementTotals.expected)}/>
     <DetailStat label="Received" value={money(settlementTotals.received)} tone="emerald"/>
     <DetailStat label="Still clearing" value={money(settlementTotals.remaining)} tone="amber"/>

@@ -94,7 +94,7 @@ export default function CashTransferPage(){
   }
 
   if(loading)return <AppShell><PageLoader label="Preparing cash transfer…"/></AppShell>;
-  const control="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm";
+  const control="app-control";
   return <AppShell><form onSubmit={submit}>
     <TransactionFrame eyebrow="Customer service" title="Cash transfer" description="Receive cash, send money from the selected account, and keep commission and transfer charges visible."
       summary={<>
@@ -104,7 +104,7 @@ export default function CashTransferPage(){
         <SummaryRow label="Transfer charge" value={money(charge)} tone="rose"/>
         <SummaryRow label="Source outflow" value={money(sourceOutflow)} tone="amber"/>
       </>}
-      footer={<button disabled={saving||transferAmount<=0} className="min-h-12 w-full rounded-xl bg-slate-950 px-5 text-sm font-bold text-white shadow-sm disabled:opacity-40">{saving?"Saving transaction…":"Save cash transfer"}</button>}>
+      footer={<button disabled={saving||transferAmount<=0} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save cash transfer"}</button>}>
 
       {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
