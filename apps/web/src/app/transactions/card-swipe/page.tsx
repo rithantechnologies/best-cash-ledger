@@ -158,9 +158,11 @@ function ReceiptSummary({
 }:{
   customerName:string;swipe:number;providerCharge:number;commission:number;payable:number;paid:number;remaining:number;showPaid:boolean;ready:boolean;
 }){
+  const totalText=ready?money(payable):"—";
+  const totalSize=totalText.length>13?"result-total-compact":totalText.length>10?"result-total-medium":"";
   return <div className="swipe-result-card rounded-2xl border border-[var(--border)] p-4 sm:p-5">
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
-      <div className="min-w-0"><p className="text-[13px] font-semibold text-[var(--text-muted)]">{customerName?customerName+" gets":"Customer gets"}</p><p className="money result-total mt-1 font-black leading-none tracking-[-.045em]">{ready?money(payable):"—"}</p></div>
+      <div className="min-w-0"><p className="text-[13px] font-semibold text-[var(--text-muted)]">{customerName?customerName+" gets":"Customer gets"}</p><p className={"money result-total mt-1 font-black leading-none tracking-[-.045em] "+totalSize}>{totalText}</p></div>
       <div className="max-w-[120px] rounded-xl bg-[color-mix(in_srgb,var(--money-in)_9%,transparent)] px-3 py-2 text-right"><p className="text-[10px] font-semibold text-[var(--text-muted)]">You earn</p><p className="money result-earn mt-0.5 font-extrabold text-[var(--money-in)]">{money(commission)}</p></div>
     </div>
     <div className="mt-4 grid grid-cols-3 gap-2 border-t border-[var(--border)] pt-3">
@@ -676,10 +678,10 @@ export default function CardSwipePage(){
                 <div className="flex flex-wrap items-center gap-2"><p className="truncate text-sm font-extrabold">{providerWallet.accountName}</p>{settledNow?<span className="status-chip status-chip-green">Credited</span>:<span className="status-chip status-chip-amber">Pending</span>}</div>
                 <p className="mt-1 text-xs font-medium text-[var(--text-muted)]">Wallet credit <strong className="money whitespace-nowrap text-[var(--text)]">{money(settlement)}</strong></p>
               </div>
-              <div className={"wallet-metrics mt-3 grid gap-2 "+(providerWalletPayout>0?"grid-cols-3":"grid-cols-2")}>
+              <div className="wallet-metrics mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <div className="wallet-balance-cell"><p className="metric-label">Now</p><p className="wallet-money money">{money(providerWallet.currentBalance)}</p></div>
                 <div className="wallet-balance-cell"><p className="metric-label">After credit</p><p className="wallet-money money">{money(providerWalletAfterCredit)}</p></div>
-                {providerWalletPayout>0?<div className="wallet-balance-cell"><p className="metric-label">After payout</p><p className="wallet-money money text-[var(--money-in)]">{money(providerWalletAfterPayout)}</p></div>:null}
+                {providerWalletPayout>0?<div className="wallet-balance-cell wallet-balance-cell-payout col-span-2 sm:col-span-1"><p className="metric-label">After payout</p><p className="wallet-money money text-[var(--money-in)]">{money(providerWalletAfterPayout)}</p></div>:null}
               </div>
               <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-[var(--surface-soft)] p-1"><button type="button" onClick={()=>setSettledNow(true)} className={"min-h-9 rounded-md text-[13px] font-bold "+(settledNow?"bg-[var(--surface)] text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Credited</button><button type="button" onClick={()=>setSettledNow(false)} className={"min-h-9 rounded-md text-[13px] font-bold "+(!settledNow?"bg-[var(--surface)] text-amber-700 shadow-sm":"text-[var(--text-muted)]")}>Not yet</button></div>
             </div>:providerId?<div className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Wallet unavailable</div>:null}

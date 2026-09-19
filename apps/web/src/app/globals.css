@@ -270,11 +270,15 @@ html[data-theme="dark"] .swipe-commerce-page {
 .wallet-money {
   display: block;
   max-width: 100%;
-  font-size: clamp(.68rem, 2.85vw, .95rem);
+  font-size: clamp(.78rem, 3.25vw, 1rem);
   line-height: 1.15rem;
   font-weight: 800;
   letter-spacing: -.025em;
   white-space: nowrap;
+}
+.wallet-balance-cell-payout {
+  border-color: color-mix(in srgb, var(--money-in) 18%, var(--border));
+  background: color-mix(in srgb, var(--money-in) 5%, var(--surface));
 }
 .sticky-money {
   font-size: clamp(1.35rem, 6.1vw, 1.75rem);
@@ -286,23 +290,24 @@ html[data-theme="dark"] .swipe-commerce-page {
 }
 .result-total {
   max-width: 100%;
-  overflow: hidden;
   font-size: clamp(1.75rem, 7.8vw, 2.5rem);
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.result-total-medium {
+  font-size: clamp(1.55rem, 6.8vw, 2.15rem);
+}
+.result-total-compact {
+  font-size: clamp(1.35rem, 5.8vw, 1.85rem);
 }
 .result-earn {
   max-width: 100%;
-  overflow: hidden;
-  font-size: clamp(.95rem, 4.5vw, 1.25rem);
-  text-overflow: ellipsis;
+  font-size: clamp(.9rem, 4.1vw, 1.2rem);
   white-space: nowrap;
 }
 .result-metric {
   max-width: 100%;
-  overflow: hidden;
-  font-size: clamp(.72rem, 3.4vw, 1rem);
-  text-overflow: ellipsis;
+  font-size: clamp(.64rem, 3vw, .95rem);
+  letter-spacing: -.02em;
   white-space: nowrap;
 }
 .commission-rate-input {
