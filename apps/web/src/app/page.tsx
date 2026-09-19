@@ -68,18 +68,38 @@ function MoneyMix({summary}:{summary:Summary}){
 
 function TodayPulse({today}:{today:Today}){
  const rows=[
-  ["Cash",today.cashIn,today.cashOut],["Bank",today.bankIn,today.bankOut],["UPI",today.upiIn,today.upiOut],["Wallet",today.walletIn,today.walletOut],["Customers",today.customerReceipt,today.customerPayout],["Fees",today.commission,today.providerCharges],
+  ["Cash",today.cashIn,today.cashOut],["Bank",today.bankIn,today.bankOut],["UPI",today.upiIn,today.upiOut],["Wallet",today.walletIn,today.walletOut],
  ] as [string,number,number][];
+ const inflow=rows.reduce((sum,row)=>sum+row[1],0);
+ const outflow=rows.reduce((sum,row)=>sum+row[2],0);
  const max=Math.max(1,...rows.flatMap(r=>[Math.abs(r[1]),Math.abs(r[2])]));
- return <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
-  <div>
-   <div className="grid grid-cols-[minmax(68px,1fr)_minmax(72px,.8fr)_minmax(72px,.8fr)] gap-2 border-b border-[var(--border)] pb-2 text-[11px] font-semibold text-[var(--text-muted)]"><span>Channel</span><span className="text-right text-[var(--money-in)]">In</span><span className="text-right text-[var(--money-out)]">Out</span></div>
-   <div className="divide-y divide-[var(--border)]">{rows.map(([label,inc,out])=><div key={label} className="grid grid-cols-[minmax(68px,1fr)_minmax(72px,.8fr)_minmax(72px,.8fr)] items-center gap-2 py-2.5"><div className="min-w-0"><p className="truncate text-xs font-semibold">{label}</p><div className="mt-1 flex h-1 overflow-hidden rounded-full bg-[var(--surface-soft)]"><span className="bg-emerald-400" style={{width:(Math.abs(inc)/max*50)+"%"}}/><span className="ml-auto bg-rose-400" style={{width:(Math.abs(out)/max*50)+"%"}}/></div></div><strong className="dashboard-pulse-money money min-w-0 text-right font-bold text-[var(--money-in)]">{money(inc)}</strong><strong className="dashboard-pulse-money money min-w-0 text-right font-bold text-[var(--money-out)]">{money(out)}</strong></div>)}</div>
+ return <div className="space-y-5">
+  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+   <div className="dashboard-flow-total min-w-0 rounded-2xl p-3.5"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Channel in</p><p className="dashboard-metric-money money mt-1.5 font-black text-[var(--money-in)]">{money(inflow)}</p></div>
+   <div className="dashboard-flow-total min-w-0 rounded-2xl p-3.5"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Channel out</p><p className="dashboard-metric-money money mt-1.5 font-black text-[var(--money-out)]">{money(outflow)}</p></div>
+   <div className="dashboard-flow-total col-span-2 min-w-0 rounded-2xl p-3.5 sm:col-span-1"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Difference</p><p className={"dashboard-metric-money money mt-1.5 font-black "+(inflow-outflow<0?"text-[var(--money-out)]":"text-[var(--text)]")}>{money(inflow-outflow)}</p></div>
   </div>
-  <div className="grid grid-cols-2 gap-2 self-start">
-   {[["Card swipe",today.cardSwipe],["AePS",today.aeps],["Micro ATM",today.microAtm],["Commission",today.commission],["Business expense",today.businessExpense],["Personal expense",today.personalExpense]].map(([label,value])=><div key={String(label)} className="app-metric-tile min-w-0 rounded-xl p-3"><p className="text-[11px] font-medium text-[var(--text-muted)]">{label}</p><p className="dashboard-metric-money money mt-1 font-extrabold">{money(Number(value))}</p></div>)}
+  <div className="grid gap-5 xl:grid-cols-[1.12fr_.88fr]">
+   <div>
+    <div className="grid grid-cols-[minmax(68px,1fr)_minmax(72px,.8fr)_minmax(72px,.8fr)] gap-2 border-b border-[var(--border)] pb-2 text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]"><span>Channel</span><span className="text-right text-[var(--money-in)]">In</span><span className="text-right text-[var(--money-out)]">Out</span></div>
+    <div className="divide-y divide-[var(--border)]">{rows.map(([label,inc,out])=><div key={label} className="grid grid-cols-[minmax(68px,1fr)_minmax(72px,.8fr)_minmax(72px,.8fr)] items-center gap-2 py-3"><div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--surface-soft)] text-[9px] font-black text-[var(--text-muted)]">{label.slice(0,2).toUpperCase()}</span><p className="truncate text-xs font-bold">{label}</p></div><div className="ml-9 mt-1.5 flex h-1 overflow-hidden rounded-full bg-[var(--surface-soft)]"><span className="bg-emerald-400" style={{width:(Math.abs(inc)/max*50)+"%"}}/><span className="ml-auto bg-rose-400" style={{width:(Math.abs(out)/max*50)+"%"}}/></div></div><strong className="dashboard-pulse-money money min-w-0 text-right font-bold text-[var(--money-in)]">{money(inc)}</strong><strong className="dashboard-pulse-money money min-w-0 text-right font-bold text-[var(--money-out)]">{money(out)}</strong></div>)}</div>
+   </div>
+   <div className="grid grid-cols-2 gap-2 self-start">
+    {[["Card swipe",today.cardSwipe,"CS"],["AePS",today.aeps,"AP"],["Micro ATM",today.microAtm,"MA"],["Commission",today.commission,"CM"],["Business expense",today.businessExpense,"BE"],["Personal expense",today.personalExpense,"PE"]].map(([label,value,mark])=><div key={String(label)} className="app-metric-tile min-w-0 rounded-2xl p-3"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-semibold text-[var(--text-muted)]">{label}</p><span className="text-[9px] font-black text-[var(--accent)]">{mark}</span></div><p className="dashboard-metric-money money mt-1.5 font-extrabold">{money(Number(value))}</p></div>)}
+   </div>
   </div>
  </div>;
+}
+
+function PositionMetric({
+ label,value,detail,tone="slate",href,
+}:{label:string;value:number;detail:string;tone?:"slate"|"emerald"|"amber"|"rose"|"cyan";href:string}){
+ const toneClass=tone==="emerald"?"text-[var(--money-in)]":tone==="amber"?"text-amber-600":tone==="rose"?"text-[var(--money-out)]":tone==="cyan"?"text-cyan-600":"text-[var(--text)]";
+ return <Link href={href} className="dashboard-position-metric group min-w-0 rounded-2xl border border-[var(--border)] p-3.5">
+  <div className="flex items-start justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">{label}</p><span className="text-xs text-[var(--text-muted)] transition group-hover:translate-x-0.5 group-hover:text-[var(--accent)]">→</span></div>
+  <p className={"dashboard-metric-money money mt-2 font-black "+toneClass}>{money(value)}</p>
+  <p className="mt-1 text-[10px] leading-4 text-[var(--text-muted)]">{detail}</p>
+ </Link>;
 }
 
 export default function DashboardPage(){
@@ -110,31 +130,92 @@ export default function DashboardPage(){
  if(error||!summary||!today)return <AppShell><div className="mx-auto max-w-md py-20"><Surface className="p-6 text-center"><h2 className="font-semibold">Dashboard couldn’t load</h2><p className="mt-1 text-sm text-[var(--text-muted)]">{error||"Please try again."}</p><button onClick={load} className="mt-4 rounded-lg bg-[var(--text)] px-4 py-2 text-sm font-semibold text-[var(--surface)]">Try again</button></Surface></div></AppShell>;
 
  const activeAccounts=accounts.filter(a=>a.isActive&&a.accountType!=="OWNER_CREDIT_CARD").sort((a,b)=>Math.abs(b.currentBalance)-Math.abs(a.currentBalance)).slice(0,6);
- return <AppShell><div className="app-page-frame page-enter mx-auto max-w-[1440px] space-y-4">
-  <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="mb-1 text-[10px] font-extrabold uppercase tracking-[.18em] text-[var(--accent)]">Live workspace</p><h1 className="text-[1.55rem] font-black tracking-[-.035em] sm:text-[1.8rem]">Dashboard</h1><div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]"><span>{new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"})}</span><span>·</span><Link href="/cash-counter" className="font-semibold hover:text-[var(--text)]">{counter?"Counter open · "+counter.cashAccount.accountName:"Counter closed"}</Link><span>·</span><Link href="/end-of-day" className="font-semibold hover:text-[var(--text)]">{eod?.snapshot?"EOD saved":"EOD pending"}</Link></div></div><div className="flex flex-wrap gap-2"><Link href="/receivables" className="app-secondary-button px-3 py-2 text-xs font-bold">Receive</Link><Link href="/payables" className="app-secondary-button px-3 py-2 text-xs font-bold">Pay</Link><Link href="/transactions/new" className="app-primary-button px-3 py-2 text-xs font-bold">+ New</Link></div></div>
+ const trendStart=trend[0]?.netPosition??summary.netFinancialPosition;
+ const trendEnd=trend[trend.length-1]?.netPosition??summary.netFinancialPosition;
+ const trendMovement=trendEnd-trendStart;
+ const overdueTotal=summary.receivableBreakdown.overdueCount+summary.payableBreakdown.overdueCount;
 
-  <Surface className="dashboard-hero overflow-hidden">
-   <div className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[1.05fr_1.5fr]">
-    <div className="min-w-0"><p className="text-xs font-semibold text-[var(--text-muted)]">Net financial position</p><p className={"dashboard-net-money money mt-2 font-black tracking-[-.05em] "+(summary.netFinancialPosition<0?"text-rose-600":"")}>{money(summary.netFinancialPosition)}</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]">Operating {money(summary.operatingPosition)}</span><span className="rounded-full bg-[var(--surface-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--text-muted)]">Available {money(summary.availableFunds)}</span></div></div>
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-[var(--border)] sm:grid-cols-3">{[["Available",summary.availableFunds,""],["Provider clearing",summary.pendingProviderSettlements,"text-cyan-600"],["To receive",summary.customerReceivable,"text-[var(--money-in)]"],["To pay",summary.customerPayable,"text-amber-600"],["Card outstanding",summary.creditCardOutstanding,"text-[var(--money-out)]"],["Card available",summary.creditCardAvailable,"text-[var(--accent)]"]].map(([label,value,tone])=><div key={String(label)} className="min-w-0 bg-[var(--surface)] p-3.5"><p className="text-[11px] font-medium text-[var(--text-muted)]">{label}</p><p className={"dashboard-metric-money money mt-1.5 font-extrabold "+tone}>{money(Number(value))}</p></div>)}</div>
+ return <AppShell><div className="app-page-frame page-enter mx-auto max-w-[1480px] space-y-4">
+  <div className="dashboard-command-header flex flex-wrap items-end justify-between gap-4">
+   <div>
+    <p className="mb-1 text-[10px] font-extrabold uppercase tracking-[.18em] text-[var(--accent)]">Financial command center</p>
+    <h1 className="text-[1.7rem] font-black tracking-[-.045em] sm:text-[2rem]">Dashboard</h1>
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+     <span className="dashboard-status-pill">{new Date().toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}</span>
+     <Link href="/cash-counter" className={"dashboard-status-pill "+(counter?"dashboard-status-good":"dashboard-status-warn")}>{counter?"Counter open · "+counter.cashAccount.accountName:"Counter closed"}</Link>
+     <Link href="/end-of-day" className={"dashboard-status-pill "+(eod?.snapshot?"dashboard-status-good":"dashboard-status-warn")}>{eod?.snapshot?"EOD saved":"EOD pending"}</Link>
+     {overdueTotal>0?<span className="dashboard-status-pill dashboard-status-risk">{overdueTotal} overdue</span>:null}
+    </div>
+   </div>
+   <div className="flex flex-wrap gap-2">
+    <Link href="/receivables" className="app-secondary-button px-3.5 py-2.5 text-xs font-bold">Receive</Link>
+    <Link href="/payables" className="app-secondary-button px-3.5 py-2.5 text-xs font-bold">Pay</Link>
+    <Link href="/transactions/new" className="app-primary-button px-4 py-2.5 text-xs font-bold">+ New transaction</Link>
+   </div>
+  </div>
+
+  <Surface className="dashboard-command-hero overflow-hidden">
+   <div className="grid gap-4 p-4 sm:p-5 xl:grid-cols-[1.08fr_.92fr]">
+    <div className="dashboard-command-primary min-w-0 rounded-[20px] p-5 sm:p-6">
+     <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[var(--text-muted)]">Net financial position</p><p className="mt-1 text-xs text-[var(--text-muted)]">Business position after obligations</p></div>
+      <span className={"dashboard-movement-pill "+(trendMovement<0?"dashboard-movement-down":"dashboard-movement-up")}>{trendMovement>=0?"+":""}{money(trendMovement)} · 10 day</span>
+     </div>
+     <p className={"dashboard-command-money money mt-6 font-black "+(summary.netFinancialPosition<0?"text-[var(--money-out)]":"")}>{money(summary.netFinancialPosition)}</p>
+     <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="dashboard-command-submetric"><p>Available funds</p><strong>{money(summary.availableFunds)}</strong></div>
+      <div className="dashboard-command-submetric"><p>Operating position</p><strong>{money(summary.operatingPosition)}</strong></div>
+      <div className="dashboard-command-submetric col-span-2 sm:col-span-1"><p>Card available</p><strong>{money(summary.creditCardAvailable)}</strong></div>
+     </div>
+     <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-semibold text-[var(--text-muted)]">
+      <span className="rounded-full border border-[var(--border)] px-2.5 py-1">Card outstanding {money(summary.creditCardOutstanding)}</span>
+      <span className="rounded-full border border-[var(--border)] px-2.5 py-1">Provider clearing {summary.pendingProviderSettlementCount} item{summary.pendingProviderSettlementCount===1?"":"s"}</span>
+     </div>
+    </div>
+
+    <div className="grid grid-cols-2 gap-2.5">
+     <PositionMetric label="To receive" value={summary.customerReceivable} detail={summary.receivableBreakdown.overdueCount+" overdue · "+summary.receivableBreakdown.dueTodayCount+" due today"} tone="emerald" href="/receivables"/>
+     <PositionMetric label="To pay" value={summary.customerPayable} detail={summary.payableBreakdown.overdueCount+" overdue · "+summary.payableBreakdown.dueTodayCount+" due today"} tone="amber" href="/payables"/>
+     <PositionMetric label="Provider clearing" value={summary.pendingProviderSettlements} detail={summary.pendingProviderSettlementCount+" settlement"+(summary.pendingProviderSettlementCount===1?"":"s")+" pending"} tone="cyan" href="/provider-settlements"/>
+     <PositionMetric label="Card outstanding" value={summary.creditCardOutstanding} detail={"Available "+money(summary.creditCardAvailable)} tone="rose" href="/accounts"/>
+    </div>
    </div>
   </Surface>
 
-  <Surface className="p-4 sm:p-5"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">Today’s operating pulse</h2><span className="text-xs text-[var(--text-muted)]">Live</span></div><TodayPulse today={today}/></Surface>
-
-  <div className="grid gap-4 xl:grid-cols-[1.65fr_1fr]">
-   <Surface className="min-w-0 p-4 sm:p-5"><div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">Position trend</h2><Link href="/reports" className="text-xs font-semibold text-[var(--accent)]">Reports →</Link></div><PositionChart rows={trend}/></Surface>
-   <Surface className="p-4 sm:p-5"><div className="mb-4"><h2 className="font-semibold">Where the money is</h2></div><MoneyMix summary={summary}/></Surface>
+  <div className="grid gap-4 xl:grid-cols-[1.62fr_.78fr]">
+   <Surface className="dashboard-panel min-w-0 p-4 sm:p-5">
+    <div className="mb-4 flex items-start justify-between gap-3"><div><p className="dashboard-kicker">Position analytics</p><h2 className="mt-1 text-base font-bold tracking-[-.02em]">10-day financial trend</h2></div><Link href="/reports" className="text-xs font-bold text-[var(--accent)]">Open reports →</Link></div>
+    <PositionChart rows={trend}/>
+   </Surface>
+   <Surface className="dashboard-panel p-4 sm:p-5">
+    <div className="mb-4"><p className="dashboard-kicker">Liquidity</p><h2 className="mt-1 text-base font-bold tracking-[-.02em]">Where the money is</h2></div>
+    <MoneyMix summary={summary}/>
+    <div className="mt-5 border-t border-[var(--border)] pt-4"><div className="flex items-center justify-between text-xs"><span className="text-[var(--text-muted)]">Total available</span><strong className="money text-sm">{money(summary.availableFunds)}</strong></div></div>
+   </Surface>
   </div>
 
-  <div className="grid gap-4 xl:grid-cols-2">
-   <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Needs attention</h2></div><div className="grid grid-cols-2 gap-px bg-[var(--border)]">{alerts.map(([label,value,count,href,tone])=><Link key={label} href={href} className="bg-[var(--surface)] p-4 hover:bg-[var(--surface-soft)]"><p className="text-xs text-[var(--text-muted)]">{label}</p><p className={"money mt-2 text-xl font-semibold "+(tone==="rose"?"text-rose-600":tone==="emerald"?"text-[var(--money-in)]":"text-amber-600")}>{money(value)}</p><p className="mt-1 text-[11px] text-[var(--text-muted)]">{count} item{count===1?"":"s"} · Open →</p></Link>)}</div></Surface>
-   <Surface className="overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Account balances</h2><Link href="/accounts" className="text-xs font-semibold text-[var(--accent)]">View all</Link></div>{activeAccounts.length?<div className="divide-y divide-[var(--border)]">{activeAccounts.map(a=><Link key={a.id} href={"/accounts/"+a.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-soft)]"><div><p className="text-sm font-medium">{a.accountName}</p><p className="text-[11px] text-[var(--text-muted)]">{a.accountType.replaceAll("_"," ")}</p></div><strong className="money text-sm">{money(a.currentBalance)}</strong></Link>)}</div>:<div className="p-4"><EmptyState title="No account balances yet"/></div>}</Surface>
+  <div className="grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
+   <Surface className="dashboard-panel p-4 sm:p-5">
+    <div className="mb-4 flex items-center justify-between gap-3"><div><p className="dashboard-kicker">Today</p><h2 className="mt-1 text-base font-bold tracking-[-.02em]">Operating pulse</h2></div><span className="dashboard-live-badge"><i/>Live</span></div>
+    <TodayPulse today={today}/>
+   </Surface>
+
+   <Surface className="dashboard-panel overflow-hidden">
+    <div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><p className="dashboard-kicker">Priority</p><h2 className="mt-1 text-base font-bold tracking-[-.02em]">Action queue</h2></div><span className="text-[10px] font-semibold text-[var(--text-muted)]">{alerts.reduce((sum,item)=>sum+item[2],0)} items</span></div>
+    <div className="grid grid-cols-2 gap-px bg-[var(--border)]">{alerts.map(([label,value,count,href,tone])=><Link key={label} href={href} className="dashboard-action-tile min-w-0 bg-[var(--surface)] p-4"><div className="flex items-start justify-between gap-2"><p className="text-[11px] font-semibold text-[var(--text-muted)]">{label}</p><span className="text-xs text-[var(--text-muted)]">→</span></div><p className={"dashboard-action-money money mt-2 font-black "+(tone==="rose"?"text-[var(--money-out)]":tone==="emerald"?"text-[var(--money-in)]":"text-amber-600")}>{money(value)}</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{count} item{count===1?"":"s"}</p></Link>)}</div>
+   </Surface>
   </div>
 
-  <div className="grid gap-4 xl:grid-cols-2">
-   <Surface className="overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Money to receive</h2><Link href="/receivables" className="text-xs font-semibold text-[var(--accent)]">View all</Link></div>{receivables.length?<div className="divide-y divide-[var(--border)]">{receivables.slice(0,5).map(r=><Link key={r.id} href={"/receivables/"+r.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-medium">{r.customer.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{r.reason}{r.dueAt?" · "+new Date(r.dueAt).toLocaleDateString("en-IN"):""}</p></div><div className="text-right"><strong className="money text-sm text-[var(--money-in)]">{money(r.remainingAmount)}</strong>{r.bucket==="OVERDUE"?<p className="text-[10px] font-semibold text-rose-600">OVERDUE</p>:null}</div></Link>)}</div>:<div className="p-4"><EmptyState title="Nothing outstanding to receive"/></div>}</Surface>
-   <Surface className="overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"><h2 className="font-semibold">Money to pay</h2><Link href="/payables" className="text-xs font-semibold text-[var(--accent)]">View all</Link></div>{payables.length?<div className="divide-y divide-[var(--border)]">{payables.slice(0,5).map(p=><Link key={p.id} href={"/payables/"+p.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-soft)]"><div><p className="text-sm font-medium">{p.customer.fullName}</p><p className="text-[11px] text-[var(--text-muted)]">Due {new Date(p.dueAt).toLocaleDateString("en-IN")}</p></div><div className="text-right"><strong className="money text-sm text-amber-600">{money(p.remainingAmount)}</strong>{p.bucket==="OVERDUE"?<p className="text-[10px] font-semibold text-rose-600">OVERDUE</p>:null}</div></Link>)}</div>:<div className="p-4"><EmptyState title="No open customer payables"/></div>}</Surface>
+  <div className="grid gap-4 xl:grid-cols-[.82fr_1.18fr]">
+   <Surface className="dashboard-panel overflow-hidden">
+    <div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><p className="dashboard-kicker">Liquidity accounts</p><h2 className="mt-1 text-base font-bold tracking-[-.02em]">Account balances</h2></div><Link href="/accounts" className="text-xs font-bold text-[var(--accent)]">View all</Link></div>
+    {activeAccounts.length?<div className="divide-y divide-[var(--border)]">{activeAccounts.map(a=><Link key={a.id} href={"/accounts/"+a.id} className="dashboard-account-row flex items-center justify-between gap-3 px-4 py-3.5 sm:px-5"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--surface-soft)] text-[9px] font-black text-[var(--text-muted)]">{a.accountType.split("_").map(x=>x[0]).join("").slice(0,3)}</span><div className="min-w-0"><p className="truncate text-sm font-bold">{a.accountName}</p><p className="mt-0.5 truncate text-[10px] font-medium text-[var(--text-muted)]">{a.accountType.replaceAll("_"," ")}</p></div></div><strong className={"dashboard-row-money money shrink-0 font-bold "+(a.currentBalance<0?"text-[var(--money-out)]":"")}>{money(a.currentBalance)}</strong></Link>)}</div>:<div className="p-4"><EmptyState title="No account balances yet"/></div>}
+   </Surface>
+
+   <div className="grid gap-4 lg:grid-cols-2">
+    <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5"><div><p className="dashboard-kicker">Customer money</p><h2 className="mt-1 text-sm font-bold">To receive</h2></div><Link href="/receivables" className="text-xs font-bold text-[var(--accent)]">View all</Link></div>{receivables.length?<div className="divide-y divide-[var(--border)]">{receivables.slice(0,5).map(r=><Link key={r.id} href={"/receivables/"+r.id} className="dashboard-obligation-row flex items-center justify-between gap-3 px-4 py-3"><div className="min-w-0"><p className="truncate text-xs font-bold">{r.customer.fullName}</p><p className="mt-0.5 truncate text-[10px] text-[var(--text-muted)]">{r.reason}{r.dueAt?" · "+new Date(r.dueAt).toLocaleDateString("en-IN"):""}</p></div><div className="shrink-0 text-right"><strong className="dashboard-row-money money text-[var(--money-in)]">{money(r.remainingAmount)}</strong>{r.bucket==="OVERDUE"?<p className="mt-0.5 text-[9px] font-bold text-[var(--money-out)]">OVERDUE</p>:null}</div></Link>)}</div>:<div className="p-4"><EmptyState title="Nothing outstanding to receive"/></div>}</Surface>
+    <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5"><div><p className="dashboard-kicker">Customer money</p><h2 className="mt-1 text-sm font-bold">To pay</h2></div><Link href="/payables" className="text-xs font-bold text-[var(--accent)]">View all</Link></div>{payables.length?<div className="divide-y divide-[var(--border)]">{payables.slice(0,5).map(p=><Link key={p.id} href={"/payables/"+p.id} className="dashboard-obligation-row flex items-center justify-between gap-3 px-4 py-3"><div className="min-w-0"><p className="truncate text-xs font-bold">{p.customer.fullName}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">Due {new Date(p.dueAt).toLocaleDateString("en-IN")}</p></div><div className="shrink-0 text-right"><strong className="dashboard-row-money money text-amber-600">{money(p.remainingAmount)}</strong>{p.bucket==="OVERDUE"?<p className="mt-0.5 text-[9px] font-bold text-[var(--money-out)]">OVERDUE</p>:null}</div></Link>)}</div>:<div className="p-4"><EmptyState title="No open customer payables"/></div>}</Surface>
+   </div>
   </div>
  </div></AppShell>;
 }
