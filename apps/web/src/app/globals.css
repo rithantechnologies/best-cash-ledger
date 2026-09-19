@@ -16,35 +16,35 @@
 
 :root {
   color-scheme: light;
-  --bg: #f6f7f9;
+  --bg: #f7f6f2;
   --surface: #ffffff;
   --surface-raised: #ffffff;
-  --surface-soft: #f2f4f7;
-  --border: #e3e7ed;
-  --text: #15181d;
-  --text-muted: #697386;
-  --accent: #4f46e5;
-  --accent-soft: #eef2ff;
-  --money-in: #087a55;
-  --money-out: #c2414f;
-  --warning: #a16207;
-  --danger: #c2414f;
+  --surface-soft: #f3f4f2;
+  --border: #e7e5df;
+  --text: #17191f;
+  --text-muted: #6d7480;
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+  --money-in: #0b8f68;
+  --money-out: #d84b5f;
+  --warning: #c56b14;
+  --danger: #d84b5f;
 }
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0b0d10;
-  --surface: #14171c;
-  --surface-raised: #191d23;
-  --surface-soft: #101318;
-  --border: #282d35;
-  --text: #f4f6f8;
-  --text-muted: #98a2b3;
-  --accent: #8b8cf8;
-  --accent-soft: #22233b;
-  --money-in: #4adea2;
+  --bg: #0f1115;
+  --surface: #171a20;
+  --surface-raised: #1c2027;
+  --surface-soft: #12151a;
+  --border: #2b3038;
+  --text: #f7f8fa;
+  --text-muted: #9ca5b2;
+  --accent: #60a5fa;
+  --accent-soft: #17233a;
+  --money-in: #55d6a5;
   --money-out: #fb7185;
-  --warning: #f3ba55;
+  --warning: #f0ad4e;
   --danger: #fb7185;
 }
 
@@ -113,12 +113,18 @@ button:active, a:active { transform: translateY(1px); }
 .app-control::placeholder { color: color-mix(in srgb, var(--text-muted) 75%, transparent); }
 
 .swipe-commerce-page {
-  --accent: #5b4cf0;
-  --accent-soft: #f1efff;
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+  --money-in: #0b8f68;
+  --money-out: #d84b5f;
+  --warning: #c56b14;
 }
 html[data-theme="dark"] .swipe-commerce-page {
-  --accent: #9b94ff;
-  --accent-soft: #272440;
+  --accent: #60a5fa;
+  --accent-soft: #17233a;
+  --money-in: #55d6a5;
+  --money-out: #fb7185;
+  --warning: #f0ad4e;
 }
 
 .entry-sheet {
@@ -229,25 +235,31 @@ html[data-theme="dark"] .swipe-commerce-page {
   background: var(--accent);
 }
 .swipe-result-card {
-  border-color: color-mix(in srgb, var(--accent) 12%, var(--border)) !important;
+  --text: #f8fafc;
+  --text-muted: #a9b7cb;
+  --border: rgba(255,255,255,.12);
+  --money-in: #64e6b4;
+  --money-out: #ff9aaa;
+  color: var(--text);
+  border-color: rgba(255,255,255,.1) !important;
   background:
-    radial-gradient(circle at 88% 10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 34%),
-    linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 38%, var(--surface)), var(--surface) 58%);
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 8%, transparent);
+    radial-gradient(circle at 88% 10%, rgba(59,130,246,.32), transparent 34%),
+    linear-gradient(145deg, #0f172a 0%, #142349 58%, #173778 100%);
+  box-shadow: 0 14px 32px rgba(15,23,42,.18);
 }
 .swipe-sticky-bar {
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   box-shadow: 0 -10px 30px color-mix(in srgb, #0f172a 8%, transparent);
 }
 .swipe-primary-action {
-  background: linear-gradient(135deg, #6555f5, #4a3ee4);
-  box-shadow: 0 8px 20px color-mix(in srgb, #4f46e5 26%, transparent);
+  background: linear-gradient(135deg, #2f6df6, #1d4ed8);
+  box-shadow: 0 9px 22px rgba(37,99,235,.24);
 }
 .swipe-primary-action:active {
-  box-shadow: 0 4px 12px color-mix(in srgb, #4f46e5 20%, transparent);
+  box-shadow: 0 4px 12px rgba(37,99,235,.18);
 }
 html[data-theme="dark"] .swipe-primary-action {
-  background: linear-gradient(135deg, #8178ff, #655cff);
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
 }
 
 .counter-surface {
