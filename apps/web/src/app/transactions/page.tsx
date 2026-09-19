@@ -32,6 +32,7 @@ export default function TransactionsPage(){
   setLoading(true);
   return apiFetch<Paged>("/transactions?"+params.toString()).then(r=>{setItems(r.items);setPagination(r.pagination);setError("");}).finally(()=>setLoading(false));
  }
+ useEffect(()=>{const initial=new URLSearchParams(window.location.search).get("type");if(!initial)return;const timer=window.setTimeout(()=>setType(initial),0);return()=>window.clearTimeout(timer);},[]);
  useEffect(()=>{const timer=setTimeout(()=>load(1).catch(e=>setError(e instanceof Error?e.message:"Failed to load transactions")),160);return()=>clearTimeout(timer);},[q,type,status,range,pagination.pageSize]);
 
  const totals=items.reduce((a,t)=>({gross:a.gross+Number(t.grossAmount),net:a.net+Number(t.netAmount??t.grossAmount)}),{gross:0,net:0});

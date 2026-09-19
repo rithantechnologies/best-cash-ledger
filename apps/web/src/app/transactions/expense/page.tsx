@@ -22,7 +22,7 @@ export default function ExpensePage(){
 
  async function submit(e:FormEvent){
   e.preventDefault();setSaving(true);setError("");
-  try{await apiFetch("/transactions/expense",{method:"POST",body:JSON.stringify({expenseType,expenseCategoryId:categoryId,amount:value,paymentAccountId:accountId,description,referenceNumber:reference||undefined,notes:notes||undefined})});router.push("/transactions");}
+  try{await apiFetch("/transactions/expense",{method:"POST",body:JSON.stringify({expenseType,expenseCategoryId:categoryId,amount:value,paymentAccountId:accountId,description,referenceNumber:reference||undefined,notes:notes||undefined})});router.push("/expenses");}
   catch(err){setError(err instanceof Error?err.message:"Expense failed");}finally{setSaving(false);}
  }
 

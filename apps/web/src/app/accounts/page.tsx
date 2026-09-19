@@ -22,6 +22,7 @@ const secondary="app-secondary-button min-h-10 px-3 text-xs font-bold";
 
 export default function AccountsPage(){
  const [items,setItems]=useState<Account[]>([]),[loading,setLoading]=useState(true);
+ const [listType,setListType]=useState("ALL");
  const [name,setName]=useState(""),[type,setType]=useState("BANK"),[nature,setNature]=useState("ASSET"),[usage,setUsage]=useState("MIXED"),[opening,setOpening]=useState("0"),[limit,setLimit]=useState("");
  const [adding,setAdding]=useState(false),[editing,setEditing]=useState<Account|null>(null),[toggleTarget,setToggleTarget]=useState<Account|null>(null);
  const [editName,setEditName]=useState(""),[editUsage,setEditUsage]=useState("MIXED"),[editBank,setEditBank]=useState(""),[editRef,setEditRef]=useState(""),[editLimit,setEditLimit]=useState("");
@@ -35,6 +36,8 @@ export default function AccountsPage(){
   }else setItems(await apiFetch<Account[]>("/dashboard/accounts"));
  },[role]);
  useEffect(()=>{
+  const initialType=new URLSearchParams(window.location.search).get("type");
+  if(initialType&&["CASH","BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(initialType))setListType(initialType);
   let nextRole="";
   try{nextRole=JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"";setRole(nextRole);}catch{}
   if(nextRole)load(nextRole).catch(e=>setError(e instanceof Error?e.message:"Failed to load accounts")).finally(()=>setLoading(false));
@@ -64,6 +67,7 @@ export default function AccountsPage(){
   catch(e){setError(e instanceof Error?e.message:"Failed to change account status");}
  }
  const admin=role==="OWNER"||role==="ADMIN";
+ const filteredItems=useMemo(()=>listType==="ALL"?items:items.filter(a=>a.accountType===listType),[items,listType]);
  const totals=useMemo(()=>({
   liquid:items.filter(a=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).reduce((s,a)=>s+a.currentBalance,0),
   cards:items.filter(a=>a.accountType==="OWNER_CREDIT_CARD").reduce((s,a)=>s+a.currentBalance,0),
@@ -76,13 +80,17 @@ export default function AccountsPage(){
 
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
+  <div className="flex gap-2 overflow-x-auto pb-1">
+   {[["ALL","All"],["BANK","Bank"],["UPI","UPI"],["PROVIDER_WALLET","Wallets"],["CASH","Cash"],["OWNER_CREDIT_CARD","Credit cards"]].map(([value,label])=><button key={value} onClick={()=>setListType(value)} className={"min-h-9 shrink-0 rounded-full border px-3 text-xs font-semibold "+(listType===value?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{label}</button>)}
+  </div>
+
   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
    <Surface className="p-3.5"><p className="text-xs text-[var(--text-muted)]">Liquid funds</p><p className="money mt-1 text-lg font-semibold sm:text-2xl">{money(totals.liquid)}</p></Surface>
    <Surface className="p-3.5"><p className="text-xs text-[var(--text-muted)]">Card outstanding</p><p className="money mt-1 text-lg font-semibold text-rose-600 sm:text-2xl">{money(totals.cards)}</p></Surface>
    <Surface className="p-3.5"><p className="text-xs text-[var(--text-muted)]">Active</p><p className="money mt-1 text-lg font-semibold sm:text-2xl">{totals.active}</p></Surface>
   </div>
 
-  {items.length?<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map(a=><Surface key={a.id} className={!a.isActive?"p-4 opacity-60":"p-4"}>
+  {filteredItems.length?<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filteredItems.map(a=><Surface key={a.id} className={!a.isActive?"p-4 opacity-60":"p-4"}>
    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-bold">{a.accountName}</h3><StatusBadge tone={a.isActive?"emerald":"slate"}>{a.isActive?"Active":"Inactive"}</StatusBadge></div><p className="mt-1 text-[11px] font-semibold uppercase tracking-[.12em] text-slate-400">{a.accountType.replaceAll("_"," ")}</p></div><div className={"grid h-10 w-10 shrink-0 place-items-center rounded-2xl text-xs font-black "+(a.accountType==="CASH"?"bg-emerald-50 text-emerald-700":a.accountType==="OWNER_CREDIT_CARD"?"bg-rose-50 text-rose-700":"bg-indigo-50 text-indigo-700")}>{a.accountType==="OWNER_CREDIT_CARD"?"CC":a.accountType.slice(0,2)}</div></div>
    <div className="mt-4 flex items-end justify-between gap-3"><p className={"money text-2xl font-semibold "+(a.currentBalance<0?"text-rose-600":"")}>{money(a.currentBalance)}</p><Link href={"/accounts/"+a.id} className="text-xs font-semibold text-[var(--accent)]">Ledger →</Link></div>
    <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500"><span className="rounded-lg bg-slate-50 px-2 py-1">{a.usageType.toLowerCase()}</span>{a.bankName?<span className="rounded-lg bg-slate-50 px-2 py-1">{a.bankName}</span>:null}{a.accountReference?<span className="rounded-lg bg-slate-50 px-2 py-1">{a.accountReference}</span>:null}</div>
