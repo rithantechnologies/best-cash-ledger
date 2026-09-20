@@ -268,7 +268,10 @@ export default function DashboardPage(){
   const flowIn=flowRows.reduce((s,x)=>s+x.moneyIn,0),flowOut=flowRows.reduce((s,x)=>s+x.moneyOut,0),flowNet=flowIn-flowOut;
 
   const fundAccounts=useMemo(()=>accounts.filter(a=>a.isActive&&["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)&&scopeMatchesAccount(a,scope)).sort((a,b)=>Math.abs(b.currentBalance)-Math.abs(a.currentBalance)),[accounts,scope]);
-  const scopedFunds=fundAccounts.reduce((s,x)=>s+x.currentBalance,0),maxAccount=Math.max(1,...fundAccounts.map(x=>Math.max(0,x.currentBalance)));
+  const scopedCash=fundAccounts.filter(x=>x.accountType==="CASH").reduce((s,x)=>s+x.currentBalance,0);
+  const scopedBankUpi=fundAccounts.filter(x=>x.accountType==="BANK"||x.accountType==="UPI").reduce((s,x)=>s+x.currentBalance,0);
+  const scopedWallet=fundAccounts.filter(x=>x.accountType==="PROVIDER_WALLET").reduce((s,x)=>s+x.currentBalance,0);
+  const scopedFunds=scopedCash+scopedBankUpi+scopedWallet,maxAccount=Math.max(1,...fundAccounts.map(x=>Math.max(0,x.currentBalance)));
   const largestExpense=[...expenses].sort((a,b)=>Number(b.expense?.amount??0)-Number(a.expense?.amount??0))[0];
   const netMove=trend.length>1?trend.at(-1)!.netPosition-trend[0].netPosition:0;
 
@@ -308,11 +311,11 @@ export default function DashboardPage(){
     </section>
 
     <section className="fc-position-system">
-      <div className="fc-position-group fc-position-liquid"><div className="fc-group-heading"><div><p>Immediately available</p><h2 className="money">{money(summary.availableFunds)}</h2></div><span>Liquid funds</span></div>
+      <div className="fc-position-group fc-position-liquid"><div className="fc-group-heading"><div><p>Immediately available</p><h2 className="money">{money(scopedFunds)}</h2></div><span>Liquid funds</span></div>
         <div className="fc-liquid-grid">
-          <PositionItem label="Physical cash" value={summary.cashBalance} icon="cash" href="/cash-counter" meta="Cash counter"/>
-          <PositionItem label="Bank + UPI" value={summary.bankBalance+summary.upiBalance} icon="bank" href="/accounts" meta="Banking rails"/>
-          <PositionItem label="Provider wallets" value={summary.walletBalance} icon="wallet" href="/accounts?type=PROVIDER_WALLET" meta="Service balances"/>
+          <PositionItem label="Physical cash" value={scopedCash} icon="cash" href="/cash-counter" meta="Cash counter"/>
+          <PositionItem label="Bank + UPI" value={scopedBankUpi} icon="bank" href="/accounts" meta="Banking rails"/>
+          <PositionItem label="Provider wallets" value={scopedWallet} icon="wallet" href="/accounts?type=PROVIDER_WALLET" meta="Service balances"/>
         </div>
       </div>
       <div className="fc-position-obligations">
@@ -331,9 +334,9 @@ export default function DashboardPage(){
 
     <section className="fc-dues-grid">
       <Panel kicker="Money to receive" title={money(summary.customerReceivable)} action={<Link href="/receivables">Open receivables <Icon name="arrow"/></Link>} className="fc-receive-panel">
-        <div className="fc-dues-summary"><div><span>Overdue</span><strong className="money">{money(summary.receivableBreakdown.overdueAmount)}</strong><small>{summary.receivableBreakdown.overdueCount} records</small></div><div><span>Due today</span><strong className="money">{money(summary.receivableBreakdown.dueTodayAmount)}</strong><small>{summary.receivableBreakdown.dueTodayCount} records</small></div></div>
-        {insights?<div className="fc-aging">{insights.receivables.map((b)=><div key={b.label}><span>{b.label}<small>{b.count}</small></span><i><b style={{width:(summary.customerReceivable?Math.max(2,b.amount/summary.customerReceivable*100):0)+"%"}}/></i><strong className="money">{money(b.amount)}</strong></div>)}</div>:null}
-        <div className="fc-obligation-list">{receivables.slice(0,3).map(r=><Link href={"/receivables/"+r.id} key={r.id}><div><b>{r.customer.fullName}</b><span>{r.dueAt?"Due "+new Date(r.dueAt).toLocaleDateString("en-IN",{day:"2-digit",month:"short"}):"No due date"}</span></div><strong className="money">{money(r.remainingAmount)}</strong></Link>)}</div>
+        {summary.customerReceivable>0?<><div className="fc-dues-summary"><div><span>Overdue</span><strong className="money">{money(summary.receivableBreakdown.overdueAmount)}</strong><small>{summary.receivableBreakdown.overdueCount} records</small></div><div><span>Due today</span><strong className="money">{money(summary.receivableBreakdown.dueTodayAmount)}</strong><small>{summary.receivableBreakdown.dueTodayCount} records</small></div></div>
+        {insights?<div className="fc-aging">{insights.receivables.filter(b=>b.amount>0).map((b)=><div key={b.label}><span>{b.label}<small>{b.count}</small></span><i><b style={{width:Math.max(2,b.amount/summary.customerReceivable*100)+"%"}}/></i><strong className="money">{money(b.amount)}</strong></div>)}</div>:null}
+        <div className="fc-obligation-list">{receivables.slice(0,3).map(r=><Link href={"/receivables/"+r.id} key={r.id}><div><b>{r.customer.fullName}</b><span>{r.dueAt?"Due "+new Date(r.dueAt).toLocaleDateString("en-IN",{day:"2-digit",month:"short"}):"No due date"}</span></div><strong className="money">{money(r.remainingAmount)}</strong></Link>)}</div></>:<div className="fc-zero-dues"><span className="fc-zero-dues-icon"><Icon name="receive"/></span><div><b>Nothing to collect</b><small>No customer receivables are currently outstanding.</small></div></div>}
       </Panel>
       <Panel kicker="Money to pay" title={money(summary.customerPayable+summary.creditCardOutstanding)} action={<Link href="/payables">Open payables <Icon name="arrow"/></Link>} className="fc-pay-panel">
         <div className="fc-dues-summary"><div><span>Overdue</span><strong className="money">{money(summary.payableBreakdown.overdueAmount)}</strong><small>{summary.payableBreakdown.overdueCount} records</small></div><div><span>Due today</span><strong className="money">{money(summary.payableBreakdown.dueTodayAmount)}</strong><small>{summary.payableBreakdown.dueTodayCount} records</small></div></div>
