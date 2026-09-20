@@ -1,5 +1,5 @@
 import { AccountNature, AccountType, UsageType } from '@prisma/client';
-import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, Matches, Min } from 'class-validator';
 
 export class CreateAccountDto {
   @IsString() accountName!: string;
@@ -10,7 +10,7 @@ export class CreateAccountDto {
   @IsOptional() @IsString() providerId?: string;
   @IsOptional() @IsString() bankName?: string;
   @IsOptional() @IsString() accountReference?: string;
-  @IsOptional() @IsString() lastFourDigits?: string;
+  @IsOptional() @IsString() @Matches(/^\d{4}$/) lastFourDigits?: string;
   @IsOptional() @IsNumber() @Min(0) creditLimit?: number;
   @IsOptional() @IsNumber() @Min(0) openingBalance?: number;
 }

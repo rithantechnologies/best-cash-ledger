@@ -20,6 +20,29 @@ export class AccountsService {
   }
 
   async create(dto: CreateAccountDto, actorId: string) {
+    const accountName = dto.accountName.trim();
+    if (!accountName) {
+      throw new BadRequestException('Account name is required');
+    }
+    const duplicateName = await this.prisma.financialAccount.findFirst({
+      where: { accountName: { equals: accountName, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (duplicateName) {
+      throw new BadRequestException('An account with this name already exists');
+    }
+    if (dto.accountType === AccountType.CASH) {
+      const existingCash = await this.prisma.financialAccount.findFirst({
+        where: { accountType: AccountType.CASH },
+        select: { id: true },
+      });
+      if (existingCash) {
+        throw new BadRequestException(
+          'Only one shop cash drawer is supported. Reactivate the existing cash account if needed.',
+        );
+      }
+    }
+
     const expectedNature =
       dto.accountType === AccountType.OWNER_CREDIT_CARD
         ? AccountNature.LIABILITY
@@ -77,6 +100,10 @@ export class AccountsService {
       const account = await tx.financialAccount.create({
         data: {
           ...dto,
+          accountName,
+          bankName: dto.bankName?.trim() || null,
+          accountReference: dto.accountReference?.trim() || null,
+          lastFourDigits: dto.lastFourDigits?.trim() || null,
           accountCode,
           openingBalance: dto.openingBalance ?? 0,
         },
@@ -119,6 +146,32 @@ export class AccountsService {
       include: { ledgerAccount: true },
     });
     if (!existing) throw new NotFoundException('Account not found');
+    if (dto.accountName !== undefined) {
+      const accountName = dto.accountName.trim();
+      if (!accountName) {
+        throw new BadRequestException('Account name is required');
+      }
+      const duplicateName = await this.prisma.financialAccount.findFirst({
+        where: {
+          id: { not: id },
+          accountName: { equals: accountName, mode: 'insensitive' },
+        },
+        select: { id: true },
+      });
+      if (duplicateName) {
+        throw new BadRequestException('An account with this name already exists');
+      }
+      dto.accountName = accountName;
+    }
+    if (dto.bankName !== undefined) {
+      dto.bankName = dto.bankName?.trim() || null;
+    }
+    if (dto.accountReference !== undefined) {
+      dto.accountReference = dto.accountReference?.trim() || null;
+    }
+    if (dto.lastFourDigits !== undefined) {
+      dto.lastFourDigits = dto.lastFourDigits?.trim() || null;
+    }
     if (existing.accountType === AccountType.PROVIDER_WALLET) {
       throw new BadRequestException(
         'Provider wallets are managed automatically with providers',

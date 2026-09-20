@@ -116,7 +116,10 @@ export class ReportsService {
       this.prisma.ledgerEntry.findMany({
         where: {
           ledgerAccountId: account.ledgerAccount.id,
-          ...(Object.keys(postingDate).length ? { journal: { postingDate } } : {}),
+          journal: {
+            status: 'POSTED',
+            ...(Object.keys(postingDate).length ? { postingDate } : {}),
+          },
         },
         include: {
           journal: { include: { transaction: { include: { customer: true } } } },
