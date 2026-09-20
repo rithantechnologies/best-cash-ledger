@@ -79,7 +79,7 @@ const quickActions=[
 export function AppShell({ children }: { children: ReactNode }) {
   const router=useRouter(), pathname=usePathname();
   const isDashboard=pathname==="/";
-  const [role,setRole]=useState(""),[search,setSearch]=useState("");
+  const [role,setRole]=useState(""),[userName,setUserName]=useState(""),[search,setSearch]=useState("");
   const [menuOpen,setMenuOpen]=useState(false),[newOpen,setNewOpen]=useState(false),[navigating,setNavigating]=useState(false);
   const [theme,setTheme]=useState<ThemeMode>("system");
 
@@ -87,6 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     try{
       const user=JSON.parse(localStorage.getItem("cashledger_user")||"{}");
       setRole(user.role||"");
+      setUserName(user.fullName||user.email||"Cash Ledger User");
       setTheme((localStorage.getItem("cashledger_theme") as ThemeMode)||"system");
     }catch{}
   },[]);
@@ -102,6 +103,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const taskTitle=transactionTaskTitles[pathname];
   const isTaskFlow=!!taskTitle;
   const currentTitle=isDashboard?"Cash Ledger":taskTitle??visibleNav.find(item=>active(item.href))?.label??"Cash Ledger";
+  const userInitial=(userName||"C").trim().charAt(0).toUpperCase();
 
   function applyTheme(mode:ThemeMode){
     setTheme(mode);localStorage.setItem("cashledger_theme",mode);
@@ -110,23 +112,51 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
   function submitSearch(e:FormEvent){e.preventDefault();if(search.trim()){setNavigating(true);router.push("/search?q="+encodeURIComponent(search.trim()));}}
   async function logout(){try{await apiFetch("/auth/logout",{method:"POST"});}catch{}localStorage.removeItem("cashledger_token");localStorage.removeItem("cashledger_user");router.replace("/login");}
-  const navLink=(item:(typeof navItems)[number])=><Link key={item.href} href={item.href} className={"app-nav-link flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm font-semibold "+(active(item.href)?"app-nav-link-active":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}><Icon name={item.icon} className="h-[18px] w-[18px]"/><span>{item.label}</span></Link>;
+  const navLink=(item:(typeof navItems)[number])=>{
+    const selected=active(item.href);
+    return <Link
+      key={item.href}
+      href={item.href}
+      className={"app-nav-link group flex min-h-11 items-center gap-3 rounded-2xl border px-2.5 py-1.5 text-sm font-semibold transition "+(selected
+        ?"app-nav-link-active border-[color-mix(in_srgb,var(--accent)_12%,var(--border))] bg-[color-mix(in_srgb,var(--accent-soft)_78%,var(--surface))] text-[var(--text)] shadow-[0_5px_16px_color-mix(in_srgb,var(--accent)_8%,transparent)]"
+        :"border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}>
+      <span className={"grid h-8 w-8 shrink-0 place-items-center rounded-xl transition "+(selected
+        ?"bg-[var(--accent)] text-white shadow-[0_5px_12px_color-mix(in_srgb,var(--accent)_22%,transparent)]"
+        :"bg-[var(--surface-soft)] text-[var(--text-muted)] group-hover:bg-[var(--surface)] group-hover:text-[var(--accent)]")}>
+        <Icon name={item.icon} className="h-[17px] w-[17px]"/>
+      </span>
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {selected?<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]"/>:null}
+    </Link>;
+  };
 
   return <div className={"min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)] "+(isDashboard?"dashboard-finance-shell":"")}>
     {navigating?<div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-[var(--accent-soft)]"><div className="h-full w-1/2 bg-[var(--accent)] [animation:cashledger-progress_.9s_ease-in-out_infinite]"/></div>:null}
-    <aside className="app-sidebar fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-[var(--border)] bg-[var(--surface)] lg:flex lg:flex-col">
-      <Link href="/" className="flex h-16 items-center gap-3 border-b border-[var(--border)] px-4"><BrandMark className="h-9 w-9 shrink-0"/><div className="min-w-0">{isDashboard?<><p className="truncate text-sm font-black tracking-tight">Cash Ledger</p><p className="truncate text-[11px] font-medium text-[var(--text-muted)]">Track Today. Stronger Tomorrow.</p></>:<><p className="truncate text-sm font-bold tracking-tight">Best Agency</p><p className="truncate text-[10px] font-semibold uppercase tracking-[.16em] text-[var(--text-muted)]">Cash Ledger</p></>}</div></Link>
-      <nav className="flex-1 overflow-y-auto p-3">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-4"><p className="mb-1.5 px-3 text-[10px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group}</p><div className="space-y-1">{rows.map(navLink)}</div></div>:null;})}</nav>
+    <aside className="app-sidebar fixed inset-y-0 left-0 z-40 hidden w-[272px] border-r border-[var(--border)] bg-[var(--surface)] lg:flex lg:flex-col">
+      <div className="border-b border-[var(--border)] p-3">
+        <Link href="/" className="flex min-h-14 items-center gap-3 rounded-2xl bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent-soft)_72%,var(--surface)),var(--surface))] px-3 ring-1 ring-[color-mix(in_srgb,var(--accent)_9%,var(--border))]">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#fff] shadow-[0_8px_20px_rgba(15,23,42,.08)]"><BrandMark className="h-7 w-7"/></span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-black tracking-[-.025em]">Cash Ledger</p>
+            <p className="truncate text-[10px] font-semibold uppercase tracking-[.12em] text-[var(--text-muted)]">Operations</p>
+          </div>
+        </Link>
+      </div>
+      <nav className="flex-1 overflow-y-auto px-3 py-4">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-5"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1.5">{rows.map(navLink)}</div></div>:null;})}</nav>
       <div className="border-t border-[var(--border)] p-3">
-        <div className="mb-2 grid grid-cols-3 gap-1 rounded-lg bg-[var(--surface-soft)] p-1">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-8 rounded-md text-[10px] font-semibold capitalize "+(theme===mode?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>{mode}</button>)}</div>
-        <button onClick={logout} className="flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-sm text-[var(--text-muted)] hover:bg-[var(--surface-soft)]"><Icon name="logout" className="h-[18px] w-[18px]"/>Logout</button>
+        <div className="mb-2.5 flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-2.5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--accent)] text-xs font-black text-white">{userInitial}</span>
+          <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{userName||"Cash Ledger User"}</p><p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[.08em] text-[var(--text-muted)]">{role||"User"}</p></div>
+        </div>
+        <div className="mb-2 grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-8 rounded-lg text-[10px] font-bold capitalize transition "+(theme===mode?"bg-[var(--surface)] text-[var(--text)] shadow-sm ring-1 ring-[var(--border)]":"text-[var(--text-muted)] hover:text-[var(--text)]")}>{mode}</button>)}</div>
+        <button onClick={logout} className="flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-semibold text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]"><Icon name="logout" className="h-[18px] w-[18px]"/>Sign out</button>
       </div>
     </aside>
 
-    <div className="lg:pl-64">
+    <div className="lg:pl-[272px]">
       <header className="app-topbar sticky top-0 z-30 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_90%,transparent)] backdrop-blur-xl">
         <div className="flex h-15 items-center gap-3 px-3 sm:px-5 lg:px-6">
-          <button onClick={()=>isTaskFlow?router.push("/transactions/new"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] lg:hidden" aria-label={isTaskFlow?"Back to new transaction":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"}/></button>
+          <button onClick={()=>isTaskFlow?router.push("/transactions/new"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm lg:hidden" aria-label={isTaskFlow?"Back to new transaction":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"} className="h-[19px] w-[19px]"/></button>
           <div className={"min-w-0 flex-1 lg:flex-none "+(isDashboard?"dashboard-top-title":"")}><p className={"truncate font-bold tracking-[-.015em] "+(isTaskFlow?"text-base":"text-sm")}>{currentTitle}</p></div>
           {!isTaskFlow?<><form onSubmit={submitSearch} className="mx-auto hidden w-full max-w-xl md:block"><div className="relative"><Icon name="search" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile, card last 4…" className="app-shell-search h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] pl-10 pr-3 text-sm"/></div></form>
           {isDashboard?<div className="dashboard-date-pill hidden sm:flex">{new Date().toLocaleDateString("en-IN",{month:"short",year:"numeric"})}</div>:<Link href="/transactions/new" className="app-primary-button hidden min-h-10 items-center gap-2 px-4 text-sm font-bold sm:flex"><Icon name="plus" className="h-4 w-4"/>New</Link>}</>:<div className="hidden flex-1 lg:block"/>}
@@ -135,16 +165,39 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main aria-busy={navigating} className={"app-main px-3 py-4 sm:px-5 sm:py-5 lg:px-7 lg:py-6 lg:pb-9 "+(isTaskFlow?"pb-8":"pb-24")}>{children}</main>
     </div>
 
-    {menuOpen?<div className="fixed inset-0 z-50 lg:hidden"><button className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={()=>setMenuOpen(false)} aria-label="Close navigation"/><aside className="app-sidebar absolute inset-y-0 left-0 flex w-[min(88vw,350px)] flex-col bg-[var(--surface)] shadow-2xl"><div className="flex h-16 items-center justify-between border-b border-[var(--border)] px-4"><div className="flex items-center gap-2.5"><BrandMark className="h-8 w-8"/><div><strong className="block text-sm">Best Agency</strong><span className="text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--text-muted)]">Cash Ledger</span></div></div><button onClick={()=>setMenuOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-soft)]"><Icon name="close"/></button></div><form onSubmit={submitSearch} className="border-b border-[var(--border)] p-3"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile or card last 4" className="app-control"/></form><nav className="flex-1 overflow-y-auto p-3">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-4"><p className="mb-1.5 px-3 text-[10px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p><div className="space-y-1">{rows.map(navLink)}</div></div>:null;})}</nav><div className="border-t border-[var(--border)] p-3"><div className="mb-2 grid grid-cols-3 gap-1 rounded-lg bg-[var(--surface-soft)] p-1">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-9 rounded-md text-xs capitalize "+(theme===mode?"bg-[var(--surface)] shadow-sm":"text-[var(--text-muted)]")}>{mode}</button>)}</div><button onClick={logout} className="min-h-10 w-full rounded-lg text-sm text-[var(--text-muted)]">Logout</button></div></aside></div>:null}
+    {menuOpen?<div className="fixed inset-0 z-50 lg:hidden">
+      <button className="absolute inset-0 bg-slate-950/50 backdrop-blur-[3px]" onClick={()=>setMenuOpen(false)} aria-label="Close navigation"/>
+      <aside className="app-sidebar absolute inset-y-0 left-0 flex w-[min(91vw,370px)] flex-col overflow-hidden rounded-r-[28px] border-r border-[var(--border)] bg-[var(--surface)] shadow-[18px_0_60px_rgba(15,23,42,.22)]">
+        <div className="border-b border-[var(--border)] bg-[linear-gradient(145deg,color-mix(in_srgb,var(--accent-soft)_72%,var(--surface)),var(--surface))] px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))]">
+          <div className="flex items-center justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#fff] shadow-[0_8px_22px_rgba(15,23,42,.10)] ring-1 ring-[color-mix(in_srgb,var(--accent)_10%,var(--border))]"><BrandMark className="h-8 w-8"/></span>
+              <div className="min-w-0"><strong className="block truncate text-base font-black tracking-[-.025em]">Cash Ledger</strong><span className="text-[10px] font-bold uppercase tracking-[.13em] text-[var(--text-muted)]">Menu</span></div>
+            </div>
+            <button onClick={()=>setMenuOpen(false)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm" aria-label="Close menu"><Icon name="close" className="h-[19px] w-[19px]"/></button>
+          </div>
+          <form onSubmit={submitSearch} className="mt-4"><div className="relative"><Icon name="search" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, mobile or card…" className="app-control h-11 bg-[var(--surface)] pl-10 shadow-sm"/></div></form>
+        </div>
+        <nav className="flex-1 overflow-y-auto px-3 py-4">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-5"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1.5">{rows.map(navLink)}</div></div>:null;})}</nav>
+        <div className="border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-soft)_55%,var(--surface))] p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
+          <div className="mb-2.5 flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-sm">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--accent)] text-sm font-black text-white">{userInitial}</span>
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{userName||"Cash Ledger User"}</p><p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">{role||"User"}</p></div>
+            <button onClick={logout} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-[var(--text-muted)] hover:bg-[var(--surface-soft)]" aria-label="Sign out"><Icon name="logout" className="h-[18px] w-[18px]"/></button>
+          </div>
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface)] p-1 ring-1 ring-[var(--border)]">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-9 rounded-lg text-[11px] font-bold capitalize transition "+(theme===mode?"bg-[var(--accent-soft)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>{mode}</button>)}</div>
+        </div>
+      </aside>
+    </div>:null}
 
     {newOpen?<div className="fixed inset-0 z-[60] lg:hidden"><button className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={()=>setNewOpen(false)} aria-label="Close new transaction"/><div className="absolute inset-x-0 bottom-0 rounded-t-[28px] border-t border-[var(--border)] bg-[var(--surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl"><div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border)]"/><div className="mb-3 flex items-center justify-between"><strong>New transaction</strong><Link href="/transactions/new" className="text-xs font-semibold text-[var(--accent)]">All types</Link></div><div className="grid grid-cols-2 gap-2">{quickActions.map(([label,href,short])=><Link key={href} href={href} className="app-quick-action flex min-h-16 items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-4"><span className="font-bold">{label}</span><span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{short}</span></Link>)}</div></div></div>:null}
 
-    {!isTaskFlow?<nav className="app-mobile-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_93%,transparent)] px-1 pb-[max(.35rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl lg:hidden">
-      <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="home" className="h-5 w-5"/><span>Home</span></Link>
-      <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="activity" className="h-5 w-5"/><span>Activity</span></Link>
-      <button onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[10px] font-bold text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-full border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#1d4ed8)] text-white shadow-[0_10px_24px_rgba(37,99,235,.35)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
-      {isDashboard?<Link href="/reports" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/reports")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="chart" className="h-5 w-5"/><span>Reports</span></Link>:<Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><Icon name="settle" className="h-5 w-5"/><span>Dues</span></Link>}
-      <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-[var(--text-muted)]"><Icon name="more" className="h-5 w-5"/><span>More</span></button>
+    {!isTaskFlow?<nav className="app-mobile-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_94%,transparent)] px-1.5 pb-[max(.4rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-12px_30px_rgba(15,23,42,.08)] backdrop-blur-xl lg:hidden">
+      <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/")?"bg-[var(--accent-soft)]":"")}><Icon name="home" className="h-[19px] w-[19px]"/></span><span>Home</span></Link>
+      <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/transactions")?"bg-[var(--accent-soft)]":"")}><Icon name="activity" className="h-[19px] w-[19px]"/></span><span>Activity</span></Link>
+      <button onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[10px] font-black text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-[20px] border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#4f46e5)] text-white shadow-[0_10px_26px_rgba(37,99,235,.34)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
+      {isDashboard?<Link href="/reports" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold "+(active("/reports")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/reports")?"bg-[var(--accent-soft)]":"")}><Icon name="chart" className="h-[19px] w-[19px]"/></span><span>Reports</span></Link>:<Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/dues")?"bg-[var(--accent-soft)]":"")}><Icon name="settle" className="h-[19px] w-[19px]"/></span><span>Dues</span></Link>}
+      <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold text-[var(--text-muted)]"><span className="grid h-8 w-10 place-items-center rounded-xl"><Icon name="more" className="h-[19px] w-[19px]"/></span><span>More</span></button>
     </nav>:null}
   </div>;
 }
