@@ -30,14 +30,14 @@ import type {
 import styles from "./finance-dashboard.module.css";
 
 const categoryPalette = [
-  "#5567e9",
-  "#10a57c",
-  "#e29a2d",
-  "#d85b72",
-  "#7f61d9",
-  "#278bb8",
-  "#8b6e4a",
+  "#2563eb",
+  "#3b82f6",
+  "#60a5fa",
+  "#93c5fd",
+  "#1d4ed8",
+  "#1e40af",
   "#64748b",
+  "#94a3b8",
 ];
 
 const money = (value: number | string, digits = 0) =>
@@ -601,8 +601,8 @@ export function FinanceDashboard() {
 
   const positionBuckets = [
     { label: "Physical cash", value: summary.cashBalance, href: "/cash-counter", icon: "cash" as DashboardIconName, tone: "blue" },
-    { label: "Bank + UPI", value: summary.bankBalance + summary.upiBalance, href: "/accounts", icon: "bank" as DashboardIconName, tone: "indigo" },
-    { label: "Provider wallets", value: summary.walletBalance, href: "/accounts?type=PROVIDER_WALLET", icon: "wallet" as DashboardIconName, tone: "teal" },
+    { label: "Bank + UPI", value: summary.bankBalance + summary.upiBalance, href: "/accounts", icon: "bank" as DashboardIconName, tone: "blue" },
+    { label: "Provider wallets", value: summary.walletBalance, href: "/accounts?type=PROVIDER_WALLET", icon: "wallet" as DashboardIconName, tone: "blue" },
     { label: "Receivables", value: summary.customerReceivable, href: "/receivables", icon: "receive" as DashboardIconName, tone: "green" },
     { label: "Pending settlement", value: summary.pendingProviderSettlements, href: "/provider-settlements", icon: "clock" as DashboardIconName, tone: "amber" },
     { label: "Payables", value: -summary.customerPayable, href: "/payables", icon: "arrowUp" as DashboardIconName, tone: "rose" },

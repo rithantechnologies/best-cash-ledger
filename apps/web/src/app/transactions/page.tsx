@@ -38,20 +38,22 @@ export default function TransactionsPage(){
  const totals=items.reduce((a,t)=>({gross:a.gross+Number(t.grossAmount),net:a.net+Number(t.netAmount??t.grossAmount)}),{gross:0,net:0});
  const grouped=items.reduce((map,t)=>{const k=new Date(t.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});const row=map.get(k)??[];row.push(t);map.set(k,row);return map;},new Map<string,Tx[]>());
 
- return <AppShell><PageFrame>
-  <SectionHeading title="Transactions" action={<Link href="/transactions/new" className="inline-flex min-h-10 items-center rounded-lg bg-[var(--text)] px-4 text-sm font-semibold text-[var(--surface)]">+ New</Link>}/>
-  <div className="flex gap-2 overflow-x-auto pb-1">{([["today","Today"],["yesterday","Yesterday"],["week","This week"],["all","All"]] as [Range,string][]).map(([v,l])=><button key={v} onClick={()=>setRange(v)} className={"min-h-9 shrink-0 rounded-full border px-3 text-xs font-semibold "+(range===v?"border-[var(--text)] bg-[var(--text)] text-[var(--surface)]":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{l}</button>)}</div>
+ return <AppShell><PageFrame className="ui-preview transactions-preview">
+  <SectionHeading title="Transactions"/>
+  <Surface className="p-1.5">
+   <div className="grid grid-cols-4 gap-1">{([["today","Today"],["yesterday","Yesterday"],["week","7 days"],["all","All"]] as [Range,string][]).map(([v,l])=><button key={v} onClick={()=>setRange(v)} className={"min-h-11 rounded-xl px-2 text-xs font-semibold transition "+(range===v?"bg-[var(--accent)] text-white":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}>{l}</button>)}</div>
+  </Surface>
 
   <Surface className="grid gap-2 p-3 sm:grid-cols-4">
-   <input className="app-control sm:col-span-2" placeholder="Search customer, number, reference…" value={q} onChange={e=>setQ(e.target.value)}/>
+   <input className="app-control sm:col-span-2" placeholder="Search transactions" value={q} onChange={e=>setQ(e.target.value)}/>
    <select className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All types</option>{["CARD_SWIPE","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x}>{x}</option>)}</select>
    <select className="app-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All status</option>{["PENDING","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</select>
   </Surface>
 
-  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-   <Surface className="p-3"><p className="text-xs text-[var(--text-muted)]">Transactions</p><p className="money mt-1 text-lg font-semibold">{pagination.total}</p></Surface>
-   <Surface className="p-3"><p className="text-xs text-[var(--text-muted)]">Gross</p><p className="money mt-1 truncate text-lg font-semibold">{money(totals.gross)}</p></Surface>
-   <Surface className="p-3"><p className="text-xs text-[var(--text-muted)]">Net</p><p className="money mt-1 truncate text-lg font-semibold">{money(totals.net)}</p></Surface>
+  <div className="grid grid-cols-3 gap-2.5">
+   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Transactions</p><p className="money mt-1.5 text-xl font-bold">{pagination.total}</p></Surface>
+   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Gross</p><p className="money mt-1.5 truncate text-xl font-bold">{money(totals.gross)}</p></Surface>
+   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Net</p><p className="money mt-1.5 truncate text-xl font-bold">{money(totals.net)}</p></Surface>
   </div>
 
   {error?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}

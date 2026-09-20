@@ -269,6 +269,68 @@ a:focus-visible {
   .app-modal-panel { border-radius: 24px; }
 }
 
+/* UI system preview — scoped to Dashboard/Transactions/Accounts until approved */
+.ui-preview {
+  --ui-action: #2563eb;
+  --ui-radius-control: 12px;
+  --ui-radius-card: 20px;
+  --ui-radius-dialog: 20px;
+}
+html[data-theme="dark"] .ui-preview { --ui-action: #2563eb; }
+
+.ui-preview .app-surface {
+  border-color: var(--border) !important;
+  border-radius: var(--ui-radius-card);
+  box-shadow: none;
+}
+.ui-preview .app-control {
+  min-height: 44px;
+  border-radius: var(--ui-radius-control);
+  background: var(--surface);
+  box-shadow: none;
+}
+.ui-preview .app-primary-button {
+  min-height: 44px;
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-action);
+  box-shadow: none;
+}
+.ui-preview .app-primary-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ui-action) 90%, #000 10%);
+  box-shadow: none;
+}
+.ui-preview .app-secondary-button {
+  min-height: 44px;
+  border-radius: var(--ui-radius-control);
+  box-shadow: none;
+}
+.ui-preview .app-section-heading h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -.035em;
+}
+.ui-preview .app-section-heading p { font-size: .875rem; }
+
+.ui-scroll-fade { position: relative; min-width: 0; }
+.ui-scroll-fade::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--surface));
+}
+@media (min-width: 1024px) { .ui-scroll-fade::after { display: none; } }
+@media (max-width: 639px) {
+  .ui-preview.accounts-preview .app-section-heading > div:first-child,
+  .ui-preview.transactions-preview .app-section-heading > div:first-child { display: none; }
+  .ui-preview.accounts-preview .app-section-heading,
+  .ui-preview.transactions-preview .app-section-heading { align-items: flex-end; }
+}
+
 .swipe-commerce-page {
   --accent: #2563eb;
   --accent-soft: #eff6ff;
