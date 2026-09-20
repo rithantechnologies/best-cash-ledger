@@ -105,88 +105,43 @@ export default function CashCounterPage(){
   if(loading)return <AppShell><PageLoader label="Loading today's cash…"/></AppShell>;
 
   return <AppShell><div className="page-enter mx-auto max-w-6xl space-y-5">
-    <SectionHeading
-      eyebrow="Daily cash control"
-      title={current?"Today's cash":"Start today's cash counter"}
-      description={current
-        ?"Opening cash plus today's cash in, minus today's cash out. Count the drawer before closing."
-        :"Count the physical cash in the shop before business starts. This becomes today's opening cash."}
-    />
+    <SectionHeading title="Cash counter"/>
     {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
 
-    {!current?<div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <Surface className="overflow-hidden">
-        <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <h3 className="text-sm font-extrabold">1. Count opening cash</h3>
-          <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">Include the cash already in the drawer or cash handed to staff before opening.</p>
+    {!current?<Surface className="mx-auto max-w-2xl overflow-hidden">
+      <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+        <h3 className="text-base font-black tracking-[-.02em]">Opening cash</h3>
+      </div>
+      <form onSubmit={openCounter} className="p-4 sm:p-5">
+        {!cashDrawer?<p className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Shop cash drawer is not configured.</p>:null}
+        <CountGrid qty={qty} setQty={setQty}/>
+        <div className="mt-4 flex items-center justify-between rounded-2xl bg-[var(--accent-soft)] px-4 py-3.5">
+          <span className="text-sm font-bold text-[var(--accent)]">Total</span>
+          <strong className="money text-2xl font-black tracking-[-.04em] text-[var(--accent)]">{money(countedTotal)}</strong>
         </div>
-        <form onSubmit={openCounter} className="p-4 sm:p-5">
-          <div className="mb-4 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
-            <div className="flex items-center gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16v11H4z"/><path d="M7 7V5h10v2"/><path d="M16 11h4v4h-4a2 2 0 0 1 0-4Z"/></svg>
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-extrabold">Shop cash drawer</p>
-                <p className="mt-0.5 text-xs text-[var(--text-muted)]">The physical cash kept at the shop counter.</p>
-              </div>
-            </div>
-            {!cashDrawer?<p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Shop cash drawer is not configured.</p>:null}
-          </div>
-          <CountGrid qty={qty} setQty={setQty}/>
-          <div className="mt-4 flex items-center justify-between rounded-2xl bg-[var(--accent-soft)] px-4 py-3">
-            <div><p className="text-xs font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Opening cash</p><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Physical cash counted now</p></div>
-            <strong className="money text-2xl font-black tracking-[-.04em] text-[var(--accent)]">{money(countedTotal)}</strong>
-          </div>
-          <button disabled={saving||!cashAccountId} className="mt-4 min-h-12 w-full rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-white shadow-sm disabled:opacity-40">{saving?"Saving…":"Start today's counter"}</button>
-        </form>
-      </Surface>
-
-      <Surface className="p-4 sm:p-5">
-        <p className="text-[10px] font-black uppercase tracking-[.12em] text-[var(--accent)]">How it works</p>
-        <div className="mt-4 space-y-4">
-          {[
-            ["1","Start","Count the notes and coins in the shop. Save that as opening cash."],
-            ["2","During the day","Cash transactions automatically increase or reduce the expected drawer cash."],
-            ["3","Close","Count the physical cash again. The system compares counted cash with expected cash."],
-          ].map(([step,title,detail])=><div key={step} className="flex gap-3">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[var(--surface-soft)] text-xs font-black text-[var(--accent)]">{step}</span>
-            <div><p className="text-sm font-bold">{title}</p><p className="mt-0.5 text-xs leading-5 text-[var(--text-muted)]">{detail}</p></div>
-          </div>)}
-        </div>
-        <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
-          <p className="text-xs font-bold">Owner → staff cash</p>
-          <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">If cash is handed over before opening, include it in the opening denomination count. Cash added later should be recorded through the normal cash transfer flow so today&apos;s expected cash updates automatically.</p>
-        </div>
-      </Surface>
-    </div>:null}
+        <button disabled={saving||!cashAccountId} className="mt-4 min-h-12 w-full rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-white shadow-sm disabled:opacity-40">{saving?"Saving…":"Open counter"}</button>
+      </form>
+    </Surface>:null}
 
     {current?<>
       <Surface className="overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[.1em] text-[var(--text-muted)]">Shop cash drawer</p>
-            <h3 className="mt-1 text-lg font-black tracking-[-.025em]">Counter is open</h3>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">Opened {new Date(current.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}{current.openedBy?.fullName?" by "+current.openedBy.fullName:""}</p>
-          </div>
-          <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700"><span className="h-2 w-2 rounded-full bg-emerald-500"/>Live</span>
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <p className="text-xs font-semibold text-[var(--text-muted)]">Opened {new Date(current.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}{current.openedBy?.fullName?" · "+current.openedBy.fullName:""}</p>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500"/>Open</span>
         </div>
         <div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4">
-          <div className="bg-[var(--surface)] p-4"><p className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Opening cash</p><p className="money mt-1.5 text-xl font-black">{money(current.openingTotal)}</p></div>
+          <div className="bg-[var(--surface)] p-4"><p className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Opening</p><p className="money mt-1.5 text-xl font-black">{money(current.openingTotal)}</p></div>
           <div className="bg-[var(--surface)] p-4"><p className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Cash in</p><p className="money mt-1.5 text-xl font-black text-emerald-700">+{money(cashIn)}</p></div>
           <div className="bg-[var(--surface)] p-4"><p className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Cash out</p><p className="money mt-1.5 text-xl font-black text-rose-600">−{money(cashOut)}</p></div>
-          <div className="bg-[var(--accent-soft)] p-4"><p className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--accent)]">Expected now</p><p className="money mt-1.5 text-xl font-black text-[var(--accent)]">{money(expected)}</p></div>
-        </div>
-        <div className="border-t border-[var(--border)] px-4 py-3 sm:px-5">
-          <p className="text-xs font-semibold text-[var(--text-muted)]">Opening {money(current.openingTotal)} + cash in {money(cashIn)} − cash out {money(cashOut)} = <strong className="text-[var(--text)]">{money(expected)} expected in drawer</strong></p>
+          <div className="bg-[var(--accent-soft)] p-4"><p className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--accent)]">Expected cash</p><p className="money mt-1.5 text-xl font-black text-[var(--accent)]">{money(expected)}</p></div>
         </div>
       </Surface>
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <Surface className="overflow-hidden">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-            <div><h3 className="text-sm font-extrabold">Today&apos;s cash movements</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">What increased or reduced the physical cash.</p></div>
-            <span className="text-xs font-semibold text-[var(--text-muted)]">{current.movements?.length??0} shown</span>
+            <h3 className="text-sm font-extrabold">Cash movements</h3>
+            <span className="text-xs font-semibold text-[var(--text-muted)]">{current.movements?.length??0}</span>
           </div>
           {current.movements?.length?<div className="divide-y divide-[var(--border)]">
             {current.movements.slice(0,10).map((movement)=><div key={movement.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
@@ -197,26 +152,32 @@ export default function CashCounterPage(){
               </div>
               <strong className={"money shrink-0 text-sm "+(movement.direction==="IN"?"text-emerald-700":"text-rose-600")}>{movement.direction==="IN"?"+":"−"}{money(movement.amount)}</strong>
             </div>)}
-          </div>:<div className="p-5"><EmptyState title="No cash movement yet" description="Cash in and out will appear here as transactions are recorded."/></div>}
+          </div>:<div className="p-5"><EmptyState title="No cash movement yet"/></div>}
         </Surface>
 
         <div className="space-y-4">
-          <Surface className="p-4 sm:p-5">
-            <p className="text-[10px] font-black uppercase tracking-[.12em] text-[var(--accent)]">End of day</p>
-            <h3 className="mt-1 text-base font-black">Count and close</h3>
-            <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">When business is finished, count every denomination again. We will compare it with {money(expected)} expected cash.</p>
-            {!closing?<button type="button" onClick={()=>{setClosing(true);setQty({});setError("");}} className="mt-4 min-h-11 w-full rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-white">Count closing cash</button>:null}
-            <details className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
-              <summary className="cursor-pointer text-xs font-bold text-[var(--text-muted)]">Opening denomination count</summary>
-              <div className="mt-3"><CountBreakdown counts={current.denominationCounts} type="OPENING"/></div>
-            </details>
+          <Surface className="overflow-hidden">
+            <div className="border-b border-[var(--border)] px-4 py-3.5">
+              <h3 className="text-sm font-extrabold">Close counter</h3>
+            </div>
+            <div className="p-4">
+              <div className="flex items-end justify-between gap-3">
+                <span className="text-xs font-semibold text-[var(--text-muted)]">Expected cash</span>
+                <strong className="money text-xl font-black">{money(expected)}</strong>
+              </div>
+              {!closing?<button type="button" onClick={()=>{setClosing(true);setQty({});setError("");}} className="mt-4 min-h-11 w-full rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-white">Count & close</button>:null}
+              <details className="mt-3">
+                <summary className="cursor-pointer text-xs font-bold text-[var(--text-muted)]">Opening count</summary>
+                <div className="mt-3"><CountBreakdown counts={current.denominationCounts} type="OPENING"/></div>
+              </details>
+            </div>
           </Surface>
         </div>
       </div>
 
       {closing?<Surface className="overflow-hidden">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <div><h3 className="text-sm font-extrabold">Closing cash count</h3><p className="mt-0.5 text-xs text-[var(--text-muted)]">Enter the physical notes and coins remaining in the drawer.</p></div>
+          <h3 className="text-sm font-extrabold">Closing cash</h3>
           <button type="button" onClick={()=>{setClosing(false);setQty({});setRemarks("");setError("");}} className="text-xs font-bold text-[var(--text-muted)]">Cancel</button>
         </div>
         <form onSubmit={closeCounter} className="p-4 sm:p-5">
@@ -226,7 +187,7 @@ export default function CashCounterPage(){
             <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Counted</p><p className="money mt-1 text-sm font-black">{money(countedTotal)}</p></div>
             <div className={"rounded-xl p-3 "+(Math.abs(difference)>.005?"bg-rose-50":"bg-emerald-50")}><p className={"text-[10px] font-bold uppercase tracking-[.08em] "+(Math.abs(difference)>.005?"text-rose-600":"text-emerald-700")}>Difference</p><p className={"money mt-1 text-sm font-black "+(Math.abs(difference)>.005?"text-rose-700":"text-emerald-700")}>{money(difference)}</p></div>
           </div>
-          {Math.abs(difference)>.005?<div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-800">The physical cash does not match the expected cash. Add a short explanation before closing.</div>:null}
+          {Math.abs(difference)>.005?<div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">Add a note for the {money(difference)} difference.</div>:null}
           <label className="mt-3 block"><span className="mb-1.5 block text-sm font-semibold">Closing note {Math.abs(difference)>.005?"(required)":""}</span><textarea className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-base sm:text-sm" placeholder={Math.abs(difference)>.005?"Example: ₹500 short - used for shop purchase not yet entered":"Optional note"} value={remarks} onChange={(event)=>setRemarks(event.target.value)}/></label>
           <button disabled={saving} className="mt-4 min-h-12 w-full rounded-xl bg-[var(--text)] px-4 text-sm font-bold text-[var(--surface)] disabled:opacity-40">{saving?"Closing…":"Close today's counter"}</button>
         </form>
@@ -236,7 +197,6 @@ export default function CashCounterPage(){
     <Surface className="overflow-hidden">
       <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
         <h3 className="text-sm font-extrabold">Previous days</h3>
-        <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Opening count, closing count and any difference.</p>
       </div>
       {history.filter((session)=>session.status==="CLOSED").length?<div className="divide-y divide-[var(--border)]">
         {history.filter((session)=>session.status==="CLOSED").slice(0,14).map((session)=>{
@@ -245,7 +205,7 @@ export default function CashCounterPage(){
             <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 sm:px-5">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold">{new Date(session.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p>
-                <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">Shop cash drawer{session.openedBy?.fullName?" · opened by "+session.openedBy.fullName:""}</p>
+                {session.openedBy?.fullName?<p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">Opened by {session.openedBy.fullName}</p>:null}
               </div>
               <div className="text-right">
                 <p className="money text-sm font-black">{money(session.actualClosingTotal||0)}</p>
@@ -272,7 +232,7 @@ export default function CashCounterPage(){
             </div>
           </details>;
         })}
-      </div>:<div className="p-5"><EmptyState title="No closed counter days yet" description="Closed days will appear here for the owner to review."/></div>}
+      </div>:<div className="p-5"><EmptyState title="No closed days yet"/></div>}
     </Surface>
   </div></AppShell>;
 }
