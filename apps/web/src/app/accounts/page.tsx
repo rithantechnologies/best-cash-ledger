@@ -46,17 +46,17 @@ function metaLine(account:Account){
   return parts.join(" · ");
 }
 function accountTone(type:string){
-  if(type==="CASH")return {bar:"bg-emerald-500",glow:"bg-emerald-400/10",icon:"bg-emerald-100 text-emerald-700",soft:"bg-emerald-50 text-emerald-700"};
-  if(type==="UPI")return {bar:"bg-violet-500",glow:"bg-violet-400/10",icon:"bg-violet-100 text-violet-700",soft:"bg-violet-50 text-violet-700"};
-  if(type==="PROVIDER_WALLET")return {bar:"bg-amber-500",glow:"bg-amber-400/10",icon:"bg-amber-100 text-amber-700",soft:"bg-amber-50 text-amber-700"};
-  if(type==="OWNER_CREDIT_CARD")return {bar:"bg-rose-500",glow:"bg-rose-400/10",icon:"bg-rose-100 text-rose-700",soft:"bg-rose-50 text-rose-700"};
-  return {bar:"bg-indigo-500",glow:"bg-indigo-400/10",icon:"bg-indigo-100 text-indigo-700",soft:"bg-indigo-50 text-indigo-700"};
+  if(type==="CASH")return {bar:"bg-emerald-500",glow:"bg-emerald-400/10",icon:"bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",soft:"bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"};
+  if(type==="UPI")return {bar:"bg-violet-500",glow:"bg-violet-400/10",icon:"bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300",soft:"bg-violet-50 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300"};
+  if(type==="PROVIDER_WALLET")return {bar:"bg-amber-500",glow:"bg-amber-400/10",icon:"bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300",soft:"bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"};
+  if(type==="OWNER_CREDIT_CARD")return {bar:"bg-rose-500",glow:"bg-rose-400/10",icon:"bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300",soft:"bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300"};
+  return {bar:"bg-indigo-500",glow:"bg-indigo-400/10",icon:"bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300",soft:"bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"};
 }
 function AccountModal({open,onClose,title,description,children}:{open:boolean;onClose:()=>void;title:string;description?:string;children:ReactNode}){
   if(!open||typeof document==="undefined")return null;
   return createPortal(<div className="fixed inset-0 z-[220] flex items-end justify-center bg-slate-950/50 backdrop-blur-[4px] sm:items-center sm:p-5">
     <button type="button" className="absolute inset-0" onClick={onClose} aria-label="Close dialog"/>
-    <section className="relative z-10 max-h-[92dvh] w-full overflow-hidden rounded-t-[28px] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[26px]">
+    <section role="dialog" aria-modal="true" aria-label={title} className="relative z-10 max-h-[92dvh] w-full overflow-hidden rounded-t-[28px] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[26px]">
       <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6">
         <div className="min-w-0"><h3 className="text-lg font-black tracking-[-.025em]">{title}</h3>{description?<p className="mt-1 text-xs text-[var(--text-muted)]">{description}</p>:null}</div>
         <button type="button" onClick={onClose} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--surface-soft)] text-xl text-[var(--text-muted)]" aria-label="Close">×</button>
@@ -203,7 +203,7 @@ export default function AccountsPage(){
       </div>
     </Surface>
 
-    {filteredItems.length?<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+    {filteredItems.length?<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {filteredItems.map((account)=>{
         const meta=metaLine(account);
         const tone=accountTone(account.accountType);
@@ -230,9 +230,9 @@ export default function AccountsPage(){
             <div className="mt-1.5 flex justify-between gap-2 text-[10px] font-semibold text-[var(--text-muted)]"><span>{cardUsed.toFixed(0)}% used</span><span>{money(account.availableCredit??0)} free</span></div>
           </div>:null}
           <div className="relative mt-auto flex items-center gap-2 border-t border-[var(--border)] pt-3">
-            <Link href={"/accounts/"+account.id} className={"flex min-h-9 flex-1 items-center justify-center rounded-xl px-3 text-xs font-extrabold transition "+tone.soft}>View ledger <span className="ml-1">→</span></Link>
-            {admin&&account.accountType!=="PROVIDER_WALLET"?<button type="button" onClick={()=>account.isActive?beginEdit(account):setToggleTarget(account)} className="grid h-9 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] transition hover:text-[var(--text)]" aria-label={account.isActive?"Edit "+account.accountName:"Reactivate "+account.accountName}>
-              {account.isActive?<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>:<span className="text-base">↻</span>}
+            <Link href={"/accounts/"+account.id} className={"flex min-h-9 flex-1 items-center justify-center rounded-xl px-3 text-xs font-extrabold transition "+tone.soft}>Ledger <span className="ml-1">→</span></Link>
+            {admin&&account.accountType!=="PROVIDER_WALLET"?<button type="button" onClick={()=>account.isActive?beginEdit(account):setToggleTarget(account)} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]" aria-label={account.isActive?"Edit "+account.accountName:"Reactivate "+account.accountName}>
+              {account.isActive?<><svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>Edit</>:<><span className="text-sm">↻</span>Reactivate</>}
             </button>:null}
           </div>
         </Surface>;
@@ -268,7 +268,7 @@ export default function AccountsPage(){
           {editing.accountType==="OWNER_CREDIT_CARD"?<label className="block"><span className="mb-1.5 block text-sm font-semibold">Credit limit</span><input className="app-control" type="number" min="0.01" step="0.01" value={editLimit} onChange={(e)=>setEditLimit(e.target.value)} required/></label>:null}</>:null}
         </div>
         <button disabled={saving} className="app-primary-button min-h-11 w-full px-4 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Save"}</button>
-        <button type="button" onClick={()=>setToggleTarget(editing)} className="min-h-10 w-full rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50">Deactivate account</button>
+        <button type="button" onClick={()=>{setToggleTarget(editing);setEditing(null);}} className="min-h-10 w-full rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50">Deactivate account</button>
       </form>:null}
     </AccountModal>
     <AccountModal open={Boolean(toggleTarget)} onClose={()=>setToggleTarget(null)} title={toggleTarget?.isActive?"Deactivate account":"Reactivate account"}>
