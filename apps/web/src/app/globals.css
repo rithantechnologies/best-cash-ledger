@@ -2435,3 +2435,45 @@ html[data-theme="dark"] .ref-dashboard{--ref-grid:#243a55}
   .dashboard-neon-shell .lg\:pl-64{padding-left:224px!important}
   .dashboard-neon-shell .dashboard-top-title{display:none}
 }
+
+/* Premium financial command-centre shell */
+.dashboard-finance-shell .app-main {
+  background:
+    radial-gradient(circle at 94% -4%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 30rem),
+    radial-gradient(circle at 28% 18%, color-mix(in srgb, var(--money-in) 3%, transparent), transparent 24rem),
+    var(--bg);
+}
+.dashboard-finance-shell .app-sidebar {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--accent) 2%), var(--surface));
+  box-shadow: 8px 0 30px color-mix(in srgb, #0f172a 3%, transparent);
+}
+.dashboard-finance-shell .app-topbar {
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 82%, transparent);
+}
+.dashboard-finance-shell .app-shell-search {
+  background: color-mix(in srgb, var(--surface-soft) 74%, var(--surface));
+}
+.dashboard-finance-shell .dashboard-date-pill {
+  min-height: 40px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+  box-shadow: none;
+}
+html[data-theme="dark"] .dashboard-finance-shell .app-main {
+  background:
+    radial-gradient(circle at 94% -4%, rgba(91, 154, 227, .07), transparent 30rem),
+    radial-gradient(circle at 28% 18%, rgba(68, 204, 160, .025), transparent 24rem),
+    var(--bg);
+}
+@media (min-width: 1024px) {
+  .dashboard-finance-shell .app-main {
+    padding-inline: clamp(24px, 2.4vw, 42px);
+    padding-top: 25px;
+  }
+  .dashboard-finance-shell .dashboard-top-title { display: none; }
+}
+@media (max-width: 639px) {
+  .dashboard-finance-shell .app-main { padding-top: 14px; }
+}

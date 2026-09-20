@@ -1,5 +1,16 @@
-import { Injectable } from '@nestjs/common';
-import { AccountNature, AccountType, EntryType, PayableStatus, Prisma, ReceivableStatus, TransactionType } from '@prisma/client';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  AccountNature,
+  AccountType,
+  EntryType,
+  LedgerType,
+  PayableStatus,
+  PaymentStatus,
+  Prisma,
+  ReceivableStatus,
+  TransactionType,
+  UsageType,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 type AccountBalance = {
@@ -17,6 +28,8 @@ type AccountBalance = {
   lastFourDigits: string | null;
   providerId: string | null;
 };
+
+type AnalyticsScope = 'ALL' | 'BUSINESS' | 'PERSONAL';
 
 @Injectable()
 export class DashboardService {
@@ -252,14 +265,24 @@ export class DashboardService {
       txSum(TransactionType.PERSONAL_EXPENSE),
     ]);
 
-    const commissions = await this.prisma.transactionCommission.aggregate({
-      where: { transaction: { transactionAt: range, status: { not: 'REVERSED' } } },
-      _sum: { amount: true },
-    });
-    const charges = await this.prisma.transactionCharge.aggregate({
-      where: { transaction: { transactionAt: range, status: { not: 'REVERSED' } } },
-      _sum: { amount: true },
-    });
+    const [commissions, charges, settlementReceipts] = await Promise.all([
+      this.prisma.transactionCommission.aggregate({
+        where: {
+          transaction: { transactionAt: range, status: { not: 'REVERSED' } },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.transactionCharge.aggregate({
+        where: {
+          transaction: { transactionAt: range, status: { not: 'REVERSED' } },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.providerSettlementReceipt.aggregate({
+        where: { receivedAt: range, status: PaymentStatus.COMPLETED },
+        _sum: { amount: true },
+      }),
+    ]);
     const movementByTypes = async (types: AccountType[], entryType: EntryType) => {
       const ledgers = await this.prisma.ledgerAccount.findMany({
         where: { financialAccount: { accountType: { in: types } } },
@@ -306,6 +329,7 @@ export class DashboardService {
       customerPayout,
       customerReceipt,
       receivableCreated,
+      settlementsReceived: Number(settlementReceipts._sum.amount ?? 0),
       commission: Number(commissions._sum.amount ?? 0),
       providerCharges: Number(charges._sum.amount ?? 0),
       businessExpense,
@@ -919,5 +943,364 @@ export class DashboardService {
           operatingPosition - creditCardOutstanding,
       };
     });
+  }
+
+  async analytics(filters: {
+    from?: string;
+    to?: string;
+    scope?: string;
+  }) {
+    const end = filters.to ? new Date(filters.to) : new Date();
+    const start = filters.from
+      ? new Date(filters.from)
+      : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    if (
+      Number.isNaN(start.getTime()) ||
+      Number.isNaN(end.getTime()) ||
+      end <= start
+    ) {
+      throw new BadRequestException('Invalid dashboard date range');
+    }
+
+    const dayMs = 24 * 60 * 60 * 1000;
+    const duration = end.getTime() - start.getTime();
+    if (duration > 366 * dayMs) {
+      throw new BadRequestException(
+        'Dashboard analytics are limited to 366 days',
+      );
+    }
+
+    const scope = (filters.scope ?? 'ALL').toUpperCase() as AnalyticsScope;
+    if (!['ALL', 'BUSINESS', 'PERSONAL'].includes(scope)) {
+      throw new BadRequestException('Invalid dashboard scope');
+    }
+
+    const expenseUsage =
+      scope === 'ALL'
+        ? [UsageType.BUSINESS, UsageType.PERSONAL]
+        : [scope as UsageType];
+    const expenseTypes =
+      scope === 'ALL'
+        ? [TransactionType.BUSINESS_EXPENSE, TransactionType.PERSONAL_EXPENSE]
+        : scope === 'BUSINESS'
+          ? [TransactionType.BUSINESS_EXPENSE]
+          : [TransactionType.PERSONAL_EXPENSE];
+    const range = { gte: start, lt: end };
+    const previousRange = {
+      gte: new Date(start.getTime() - duration),
+      lt: start,
+    };
+    const accountUsage =
+      scope === 'ALL'
+        ? undefined
+        : { in: [scope as UsageType, UsageType.MIXED] };
+    const liquidAccountTypes = [
+      AccountType.CASH,
+      AccountType.BANK,
+      AccountType.UPI,
+      AccountType.PROVIDER_WALLET,
+    ];
+
+    const [
+      expenseRows,
+      previousExpenses,
+      cashFlowEntries,
+      incomeEntries,
+      recentRows,
+    ] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where: {
+          transactionAt: range,
+          status: { not: 'REVERSED' },
+          transactionType: { in: expenseTypes },
+          expense: { is: { expenseType: { in: expenseUsage } } },
+        },
+        select: {
+          id: true,
+          transactionNumber: true,
+          transactionAt: true,
+          grossAmount: true,
+          status: true,
+          referenceNumber: true,
+          notes: true,
+          expense: {
+            select: {
+              amount: true,
+              description: true,
+              expenseType: true,
+              expenseCategory: { select: { id: true, name: true } },
+              paymentAccount: {
+                select: { id: true, accountName: true, accountType: true },
+              },
+            },
+          },
+        },
+        orderBy: { transactionAt: 'desc' },
+      }),
+      this.prisma.expenseDetail.aggregate({
+        where: {
+          expenseType: { in: expenseUsage },
+          transaction: {
+            transactionAt: previousRange,
+            status: { not: 'REVERSED' },
+          },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.ledgerEntry.findMany({
+        where: {
+          ledgerAccount: {
+            financialAccount: {
+              is: {
+                accountNature: AccountNature.ASSET,
+                accountType: { in: liquidAccountTypes },
+                ...(accountUsage ? { usageType: accountUsage } : {}),
+              },
+            },
+          },
+          journal: {
+            postingDate: range,
+            status: 'POSTED',
+            transaction: { status: { not: 'REVERSED' } },
+          },
+        },
+        select: {
+          id: true,
+          entryType: true,
+          amount: true,
+          description: true,
+          ledgerAccount: {
+            select: {
+              financialAccount: {
+                select: {
+                  id: true,
+                  accountName: true,
+                  accountType: true,
+                  usageType: true,
+                },
+              },
+            },
+          },
+          journal: {
+            select: {
+              postingDate: true,
+              transaction: {
+                select: {
+                  id: true,
+                  transactionNumber: true,
+                  transactionType: true,
+                  status: true,
+                  referenceNumber: true,
+                  customer: { select: { fullName: true } },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { journal: { postingDate: 'asc' } },
+      }),
+      scope === 'PERSONAL'
+        ? Promise.resolve([])
+        : this.prisma.ledgerEntry.findMany({
+            where: {
+              ledgerAccount: { ledgerType: LedgerType.INCOME },
+              journal: {
+                postingDate: range,
+                status: 'POSTED',
+                transaction: { status: { not: 'REVERSED' } },
+              },
+            },
+            select: {
+              entryType: true,
+              amount: true,
+              description: true,
+              journal: {
+                select: {
+                  postingDate: true,
+                  transaction: {
+                    select: {
+                      id: true,
+                      transactionNumber: true,
+                      transactionType: true,
+                      status: true,
+                      customer: { select: { fullName: true } },
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: { journal: { postingDate: 'desc' } },
+          }),
+      this.prisma.transaction.findMany({
+        where: {
+          transactionAt: range,
+          status: { not: 'REVERSED' },
+          ...(scope === 'PERSONAL'
+            ? { transactionType: TransactionType.PERSONAL_EXPENSE }
+            : scope === 'BUSINESS'
+              ? { transactionType: { not: TransactionType.PERSONAL_EXPENSE } }
+              : {}),
+        },
+        select: {
+          id: true,
+          transactionNumber: true,
+          transactionType: true,
+          transactionAt: true,
+          grossAmount: true,
+          netAmount: true,
+          status: true,
+          referenceNumber: true,
+          customer: { select: { fullName: true } },
+          expense: {
+            select: {
+              description: true,
+              expenseType: true,
+              expenseCategory: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { transactionAt: 'desc' },
+        take: 12,
+      }),
+    ]);
+
+    const expenseTransactions = expenseRows.flatMap((row) =>
+      row.expense
+        ? [
+            {
+              id: row.id,
+              transactionNumber: row.transactionNumber,
+              transactionAt: row.transactionAt,
+              amount: Number(row.expense.amount),
+              status: row.status,
+              referenceNumber: row.referenceNumber,
+              notes: row.notes,
+              description: row.expense.description,
+              expenseType: row.expense.expenseType,
+              category: row.expense.expenseCategory,
+              account: row.expense.paymentAccount,
+            },
+          ]
+        : [],
+    );
+
+    const expenseTotal = expenseTransactions.reduce(
+      (sum, item) => sum + item.amount,
+      0,
+    );
+    const businessExpenseTotal = expenseTransactions
+      .filter((item) => item.expenseType === UsageType.BUSINESS)
+      .reduce((sum, item) => sum + item.amount, 0);
+    const personalExpenseTotal = expenseTransactions
+      .filter((item) => item.expenseType === UsageType.PERSONAL)
+      .reduce((sum, item) => sum + item.amount, 0);
+
+    const dailyFlow = new Map<
+      string,
+      { moneyIn: number; moneyOut: number }
+    >();
+    const cashFlowMovements = cashFlowEntries.flatMap((entry) => {
+      const account = entry.ledgerAccount.financialAccount;
+      if (!account) return [];
+      const date = this.dateKey(entry.journal.postingDate);
+      const row = dailyFlow.get(date) ?? { moneyIn: 0, moneyOut: 0 };
+      const amount = Number(entry.amount);
+      if (entry.entryType === EntryType.DEBIT) row.moneyIn += amount;
+      else row.moneyOut += amount;
+      dailyFlow.set(date, row);
+      return [
+        {
+          id: entry.id,
+          date,
+          direction: entry.entryType === EntryType.DEBIT ? 'IN' : 'OUT',
+          amount,
+          description: entry.description,
+          account,
+          transaction: entry.journal.transaction,
+        },
+      ];
+    });
+
+    const cashFlow = [];
+    let cursor = this.indiaDayRange(start).start;
+    while (cursor < end && cashFlow.length < 367) {
+      const date = this.dateKey(cursor);
+      const row = dailyFlow.get(date) ?? { moneyIn: 0, moneyOut: 0 };
+      cashFlow.push({
+        date,
+        moneyIn: row.moneyIn,
+        moneyOut: row.moneyOut,
+        net: row.moneyIn - row.moneyOut,
+      });
+      cursor = new Date(cursor.getTime() + dayMs);
+    }
+
+    const incomeByTransaction = new Map<
+      string,
+      {
+        id: string;
+        transactionNumber: string;
+        transactionType: TransactionType;
+        transactionAt: Date;
+        status: string;
+        customer: { fullName: string } | null;
+        amount: number;
+        description: string | null;
+      }
+    >();
+    for (const entry of incomeEntries) {
+      const transaction = entry.journal.transaction;
+      const signedAmount =
+        entry.entryType === EntryType.CREDIT
+          ? Number(entry.amount)
+          : -Number(entry.amount);
+      const current = incomeByTransaction.get(transaction.id);
+      if (current) current.amount += signedAmount;
+      else {
+        incomeByTransaction.set(transaction.id, {
+          id: transaction.id,
+          transactionNumber: transaction.transactionNumber,
+          transactionType: transaction.transactionType,
+          transactionAt: entry.journal.postingDate,
+          status: transaction.status,
+          customer: transaction.customer,
+          amount: signedAmount,
+          description: entry.description,
+        });
+      }
+    }
+    const incomeTransactions = [...incomeByTransaction.values()].filter(
+      (item) => Math.abs(item.amount) > 0.005,
+    );
+    const incomeTotal = incomeTransactions.reduce(
+      (sum, item) => sum + item.amount,
+      0,
+    );
+
+    return {
+      range: { from: start, to: end, scope },
+      expenses: {
+        total: expenseTotal,
+        businessTotal: businessExpenseTotal,
+        personalTotal: personalExpenseTotal,
+        previousTotal: Number(previousExpenses._sum.amount ?? 0),
+        transactions: expenseTransactions,
+      },
+      cashFlow: {
+        series: cashFlow,
+        movements: cashFlowMovements,
+        moneyIn: cashFlow.reduce((sum, row) => sum + row.moneyIn, 0),
+        moneyOut: cashFlow.reduce((sum, row) => sum + row.moneyOut, 0),
+        net: cashFlow.reduce((sum, row) => sum + row.net, 0),
+      },
+      income: {
+        total: incomeTotal,
+        transactions: incomeTransactions,
+      },
+      recent: recentRows.map((row) => ({
+        ...row,
+        context: row.expense?.expenseType ?? UsageType.BUSINESS,
+      })),
+    };
   }
 }
