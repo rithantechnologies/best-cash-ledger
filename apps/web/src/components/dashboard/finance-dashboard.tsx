@@ -115,12 +115,14 @@ function accountIcon(accountType: string): DashboardIconName {
 }
 
 function SectionHeading({
+  id,
   eyebrow,
   title,
   description,
   action,
 }: {
-  eyebrow: string;
+  id?: string;
+  eyebrow?: string;
   title: string;
   description?: string;
   action?: ReactNode;
@@ -128,8 +130,8 @@ function SectionHeading({
   return (
     <div className={styles.sectionHeading}>
       <div>
-        <p className={styles.eyebrow}>{eyebrow}</p>
-        <h2>{title}</h2>
+        {eyebrow ? <p className={styles.eyebrow}>{eyebrow}</p> : null}
+        <h2 id={id}>{title}</h2>
         {description ? <p className={styles.sectionDescription}>{description}</p> : null}
       </div>
       {action ? <div className={styles.sectionAction}>{action}</div> : null}
@@ -211,7 +213,6 @@ function DrilldownSheet({
         <div className={styles.drawerHandle} />
         <header className={styles.drawerHeader}>
           <div>
-            <p className={styles.eyebrow}>Reconciled detail</p>
             <h2 id="dashboard-detail-title">
               {detail.kind === "flow" && detail.point
                 ? new Date(`${detail.point.date}T00:00:00`).toLocaleDateString("en-IN", {
@@ -226,7 +227,7 @@ function DrilldownSheet({
                 ? detail.subtitle
                 : detail.kind === "flow"
                   ? detail.subtitle
-                  : "Income entries posted to the ledger"}
+                  : "Income entries"}
             </p>
           </div>
           <button className={styles.iconButton} onClick={onClose} aria-label="Close details">
@@ -247,7 +248,7 @@ function DrilldownSheet({
           </div>
         ) : (
           <div className={styles.drawerSummary}>
-            <div><span>Recorded income</span><strong className={styles.positiveText}>{money(incomeTotal)}</strong></div>
+            <div><span>Income</span><strong className={styles.positiveText}>{money(incomeTotal)}</strong></div>
             <div><span>Entries</span><strong>{detail.records.length}</strong></div>
           </div>
         )}
@@ -305,16 +306,6 @@ function DrilldownSheet({
           ) : null}
         </div>
 
-        <footer className={styles.drawerFooter}>
-          <DashboardIcon name="check" />
-          <span>
-            {detail.kind === "expenses"
-              ? `Listed transactions reconcile to ${money(expenseTotal)}.`
-              : detail.kind === "flow"
-                ? `Listed movements reconcile to ${money(flowIn)} in and ${money(flowOut)} out.`
-                : `Listed entries reconcile to ${money(incomeTotal)}.`}
-          </span>
-        </footer>
       </aside>
     </div>
   );
@@ -322,7 +313,7 @@ function DrilldownSheet({
 
 function DashboardSkeleton() {
   return (
-    <div className={styles.skeletonPage} aria-label="Loading financial command centre">
+    <div className={styles.skeletonPage} aria-label="Loading dashboard">
       <div className={`${styles.skeleton} ${styles.skeletonHeader}`} />
       <div className={`${styles.skeleton} ${styles.skeletonHero}`} />
       <div className={styles.skeletonGrid}>
@@ -527,7 +518,7 @@ export function FinanceDashboard() {
       <AppShell>
         <div className={styles.errorState}>
           <span><DashboardIcon name="warning" /></span>
-          <h1>Financial command centre could not load</h1>
+          <h1>Dashboard could not load</h1>
           <p>{error || "Please try again."}</p>
           <button onClick={loadCore}>Try again</button>
         </div>
@@ -643,7 +634,7 @@ export function FinanceDashboard() {
     });
   }
 
-  function openAllExpenses(title = "Recorded expenses", records = analytics?.expenses.transactions ?? []) {
+  function openAllExpenses(title = "Expenses", records = analytics?.expenses.transactions ?? []) {
     setDrilldown({
       kind: "expenses",
       title,
@@ -657,7 +648,7 @@ export function FinanceDashboard() {
       kind: "flow",
       point,
       title: "Daily account movement",
-      subtitle: "Posted movements across the accounts in this view",
+      subtitle: "Account movements in this view",
       records: analytics?.cashFlow.movements.filter((record) => record.date === point.date) ?? [],
     });
   }
@@ -667,7 +658,7 @@ export function FinanceDashboard() {
     setDrilldown({
       kind: "flow",
       title: `${label} · ${range.label}`,
-      subtitle: `${titleCase(context)} context · every posted movement behind this total`,
+      subtitle: `${range.label} · ${context === "ALL" ? "All" : titleCase(context)}`,
       records: analytics?.cashFlow.movements.filter((record) => record.direction === direction) ?? [],
     });
   }
@@ -677,16 +668,10 @@ export function FinanceDashboard() {
       <div className={styles.page}>
         <header className={styles.commandHeader}>
           <div>
-            <p className={styles.eyebrow}>Best Agency · Financial control</p>
-            <h1>{viewer ? `${viewer}, here is your money.` : "Your money, clearly."}</h1>
-            <p className={styles.headerDescription}>Balances, obligations, spending, and today’s movement in one trusted view.</p>
+            <h1>Financial overview</h1>
+            {viewer ? <p className={styles.headerDescription}>Welcome, {viewer}</p> : null}
           </div>
           <div className={styles.commandControls}>
-            <div className={styles.liveStamp}>
-              <i />
-              <span>Live books</span>
-              <b>{new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</b>
-            </div>
             <div className={styles.contextControl} role="group" aria-label="Financial context">
               {(["ALL", "BUSINESS", "PERSONAL"] as FinancialContext[]).map((value) => (
                 <button
@@ -707,7 +692,7 @@ export function FinanceDashboard() {
             <div className={styles.positionCopy}>
               <div className={styles.positionLabel}>
                 <span><DashboardIcon name="eye" /></span>
-                <p id="financial-position-title">Overall financial position</p>
+                <p id="financial-position-title">Net position</p>
               </div>
               <strong className={styles.positionAmount}>{money(summary.netFinancialPosition)}</strong>
               <div className={styles.positionMeta}>
@@ -715,7 +700,7 @@ export function FinanceDashboard() {
                   <DashboardIcon name={trendDelta >= 0 ? "arrowUp" : "arrowDown"} />
                   {trendDelta >= 0 ? "+" : ""}{money(trendDelta)} over 10 days
                 </span>
-                <span>{money(summary.availableFunds)} immediately available</span>
+                <span>{money(summary.availableFunds)} available</span>
               </div>
             </div>
             <div className={styles.positionTrend}>
@@ -737,9 +722,8 @@ export function FinanceDashboard() {
         <section className={styles.fundsPanel} aria-labelledby="funds-title">
           <div className={styles.fundsMain}>
             <SectionHeading
-              eyebrow="Where the money is"
+              id="funds-title"
               title="Funds & accounts"
-              description={`${titleCase(context)} context${context !== "ALL" ? " · mixed-use accounts included" : ""}`}
               action={<TextLink href="/accounts">Manage accounts</TextLink>}
             />
             <div className={styles.accountList}>
@@ -790,12 +774,7 @@ export function FinanceDashboard() {
         </section>
 
         <section className={styles.receivePayPanel} aria-labelledby="receive-pay-title">
-          <SectionHeading
-            eyebrow="Commitments"
-            title="Receive & pay"
-            description="What is coming in, what is going out, and what is already late."
-          />
-          <h2 id="receive-pay-title" className={styles.visuallyHidden}>Receive and pay</h2>
+          <SectionHeading id="receive-pay-title" title="Receive & pay" />
           <div className={styles.dueGrid}>
             <DueSide
               kind="receive"
@@ -816,9 +795,7 @@ export function FinanceDashboard() {
 
         <section className={`${styles.analyticsPanel} ${analyticsLoading ? styles.analyticsRefreshing : ""}`} aria-busy={analyticsLoading}>
           <SectionHeading
-            eyebrow="Spending intelligence"
-            title="Expense tracker"
-            description="Select any category or bar to see every transaction behind the total."
+            title="Expenses"
             action={
               <div className={styles.periodControl} role="group" aria-label="Dashboard period">
                 {([
@@ -887,8 +864,8 @@ export function FinanceDashboard() {
 
                   <div className={styles.rankingColumn}>
                     <div className={styles.subsectionTitle}>
-                      <div><p>Category ranking</p><span>Largest to smallest</span></div>
-                      <TextLink href={`/expenses?scope=${context === "ALL" ? "COMBINED" : context}`}>Full expense view</TextLink>
+                      <div><p>Categories</p></div>
+                      <TextLink href={`/expenses?scope=${context === "ALL" ? "COMBINED" : context}`}>View expenses</TextLink>
                     </div>
                     <div className={styles.rankedBars}>
                       {categories.slice(0, 7).map((category, index) => (
@@ -927,8 +904,8 @@ export function FinanceDashboard() {
                     </div>
                     {selectedCategory ? (
                       <button className={styles.inspectButton} onClick={() => openCategory(selectedCategory)}>
-                        <span><small>Selected category</small><strong>{selectedCategory.name}</strong></span>
-                        <b>{selectedCategory.transactions.length} records</b>
+                        <span><strong>{selectedCategory.name}</strong></span>
+                        <b>{selectedCategory.transactions.length} transactions</b>
                         <DashboardIcon name="arrowRight" />
                       </button>
                     ) : null}
@@ -944,9 +921,8 @@ export function FinanceDashboard() {
         <section className={`${styles.flowGrid} ${analyticsLoading ? styles.analyticsRefreshing : ""}`} aria-busy={analyticsLoading}>
           <div className={styles.flowPanel}>
             <SectionHeading
-              eyebrow="Movement"
               title="Cash flow"
-              description={`${range.label} · ${context === "ALL" ? "All accounts" : `${titleCase(context)} and mixed-use accounts`}`}
+              description={`${range.label} · ${context === "ALL" ? "All" : titleCase(context)}`}
             />
             {analytics ? (
               <>
@@ -966,28 +942,25 @@ export function FinanceDashboard() {
 
           <aside className={styles.incomeExpensePanel}>
             <SectionHeading
-              eyebrow="Performance"
               title="Income vs expense"
-              description={context === "PERSONAL" ? "Personal income is not separately recorded." : "Posted income ledgers against recorded expenses."}
+              description={context === "PERSONAL" ? "Personal income is not separately recorded." : undefined}
             />
             {analytics ? (
               <div className={styles.incomeExpenseBody}>
-                <button onClick={() => setDrilldown({ kind: "income", title: "Recorded income", records: analytics.income.transactions })}>
-                  <div><span>Recorded income</span><strong className={styles.positiveText}>{money(analytics.income.total)}</strong></div>
+                <button onClick={() => setDrilldown({ kind: "income", title: "Income", records: analytics.income.transactions })}>
+                  <div><span>Income</span><strong className={styles.positiveText}>{money(analytics.income.total)}</strong></div>
                   <i><b style={{ width: `${(Math.max(0, analytics.income.total) / incomeExpenseMax) * 100}%` }} /></i>
-                  <small>Commission and other posted income</small>
                 </button>
                 <button onClick={() => openAllExpenses()}>
-                  <div><span>Recorded expenses</span><strong className={styles.negativeText}>{money(analytics.expenses.total)}</strong></div>
+                  <div><span>Expenses</span><strong className={styles.negativeText}>{money(analytics.expenses.total)}</strong></div>
                   <i><b className={styles.expenseBar} style={{ width: `${(analytics.expenses.total / incomeExpenseMax) * 100}%` }} /></i>
-                  <small>{analytics.expenses.transactions.length} underlying transactions</small>
                 </button>
                 <div className={styles.recordedResult}>
-                  <span>Recorded result</span>
+                  <span>Net</span>
                   <strong className={analytics.income.total - analytics.expenses.total >= 0 ? styles.positiveText : styles.negativeText}>
                     {analytics.income.total - analytics.expenses.total >= 0 ? "+" : ""}{money(analytics.income.total - analytics.expenses.total)}
                   </strong>
-                  <p>Transfers are excluded; totals follow posted income and expense records.</p>
+                  <p>Excludes transfers.</p>
                 </div>
               </div>
             ) : <div className={styles.analyticsPlaceholder} />}
@@ -996,10 +969,8 @@ export function FinanceDashboard() {
 
         <section className={styles.todayPanel}>
           <SectionHeading
-            eyebrow="Today"
-            title="Operating pulse"
-            description="The day’s most useful service and movement totals, kept compact."
-            action={<TextLink href="/transactions">All activity</TextLink>}
+            title="Today"
+            action={<TextLink href="/transactions">View activity</TextLink>}
           />
           <div className={styles.todayGrid}>
             {todayMetrics.map((metric) => (
@@ -1014,7 +985,7 @@ export function FinanceDashboard() {
 
         <div className={styles.bottomGrid}>
           <section className={styles.attentionPanel}>
-            <SectionHeading eyebrow="Action queue" title="Needs attention" description="Real obligations that may need a decision." />
+            <SectionHeading title="Needs attention" />
             <div className={styles.attentionList}>
               {attentionItems.map((item) => (
                 <Link href={item.href} key={item.title} className={styles.attentionRow} data-tone={item.tone}>
@@ -1023,15 +994,14 @@ export function FinanceDashboard() {
                   <DashboardIcon name="arrowRight" />
                 </Link>
               ))}
-              {!attentionItems.length ? <EmptyMessage title="You are clear for now" detail="No overdue dues or pending settlements require attention." /> : null}
+              {!attentionItems.length ? <EmptyMessage title="Nothing needs attention" detail="No overdue dues or pending settlements." /> : null}
             </div>
           </section>
 
           <section className={`${styles.activityPanel} ${analyticsLoading ? styles.analyticsRefreshing : ""}`} aria-busy={analyticsLoading}>
             <SectionHeading
-              eyebrow="Audit trail"
               title="Recent activity"
-              description={`${range.label} · ${titleCase(context)} context`}
+              description={`${range.label} · ${titleCase(context)}`}
               action={<TextLink href="/transactions">View ledger</TextLink>}
             />
             <div className={styles.activityList}>

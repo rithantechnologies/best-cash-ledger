@@ -8,7 +8,7 @@
   --finance-amber: #c98420;
   --finance-amber-soft: color-mix(in srgb, var(--finance-amber) 10%, var(--surface));
   --finance-blue: #2e7fc1;
-  --panel-shadow: 0 1px 2px color-mix(in srgb, #0f172a 3%, transparent), 0 14px 38px color-mix(in srgb, #0f172a 4.5%, transparent);
+  --panel-shadow: 0 1px 2px color-mix(in srgb, #0f172a 3%, transparent), 0 10px 26px color-mix(in srgb, #0f172a 3.5%, transparent);
   width: min(100%, 1720px);
   margin: 0 auto;
   padding: 4px 0 18px;
@@ -41,16 +41,16 @@
 
 .commandHeader {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   padding: 2px 2px 0;
 }
 
 .commandHeader h1 {
-  margin: 6px 0 0;
-  font-size: clamp(29px, 3vw, 42px);
+  margin: 0;
+  font-size: clamp(28px, 2.6vw, 36px);
   line-height: 1.02;
   font-weight: 820;
   letter-spacing: -.047em;
@@ -58,10 +58,10 @@
 
 .headerDescription {
   max-width: 660px;
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   color: var(--text-muted);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .commandControls {
@@ -104,10 +104,10 @@
 .contextControl {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  min-width: 300px;
-  min-height: 50px;
+  min-width: 280px;
+  min-height: 44px;
   border: 1px solid var(--border);
-  border-radius: 15px;
+  border-radius: 13px;
   background: color-mix(in srgb, var(--surface-soft) 78%, var(--surface));
   padding: 4px;
   box-shadow: 0 5px 18px color-mix(in srgb, #0f172a 4%, transparent);
@@ -132,13 +132,13 @@
 .positionHero {
   overflow: hidden;
   border: 1px solid #1f3651;
-  border-radius: 26px;
+  border-radius: 22px;
   background:
     radial-gradient(circle at 83% 5%, rgba(71, 108, 175, .28), transparent 32rem),
     radial-gradient(circle at 12% 110%, rgba(21, 151, 116, .16), transparent 30rem),
     #0c1b2d;
   color: #f7fbff;
-  box-shadow: 0 22px 55px rgba(16, 35, 58, .18);
+  box-shadow: 0 16px 38px rgba(16, 35, 58, .14);
 }
 
 .positionLead {
@@ -146,8 +146,8 @@
   grid-template-columns: minmax(0, 1fr) minmax(280px, 410px);
   align-items: end;
   gap: 32px;
-  min-height: 260px;
-  padding: 32px 34px 28px;
+  min-height: 220px;
+  padding: 28px 30px 24px;
 }
 
 .positionCopy { min-width: 0; }
@@ -182,9 +182,9 @@
 .positionAmount {
   display: block;
   max-width: 100%;
-  margin-top: 20px;
+  margin-top: 16px;
   overflow: hidden;
-  font-size: clamp(43px, 5vw, 70px);
+  font-size: clamp(40px, 4.6vw, 62px);
   line-height: .94;
   font-weight: 760;
   letter-spacing: -.065em;
@@ -198,7 +198,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 9px 20px;
-  margin-top: 19px;
+  margin-top: 15px;
   color: #98b0c8;
   font-size: 13px;
 }
@@ -252,7 +252,7 @@
   align-items: center;
   gap: 9px;
   min-width: 0;
-  min-height: 92px;
+  min-height: 82px;
   border-left: 1px solid rgba(255, 255, 255, .08);
   padding: 15px 14px;
   transition: background-color .18s ease, transform .18s ease;
@@ -286,19 +286,21 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  padding: 23px 24px 18px;
+  padding: 18px 20px 14px;
 }
 
 .sectionHeading h2 {
-  margin: 5px 0 0;
-  font-size: 21px;
+  margin: 0;
+  font-size: 20px;
   line-height: 1.18;
   font-weight: 790;
   letter-spacing: -.03em;
 }
 
+.sectionHeading .eyebrow + h2 { margin-top: 4px; }
+
 .sectionDescription {
-  margin: 5px 0 0;
+  margin: 4px 0 0;
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.45;
@@ -328,7 +330,7 @@
 .attentionPanel,
 .activityPanel {
   border: 1px solid var(--border);
-  border-radius: 21px;
+  border-radius: 18px;
   background: var(--surface);
   box-shadow: var(--panel-shadow);
 }
@@ -336,7 +338,7 @@
 .fundsPanel {
   display: grid;
   grid-template-columns: minmax(0, 1.65fr) minmax(320px, .72fr);
-  margin-top: 16px;
+  margin-top: 14px;
   overflow: hidden;
 }
 
@@ -348,9 +350,9 @@
   grid-template-columns: 40px minmax(170px, .8fr) minmax(120px, 1fr) minmax(110px, auto) 17px;
   align-items: center;
   gap: 13px;
-  min-height: 64px;
+  min-height: 60px;
   border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  padding: 9px 24px;
+  padding: 8px 20px;
   transition: background-color .15s ease;
 }
 
@@ -397,7 +399,7 @@
   background:
     radial-gradient(circle at 100% 0, color-mix(in srgb, var(--finance-indigo) 9%, transparent), transparent 18rem),
     color-mix(in srgb, var(--surface-soft) 42%, var(--surface));
-  padding: 25px 24px;
+  padding: 22px 20px;
 }
 
 .liquiditySummary > strong {
@@ -442,7 +444,7 @@
 .creditLine span { color: var(--text-muted); }
 .creditLine strong { font-size: 15px; }
 
-.receivePayPanel { margin-top: 16px; overflow: hidden; }
+.receivePayPanel { margin-top: 14px; overflow: hidden; }
 .dueGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--border); }
 .dueSide { --due-color: var(--finance-green); min-width: 0; }
 .duePay { --due-color: var(--finance-red); border-left: 1px solid var(--border); }
@@ -452,7 +454,7 @@
   grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
   gap: 13px;
-  padding: 19px 22px 16px;
+  padding: 16px 20px 14px;
   background: linear-gradient(90deg, color-mix(in srgb, var(--due-color) 5%, var(--surface)), var(--surface) 62%);
 }
 
@@ -486,9 +488,9 @@
   grid-template-columns: minmax(0, 1fr) auto 17px;
   align-items: center;
   gap: 12px;
-  min-height: 59px;
+  min-height: 56px;
   border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  padding: 9px 22px;
+  padding: 8px 20px;
 }
 
 .dueRow:first-child { border-top: 0; }
@@ -499,7 +501,7 @@
 .dueRow > b { font-size: 14px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .dueRow > svg { width: 16px; height: 16px; color: var(--text-muted); }
 
-.analyticsPanel { position: relative; margin-top: 16px; overflow: hidden; }
+.analyticsPanel { position: relative; margin-top: 14px; overflow: hidden; }
 
 .periodControl {
   display: flex;
@@ -535,9 +537,9 @@
 
 .expenseSummaryStrip button {
   min-width: 0;
-  min-height: 112px;
+  min-height: 100px;
   background: var(--surface);
-  padding: 18px 21px;
+  padding: 15px 18px;
   text-align: left;
 }
 
@@ -550,12 +552,12 @@
 .expenseVisualGrid {
   display: grid;
   grid-template-columns: minmax(280px, .78fr) minmax(390px, 1.25fr) minmax(280px, .83fr);
-  min-height: 390px;
+  min-height: 360px;
 }
 
 .donutColumn,
 .rankingColumn,
-.expenseInvestigation { min-width: 0; padding: 23px; }
+.expenseInvestigation { min-width: 0; padding: 20px; }
 .rankingColumn,
 .expenseInvestigation { border-left: 1px solid var(--border); }
 
@@ -653,8 +655,8 @@
 .flowGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(320px, .7fr);
-  gap: 16px;
-  margin-top: 16px;
+  gap: 14px;
+  margin-top: 14px;
 }
 
 .flowPanel,
@@ -670,7 +672,7 @@
   background: var(--border);
 }
 
-.flowTotals > * { min-height: 82px; background: var(--surface); padding: 15px 20px; text-align: left; }
+.flowTotals > * { min-height: 76px; background: var(--surface); padding: 13px 18px; text-align: left; }
 .flowTotals button:hover { background: var(--surface-soft); }
 .flowTotals span { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12px; }
 .flowTotals span i { width: 8px; height: 8px; border-radius: 50%; }
@@ -705,8 +707,8 @@
 .tooltipEnd { transform: translate(-88%, -100%); }
 .chartHint { margin: 3px 0 0; color: var(--text-muted); font-size: 12px; text-align: center; }
 
-.incomeExpenseBody { padding: 7px 23px 22px; }
-.incomeExpenseBody > button { width: 100%; border-bottom: 1px solid var(--border); padding: 18px 0; text-align: left; }
+.incomeExpenseBody { padding: 5px 20px 18px; }
+.incomeExpenseBody > button { width: 100%; border-bottom: 1px solid var(--border); padding: 15px 0; text-align: left; }
 .incomeExpenseBody > button > div { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; }
 .incomeExpenseBody > button span { color: var(--text-muted); font-size: 13px; }
 .incomeExpenseBody > button strong { font-size: 18px; font-weight: 760; letter-spacing: -.025em; }
@@ -716,8 +718,8 @@
 .incomeExpenseBody > button small { display: block; margin-top: 8px; color: var(--text-muted); font-size: 12px; }
 
 .recordedResult {
-  margin-top: 19px;
-  border-radius: 15px;
+  margin-top: 15px;
+  border-radius: 13px;
   background: color-mix(in srgb, var(--surface-soft) 74%, var(--surface));
   padding: 16px;
 }
@@ -726,9 +728,9 @@
 .recordedResult strong { display: block; margin-top: 7px; font-size: 24px; line-height: 1; font-weight: 780; letter-spacing: -.035em; }
 .recordedResult p { margin: 10px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
 
-.todayPanel { margin-top: 16px; overflow: hidden; }
+.todayPanel { margin-top: 14px; overflow: hidden; }
 .todayGrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-top: 1px solid var(--border); background: var(--border); gap: 1px; }
-.todayMetric { --today-tone: var(--finance-indigo); display: grid; grid-template-columns: 35px minmax(0, 1fr) 14px; align-items: center; gap: 9px; min-width: 0; min-height: 79px; background: var(--surface); padding: 12px 15px; }
+.todayMetric { --today-tone: var(--finance-indigo); display: grid; grid-template-columns: 35px minmax(0, 1fr) 14px; align-items: center; gap: 9px; min-width: 0; min-height: 72px; background: var(--surface); padding: 10px 14px; }
 .todayMetric:hover { background: var(--surface-soft); }
 .todayMetric[data-tone="positive"] { --today-tone: var(--finance-green); }
 .todayMetric[data-tone="negative"] { --today-tone: var(--finance-red); }
@@ -739,7 +741,7 @@
 .todayMetric small { display: block; overflow: hidden; color: var(--text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .todayMetric strong { display: block; overflow: hidden; margin-top: 4px; font-size: 15px; line-height: 1.15; font-weight: 750; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
 
-.bottomGrid { display: grid; grid-template-columns: minmax(320px, .76fr) minmax(0, 1.5fr); gap: 16px; margin-top: 16px; }
+.bottomGrid { display: grid; grid-template-columns: minmax(320px, .76fr) minmax(0, 1.5fr); gap: 14px; margin-top: 14px; }
 .attentionPanel, .activityPanel { min-width: 0; overflow: hidden; }
 .attentionPanel > .sectionHeading, .activityPanel > .sectionHeading { border-bottom: 1px solid var(--border); }
 .attentionList { padding: 8px 18px 18px; }
