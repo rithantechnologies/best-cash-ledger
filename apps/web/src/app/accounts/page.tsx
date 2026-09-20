@@ -25,15 +25,20 @@ const money=(value:number|string)=>new Intl.NumberFormat("en-IN",{
   style:"currency",currency:"INR",maximumFractionDigits:0,
 }).format(Number(value||0));
 const typeLabels:Record<string,string>={
-  CASH:"Cash",BANK:"Bank",UPI:"UPI",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card",
+  CASH:"Shop cash",BANK:"Bank",UPI:"Bank",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card",
 };
-const typeOrder=["CASH","BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"];
+const typeOrder=["BANK","PROVIDER_WALLET","OWNER_CREDIT_CARD"];
+function accountGroup(type:string){
+  if(type==="BANK"||type==="UPI")return "BANK";
+  if(type==="PROVIDER_WALLET")return "PROVIDER_WALLET";
+  if(type==="OWNER_CREDIT_CARD")return "OWNER_CREDIT_CARD";
+  return "INTERNAL";
+}
 
 function AccountIcon({type}:{type:string}){
   const common={fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round" as const,strokeLinejoin:"round" as const};
   if(type==="CASH")return <svg viewBox="0 0 24 24" className="h-5 w-5" {...common}><path d="M4 7h16v11H4z"/><path d="M7 7V5h10v2"/><path d="M16 11h4v4h-4a2 2 0 0 1 0-4Z"/></svg>;
   if(type==="OWNER_CREDIT_CARD")return <svg viewBox="0 0 24 24" className="h-5 w-5" {...common}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>;
-  if(type==="UPI")return <svg viewBox="0 0 24 24" className="h-5 w-5" {...common}><path d="M5 7h14M7 4h10M6 11h12v9H6z"/><path d="M9 14h6M9 17h4"/></svg>;
   if(type==="PROVIDER_WALLET")return <svg viewBox="0 0 24 24" className="h-5 w-5" {...common}><path d="M4 6h14a2 2 0 0 1 2 2v11H4z"/><path d="M4 6a2 2 0 0 1 2-2h10v2"/><path d="M15 11h6v5h-6a2.5 2.5 0 0 1 0-5Z"/></svg>;
   return <svg viewBox="0 0 24 24" className="h-5 w-5" {...common}><path d="M3 10h18M5 10v9M9 10v9M15 10v9M19 10v9M3 19h18M12 3l9 5H3z"/></svg>;
 }
@@ -47,7 +52,7 @@ function metaLine(account:Account){
 }
 function accountTone(type:string){
   if(type==="CASH")return "bg-emerald-500";
-  if(type==="UPI")return "bg-violet-500";
+  if(type==="UPI")return "bg-indigo-500";
   if(type==="PROVIDER_WALLET")return "bg-amber-500";
   if(type==="OWNER_CREDIT_CARD")return "bg-rose-500";
   return "bg-indigo-500";
@@ -99,39 +104,39 @@ export default function AccountsPage(){
 
   useEffect(()=>{
     const initialType=new URLSearchParams(window.location.search).get("type");
-    if(initialType&&typeOrder.includes(initialType))setListType(initialType);
+    if(initialType==="UPI")setListType("BANK");
+    else if(initialType&&typeOrder.includes(initialType))setListType(initialType);
     let nextRole="";
     try{nextRole=JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"";setRole(nextRole);}catch{}
     if(nextRole)load(nextRole).catch((err)=>setError(err instanceof Error?err.message:"Failed to load accounts")).finally(()=>setLoading(false));
     else setLoading(false);
   },[]);
   const admin=role==="OWNER"||role==="ADMIN";
-  const hasCash=items.some((account)=>account.accountType==="CASH");
+  const visibleItems=useMemo(()=>items.filter((account)=>accountGroup(account.accountType)!=="INTERNAL"),[items]);
   const counts=useMemo(()=>Object.fromEntries(["ALL",...typeOrder].map((key)=>[
-    key,key==="ALL"?items.length:items.filter((account)=>account.accountType===key).length,
-  ])),[items]);
+    key,key==="ALL"?visibleItems.length:visibleItems.filter((account)=>accountGroup(account.accountType)===key).length,
+  ])),[visibleItems]);
   const filteredItems=useMemo(()=>{
     const query=search.trim().toLowerCase();
-    return items.filter((account)=>{
-      if(listType!=="ALL"&&account.accountType!==listType)return false;
+    return visibleItems.filter((account)=>{
+      const group=accountGroup(account.accountType);
+      if(listType!=="ALL"&&group!==listType)return false;
       if(!query)return true;
       return [account.accountName,account.bankName,account.accountReference,account.lastFourDigits,typeLabels[account.accountType]]
         .filter(Boolean).join(" ").toLowerCase().includes(query);
     }).sort((a,b)=>{
       if(a.isActive!==b.isActive)return a.isActive?-1:1;
-      const typeDiff=typeOrder.indexOf(a.accountType)-typeOrder.indexOf(b.accountType);
+      const typeDiff=typeOrder.indexOf(accountGroup(a.accountType))-typeOrder.indexOf(accountGroup(b.accountType));
       return typeDiff||a.accountName.localeCompare(b.accountName);
     });
-  },[items,listType,search]);
+  },[visibleItems,listType,search]);
   const totals=useMemo(()=>({
-    liquid:items.filter((a)=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).reduce((sum,a)=>sum+a.currentBalance,0),
-    cards:items.filter((a)=>a.accountType==="OWNER_CREDIT_CARD").reduce((sum,a)=>sum+a.currentBalance,0),
-    active:items.filter((a)=>a.isActive).length,
-    cash:items.filter((a)=>a.accountType==="CASH").reduce((sum,a)=>sum+a.currentBalance,0),
-    bank:items.filter((a)=>a.accountType==="BANK").reduce((sum,a)=>sum+a.currentBalance,0),
-    upi:items.filter((a)=>a.accountType==="UPI").reduce((sum,a)=>sum+a.currentBalance,0),
-    wallet:items.filter((a)=>a.accountType==="PROVIDER_WALLET").reduce((sum,a)=>sum+a.currentBalance,0),
-  }),[items]);
+    liquid:visibleItems.filter((a)=>["BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).reduce((sum,a)=>sum+a.currentBalance,0),
+    cards:visibleItems.filter((a)=>a.accountType==="OWNER_CREDIT_CARD").reduce((sum,a)=>sum+a.currentBalance,0),
+    active:visibleItems.filter((a)=>a.isActive).length,
+    bank:visibleItems.filter((a)=>["BANK","UPI"].includes(a.accountType)).reduce((sum,a)=>sum+a.currentBalance,0),
+    wallet:visibleItems.filter((a)=>a.accountType==="PROVIDER_WALLET").reduce((sum,a)=>sum+a.currentBalance,0),
+  }),[visibleItems]);
   function resetAdd(){
     setName("");setType("BANK");setUsage("BUSINESS");setOpening("0");setLimit("");
     setBank("");setReference("");setLast4("");
@@ -139,14 +144,19 @@ export default function AccountsPage(){
   async function submit(event:FormEvent){
     event.preventDefault();setSaving(true);setError("");
     try{
-      await apiFetch("/accounts",{method:"POST",body:JSON.stringify({
-        accountName:name.trim(),accountType:type,
-        accountNature:type==="OWNER_CREDIT_CARD"?"LIABILITY":"ASSET",
-        usageType:usage,openingBalance:Number(opening||0),
-        creditLimit:type==="OWNER_CREDIT_CARD"&&limit?Number(limit):undefined,
-        bankName:bank.trim()||undefined,accountReference:reference.trim()||undefined,
-        lastFourDigits:last4.trim()||undefined,
-      })});
+      if(type==="PROVIDER_WALLET"){
+        const providerName=name.trim().replace(/\s+wallet$/i,"");
+        await apiFetch("/providers",{method:"POST",body:JSON.stringify({name:providerName,providerType:"WALLET"})});
+      }else{
+        await apiFetch("/accounts",{method:"POST",body:JSON.stringify({
+          accountName:name.trim(),accountType:type,
+          accountNature:type==="OWNER_CREDIT_CARD"?"LIABILITY":"ASSET",
+          usageType:usage,openingBalance:Number(opening||0),
+          creditLimit:type==="OWNER_CREDIT_CARD"&&limit?Number(limit):undefined,
+          bankName:bank.trim()||undefined,accountReference:reference.trim()||undefined,
+          lastFourDigits:last4.trim()||undefined,
+        })});
+      }
       resetAdd();setAdding(false);await load();
     }catch(err){setError(err instanceof Error?err.message:"Failed to create account");}
     finally{setSaving(false);}
@@ -181,7 +191,7 @@ export default function AccountsPage(){
   }
 
   if(loading)return <AppShell><PageLoader label="Loading accounts…"/></AppShell>;
-  const typeTabs=[["ALL","All"],["BANK","Bank"],["UPI","UPI"],["PROVIDER_WALLET","Wallets"],["CASH","Cash"],["OWNER_CREDIT_CARD","Cards"]];
+  const typeTabs=[["ALL","All"],["BANK","Banks"],["PROVIDER_WALLET","Wallets"],["OWNER_CREDIT_CARD","Credit cards"]];
   return <AppShell><PageFrame width="max-w-7xl">
     <SectionHeading title="Accounts" action={admin?<button type="button" onClick={()=>{resetAdd();setAdding(true);}} className="app-primary-button inline-flex min-h-10 items-center gap-2 px-4 text-xs font-bold"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add account</button>:undefined}/>
     {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
@@ -189,16 +199,16 @@ export default function AccountsPage(){
     <div className="grid grid-cols-3 gap-2.5">
       <Surface className="relative overflow-hidden p-3.5 sm:p-4"><span className="absolute inset-x-0 top-0 h-1 bg-indigo-500"/><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.08em] text-indigo-600">Funds</p><p className="money mt-1 text-lg font-black sm:text-2xl">{money(totals.liquid)}</p></div><span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-[var(--text-muted)]"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16v11H4z"/><path d="M16 11h4v4h-4a2 2 0 0 1 0-4Z"/></svg></span></div></Surface>
       <Surface className="relative overflow-hidden p-3.5 sm:p-4"><span className="absolute inset-x-0 top-0 h-1 bg-rose-500"/><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.08em] text-rose-600">Card due</p><p className="money mt-1 text-lg font-black text-rose-600 sm:text-2xl">{money(totals.cards)}</p></div><span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-[var(--text-muted)]"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg></span></div></Surface>
-      <Surface className="relative overflow-hidden p-3.5 sm:p-4"><span className="absolute inset-x-0 top-0 h-1 bg-emerald-500"/><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.08em] text-emerald-700">Active</p><p className="mt-1 text-lg font-black sm:text-2xl">{totals.active}<span className="ml-1 text-xs font-semibold text-[var(--text-muted)]">/ {items.length}</span></p></div><span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-[var(--text-muted)]"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m7 12 3 3 7-7"/><circle cx="12" cy="12" r="9"/></svg></span></div></Surface>
+      <Surface className="relative overflow-hidden p-3.5 sm:p-4"><span className="absolute inset-x-0 top-0 h-1 bg-emerald-500"/><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.08em] text-emerald-700">Active</p><p className="mt-1 text-lg font-black sm:text-2xl">{totals.active}<span className="ml-1 text-xs font-semibold text-[var(--text-muted)]">/ {visibleItems.length}</span></p></div><span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-[var(--text-muted)]"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m7 12 3 3 7-7"/><circle cx="12" cy="12" r="9"/></svg></span></div></Surface>
     </div>
 
     <Surface className="overflow-hidden">
-      <div className="grid grid-cols-2 divide-x divide-y divide-[var(--border)] sm:grid-cols-4 sm:divide-y-0">
+      <div className="grid grid-cols-3 divide-x divide-[var(--border)]">
         {[
-          ["Cash",totals.cash],["Bank",totals.bank],["UPI",totals.upi],["Wallets",totals.wallet],
-        ].map(([label,value])=><div key={String(label)} className="px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">{label}</p>
-          <p className="money mt-1 text-sm font-extrabold">{money(Number(value))}</p>
+          ["Banks",totals.bank],["Wallets",totals.wallet],["Credit cards",totals.cards],
+        ].map(([label,value])=><div key={String(label)} className="px-3 py-3 sm:px-4">
+          <p className="truncate text-[9px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] sm:text-[10px]">{label}</p>
+          <p className="money mt-1 truncate text-xs font-extrabold sm:text-sm">{money(Number(value))}</p>
         </div>)}
       </div>
     </Surface>
@@ -257,19 +267,19 @@ export default function AccountsPage(){
     <AccountModal open={adding} onClose={()=>setAdding(false)} title="Add account">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Name</span><input className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder="e.g. HDFC Current" required/></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="PROVIDER_WALLET"?"Wallet name":"Name"}</span><input className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder={type==="PROVIDER_WALLET"?"e.g. ECPay":"e.g. HDFC Current"} required/></label>
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Type</span><select className="app-control" value={type} onChange={(e)=>setType(e.target.value)}>
-            {!hasCash?<option value="CASH">Cash</option>:null}<option value="BANK">Bank</option><option value="UPI">UPI</option><option value="OWNER_CREDIT_CARD">Credit card</option>
+            <option value="BANK">Bank</option><option value="OWNER_CREDIT_CARD">Credit card</option><option value="PROVIDER_WALLET">Wallet</option>
           </select></label>
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><select className="app-control" value={usage} onChange={(e)=>setUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></select></label>
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Opening balance</span><input className="app-control" type="number" min="0" step="0.01" inputMode="decimal" value={opening} onChange={(e)=>setOpening(e.target.value)}/></label>
+          {type!=="PROVIDER_WALLET"?<><label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><select className="app-control" value={usage} onChange={(e)=>setUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></select></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Opening balance</span><input className="app-control" type="number" min="0" step="0.01" inputMode="decimal" value={opening} onChange={(e)=>setOpening(e.target.value)}/></label></>:null}
         </div>
-        {type!=="CASH"?<div className="grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-2">
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Bank / provider</span><input className="app-control" value={bank} onChange={(e)=>setBank(e.target.value)} placeholder="Optional"/></label>
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Reference</span><input className="app-control" value={reference} onChange={(e)=>setReference(e.target.value)} placeholder="Account / UPI reference"/></label>
+        {type!=="PROVIDER_WALLET"?<div className="grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-2">
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Bank</span><input className="app-control" value={bank} onChange={(e)=>setBank(e.target.value)} placeholder="Optional"/></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Reference</span><input className="app-control" value={reference} onChange={(e)=>setReference(e.target.value)} placeholder="Optional"/></label>
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Last 4 digits</span><input className="app-control" inputMode="numeric" maxLength={4} value={last4} onChange={(e)=>setLast4(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Optional"/></label>
           {type==="OWNER_CREDIT_CARD"?<label className="block"><span className="mb-1.5 block text-sm font-semibold">Credit limit</span><input className="app-control" type="number" min="0.01" step="0.01" inputMode="decimal" value={limit} onChange={(e)=>setLimit(e.target.value)} required/></label>:null}
-        </div>:null}
+        </div>:<p className="rounded-xl bg-[var(--surface-soft)] px-3 py-2.5 text-xs text-[var(--text-muted)]">A wallet account will be created automatically for this provider.</p>}
         <button disabled={saving} className="app-primary-button min-h-11 w-full px-4 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Add account"}</button>
       </form>
     </AccountModal>

@@ -19,7 +19,7 @@ type Row={
 type Ledger={account:Account;openingBalance:number;openingBalanceIntroducedInRange:number;rows:Row[]};
 type Range="7d"|"30d"|"90d"|"all";
 const money=(value:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(value||0));
-const typeLabels:Record<string,string>={CASH:"Cash",BANK:"Bank",UPI:"UPI",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card"};
+const typeLabels:Record<string,string>={CASH:"Shop cash",BANK:"Bank",UPI:"Bank",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card"};
 function rangeStart(range:Range){
   if(range==="all")return "";
   const days=range==="7d"?7:range==="30d"?30:90;
