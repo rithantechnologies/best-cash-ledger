@@ -33,7 +33,11 @@ export async function apiFetch<T>(
     credentials: "include",
   });
 
-  if (response.status === 401 && typeof window !== "undefined") {
+  if (
+    response.status === 401 &&
+    path !== "/auth/login" &&
+    typeof window !== "undefined"
+  ) {
     localStorage.removeItem("cashledger_token");
     localStorage.removeItem("cashledger_user");
     window.location.href = BASE_PATH + "/login";

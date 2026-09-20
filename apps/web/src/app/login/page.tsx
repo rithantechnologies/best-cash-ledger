@@ -31,11 +31,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   const emailError = !email.trim()
-    ? "Email is required"
+    ? "Please enter your email address."
     : !isValidEmail(email.trim())
-      ? "Enter a valid email address"
+      ? "Please enter a valid email address."
       : "";
-  const passwordError = password ? "" : "Password is required";
+  const passwordError = password ? "" : "Please enter your password.";
 
   const markTouched = (field: FieldName) => {
     setTouched((current) => ({ ...current, [field]: true }));
@@ -61,7 +61,7 @@ export default function LoginPage() {
       const message = err instanceof Error ? err.message : "Login failed";
       setError(
         /unauthorized|invalid|credentials/i.test(message)
-          ? "Invalid email or password"
+          ? "Incorrect email or password. Please check and try again."
           : message,
       );
     } finally {
@@ -74,14 +74,14 @@ export default function LoginPage() {
     (submitted || touched.password) && Boolean(passwordError);
 
   return (
-    <main className="min-h-[100svh] bg-[#f4f7ff] text-[#0b1533]">
+    <main className="min-h-[100svh] overflow-hidden bg-[radial-gradient(circle_at_50%_-8%,rgba(79,70,229,.18),transparent_26rem),linear-gradient(180deg,#f8faff_0%,#eef3ff_100%)] text-[#0b1533]">
       <div className="mx-auto grid min-h-[100svh] max-w-[1600px] lg:grid-cols-[minmax(360px,42%)_1fr]">
         <aside className="relative hidden overflow-hidden bg-[linear-gradient(145deg,#10204f_0%,#183786_52%,#4059e8_100%)] p-12 text-white lg:flex lg:flex-col lg:justify-between xl:p-16">
           <div className="absolute -left-20 top-16 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
           <div className="absolute -bottom-24 -right-20 h-80 w-80 rounded-full bg-indigo-300/20 blur-3xl" />
           <div className="relative z-10 flex items-center gap-4">
-            <span aria-hidden="true" className="grid h-14 w-14 place-items-center rounded-2xl bg-white/12 shadow-[0_16px_40px_rgba(4,12,42,.28)] backdrop-blur">
-              <BrandMark className="h-9 w-9" />
+            <span aria-hidden="true" className="grid h-14 w-14 place-items-center rounded-2xl border border-white/80 bg-white shadow-[0_16px_40px_rgba(4,12,42,.28)]">
+              <BrandMark className="h-10 w-10" />
             </span>
             <span className="text-2xl font-bold tracking-[-.025em]">Cash Ledger</span>
           </div>
@@ -118,15 +118,18 @@ export default function LoginPage() {
           <span className="relative z-10 h-5" aria-hidden="true" />
         </aside>
 
-        <section className="flex min-h-[100svh] items-center justify-center px-4 py-7 sm:px-8 lg:px-12">
-          <div className="w-full max-w-[460px]">
-            <div className="mb-7 flex items-center justify-center gap-3 lg:hidden">
-              <span aria-hidden="true" className="grid h-12 w-12 place-items-center rounded-2xl bg-[linear-gradient(145deg,#3157ee,#5b4ce3)] shadow-[0_12px_28px_rgba(49,87,238,.24)]">
-                <BrandMark className="h-8 w-8" />
+        <section className="relative flex min-h-[100svh] items-start justify-center px-4 pb-8 pt-[clamp(3rem,8vh,5rem)] sm:px-8 lg:items-center lg:px-12 lg:py-10">
+          <div aria-hidden="true" className="absolute left-[-5rem] top-[7rem] h-52 w-52 rounded-full bg-indigo-300/15 blur-3xl lg:hidden" />
+          <div aria-hidden="true" className="absolute right-[-4rem] top-[22rem] h-44 w-44 rounded-full bg-blue-300/15 blur-3xl lg:hidden" />
+          <div className="relative z-10 w-full max-w-[460px]">
+            <div className="mb-6 flex items-center justify-center gap-3.5 lg:hidden">
+              <span aria-hidden="true" className="grid h-14 w-14 place-items-center rounded-[18px] border border-white bg-white shadow-[0_14px_34px_rgba(49,87,238,.18)] ring-1 ring-indigo-100">
+                <BrandMark className="h-10 w-10" />
               </span>
-              <span className="text-2xl font-bold tracking-[-.03em]">Cash Ledger</span>
+              <span className="text-[1.7rem] font-black tracking-[-.045em] text-[#0b1533]">Cash Ledger</span>
             </div>
-            <div className="rounded-[28px] border border-[#e3e8f3] bg-white p-5 shadow-[0_24px_70px_rgba(25,48,103,.10)] sm:p-8">
+            <div className="relative overflow-hidden rounded-[30px] border border-[#dfe6f3] bg-white/95 p-5 shadow-[0_24px_70px_rgba(25,48,103,.12)] backdrop-blur-sm sm:p-8">
+              <div aria-hidden="true" className="absolute inset-x-10 top-0 h-px bg-[linear-gradient(90deg,transparent,#6366f1,transparent)]" />
               <h1 className="text-[2rem] font-black tracking-[-.045em] text-[#0b1533] sm:text-[2.25rem]">
                 Sign in
               </h1>
@@ -155,12 +158,13 @@ export default function LoginPage() {
                       }}
                       aria-invalid={showEmailError}
                       aria-describedby={showEmailError ? "email-error" : undefined}
-                      className="h-14 w-full rounded-2xl border border-[#dbe3f0] bg-[#fbfcff] pl-12 pr-4 text-base text-[#0b1533] shadow-[inset_0_1px_0_rgba(255,255,255,.7)] placeholder:text-[#9099aa] focus:border-[#5368e8]"
+                      className="h-14 w-full rounded-2xl border border-[#dbe3f0] bg-[#fbfcff] pl-12 pr-4 text-base text-[#0b1533] shadow-[inset_0_1px_0_rgba(255,255,255,.7)] placeholder:text-[#9099aa] focus:border-[#5368e8] aria-[invalid=true]:border-rose-300 aria-[invalid=true]:bg-rose-50/40"
                       placeholder="you@example.com"
                     />
                   </div>
                   {showEmailError ? (
-                    <span id="email-error" className="mt-1.5 block text-sm font-medium text-rose-600">
+                    <span id="email-error" className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-rose-600">
+                      <span aria-hidden="true" className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-rose-100 text-[10px] font-black">!</span>
                       {emailError}
                     </span>
                   ) : null}
@@ -186,7 +190,7 @@ export default function LoginPage() {
                       }}
                       aria-invalid={showPasswordError}
                       aria-describedby={showPasswordError ? "password-error" : undefined}
-                      className="h-14 w-full rounded-2xl border border-[#dbe3f0] bg-[#fbfcff] pl-12 pr-14 text-base text-[#0b1533] shadow-[inset_0_1px_0_rgba(255,255,255,.7)] placeholder:text-[#9099aa] focus:border-[#5368e8]"
+                      className="h-14 w-full rounded-2xl border border-[#dbe3f0] bg-[#fbfcff] pl-12 pr-14 text-base text-[#0b1533] shadow-[inset_0_1px_0_rgba(255,255,255,.7)] placeholder:text-[#9099aa] focus:border-[#5368e8] aria-[invalid=true]:border-rose-300 aria-[invalid=true]:bg-rose-50/40"
                       placeholder="Enter your password"
                     />
                     <button
@@ -203,15 +207,20 @@ export default function LoginPage() {
                     </button>
                   </div>
                   {showPasswordError ? (
-                    <span id="password-error" className="mt-1.5 block text-sm font-medium text-rose-600">
+                    <span id="password-error" className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-rose-600">
+                      <span aria-hidden="true" className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-rose-100 text-[10px] font-black">!</span>
                       {passwordError}
                     </span>
                   ) : null}
                 </label>
 
                 {error ? (
-                  <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-                    {error}
+                  <div role="alert" aria-live="polite" className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 px-4 py-3.5 text-rose-700 shadow-[0_6px_18px_rgba(225,29,72,.06)]">
+                    <span aria-hidden="true" className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-rose-100 text-xs font-black">!</span>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[.08em]">Sign-in failed</p>
+                      <p className="mt-0.5 text-sm font-medium leading-5">{error}</p>
+                    </div>
                   </div>
                 ) : null}
 
