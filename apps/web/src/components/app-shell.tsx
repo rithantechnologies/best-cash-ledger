@@ -26,7 +26,7 @@ const navItems = [
   { group:"Admin", label:"Audit", short:"Audit", href:"/audit", icon:"shield", adminOnly:true },
 ] as const;
 
-type IconName=(typeof navItems)[number]["icon"]|"menu"|"close"|"back"|"search"|"plus"|"more"|"logout"|"sun"|"moon";
+type IconName=(typeof navItems)[number]["icon"]|"menu"|"close"|"back"|"search"|"plus"|"more"|"logout"|"sun"|"moon"|"chevron";
 function Icon({name,className="h-5 w-5"}:{name:IconName;className?:string}) {
   const common={fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round" as const,strokeLinejoin:"round" as const};
   const paths:Record<IconName,ReactNode>={
@@ -51,6 +51,7 @@ function Icon({name,className="h-5 w-5"}:{name:IconName;className?:string}) {
     logout:<><path d="M10 5H5v14h5"/><path d="M13 8l4 4-4 4M8 12h9"/></>,
     sun:<><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></>,
     moon:<><path d="M20 15.2A8 8 0 1 1 8.8 4 6.5 6.5 0 0 0 20 15.2Z"/></>,
+    chevron:<path d="m9 6 6 6-6 6"/>,
   };
   return <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...common}>{paths[name]}</svg>;
 }
@@ -117,7 +118,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <Link
       key={item.href}
       href={item.href}
-      className={"app-nav-link group flex min-h-11 items-center gap-3 rounded-2xl border px-2.5 py-1.5 text-sm font-semibold transition "+(selected
+      className={"app-nav-link group flex min-h-11 items-center gap-3 rounded-2xl border px-2.5 py-1.5 text-[14.5px] font-semibold tracking-[-.01em] transition "+(selected
         ?"app-nav-link-active border-[color-mix(in_srgb,var(--accent)_12%,var(--border))] bg-[color-mix(in_srgb,var(--accent-soft)_78%,var(--surface))] text-[var(--text)] shadow-[0_5px_16px_color-mix(in_srgb,var(--accent)_8%,transparent)]"
         :"border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}>
       <span className={"grid h-8 w-8 shrink-0 place-items-center rounded-xl transition "+(selected
@@ -126,7 +127,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Icon name={item.icon} className="h-[17px] w-[17px]"/>
       </span>
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
-      {selected?<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]"/>:null}
+      <Icon name="chevron" className={"h-4 w-4 shrink-0 transition "+(selected?"text-[var(--accent)]":"text-[color-mix(in_srgb,var(--text-muted)_58%,transparent)] group-hover:text-[var(--text-muted)]")}/>
     </Link>;
   };
 
@@ -137,12 +138,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Link href="/" className="flex min-h-14 items-center gap-3 rounded-2xl bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent-soft)_72%,var(--surface)),var(--surface))] px-3 ring-1 ring-[color-mix(in_srgb,var(--accent)_9%,var(--border))]">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#fff] shadow-[0_8px_20px_rgba(15,23,42,.08)]"><BrandMark className="h-7 w-7"/></span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-black tracking-[-.025em]">Cash Ledger</p>
-            <p className="truncate text-[10px] font-semibold uppercase tracking-[.12em] text-[var(--text-muted)]">Operations</p>
+            <p className="truncate text-[15px] font-black tracking-[-.025em]">Cash Ledger</p>
+            <p className="truncate text-[10.5px] font-semibold uppercase tracking-[.12em] text-[var(--text-muted)]">Operations</p>
           </div>
         </Link>
       </div>
-      <nav className="flex-1 overflow-y-auto px-3 py-4">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-5"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1.5">{rows.map(navLink)}</div></div>:null;})}</nav>
+      <nav className="flex-1 overflow-y-auto px-3 py-4">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-5"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[11px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1.5">{rows.map(navLink)}</div></div>:null;})}</nav>
       <div className="border-t border-[var(--border)] p-3">
         <div className="mb-2.5 flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-2.5">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--accent)] text-xs font-black text-white">{userInitial}</span>
@@ -157,7 +158,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="app-topbar sticky top-0 z-30 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_90%,transparent)] backdrop-blur-xl">
         <div className="flex h-15 items-center gap-3 px-3 sm:px-5 lg:px-6">
           <button onClick={()=>isTaskFlow?router.push("/transactions/new"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm lg:hidden" aria-label={isTaskFlow?"Back to new transaction":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"} className="h-[19px] w-[19px]"/></button>
-          <div className={"min-w-0 flex-1 lg:flex-none "+(isDashboard?"dashboard-top-title":"")}><p className={"truncate font-bold tracking-[-.015em] "+(isTaskFlow?"text-base":"text-sm")}>{currentTitle}</p></div>
+          <div className={"min-w-0 flex-1 lg:flex-none "+(isDashboard?"dashboard-top-title":"")}><p className={"truncate font-extrabold tracking-[-.025em] "+(isTaskFlow?"text-[17px]":"text-[16px] sm:text-[17px]")}>{currentTitle}</p></div>
           {!isTaskFlow?<><form onSubmit={submitSearch} className="mx-auto hidden w-full max-w-xl md:block"><div className="relative"><Icon name="search" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile, card last 4…" className="app-shell-search h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] pl-10 pr-3 text-sm"/></div></form>
           {isDashboard?<div className="dashboard-date-pill hidden sm:flex">{new Date().toLocaleDateString("en-IN",{month:"short",year:"numeric"})}</div>:<Link href="/transactions/new" className="app-primary-button hidden min-h-10 items-center gap-2 px-4 text-sm font-bold sm:flex"><Icon name="plus" className="h-4 w-4"/>New</Link>}</>:<div className="hidden flex-1 lg:block"/>}
         </div>
@@ -172,20 +173,20 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex items-center justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#fff] shadow-[0_8px_22px_rgba(15,23,42,.10)] ring-1 ring-[color-mix(in_srgb,var(--accent)_10%,var(--border))]"><BrandMark className="h-8 w-8"/></span>
-              <div className="min-w-0"><strong className="block truncate text-base font-black tracking-[-.025em]">Cash Ledger</strong><span className="text-[10px] font-bold uppercase tracking-[.13em] text-[var(--text-muted)]">Menu</span></div>
+              <div className="min-w-0"><strong className="block truncate text-[18px] font-black tracking-[-.03em]">Cash Ledger</strong><span className="text-[11px] font-bold uppercase tracking-[.12em] text-[var(--text-muted)]">Menu</span></div>
             </div>
             <button onClick={()=>setMenuOpen(false)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm" aria-label="Close menu"><Icon name="close" className="h-[19px] w-[19px]"/></button>
           </div>
           <form onSubmit={submitSearch} className="mt-4"><div className="relative"><Icon name="search" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, mobile or card…" className="app-control h-11 bg-[var(--surface)] pl-10 shadow-sm"/></div></form>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 py-4">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-5"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1.5">{rows.map(navLink)}</div></div>:null;})}</nav>
+        <nav className="flex-1 overflow-y-auto px-3 py-4">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-5"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[11px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1.5">{rows.map(navLink)}</div></div>:null;})}</nav>
         <div className="border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-soft)_55%,var(--surface))] p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
           <div className="mb-2.5 flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-sm">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--accent)] text-sm font-black text-white">{userInitial}</span>
-            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{userName||"Cash Ledger User"}</p><p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">{role||"User"}</p></div>
-            <button onClick={logout} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-[var(--text-muted)] hover:bg-[var(--surface-soft)]" aria-label="Sign out"><Icon name="logout" className="h-[18px] w-[18px]"/></button>
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{userName||"Cash Ledger User"}</p><p className="mt-0.5 truncate text-[10.5px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">{role||"User"}</p></div>
           </div>
           <div className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface)] p-1 ring-1 ring-[var(--border)]">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-9 rounded-lg text-[11px] font-bold capitalize transition "+(theme===mode?"bg-[var(--accent-soft)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>{mode}</button>)}</div>
+          <button onClick={logout} className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[color-mix(in_srgb,var(--danger)_18%,var(--border))] bg-[color-mix(in_srgb,var(--danger)_5%,var(--surface))] px-3 text-sm font-bold text-[var(--danger)]"><Icon name="logout" className="h-[18px] w-[18px]"/>Sign out</button>
         </div>
       </aside>
     </div>:null}
@@ -193,11 +194,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     {newOpen?<div className="fixed inset-0 z-[60] lg:hidden"><button className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={()=>setNewOpen(false)} aria-label="Close new transaction"/><div className="absolute inset-x-0 bottom-0 rounded-t-[28px] border-t border-[var(--border)] bg-[var(--surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl"><div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border)]"/><div className="mb-3 flex items-center justify-between"><strong>New transaction</strong><Link href="/transactions/new" className="text-xs font-semibold text-[var(--accent)]">All types</Link></div><div className="grid grid-cols-2 gap-2">{quickActions.map(([label,href,short])=><Link key={href} href={href} className="app-quick-action flex min-h-16 items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-4"><span className="font-bold">{label}</span><span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{short}</span></Link>)}</div></div></div>:null}
 
     {!isTaskFlow?<nav className="app-mobile-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_94%,transparent)] px-1.5 pb-[max(.4rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-12px_30px_rgba(15,23,42,.08)] backdrop-blur-xl lg:hidden">
-      <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/")?"bg-[var(--accent-soft)]":"")}><Icon name="home" className="h-[19px] w-[19px]"/></span><span>Home</span></Link>
-      <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/transactions")?"bg-[var(--accent-soft)]":"")}><Icon name="activity" className="h-[19px] w-[19px]"/></span><span>Activity</span></Link>
-      <button onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[10px] font-black text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-[20px] border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#4f46e5)] text-white shadow-[0_10px_26px_rgba(37,99,235,.34)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
-      {isDashboard?<Link href="/reports" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold "+(active("/reports")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/reports")?"bg-[var(--accent-soft)]":"")}><Icon name="chart" className="h-[19px] w-[19px]"/></span><span>Reports</span></Link>:<Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/dues")?"bg-[var(--accent-soft)]":"")}><Icon name="settle" className="h-[19px] w-[19px]"/></span><span>Dues</span></Link>}
-      <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-bold text-[var(--text-muted)]"><span className="grid h-8 w-10 place-items-center rounded-xl"><Icon name="more" className="h-[19px] w-[19px]"/></span><span>More</span></button>
+      <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/")?"bg-[var(--accent-soft)]":"")}><Icon name="home" className="h-[19px] w-[19px]"/></span><span>Home</span></Link>
+      <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/transactions")?"bg-[var(--accent-soft)]":"")}><Icon name="activity" className="h-[19px] w-[19px]"/></span><span>Activity</span></Link>
+      <button onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[11px] font-black text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-[20px] border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#4f46e5)] text-white shadow-[0_10px_26px_rgba(37,99,235,.34)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
+      {isDashboard?<Link href="/reports" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/reports")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/reports")?"bg-[var(--accent-soft)]":"")}><Icon name="chart" className="h-[19px] w-[19px]"/></span><span>Reports</span></Link>:<Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/dues")?"bg-[var(--accent-soft)]":"")}><Icon name="settle" className="h-[19px] w-[19px]"/></span><span>Dues</span></Link>}
+      <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold text-[var(--text-muted)]"><span className="grid h-8 w-10 place-items-center rounded-xl"><Icon name="more" className="h-[19px] w-[19px]"/></span><span>More</span></button>
     </nav>:null}
   </div>;
 }
