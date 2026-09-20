@@ -3,9 +3,10 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { EmptyState, Modal, PageFrame, PageLoader, SectionHeading, Surface } from "@/components/ui";
+import { EmptyState, PageFrame, PageLoader, SectionHeading, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Account={
@@ -43,6 +44,26 @@ function metaLine(account:Account){
     account.accountReference&&!account.lastFourDigits?account.accountReference:null,
   ].filter(Boolean);
   return parts.join(" · ");
+}
+function accountTone(type:string){
+  if(type==="CASH")return {bar:"bg-emerald-500",glow:"bg-emerald-400/10",icon:"bg-emerald-100 text-emerald-700",soft:"bg-emerald-50 text-emerald-700"};
+  if(type==="UPI")return {bar:"bg-violet-500",glow:"bg-violet-400/10",icon:"bg-violet-100 text-violet-700",soft:"bg-violet-50 text-violet-700"};
+  if(type==="PROVIDER_WALLET")return {bar:"bg-amber-500",glow:"bg-amber-400/10",icon:"bg-amber-100 text-amber-700",soft:"bg-amber-50 text-amber-700"};
+  if(type==="OWNER_CREDIT_CARD")return {bar:"bg-rose-500",glow:"bg-rose-400/10",icon:"bg-rose-100 text-rose-700",soft:"bg-rose-50 text-rose-700"};
+  return {bar:"bg-indigo-500",glow:"bg-indigo-400/10",icon:"bg-indigo-100 text-indigo-700",soft:"bg-indigo-50 text-indigo-700"};
+}
+function AccountModal({open,onClose,title,description,children}:{open:boolean;onClose:()=>void;title:string;description?:string;children:ReactNode}){
+  if(!open||typeof document==="undefined")return null;
+  return createPortal(<div className="fixed inset-0 z-[220] flex items-end justify-center bg-slate-950/50 backdrop-blur-[4px] sm:items-center sm:p-5">
+    <button type="button" className="absolute inset-0" onClick={onClose} aria-label="Close dialog"/>
+    <section className="relative z-10 max-h-[92dvh] w-full overflow-hidden rounded-t-[28px] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[26px]">
+      <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6">
+        <div className="min-w-0"><h3 className="text-lg font-black tracking-[-.025em]">{title}</h3>{description?<p className="mt-1 text-xs text-[var(--text-muted)]">{description}</p>:null}</div>
+        <button type="button" onClick={onClose} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--surface-soft)] text-xl text-[var(--text-muted)]" aria-label="Close">×</button>
+      </div>
+      <div className="max-h-[72dvh] overflow-y-auto p-5 sm:p-6">{children}</div>
+    </section>
+  </div>,document.body);
 }
 
 export default function AccountsPage(){
@@ -158,13 +179,13 @@ export default function AccountsPage(){
   if(loading)return <AppShell><PageLoader label="Loading accounts…"/></AppShell>;
   const typeTabs=[["ALL","All"],["BANK","Bank"],["UPI","UPI"],["PROVIDER_WALLET","Wallets"],["CASH","Cash"],["OWNER_CREDIT_CARD","Cards"]];
   return <AppShell><PageFrame width="max-w-7xl">
-    <SectionHeading title="Accounts" action={admin?<button type="button" onClick={()=>{resetAdd();setAdding(true);}} className="app-primary-button min-h-10 px-4 text-xs font-bold">+ Add account</button>:undefined}/>
+    <SectionHeading title="Accounts" action={admin?<button type="button" onClick={()=>{resetAdd();setAdding(true);}} className="app-primary-button inline-flex min-h-10 items-center gap-2 px-4 text-xs font-bold"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add account</button>:undefined}/>
     {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
 
     <div className="grid grid-cols-3 gap-2.5">
-      <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Funds</p><p className="money mt-1 text-lg font-black sm:text-2xl">{money(totals.liquid)}</p></Surface>
-      <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Card due</p><p className="money mt-1 text-lg font-black text-rose-600 sm:text-2xl">{money(totals.cards)}</p></Surface>
-      <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Active</p><p className="mt-1 text-lg font-black sm:text-2xl">{totals.active}<span className="ml-1 text-xs font-semibold text-[var(--text-muted)]">/ {items.length}</span></p></Surface>
+      <Surface className="relative overflow-hidden p-3.5 sm:p-4"><span className="absolute inset-x-0 top-0 h-1 bg-indigo-500"/><div className="absolute -right-5 -top-5 h-16 w-16 rounded-full bg-indigo-400/10"/><p className="relative text-[10px] font-bold uppercase tracking-[.08em] text-indigo-600">Funds</p><p className="money relative mt-1 text-lg font-black sm:text-2xl">{money(totals.liquid)}</p></Surface>
+      <Surface className="relative overflow-hidden p-3.5 sm:p-4"><span className="absolute inset-x-0 top-0 h-1 bg-rose-500"/><div className="absolute -right-5 -top-5 h-16 w-16 rounded-full bg-rose-400/10"/><p className="relative text-[10px] font-bold uppercase tracking-[.08em] text-rose-600">Card due</p><p className="money relative mt-1 text-lg font-black text-rose-600 sm:text-2xl">{money(totals.cards)}</p></Surface>
+      <Surface className="relative overflow-hidden p-3.5 sm:p-4"><span className="absolute inset-x-0 top-0 h-1 bg-emerald-500"/><div className="absolute -right-5 -top-5 h-16 w-16 rounded-full bg-emerald-400/10"/><p className="relative text-[10px] font-bold uppercase tracking-[.08em] text-emerald-700">Active</p><p className="relative mt-1 text-lg font-black sm:text-2xl">{totals.active}<span className="ml-1 text-xs font-semibold text-[var(--text-muted)]">/ {items.length}</span></p></Surface>
     </div>
 
     <Surface className="p-3">
@@ -185,33 +206,39 @@ export default function AccountsPage(){
     {filteredItems.length?<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
       {filteredItems.map((account)=>{
         const meta=metaLine(account);
+        const tone=accountTone(account.accountType);
         const cardUsed=account.accountType==="OWNER_CREDIT_CARD"&&account.creditLimit
           ?Math.min(100,Math.max(0,Math.abs(account.currentBalance)/account.creditLimit*100)):0;
-        return <Surface key={account.id} className={"group flex min-h-[190px] flex-col overflow-hidden p-4 "+(!account.isActive?"opacity-60":"")}>
-          <div className="flex items-start gap-3">
-            <span className={"grid h-10 w-10 shrink-0 place-items-center rounded-2xl "+(account.accountType==="CASH"?"bg-emerald-50 text-emerald-700":account.accountType==="OWNER_CREDIT_CARD"?"bg-rose-50 text-rose-700":"bg-[var(--accent-soft)] text-[var(--accent)]")}><AccountIcon type={account.accountType}/></span>
-            <div className="min-w-0 flex-1"><p className="truncate text-[15px] font-extrabold tracking-[-.015em]">{account.accountName}</p><p className="mt-0.5 text-[10px] font-bold uppercase tracking-[.1em] text-[var(--text-muted)]">{typeLabels[account.accountType]??account.accountType}</p></div>
-            {!account.isActive?<span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold uppercase tracking-[.08em] text-slate-500">Inactive</span>:null}
+        return <Surface key={account.id} className={"group relative flex min-h-[198px] flex-col overflow-hidden p-4 shadow-[0_8px_24px_rgba(15,23,42,.045)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(15,23,42,.08)] "+(!account.isActive?"opacity-60":"")}>
+          <span className={"absolute inset-x-0 top-0 h-1 "+tone.bar}/>
+          <span className={"pointer-events-none absolute -right-9 -top-9 h-28 w-28 rounded-full blur-2xl "+tone.glow}/>
+          <div className="relative flex items-start gap-3 pt-1">
+            <span className={"grid h-11 w-11 shrink-0 place-items-center rounded-2xl shadow-sm "+tone.icon}><AccountIcon type={account.accountType}/></span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2"><p className="truncate text-[15px] font-black tracking-[-.02em]">{account.accountName}</p>{!account.isActive?<span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[.06em] text-slate-500">Off</span>:null}</div>
+              <p className="mt-1 text-[10px] font-extrabold uppercase tracking-[.11em] text-[var(--text-muted)]">{typeLabels[account.accountType]??account.accountType}</p>
+            </div>
+            <span className={"rounded-full px-2.5 py-1 text-[10px] font-bold capitalize "+tone.soft}>{account.usageType.toLowerCase()}</span>
           </div>
-          <div className="mt-4">
+          <div className="relative mt-5">
             <p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">{account.accountType==="OWNER_CREDIT_CARD"?"Outstanding":"Balance"}</p>
-            <p className={"money mt-1 text-2xl font-black tracking-[-.04em] "+(account.accountType==="OWNER_CREDIT_CARD"&&account.currentBalance>0?"text-rose-600":"")}>{money(account.currentBalance)}</p>
+            <p className={"money mt-1 text-[1.65rem] font-black tracking-[-.045em] "+(account.accountType==="OWNER_CREDIT_CARD"&&account.currentBalance>0?"text-rose-600":"")}>{money(account.currentBalance)}</p>
+            {meta?<p className="mt-1.5 truncate text-xs font-semibold text-[var(--text-muted)]">{meta}</p>:null}
           </div>
-          <div className="mt-2 min-h-5">
-            {meta?<p className="truncate text-xs font-medium text-[var(--text-muted)]">{meta}</p>:<p className="text-xs font-medium capitalize text-[var(--text-muted)]">{account.usageType.toLowerCase()}</p>}
-          </div>
-          {account.accountType==="OWNER_CREDIT_CARD"&&account.creditLimit!==null?<div className="mt-3">
-            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--surface-soft)]"><div className="h-full rounded-full bg-rose-500" style={{width:cardUsed+"%"}}/></div>
-            <div className="mt-1.5 flex justify-between gap-2 text-[10px] font-semibold text-[var(--text-muted)]"><span>{cardUsed.toFixed(0)}% used</span><span>{money(account.availableCredit??0)} available</span></div>
+          {account.accountType==="OWNER_CREDIT_CARD"&&account.creditLimit!==null?<div className="relative mt-3">
+            <div className="h-1.5 overflow-hidden rounded-full bg-rose-100"><div className="h-full rounded-full bg-rose-500" style={{width:cardUsed+"%"}}/></div>
+            <div className="mt-1.5 flex justify-between gap-2 text-[10px] font-semibold text-[var(--text-muted)]"><span>{cardUsed.toFixed(0)}% used</span><span>{money(account.availableCredit??0)} free</span></div>
           </div>:null}
-          <div className="mt-auto flex items-center gap-2 border-t border-[var(--border)] pt-3">
-            <Link href={"/accounts/"+account.id} className="app-secondary-button flex min-h-9 flex-1 items-center justify-center px-3 text-xs font-bold">Ledger</Link>
-            {admin&&account.accountType!=="PROVIDER_WALLET"?<button type="button" onClick={()=>account.isActive?beginEdit(account):setToggleTarget(account)} className="app-secondary-button min-h-9 px-3 text-xs font-bold">{account.isActive?"Edit":"Reactivate"}</button>:null}
+          <div className="relative mt-auto flex items-center gap-2 border-t border-[var(--border)] pt-3">
+            <Link href={"/accounts/"+account.id} className={"flex min-h-9 flex-1 items-center justify-center rounded-xl px-3 text-xs font-extrabold transition "+tone.soft}>View ledger <span className="ml-1">→</span></Link>
+            {admin&&account.accountType!=="PROVIDER_WALLET"?<button type="button" onClick={()=>account.isActive?beginEdit(account):setToggleTarget(account)} className="grid h-9 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] transition hover:text-[var(--text)]" aria-label={account.isActive?"Edit "+account.accountName:"Reactivate "+account.accountName}>
+              {account.isActive?<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>:<span className="text-base">↻</span>}
+            </button>:null}
           </div>
         </Surface>;
       })}
     </div>:<EmptyState title="No accounts found" description={search||listType!=="ALL"?"Try another search or filter.":"No accounts configured."}/>}
-    <Modal open={adding} onClose={()=>setAdding(false)} title="Add account">
+    <AccountModal open={adding} onClose={()=>setAdding(false)} title="Add account">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Name</span><input className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder="e.g. HDFC Current" required/></label>
@@ -229,8 +256,8 @@ export default function AccountsPage(){
         </div>:null}
         <button disabled={saving} className="app-primary-button min-h-11 w-full px-4 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Add account"}</button>
       </form>
-    </Modal>
-    <Modal open={Boolean(editing)} onClose={()=>setEditing(null)} title={editing?.accountName??"Edit account"} description={editing?typeLabels[editing.accountType]:undefined}>
+    </AccountModal>
+    <AccountModal open={Boolean(editing)} onClose={()=>setEditing(null)} title={editing?.accountName??"Edit account"} description={editing?typeLabels[editing.accountType]:undefined}>
       {editing?<form onSubmit={saveEdit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Name</span><input className="app-control" value={editName} onChange={(e)=>setEditName(e.target.value)} required/></label>
@@ -243,13 +270,13 @@ export default function AccountsPage(){
         <button disabled={saving} className="app-primary-button min-h-11 w-full px-4 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Save"}</button>
         <button type="button" onClick={()=>setToggleTarget(editing)} className="min-h-10 w-full rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50">Deactivate account</button>
       </form>:null}
-    </Modal>
-    <Modal open={Boolean(toggleTarget)} onClose={()=>setToggleTarget(null)} title={toggleTarget?.isActive?"Deactivate account":"Reactivate account"}>
+    </AccountModal>
+    <AccountModal open={Boolean(toggleTarget)} onClose={()=>setToggleTarget(null)} title={toggleTarget?.isActive?"Deactivate account":"Reactivate account"}>
       <p className="text-sm leading-6 text-[var(--text-muted)]"><strong className="text-[var(--text)]">{toggleTarget?.accountName}</strong>{toggleTarget?.isActive?" must have a zero balance before it can be deactivated.":" will be available for new transactions again."}</p>
       <div className="mt-5 grid grid-cols-2 gap-2">
         <button type="button" onClick={()=>setToggleTarget(null)} className="app-secondary-button min-h-10 px-3 text-xs font-bold">Cancel</button>
         <button type="button" disabled={saving} onClick={confirmToggle} className={"min-h-10 rounded-xl px-3 text-xs font-bold text-white disabled:opacity-40 "+(toggleTarget?.isActive?"bg-rose-600":"bg-[var(--accent)]")}>{saving?"Saving…":toggleTarget?.isActive?"Deactivate":"Reactivate"}</button>
       </div>
-    </Modal>
+    </AccountModal>
   </PageFrame></AppShell>;
 }
