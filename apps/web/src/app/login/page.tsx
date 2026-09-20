@@ -80,7 +80,7 @@ export default function LoginPage() {
           <div className="absolute -left-20 top-16 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
           <div className="absolute -bottom-24 -right-20 h-80 w-80 rounded-full bg-indigo-300/20 blur-3xl" />
           <div className="relative z-10 flex items-center gap-4">
-            <span aria-hidden="true" className="grid h-14 w-14 place-items-center rounded-2xl border border-white/80 bg-white shadow-[0_16px_40px_rgba(4,12,42,.28)]">
+            <span aria-hidden="true" className="grid h-14 w-14 place-items-center rounded-2xl border border-white/80 bg-[#fff] shadow-[0_16px_40px_rgba(4,12,42,.28)]">
               <BrandMark className="h-10 w-10" />
             </span>
             <span className="text-2xl font-bold tracking-[-.025em]">Cash Ledger</span>
@@ -123,7 +123,7 @@ export default function LoginPage() {
           <div aria-hidden="true" className="absolute right-[-4rem] top-[22rem] h-44 w-44 rounded-full bg-blue-300/15 blur-3xl lg:hidden" />
           <div className="relative z-10 w-full max-w-[460px]">
             <div className="mb-6 flex items-center justify-center gap-3.5 lg:hidden">
-              <span aria-hidden="true" className="grid h-14 w-14 place-items-center rounded-[18px] border border-white bg-white shadow-[0_14px_34px_rgba(49,87,238,.18)] ring-1 ring-indigo-100">
+              <span aria-hidden="true" className="grid h-14 w-14 place-items-center rounded-[18px] border border-white bg-[#fff] shadow-[0_14px_34px_rgba(49,87,238,.18)] ring-1 ring-indigo-100">
                 <BrandMark className="h-10 w-10" />
               </span>
               <span className="text-[1.7rem] font-black tracking-[-.045em] text-[#0b1533]">Cash Ledger</span>
