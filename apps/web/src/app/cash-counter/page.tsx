@@ -67,7 +67,9 @@ export default function CashCounterPage(){
     apiFetch<Session[]>("/cash-counter/history"),
   ]).then(([accountRows,session,historyRows])=>{
     setAccounts(accountRows);setCurrent(session);setHistory(historyRows);
+    const drawer=accountRows.find((account)=>account.accountType==="CASH");
     if(session)setCashAccountId(session.cashAccountId);
+    else if(drawer)setCashAccountId(drawer.id);
   });
 
   useEffect(()=>{load().catch(()=>setError("Failed to load cash counter")).finally(()=>setLoading(false));},[]);
@@ -75,7 +77,7 @@ export default function CashCounterPage(){
   const expected=Number(current?.liveExpectedClosingTotal??current?.expectedClosingTotal??current?.openingTotal??0);
   const cashIn=Number(current?.liveCashIn??0),cashOut=Number(current?.liveCashOut??0);
   const difference=countedTotal-expected;
-  const cashAccounts=accounts.filter((account)=>account.accountType==="CASH");
+  const cashDrawer=accounts.find((account)=>account.accountType==="CASH");
   function denominationPayload(){return denominations.map((denomination)=>({denomination,quantity:Number(qty[denomination]||0)}));}
 
   async function openCounter(event:FormEvent){
@@ -119,13 +121,18 @@ export default function CashCounterPage(){
           <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">Include the cash already in the drawer or cash handed to staff before opening.</p>
         </div>
         <form onSubmit={openCounter} className="p-4 sm:p-5">
-          <label className="mb-4 block">
-            <span className="mb-1.5 block text-sm font-semibold">Cash account</span>
-            <select className="app-control" value={cashAccountId} onChange={(event)=>setCashAccountId(event.target.value)} required>
-              <option value="">Select cash account</option>
-              {cashAccounts.map((account)=><option key={account.id} value={account.id}>{account.accountName}</option>)}
-            </select>
-          </label>
+          <div className="mb-4 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+            <div className="flex items-center gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16v11H4z"/><path d="M7 7V5h10v2"/><path d="M16 11h4v4h-4a2 2 0 0 1 0-4Z"/></svg>
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold">Shop cash drawer</p>
+                <p className="mt-0.5 text-xs text-[var(--text-muted)]">The physical cash kept at the shop counter.</p>
+              </div>
+            </div>
+            {!cashDrawer?<p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">Shop cash drawer is not configured.</p>:null}
+          </div>
           <CountGrid qty={qty} setQty={setQty}/>
           <div className="mt-4 flex items-center justify-between rounded-2xl bg-[var(--accent-soft)] px-4 py-3">
             <div><p className="text-xs font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Opening cash</p><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Physical cash counted now</p></div>
@@ -158,7 +165,7 @@ export default function CashCounterPage(){
       <Surface className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[.1em] text-[var(--text-muted)]">{current.cashAccount.accountName}</p>
+            <p className="text-xs font-bold uppercase tracking-[.1em] text-[var(--text-muted)]">Shop cash drawer</p>
             <h3 className="mt-1 text-lg font-black tracking-[-.025em]">Counter is open</h3>
             <p className="mt-1 text-xs text-[var(--text-muted)]">Opened {new Date(current.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}{current.openedBy?.fullName?" by "+current.openedBy.fullName:""}</p>
           </div>
@@ -238,7 +245,7 @@ export default function CashCounterPage(){
             <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 sm:px-5">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold">{new Date(session.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p>
-                <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{session.cashAccount.accountName}{session.openedBy?.fullName?" · opened by "+session.openedBy.fullName:""}</p>
+                <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">Shop cash drawer{session.openedBy?.fullName?" · opened by "+session.openedBy.fullName:""}</p>
               </div>
               <div className="text-right">
                 <p className="money text-sm font-black">{money(session.actualClosingTotal||0)}</p>
