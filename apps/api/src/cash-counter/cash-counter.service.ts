@@ -34,8 +34,27 @@ export class CashCounterService {
       orderBy: { openedAt: 'desc' },
     });
     if (!session) return null;
-    const { expected } = await this.expectedClosing(this.prisma, session);
-    return { ...session, liveExpectedClosingTotal: expected };
+    const { expected, totalIn, totalOut, movements } =
+      await this.expectedClosing(this.prisma, session);
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: {
+          in: [session.openedById, session.closedById]
+            .filter((id): id is string => Boolean(id)),
+        },
+      },
+      select: { id: true, fullName: true },
+    });
+    const byId = new Map(users.map((user) => [user.id, user]));
+    return {
+      ...session,
+      liveExpectedClosingTotal: expected,
+      liveCashIn: totalIn,
+      liveCashOut: totalOut,
+      movements,
+      openedBy: byId.get(session.openedById) ?? null,
+      closedBy: session.closedById ? byId.get(session.closedById) ?? null : null,
+    };
   }
   async open(dto: OpenCashSessionDto, userId: string) {
     const existing = await this.prisma.cashSession.findFirst({
@@ -111,17 +130,50 @@ export class CashCounterService {
           status: 'POSTED',
         },
       },
-      select: { entryType: true, amount: true },
+      include: {
+        journal: {
+          include: {
+            transaction: {
+              select: {
+                transactionNumber: true,
+                transactionType: true,
+                transactionAt: true,
+                notes: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
     });
 
     let expected = Number(session.openingTotal);
+    let totalIn = 0;
+    let totalOut = 0;
     for (const entry of entries) {
-      expected +=
-        entry.entryType === EntryType.DEBIT
-          ? Number(entry.amount)
-          : -Number(entry.amount);
+      const amount = Number(entry.amount);
+      if (entry.entryType === EntryType.DEBIT) {
+        expected += amount;
+        totalIn += amount;
+      } else {
+        expected -= amount;
+        totalOut += amount;
+      }
     }
-    return { expected, account };
+    const movements = entries.slice(0, 20).map((entry) => ({
+      id: entry.id,
+      direction: entry.entryType === EntryType.DEBIT ? 'IN' : 'OUT',
+      amount: Number(entry.amount),
+      description:
+        entry.description ??
+        entry.journal.description ??
+        entry.journal.transaction.notes ??
+        null,
+      transactionNumber: entry.journal.transaction.transactionNumber,
+      transactionType: entry.journal.transaction.transactionType,
+      transactionAt: entry.journal.transaction.transactionAt,
+    }));
+    return { expected, account, totalIn, totalOut, movements };
   }
 
   async close(id: string, dto: CloseCashSessionDto, userId: string) {
@@ -140,6 +192,11 @@ export class CashCounterService {
 
       const { expected, account } = await this.expectedClosing(tx, session);
       const difference = actual - expected;
+      if (Math.abs(difference) > 0.005 && !dto.notes?.trim()) {
+        throw new BadRequestException(
+          'Please add a note explaining the cash difference before closing',
+        );
+      }
       let adjustmentTransactionId: string | null = null;
 
       if (Math.abs(difference) > 0.005) {
@@ -242,11 +299,32 @@ export class CashCounterService {
     });
   }
 
-  history() {
-    return this.prisma.cashSession.findMany({
+  async history() {
+    const sessions = await this.prisma.cashSession.findMany({
       include: { cashAccount: true, denominationCounts: true },
       orderBy: { openedAt: 'desc' },
       take: 100,
     });
+    const userIds = [
+      ...new Set(
+        sessions.flatMap((session) =>
+          [session.openedById, session.closedById].filter(
+            (id): id is string => Boolean(id),
+          ),
+        ),
+      ),
+    ];
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, fullName: true },
+        })
+      : [];
+    const byId = new Map(users.map((user) => [user.id, user]));
+    return sessions.map((session) => ({
+      ...session,
+      openedBy: byId.get(session.openedById) ?? null,
+      closedBy: session.closedById ? byId.get(session.closedById) ?? null : null,
+    }));
   }
 }
