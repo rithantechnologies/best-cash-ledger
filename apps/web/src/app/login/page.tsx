@@ -158,7 +158,8 @@ export default function LoginPage() {
                       }}
                       aria-invalid={showEmailError}
                       aria-describedby={showEmailError ? "email-error" : undefined}
-                      className="h-14 w-full rounded-2xl border border-[#dbe3f0] bg-[#fbfcff] pl-12 pr-4 text-base text-[#0b1533] shadow-[inset_0_1px_0_rgba(255,255,255,.7)] placeholder:text-[#9099aa] focus:border-[#5368e8] aria-[invalid=true]:border-rose-300 aria-[invalid=true]:bg-rose-50/40"
+                      style={{ color: "#0b1533", WebkitTextFillColor: "#0b1533", caretColor: "#3157ee" }}
+                      className="h-14 w-full rounded-2xl border border-[#dbe3f0] bg-[#fbfcff] pl-12 pr-4 text-base !text-[#0b1533] shadow-[inset_0_1px_0_rgba(255,255,255,.7)] placeholder:!text-[#9099aa] focus:border-[#5368e8] aria-[invalid=true]:border-rose-300 aria-[invalid=true]:bg-rose-50/40"
                       placeholder="you@example.com"
                     />
                   </div>
@@ -190,7 +191,8 @@ export default function LoginPage() {
                       }}
                       aria-invalid={showPasswordError}
                       aria-describedby={showPasswordError ? "password-error" : undefined}
-                      className="h-14 w-full rounded-2xl border border-[#dbe3f0] bg-[#fbfcff] pl-12 pr-14 text-base text-[#0b1533] shadow-[inset_0_1px_0_rgba(255,255,255,.7)] placeholder:text-[#9099aa] focus:border-[#5368e8] aria-[invalid=true]:border-rose-300 aria-[invalid=true]:bg-rose-50/40"
+                      style={{ color: "#0b1533", WebkitTextFillColor: "#0b1533", caretColor: "#3157ee" }}
+                      className="h-14 w-full rounded-2xl border border-[#dbe3f0] bg-[#fbfcff] pl-12 pr-14 text-base !text-[#0b1533] shadow-[inset_0_1px_0_rgba(255,255,255,.7)] placeholder:!text-[#9099aa] focus:border-[#5368e8] aria-[invalid=true]:border-rose-300 aria-[invalid=true]:bg-rose-50/40"
                       placeholder="Enter your password"
                     />
                     <button
