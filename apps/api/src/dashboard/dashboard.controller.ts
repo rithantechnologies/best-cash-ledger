@@ -42,6 +42,15 @@ export class DashboardController {
     return this.dashboard.positionTrend();
   }
 
+  @Get('analytics')
+  analytics(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('scope') scope?: string,
+  ) {
+    return this.dashboard.analytics({ from, to, scope });
+  }
+
   @Get('last-10-days')
   lastTenDays(@Query('type') type?: string) {
     return this.dashboard.lastTenDays(type);
