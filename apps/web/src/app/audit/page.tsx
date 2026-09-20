@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { AppShell } from "@/components/app-shell";
-import { EmptyState, Modal, PageFrame, PageLoader, SectionHeading, StatusBadge, Surface } from "@/components/ui";
+import { EmptyState, PageFrame, PageLoader, SectionHeading, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Audit = {
@@ -263,14 +264,20 @@ export default function AuditPage(){
       </div>
     )}
 
-    <Modal
-      open={Boolean(selected)}
-      onClose={()=>setSelected(null)}
-      title={selected?actionText(selected):"Audit detail"}
-      description={selected?(relativeDay(selected.createdAt)+" at "+timeText(selected.createdAt)+" · "+(selected.user?.fullName??"Unknown user")):undefined}
-    >
-
-      {selected?<div className="space-y-4">
+    {selected&&typeof document!=="undefined"?createPortal(
+      <div className="fixed inset-0 z-[200] flex items-end justify-center bg-slate-950/50 backdrop-blur-[4px] sm:items-center sm:p-5">
+        <button type="button" className="absolute inset-0" onClick={()=>setSelected(null)} aria-label="Close audit detail"/>
+        <section className="relative z-10 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[28px] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[26px]">
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6">
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--accent)]">Audit detail</p>
+              <h3 className="mt-1 truncate text-lg font-black tracking-[-.025em]">{actionText(selected)}</h3>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">{relativeDay(selected.createdAt)} at {timeText(selected.createdAt)} · {selected.user?.fullName??"Unknown user"}</p>
+            </div>
+            <button type="button" onClick={()=>setSelected(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-xl text-[var(--text-muted)]" aria-label="Close audit detail">×</button>
+          </div>
+          <div className="overflow-y-auto p-5 sm:p-6">
+            <div className="space-y-4">
         <div className="grid grid-cols-2 gap-2.5">
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
             <p className="text-[10px] font-bold uppercase tracking-[.1em] text-[var(--text-muted)]">Record</p>
@@ -310,7 +317,11 @@ export default function AuditPage(){
           <summary className="cursor-pointer text-xs font-bold text-[var(--text-muted)]">Technical record</summary>
           <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-slate-950 p-3 text-[10px] leading-5 text-slate-200">{JSON.stringify({id:selected.id,entityId:selected.entityId,before:selected.oldValues,after:selected.newValues},null,2)}</pre>
         </details>
-      </div>:null}
-    </Modal>
+            </div>
+          </div>
+        </section>
+      </div>,
+      document.body
+    ):null}
   </PageFrame></AppShell>;
 }
