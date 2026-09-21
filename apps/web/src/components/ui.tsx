@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 
 export function Spinner({size="md"}:{size?:"sm"|"md"|"lg"}) {
   const sizes={sm:"h-4 w-4 border-2",md:"h-7 w-7 border-[3px]",lg:"h-10 w-10 border-4"};
@@ -235,5 +236,74 @@ export function PanelHeader({
   return <div className="app-panel-header flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
     <div className="min-w-0"><h3 className="text-sm font-bold tracking-[-.01em]">{title}</h3>{description?<p className="mt-0.5 text-[11px] leading-4 text-[var(--text-muted)]">{description}</p>:null}</div>
     {action?<div className="shrink-0">{action}</div>:null}
+  </div>;
+}
+
+
+export type SemanticTone="neutral"|"muted"|"accent"|"positive"|"negative"|"warning"|"info";
+
+/** Page-level title block for the gradual Phase 2 migration. */
+export function PageHeader({
+  title,description,actions,
+}:{title:ReactNode;description?:ReactNode;actions?:ReactNode}) {
+  return <header className="app-page-header">
+    <div className="min-w-0"><h1>{title}</h1>{description?<p>{description}</p>:null}</div>
+    {actions?<div className="app-page-header-actions">{actions}</div>:null}
+  </header>;
+}
+
+/** Bordered semantic panel that can replace one-off card markup page by page. */
+export function Panel({
+  title,description,action,children,className="",bodyClassName="",id,
+}:{title?:ReactNode;description?:ReactNode;action?:ReactNode;children:ReactNode;className?:string;bodyClassName?:string;id?:string}) {
+  const headingId=id?id+"-title":undefined;
+  return <section className={"app-panel "+className} aria-labelledby={headingId}>
+    {title?<div className="app-panel-head"><div className="min-w-0"><h2 id={headingId}>{title}</h2>{description?<p>{description}</p>:null}</div>{action?<div className="shrink-0">{action}</div>:null}</div>:null}
+    <div className={bodyClassName}>{children}</div>
+  </section>;
+}
+
+export function PanelLink({href,children}:{href:string;children:ReactNode}) {
+  return <Link href={href} className="app-panel-link">{children}<svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></Link>;
+}
+
+type ButtonVariant="primary"|"secondary"|"ghost"|"danger";
+const sharedButtonClass=(variant:ButtonVariant)=>variant==="primary"?"app-btn app-primary-button":variant==="secondary"?"app-btn app-secondary-button":"app-btn";
+
+export function Button({
+  variant="secondary",size="md",type="button",className="",children,...rest
+}:{variant?:ButtonVariant;size?:"sm"|"md"|"lg";type?:"button"|"submit"|"reset";className?:string;children:ReactNode;onClick?:()=>void;disabled?:boolean;title?:string;"aria-label"?:string}) {
+  return <button type={type} className={sharedButtonClass(variant)+" "+className} data-variant={variant} data-size={size} {...rest}>{children}</button>;
+}
+
+export function ButtonLink({
+  href,variant="secondary",size="md",className="",children,
+}:{href:string;variant?:ButtonVariant;size?:"sm"|"md"|"lg";className?:string;children:ReactNode}) {
+  return <Link href={href} className={sharedButtonClass(variant)+" "+className} data-variant={variant} data-size={size}>{children}</Link>;
+}
+
+export const controlClass="app-control";
+
+export function Segmented<T extends string>({
+  value,onChange,items,label,
+}:{value:T;onChange:(value:T)=>void;items:{value:T;label:string}[];label:string}) {
+  return <div className="app-segmented" role="group" aria-label={label}>
+    {items.map(item=><button key={item.value} type="button" aria-pressed={value===item.value} onClick={()=>onChange(item.value)}>{item.label}</button>)}
+  </div>;
+}
+
+export function MetricCard({
+  label,value,detail,href,tone,
+}:{label:ReactNode;value:ReactNode;detail?:ReactNode;href?:string;tone?:SemanticTone}) {
+  const body=<><span className="app-metric-label">{label}</span><div className="min-w-0">{value}</div>{detail?<span className="app-metric-detail">{detail}</span>:null}</>;
+  return href?<Link href={href} className="app-metric" data-tone={tone}>{body}</Link>:<div className="app-metric" data-tone={tone}>{body}</div>;
+}
+
+export function ErrorState({title,description,action}:{title:string;description?:string;action?:ReactNode}) {
+  return <div className="app-state" data-tone="negative">
+    <div className="app-state-icon" aria-hidden="true">!</div>
+    <strong>{title}</strong>
+    {description?<p>{description}</p>:null}
+    {action}
   </div>;
 }

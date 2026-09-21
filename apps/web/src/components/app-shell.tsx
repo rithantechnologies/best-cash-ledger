@@ -11,9 +11,9 @@ import { apiFetch } from "@/lib/api";
 const navItems = [
   { group:"Today", label:"Dashboard", short:"Home", href:"/", icon:"home" },
   { group:"Today", label:"Transactions", short:"Activity", href:"/transactions", icon:"activity" },
-  { group:"Today", label:"Dues", short:"Dues", href:"/dues", icon:"settle" },
+  { group:"Money due", label:"Dues", short:"Dues", href:"/dues", icon:"settle" },
   { group:"Today", label:"Customers", short:"Customers", href:"/customers", icon:"people" },
-  { group:"Today", label:"Settlements", short:"Settlements", href:"/provider-settlements", icon:"settle" },
+  { group:"Money due", label:"Settlements", short:"Settlements", href:"/provider-settlements", icon:"settle" },
   { group:"Books", label:"Accounts", short:"Accounts", href:"/accounts", icon:"wallet" },
   { group:"Books", label:"Daily Cash", short:"Cash", href:"/cash-counter", icon:"cash" },
   { group:"Books", label:"Expenses", short:"Expenses", href:"/expenses", icon:"expense" },
@@ -216,7 +216,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/")?"bg-[var(--accent-soft)]":"")}><Icon name="home" className="h-[19px] w-[19px]"/></span><span>Home</span></Link>
       <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/transactions")?"bg-[var(--accent-soft)]":"")}><Icon name="activity" className="h-[19px] w-[19px]"/></span><span>Activity</span></Link>
       <Link href="/transactions#transaction-actions" className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[11px] font-black text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-[20px] border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#4f46e5)] text-white shadow-[0_10px_26px_rgba(37,99,235,.34)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></Link>
-      {isDashboard?<Link href="/reports" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/reports")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/reports")?"bg-[var(--accent-soft)]":"")}><Icon name="chart" className="h-[19px] w-[19px]"/></span><span>Reports</span></Link>:<Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/dues")?"bg-[var(--accent-soft)]":"")}><Icon name="settle" className="h-[19px] w-[19px]"/></span><span>Dues</span></Link>}
+      <Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/dues")?"bg-[var(--accent-soft)]":"")}><Icon name="settle" className="h-[19px] w-[19px]"/></span><span>Dues</span></Link>
       <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold text-[var(--text-muted)]"><span className="grid h-8 w-10 place-items-center rounded-xl"><Icon name="more" className="h-[19px] w-[19px]"/></span><span>More</span></button>
     </nav>:null}
   </div>;

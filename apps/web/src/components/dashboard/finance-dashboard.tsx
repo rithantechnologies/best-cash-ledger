@@ -12,6 +12,7 @@ import {
 } from "react";
 import { AppShell } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
+import { formatMoney, titleCase } from "@/lib/format";
 import { CashFlowChart, ExpenseDonut, FundsAllocationDonut, PositionSparkline } from "./dashboard-charts";
 import { DashboardIcon, type DashboardIconName } from "./dashboard-icons";
 import type {
@@ -41,20 +42,10 @@ const categoryPalette = [
 ];
 
 const money = (value: number | string, digits = 0) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(Number(value || 0));
+  formatMoney(value, { decimals: digits === 0 ? 0 : 2 });
 
 const compactMoney = (value: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value || 0);
+  formatMoney(value, { decimals: 0, compact: true });
 
 const shortDate = (value: string | null) =>
   value
@@ -71,13 +62,6 @@ const dateTime = (value: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
-
-const titleCase = (value: string) =>
-  value
-    .toLowerCase()
-    .split("_")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
 
 function periodRange(period: DashboardPeriod) {
   const now = new Date();
@@ -412,7 +396,6 @@ export function FinanceDashboard() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [error, setError] = useState("");
   const [analyticsError, setAnalyticsError] = useState("");
-  const [viewer, setViewer] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedAllocationId, setSelectedAllocationId] = useState<string | null>(null);
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null);
@@ -440,10 +423,6 @@ export function FinanceDashboard() {
   }, []);
 
   useEffect(() => {
-    try {
-      const user = JSON.parse(localStorage.getItem("cashledger_user") || "{}");
-      setViewer((user.fullName || user.name || "").split(" ")[0] || "");
-    } catch {}
     loadCore();
   }, [loadCore]);
 
@@ -609,6 +588,15 @@ export function FinanceDashboard() {
           href: "/payables?bucket=today",
         }
       : null,
+    summary.receivableBreakdown.dueTodayAmount > 0
+      ? {
+          tone: "warning",
+          icon: "receive" as DashboardIconName,
+          title: `${money(summary.receivableBreakdown.dueTodayAmount)} collections due today`,
+          detail: `${summary.receivableBreakdown.dueTodayCount} customer collection${summary.receivableBreakdown.dueTodayCount === 1 ? "" : "s"} expected today`,
+          href: "/receivables?bucket=today",
+        }
+      : null,
   ].filter(Boolean) as Array<{
     tone: string;
     icon: DashboardIconName;
@@ -687,7 +675,6 @@ export function FinanceDashboard() {
         <header className={styles.commandHeader}>
           <div>
             <h1>Financial overview</h1>
-            {viewer ? <p className={styles.headerDescription}>Welcome, {viewer}</p> : null}
           </div>
           <div className={styles.commandControls}>
             <div className={styles.contextControl} role="group" aria-label="Financial context">
@@ -887,17 +874,7 @@ export function FinanceDashboard() {
                   <DashboardIcon name="arrowRight" />
                 </Link>
               ))}
-              {summary.creditCardOutstanding > 0 ? (
-                <Link href="/accounts?type=OWNER_CREDIT_CARD" className={styles.attentionRow} data-tone="danger">
-                  <span><DashboardIcon name="card" /></span>
-                  <div>
-                    <strong>Card outstanding · {money(summary.creditCardOutstanding)}</strong>
-                    <p>Statement balance, not a bill due today.</p>
-                  </div>
-                  <DashboardIcon name="arrowRight" />
-                </Link>
-              ) : null}
-              {!attentionItems.length && summary.creditCardOutstanding <= 0 ? (
+              {!attentionItems.length ? (
                 <EmptyMessage title="Nothing needs attention" detail="No overdue dues or pending settlements." />
               ) : null}
             </div>
