@@ -24,18 +24,33 @@ export class CashCounterService {
     return denominations.reduce((sum, d) => sum + d.denomination * d.quantity, 0);
   }
 
-  async current(cashAccountId?: string) {
-    const session = await this.prisma.cashSession.findFirst({
-      where: {
-        status: 'OPEN',
-        ...(cashAccountId ? { cashAccountId } : {}),
-      },
-      include: { cashAccount: true, denominationCounts: true },
-      orderBy: { openedAt: 'desc' },
-    });
-    if (!session) return null;
-    const { expected, totalIn, totalOut, movements } =
-      await this.expectedClosing(this.prisma, session);
+  private async hydrateSession(session: {
+    id: string;
+    cashAccountId: string;
+    businessDate: Date;
+    openedById: string;
+    openedAt: Date;
+    openingTotal: Prisma.Decimal;
+    expectedClosingTotal: Prisma.Decimal | null;
+    actualClosingTotal: Prisma.Decimal | null;
+    differenceAmount: Prisma.Decimal | null;
+    closedById: string | null;
+    closedAt: Date | null;
+    closingNotes: string | null;
+    adjustmentTransactionId: string | null;
+    status: any;
+    cashAccount: any;
+    denominationCounts: any[];
+  }) {
+    const {
+      expected,
+      totalIn,
+      totalOut,
+      movements,
+      activities,
+      serviceSummary,
+      commissionEarned,
+    } = await this.expectedClosing(this.prisma, session);
     const users = await this.prisma.user.findMany({
       where: {
         id: {
@@ -48,14 +63,50 @@ export class CashCounterService {
     const byId = new Map(users.map((user) => [user.id, user]));
     return {
       ...session,
-      liveExpectedClosingTotal: expected,
+      liveExpectedClosingTotal:
+        session.status === 'CLOSED' && session.expectedClosingTotal !== null
+          ? Number(session.expectedClosingTotal)
+          : expected,
       liveCashIn: totalIn,
       liveCashOut: totalOut,
       movements,
+      activities,
+      serviceSummary,
+      commissionEarned,
+      transactionCount: activities.length,
       openedBy: byId.get(session.openedById) ?? null,
-      closedBy: session.closedById ? byId.get(session.closedById) ?? null : null,
+      closedBy: session.closedById
+        ? byId.get(session.closedById) ?? null
+        : null,
     };
   }
+
+  async today(cashAccountId?: string) {
+    const session = await this.prisma.cashSession.findFirst({
+      where: {
+        businessDate: this.businessDate(),
+        ...(cashAccountId ? { cashAccountId } : {}),
+      },
+      include: { cashAccount: true, denominationCounts: true },
+      orderBy: { openedAt: 'desc' },
+    });
+    if (!session) return null;
+    return this.hydrateSession(session);
+  }
+
+  async current(cashAccountId?: string) {
+    const session = await this.prisma.cashSession.findFirst({
+      where: {
+        status: 'OPEN',
+        ...(cashAccountId ? { cashAccountId } : {}),
+      },
+      include: { cashAccount: true, denominationCounts: true },
+      orderBy: { openedAt: 'desc' },
+    });
+    if (!session) return null;
+    return this.hydrateSession(session);
+  }
+
   async open(dto: OpenCashSessionDto, userId: string) {
     const existing = await this.prisma.cashSession.findFirst({
       where: { cashAccountId: dto.cashAccountId, status: 'OPEN' },
@@ -107,11 +158,13 @@ export class CashCounterService {
   }
 
   private async expectedClosing(
-    tx: Prisma.TransactionClient,
+    tx: Prisma.TransactionClient | PrismaService,
     session: {
       cashAccountId: string;
       openedAt: Date;
       openingTotal: Prisma.Decimal;
+      closedAt?: Date | null;
+      adjustmentTransactionId?: string | null;
     },
   ) {
     const account = await tx.financialAccount.findUnique({
@@ -126,8 +179,14 @@ export class CashCounterService {
       where: {
         ledgerAccountId: account.ledgerAccount.id,
         journal: {
-          postingDate: { gte: session.openedAt },
+          postingDate: {
+            gte: session.openedAt,
+            ...(session.closedAt ? { lte: session.closedAt } : {}),
+          },
           status: 'POSTED',
+          ...(session.adjustmentTransactionId
+            ? { transactionId: { not: session.adjustmentTransactionId } }
+            : {}),
         },
       },
       include: {
@@ -135,45 +194,182 @@ export class CashCounterService {
           include: {
             transaction: {
               select: {
+                id: true,
                 transactionNumber: true,
                 transactionType: true,
                 transactionAt: true,
+                grossAmount: true,
+                netAmount: true,
                 notes: true,
+                customer: { select: { id: true, fullName: true } },
+                commissions: { select: { amount: true } },
               },
             },
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'asc' },
     });
+
+    const transactionIds = [
+      ...new Set(entries.map((entry) => entry.journal.transaction.id)),
+    ];
+    const payoutLinks = transactionIds.length
+      ? await tx.payablePayment.findMany({
+          where: { transactionId: { in: transactionIds } },
+          select: {
+            transactionId: true,
+            payable: {
+              select: {
+                sourceTransaction: {
+                  select: {
+                    id: true,
+                    transactionNumber: true,
+                    transactionType: true,
+                    transactionAt: true,
+                    grossAmount: true,
+                    netAmount: true,
+                    notes: true,
+                    customer: { select: { id: true, fullName: true } },
+                    commissions: { select: { amount: true } },
+                  },
+                },
+              },
+            },
+          },
+        })
+      : [];
+    const payoutOriginByTransactionId = new Map(
+      payoutLinks.map((link) => [
+        link.transactionId,
+        link.payable.sourceTransaction,
+      ]),
+    );
 
     let expected = Number(session.openingTotal);
     let totalIn = 0;
     let totalOut = 0;
+    let runningBalance = Number(session.openingTotal);
+    const movements: any[] = [];
+    const activityMap = new Map<string, any>();
+
     for (const entry of entries) {
       const amount = Number(entry.amount);
-      if (entry.entryType === EntryType.DEBIT) {
+      const cashTransaction = entry.journal.transaction;
+      const origin =
+        payoutOriginByTransactionId.get(cashTransaction.id) ??
+        cashTransaction;
+      const commissionAmount = origin.commissions.reduce(
+        (sum, commission) => sum + Number(commission.amount),
+        0,
+      );
+      const direction =
+        entry.entryType === EntryType.DEBIT ? 'IN' : 'OUT';
+
+      if (direction === 'IN') {
         expected += amount;
         totalIn += amount;
+        runningBalance += amount;
       } else {
         expected -= amount;
         totalOut += amount;
+        runningBalance -= amount;
       }
-    }
-    const movements = entries.slice(0, 20).map((entry) => ({
-      id: entry.id,
-      direction: entry.entryType === EntryType.DEBIT ? 'IN' : 'OUT',
-      amount: Number(entry.amount),
-      description:
+
+      const particular =
+        origin.customer?.fullName ??
+        origin.notes ??
         entry.description ??
-        entry.journal.description ??
-        entry.journal.transaction.notes ??
-        null,
-      transactionNumber: entry.journal.transaction.transactionNumber,
-      transactionType: entry.journal.transaction.transactionType,
-      transactionAt: entry.journal.transaction.transactionAt,
-    }));
-    return { expected, account, totalIn, totalOut, movements };
+        origin.transactionNumber;
+      const activityId = origin.id;
+
+      movements.push({
+        id: entry.id,
+        activityId,
+        transactionId: origin.id,
+        direction,
+        amount,
+        runningBalance,
+        description: particular,
+        transactionNumber: origin.transactionNumber,
+        transactionType: origin.transactionType,
+        transactionAt: cashTransaction.transactionAt,
+        grossAmount: Number(origin.grossAmount),
+        netAmount: Number(origin.netAmount ?? origin.grossAmount),
+        commissionAmount,
+      });
+
+      const activity = activityMap.get(activityId) ?? {
+        id: activityId,
+        transactionId: origin.id,
+        transactionNumber: origin.transactionNumber,
+        serviceType: origin.transactionType,
+        transactionAt: cashTransaction.transactionAt,
+        particular,
+        transactionAmount: Number(origin.grossAmount),
+        netAmount: Number(origin.netAmount ?? origin.grossAmount),
+        cashIn: 0,
+        cashOut: 0,
+        commissionAmount,
+        runningBalance,
+        movementCount: 0,
+      };
+      if (direction === 'IN') activity.cashIn += amount;
+      else activity.cashOut += amount;
+      activity.runningBalance = runningBalance;
+      activity.movementCount += 1;
+      if (
+        new Date(cashTransaction.transactionAt).getTime() >
+        new Date(activity.transactionAt).getTime()
+      ) {
+        activity.transactionAt = cashTransaction.transactionAt;
+      }
+      activityMap.set(activityId, activity);
+    }
+
+    const activities = [...activityMap.values()].sort(
+      (a, b) =>
+        new Date(a.transactionAt).getTime() -
+        new Date(b.transactionAt).getTime(),
+    );
+    const serviceMap = new Map<string, any>();
+    for (const activity of activities) {
+      const row = serviceMap.get(activity.serviceType) ?? {
+        id: activity.serviceType,
+        transactionAmount: 0,
+        cashIn: 0,
+        cashOut: 0,
+        commissionAmount: 0,
+        count: 0,
+      };
+      row.transactionAmount += activity.transactionAmount;
+      row.cashIn += activity.cashIn;
+      row.cashOut += activity.cashOut;
+      row.commissionAmount += activity.commissionAmount;
+      row.count += 1;
+      serviceMap.set(activity.serviceType, row);
+    }
+    const serviceSummary = [...serviceMap.values()].sort(
+      (a, b) =>
+        b.cashIn +
+        b.cashOut -
+        (a.cashIn + a.cashOut),
+    );
+    const commissionEarned = activities.reduce(
+      (sum, activity) => sum + activity.commissionAmount,
+      0,
+    );
+
+    return {
+      expected,
+      account,
+      totalIn,
+      totalOut,
+      movements,
+      activities,
+      serviceSummary,
+      commissionEarned,
+    };
   }
 
   async close(id: string, dto: CloseCashSessionDto, userId: string) {
@@ -192,9 +388,11 @@ export class CashCounterService {
 
       const { expected, account } = await this.expectedClosing(tx, session);
       const difference = actual - expected;
-      if (Math.abs(difference) > 0.005 && !dto.notes?.trim()) {
+      if (Math.abs(difference) > 0.005) {
         throw new BadRequestException(
-          'Please add a note explaining the cash difference before closing',
+          'Closing cash does not match the expected drawer. Difference: ' +
+            difference.toFixed(2) +
+            '. Review missing cash in/out transactions before closing.',
         );
       }
       let adjustmentTransactionId: string | null = null;

@@ -96,7 +96,7 @@ export class DashboardService {
         availableCredit:
           account.accountType === AccountType.OWNER_CREDIT_CARD &&
           account.creditLimit
-            ? Number(account.creditLimit) - currentBalance
+            ? Math.max(0, Number(account.creditLimit) - currentBalance)
             : null,
         isActive: account.isActive,
         bankName: account.bankName,
@@ -197,6 +197,10 @@ export class DashboardService {
       providerSettlementsOpen._sum.remainingAmount ?? 0,
     );
     const creditCardOutstanding = sumType(AccountType.OWNER_CREDIT_CARD);
+    const creditCardAvailable = balances
+      .filter((a) => a.accountType === AccountType.OWNER_CREDIT_CARD)
+      .reduce((sum, a) => sum + Math.max(0, a.availableCredit ?? 0), 0);
+    const currentAvailability = availableFunds + creditCardAvailable;
     const operatingPosition =
       availableFunds +
       pendingProviderSettlements +
@@ -207,6 +211,7 @@ export class DashboardService {
 
     return {
       cashBalance, bankBalance, upiBalance, walletBalance, availableFunds,
+      currentAvailability,
       customerPayable, customerReceivable,
       pendingProviderSettlements,
       pendingProviderSettlementCount: providerSettlementsOpen._count,
@@ -225,8 +230,7 @@ export class DashboardService {
         overdueAmount: Number(receivableOverdue._sum.remainingAmount ?? 0), overdueCount: receivableOverdue._count,
       },
       creditCardOutstanding,
-      creditCardAvailable: balances.filter((a) => a.accountType === AccountType.OWNER_CREDIT_CARD)
-        .reduce((sum, a) => sum + (a.availableCredit ?? 0), 0),
+      creditCardAvailable,
     };
   }
 
@@ -244,9 +248,23 @@ export class DashboardService {
       });
       return Number(result._sum.grossAmount ?? 0);
     };
+    const commissionSum = async (type: TransactionType) => {
+      const result = await this.prisma.transactionCommission.aggregate({
+        where: {
+          transaction: {
+            transactionType: type,
+            transactionAt: range,
+            status: { not: 'REVERSED' },
+          },
+        },
+        _sum: { amount: true },
+      });
+      return Number(result._sum.amount ?? 0);
+    };
 
     const [
       cardSwipe,
+      cashTransfer,
       aeps,
       microAtm,
       customerPayout,
@@ -256,6 +274,7 @@ export class DashboardService {
       personalExpense,
     ] = await Promise.all([
       txSum(TransactionType.CARD_SWIPE),
+      txSum(TransactionType.CASH_TRANSFER),
       txSum(TransactionType.AEPS_WITHDRAWAL),
       txSum(TransactionType.MICRO_ATM),
       txSum(TransactionType.CUSTOMER_PAYOUT),
@@ -265,7 +284,15 @@ export class DashboardService {
       txSum(TransactionType.PERSONAL_EXPENSE),
     ]);
 
-    const [commissions, charges, settlementReceipts] = await Promise.all([
+    const [
+      commissions,
+      charges,
+      settlementReceipts,
+      cardSwipeCommission,
+      cashTransferCommission,
+      aepsCommission,
+      microAtmCommission,
+    ] = await Promise.all([
       this.prisma.transactionCommission.aggregate({
         where: {
           transaction: { transactionAt: range, status: { not: 'REVERSED' } },
@@ -282,6 +309,10 @@ export class DashboardService {
         where: { receivedAt: range, status: PaymentStatus.COMPLETED },
         _sum: { amount: true },
       }),
+      commissionSum(TransactionType.CARD_SWIPE),
+      commissionSum(TransactionType.CASH_TRANSFER),
+      commissionSum(TransactionType.AEPS_WITHDRAWAL),
+      commissionSum(TransactionType.MICRO_ATM),
     ]);
     const movementByTypes = async (types: AccountType[], entryType: EntryType) => {
       const ledgers = await this.prisma.ledgerAccount.findMany({
@@ -324,6 +355,7 @@ export class DashboardService {
       upiIn,
       upiOut,
       cardSwipe,
+      cashTransfer,
       aeps,
       microAtm,
       customerPayout,
@@ -331,6 +363,10 @@ export class DashboardService {
       receivableCreated,
       settlementsReceived: Number(settlementReceipts._sum.amount ?? 0),
       commission: Number(commissions._sum.amount ?? 0),
+      cardSwipeCommission,
+      cashTransferCommission,
+      aepsCommission,
+      microAtmCommission,
       providerCharges: Number(charges._sum.amount ?? 0),
       businessExpense,
       personalExpense,

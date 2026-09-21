@@ -29,14 +29,43 @@ export class EndOfDayService {
 
   async status() {
     const { businessDate } = this.indiaDayRange();
-    const [snapshot, openCashSessions, summary] = await Promise.all([
-      this.prisma.dailyPositionSummary.findUnique({
-        where: { businessDate },
-      }),
-      this.prisma.cashSession.count({ where: { status: 'OPEN' } }),
-      this.dashboard.summary(),
-    ]);
-    return { businessDate, snapshot, openCashSessions, summary };
+    const [snapshot, openCashSessions, summary, cashAccounts, closedSessions] =
+      await Promise.all([
+        this.prisma.dailyPositionSummary.findUnique({
+          where: { businessDate },
+        }),
+        this.prisma.cashSession.count({ where: { status: 'OPEN' } }),
+        this.dashboard.summary(),
+        this.prisma.financialAccount.findMany({
+          where: { accountType: AccountType.CASH, isActive: true },
+          select: { id: true, accountName: true },
+        }),
+        this.prisma.cashSession.findMany({
+          where: { businessDate, status: 'CLOSED' },
+          select: { id: true, cashAccountId: true },
+        }),
+      ]);
+    const requiredCashAccountIds = new Set(cashAccounts.map((account) => account.id));
+    const reconciledCashAccountIds = new Set(
+      closedSessions
+        .map((session) => session.cashAccountId)
+        .filter((id) => requiredCashAccountIds.has(id)),
+    );
+    const cashReconciliationRequired = cashAccounts.length > 0;
+    const cashReconciled =
+      !cashReconciliationRequired ||
+      (openCashSessions === 0 &&
+        reconciledCashAccountIds.size === requiredCashAccountIds.size);
+    return {
+      businessDate,
+      snapshot,
+      openCashSessions,
+      summary,
+      cashReconciliationRequired,
+      cashReconciled,
+      cashAccountsRequired: cashAccounts.length,
+      cashAccountsReconciled: reconciledCashAccountIds.size,
+    };
   }
 
   history() {
@@ -193,8 +222,32 @@ export class EndOfDayService {
       });
       if (openCashSessions > 0) {
         throw new BadRequestException(
-          'Close all cash-counter sessions before saving end-of-day',
+          'Close all Daily Cash Desk sessions before saving end-of-day',
         );
+      }
+
+      const activeCashAccounts = await tx.financialAccount.findMany({
+        where: { accountType: AccountType.CASH, isActive: true },
+        select: { id: true },
+      });
+      if (activeCashAccounts.length > 0) {
+        const cashAccountIds = activeCashAccounts.map((account) => account.id);
+        const closedCashSessions = await tx.cashSession.findMany({
+          where: {
+            businessDate,
+            status: 'CLOSED',
+            cashAccountId: { in: cashAccountIds },
+          },
+          select: { cashAccountId: true },
+        });
+        const reconciled = new Set(
+          closedCashSessions.map((session) => session.cashAccountId),
+        );
+        if (reconciled.size < cashAccountIds.length) {
+          throw new BadRequestException(
+            'Daily Cash Desk reconciliation is required before saving end-of-day. Open the cash desk, count closing cash, and close it first.',
+          );
+        }
       }
 
       const [

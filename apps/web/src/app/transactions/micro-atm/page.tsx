@@ -81,7 +81,7 @@ export default function MicroAtmPage(){
   try{
    await apiFetch("/transactions/micro-atm",{method:"POST",body:JSON.stringify({
     customerId,cardLastFour,customerBankName:bank||undefined,withdrawalAmount:withdrawal,
-    providerId,gatewayId:gatewayId||undefined,providerCommissionRate:Number(commissionRate),
+    providerId,gatewayId,providerCommissionRate:Number(commissionRate),
     cashAccountId,settlementAccountId,settledNow,
     settlementDueAt:settlementDueAt?new Date(settlementDueAt).toISOString():undefined,
     providerReference:reference||undefined,notes:notes||undefined,
@@ -102,7 +102,7 @@ export default function MicroAtmPage(){
     <SummaryRow label="Provider commission" value={money(providerCommission)} tone="emerald"/>
     <SummaryRow label={settledNow?"Settlement received":"Provider clearing"} value={money(settlement)} tone="cyan"/>
    </>}
-   footer={<button disabled={saving||cardLastFour.length!==4||withdrawal<=0||!providerId||!cashAccountId||!settlementAccountId||(cashAccount&&cashAccount.currentBalance+0.001<withdrawal)} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save Micro ATM withdrawal"}</button>}>
+   footer={<button disabled={saving||!customerId||cardLastFour.length!==4||withdrawal<=0||!providerId||!gatewayId||!cashAccountId||!settlementAccountId||(cashAccount&&cashAccount.currentBalance+0.001<withdrawal)} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save Micro ATM withdrawal"}</button>}>
 
    {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
@@ -118,9 +118,8 @@ export default function MicroAtmPage(){
    <FormSection step="2" title="Provider & commission">
     <div className="grid gap-3 sm:grid-cols-2">
      <Field label="Provider"><select className={control} value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");setSettlementAccountId("");}} required><option value="">Select provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-     <Field label="Gateway / terminal"><select className={control} value={gatewayId} onChange={e=>setGatewayId(e.target.value)}><option value="">Optional gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select></Field>
+     <Field label="Gateway / terminal"><select className={control} value={gatewayId} onChange={e=>setGatewayId(e.target.value)} required><option value="">Select gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select></Field>
      <Field label="Provider commission %"><input className={control} type="number" step="0.0001" min="0" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/></Field>
-     <Field label="Provider reference / RRN"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="RRN / transaction reference"/></Field>
     </div>
    </FormSection>
 
@@ -128,11 +127,12 @@ export default function MicroAtmPage(){
     <div className="grid gap-3 sm:grid-cols-2">
      <Field label="Cash account"><select className={control} value={cashAccountId} onChange={e=>setCashAccountId(e.target.value)} required><option value="">Cash account paying customer</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select></Field>
      <Field label="Settlement wallet">{providerWallet?<div className={control+" flex items-center justify-between"}><span>{providerWallet.accountName}</span><span className="text-xs text-slate-400">{money(providerWallet.currentBalance)}</span></div>:<select className={control} value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Select settlement account</option>{accounts.filter(a=>a.accountType==="BANK"||a.accountType==="UPI").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>}</Field>
-     <Field label="Expected settlement"><input className={control} type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)}/></Field>
+     {!settledNow?<Field label="Expected settlement"><input className={control} type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)}/></Field>:null}
      <label className="flex min-h-11 items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm"><input type="checkbox" checked={settledNow} onChange={e=>setSettledNow(e.target.checked)} className="h-4 w-4"/><span><strong className="block text-emerald-900">Settlement already received</strong><span className="text-[11px] text-emerald-700">Only when the funds are already visible in the selected account.</span></span></label>
-     <Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field>
     </div>
    </FormSection>
+
+   <details className="group rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer list-none px-4 py-3.5 text-sm font-bold">More details <span className="float-right text-[var(--text-muted)] group-open:rotate-45">+</span></summary><div className="grid gap-3 border-t border-[var(--border)] p-4 sm:grid-cols-2"><Field label="Provider reference / RRN"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="RRN / transaction reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></details>
   </TransactionFrame>
  </form></AppShell>;
 }

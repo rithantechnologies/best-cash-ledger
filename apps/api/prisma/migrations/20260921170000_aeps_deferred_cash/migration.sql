@@ -1,0 +1,1 @@
+ALTER TABLE "AepsDetail" ALTER COLUMN "cashAccountId" DROP NOT NULL;

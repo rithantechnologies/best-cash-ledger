@@ -2531,3 +2531,584 @@ html[data-theme="dark"] .dashboard-finance-shell .app-main {
 @media (max-width: 639px) {
   .dashboard-finance-shell .app-main { padding-top: 14px; }
 }
+
+
+/* Shared banking skeleton shimmer */
+.ui-shimmer{
+  position:relative;
+  overflow:hidden;
+  background:linear-gradient(
+    100deg,
+    var(--surface-soft) 20%,
+    color-mix(in srgb,var(--surface) 78%,var(--accent-soft)) 42%,
+    var(--surface-soft) 65%
+  );
+  background-size:220% 100%;
+  animation:uiShimmerMove 1.35s ease-in-out infinite;
+}
+@keyframes uiShimmerMove{
+  from{background-position:110% 0}
+  to{background-position:-110% 0}
+}
+@media(prefers-reduced-motion:reduce){
+  .ui-shimmer{animation:none}
+}
+
+/* Card Swipe — modern counter-workflow visual system */
+body.cashledger-modern-task {
+  --bg: #f7f7fb;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-soft: #f6f6fa;
+  --border: #e7e7ee;
+  --text: #18181f;
+  --text-muted: #72727f;
+  --accent: #635bff;
+  --accent-soft: #f0efff;
+  --money-in: #069b68;
+  --money-out: #e0526b;
+  --warning: #b7791f;
+  --danger: #d6455d;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01" 1, "cv02" 1, "cv03" 1, "cv04" 1;
+}
+
+html[data-theme="dark"] body.cashledger-modern-task {
+  --bg: #0f1015;
+  --surface: #15161d;
+  --surface-raised: #1a1b23;
+  --surface-soft: #1b1c25;
+  --border: #2b2d38;
+  --text: #f7f7fa;
+  --text-muted: #a0a2ae;
+  --accent: #8b84ff;
+  --accent-soft: #272441;
+  --money-in: #46d6a4;
+  --money-out: #ff8096;
+  --warning: #e9ad4a;
+  --danger: #ff728b;
+}
+
+body.cashledger-modern-task .app-main {
+  background:
+    radial-gradient(circle at 88% -12%, rgba(99,91,255,.08), transparent 27rem),
+    linear-gradient(180deg, #fafafe 0%, var(--bg) 38%, #f6f6fa 100%);
+}
+html[data-theme="dark"] body.cashledger-modern-task .app-main {
+  background:
+    radial-gradient(circle at 88% -10%, rgba(139,132,255,.11), transparent 28rem),
+    linear-gradient(180deg, #111219 0%, var(--bg) 45%, #0e0f14 100%);
+}
+
+body.cashledger-modern-task .app-topbar {
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 1px 0 rgba(24,24,31,.025);
+}
+body.cashledger-modern-task .app-sidebar {
+  border-color: color-mix(in srgb, var(--border) 90%, transparent);
+  background: color-mix(in srgb, var(--surface) 98%, var(--bg) 2%);
+}
+body.cashledger-modern-task .app-nav-link-active {
+  background: color-mix(in srgb, var(--accent-soft) 82%, var(--surface));
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 13%, var(--border));
+}
+body.cashledger-modern-task .app-nav-link-active > span:first-child {
+  background: var(--accent);
+  color: #fff;
+}
+
+body.cashledger-modern-task .swipe-commerce-page {
+  color: var(--text);
+  letter-spacing: -.005em;
+}
+
+body.cashledger-modern-task .entry-sheet {
+  border-radius: 26px !important;
+  border-color: color-mix(in srgb, var(--border) 92%, transparent) !important;
+  background: var(--surface);
+  box-shadow:
+    0 1px 2px rgba(24,24,31,.025),
+    0 18px 52px rgba(24,24,31,.065);
+}
+body.cashledger-modern-task .entry-section {
+  padding: 18px 20px;
+  border-bottom-color: color-mix(in srgb, var(--border) 86%, transparent);
+  background: var(--surface);
+}
+body.cashledger-modern-task .entry-section-amount {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 28%, var(--surface)), var(--surface));
+}
+body.cashledger-modern-task .entry-section-commission {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 72%, var(--surface)), var(--surface));
+}
+body.cashledger-modern-task .entry-title {
+  font-size: 1.04rem;
+  line-height: 1.35rem;
+  font-weight: 720;
+  letter-spacing: -.025em;
+}
+body.cashledger-modern-task .operational-label {
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+body.cashledger-modern-task .app-control {
+  min-height: 46px;
+  border-radius: 13px;
+  border-color: color-mix(in srgb, var(--border) 94%, transparent);
+  background: color-mix(in srgb, var(--surface) 98%, var(--surface-soft) 2%);
+  box-shadow: 0 1px 1px rgba(24,24,31,.02);
+}
+body.cashledger-modern-task .app-control:hover {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+body.cashledger-modern-task .app-control:focus {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--border)) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+body.cashledger-modern-task .entry-amount-input {
+  height: 64px;
+  border-radius: 16px;
+  border-color: color-mix(in srgb, var(--accent) 16%, var(--border));
+  background: #fff;
+  font-size: 2rem;
+  font-weight: 760;
+  letter-spacing: -.045em;
+  box-shadow: 0 1px 2px rgba(24,24,31,.025);
+}
+html[data-theme="dark"] body.cashledger-modern-task .entry-amount-input {
+  background: var(--surface-raised);
+}
+
+body.cashledger-modern-task .payment-term-pill {
+  min-height: 40px;
+  border-color: color-mix(in srgb, var(--border) 95%, transparent);
+  border-radius: 12px;
+  background: var(--surface);
+  font-weight: 640;
+  box-shadow: 0 1px 1px rgba(24,24,31,.02);
+}
+body.cashledger-modern-task .payment-term-pill-active {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(99,91,255,.20);
+}
+
+body.cashledger-modern-task .provider-summary-card {
+  border-color: color-mix(in srgb, var(--accent) 13%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-soft) 42%, var(--surface));
+  box-shadow: none;
+}
+body.cashledger-modern-task .wallet-summary-card {
+  border-color: color-mix(in srgb, var(--money-in) 16%, var(--border)) !important;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--money-in) 3.5%, var(--surface));
+  box-shadow: none;
+}
+body.cashledger-modern-task .wallet-summary-card button {
+  border-radius: 8px;
+}
+
+body.cashledger-modern-task .commission-rate-input {
+  border-radius: 13px;
+  font-weight: 700;
+  box-shadow: none;
+}
+body.cashledger-modern-task .commission-control input[type="range"] {
+  height: 20px;
+}
+body.cashledger-modern-task .commission-control input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 82%, var(--accent) 18%);
+}
+body.cashledger-modern-task .commission-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 17px;
+  height: 17px;
+  margin-top: -6.5px;
+  border: 3px solid var(--surface);
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent), 0 3px 8px rgba(99,91,255,.22);
+}
+
+body.cashledger-modern-task .swipe-result-card {
+  --text: #fbfbff;
+  --text-muted: #b8b5d4;
+  --border: rgba(255,255,255,.11);
+  --money-in: #59e4ad;
+  --money-out: #ff8aa0;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 92% 6%, rgba(118,95,255,.34), transparent 34%),
+    linear-gradient(145deg, #17152d 0%, #211b49 58%, #2b2264 100%);
+  box-shadow: 0 20px 46px rgba(30,24,72,.20);
+}
+body.cashledger-modern-task .swipe-result-card .result-total {
+  font-weight: 760;
+  letter-spacing: -.05em;
+}
+body.cashledger-modern-task .swipe-result-earn {
+  border: 1px solid rgba(255,255,255,.05);
+  background: rgba(255,255,255,.075);
+}
+
+body.cashledger-modern-task .swipe-primary-action,
+body.cashledger-modern-task .app-primary-button {
+  border-radius: 13px;
+  background: linear-gradient(135deg, #6d5dfc 0%, #5b46f2 100%);
+  box-shadow: 0 11px 26px rgba(99,91,255,.23);
+}
+body.cashledger-modern-task .swipe-primary-action:hover:not(:disabled),
+body.cashledger-modern-task .app-primary-button:hover:not(:disabled) {
+  box-shadow: 0 14px 30px rgba(99,91,255,.29);
+}
+
+body.cashledger-modern-task .customer-mode-switch {
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  background: var(--surface-soft);
+}
+body.cashledger-modern-task .status-chip {
+  font-weight: 700;
+}
+body.cashledger-modern-task .currency-badge {
+  border-color: color-mix(in srgb, var(--accent) 12%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+body.cashledger-modern-task .money {
+  letter-spacing: -.025em;
+}
+
+@media (max-width: 1023px) {
+  body.cashledger-modern-task .entry-section { padding: 16px; }
+  body.cashledger-modern-task .entry-sheet { border-radius: 22px !important; }
+}
+
+/* Daily Cash: owner-first visual hierarchy */
+.cash-desk-hero {
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--border)) !important;
+  background:
+    radial-gradient(circle at 84% -12%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34rem),
+    var(--surface);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, #0f172a 4%, transparent),
+    0 20px 48px color-mix(in srgb, #0f172a 8%, transparent);
+}
+.cash-desk-now {
+  background:
+    radial-gradient(circle at 8% 0, color-mix(in srgb, var(--money-in) 8%, transparent), transparent 18rem),
+    linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 42%, var(--surface)), var(--surface));
+}
+.cash-desk-now-money {
+  max-width: 100%;
+  font-size: clamp(2.45rem, 11vw, 4.35rem);
+  line-height: .92;
+  letter-spacing: -.065em;
+  white-space: nowrap;
+}
+html[data-theme="dark"] .cash-desk-now {
+  background:
+    radial-gradient(circle at 8% 0, color-mix(in srgb, var(--money-in) 9%, transparent), transparent 18rem),
+    linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 25%, var(--surface)), var(--surface));
+}
+@media (max-width: 479px) {
+
+  .cash-desk-now-money { font-size: clamp(2.25rem, 12vw, 3rem); }
+}
+
+/* Daily Cash UX polish — compact owner view */
+.cash-desk-page {
+  padding-bottom: 1rem;
+}
+.cash-desk-page .app-section-heading {
+  margin-bottom: -2px;
+}
+.cash-desk-page .app-section-heading h2 {
+  letter-spacing: -.045em;
+}
+.cash-chart-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 28%, var(--border)) transparent;
+}
+.cash-chart-svg {
+  display: block;
+  min-width: 0;
+}
+.cash-history-collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+.cash-history-chevron {
+  transition: transform .16s ease;
+}
+.cash-history-collapsible[open] .cash-history-chevron {
+  transform: rotate(90deg);
+}
+.cash-desk-mobile-bar {
+  position: fixed;
+  z-index: 35;
+  right: 12px;
+  bottom: calc(74px + env(safe-area-inset-bottom));
+  left: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  padding: 10px 10px 10px 14px;
+  box-shadow: 0 14px 38px rgba(15,23,42,.18);
+  backdrop-filter: blur(16px);
+}
+.cash-desk-mobile-bar span {
+  display: block;
+  color: var(--text-muted);
+  font-size: .66rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.cash-desk-mobile-bar strong {
+  display: block;
+  margin-top: 1px;
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: -.035em;
+}
+.cash-desk-mobile-bar button {
+  min-height: 42px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: var(--accent);
+  padding: 0 14px;
+  color: #fff;
+  font-size: .76rem;
+  font-weight: 850;
+}
+@media (max-width: 639px) {
+  .cash-desk-page { padding-bottom: 5.5rem; }
+  .cash-desk-page .app-section-heading h2 { font-size: 1.55rem; }
+  .cash-desk-page .app-section-heading p { font-size: .78rem; }
+  .cash-chart-svg { min-width: 520px; }
+  .cash-chart-scroll { margin-inline: -4px; padding-bottom: 4px; }
+}
+
+/* Daily Cash premium finance treatment */
+.cash-desk-page {
+  width: min(100%, 1600px);
+  color: var(--text);
+  font-size: 15px;
+}
+.cash-desk-page .app-section-heading {
+  align-items: center;
+  margin-bottom: 2px;
+}
+.cash-desk-page .app-section-heading h2 {
+  font-size: clamp(2rem, 2.8vw, 2.5rem);
+  line-height: 1;
+  font-weight: 760;
+  letter-spacing: -.055em;
+}
+.cash-desk-page .app-section-heading p {
+  max-width: 760px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.cash-desk-page .app-surface {
+  border-radius: 24px;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, #0f172a 4%, transparent),
+    0 12px 30px color-mix(in srgb, #0f172a 5%, transparent);
+}
+.cash-desk-page h3 {
+
+  font-size: 17px;
+  line-height: 1.2;
+  font-weight: 780;
+  letter-spacing: -.025em;
+}
+.cash-desk-page button {
+  font-size: 14px;
+}
+.cash-desk-page .cash-desk-hero {
+  border-color: #244b7d !important;
+  background:
+    radial-gradient(circle at 86% -8%, rgba(64, 133, 255, .36), transparent 31rem),
+    linear-gradient(145deg, #0b1729 0%, #102b4f 58%, #143a68 100%);
+  color: #f8fbff;
+  box-shadow: none;
+}
+.cash-desk-page .cash-desk-hero > div:first-child {
+  border-color: rgba(255,255,255,.10) !important;
+}
+.cash-desk-page .cash-desk-hero > div:first-child p:first-child {
+  color: #f8fbff;
+}
+.cash-desk-page .cash-desk-hero > div:first-child p:last-child {
+  color: #a9bfd5;
+}
+.cash-desk-page .cash-desk-now {
+  min-height: 220px;
+  display: flex;
+
+  flex-direction: column;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 0 0, rgba(85, 214, 165, .10), transparent 20rem),
+    transparent;
+}
+.cash-desk-page .cash-desk-now > div:first-child > span:first-child {
+  color: #a9bfd5 !important;
+  font-size: 13px;
+  letter-spacing: .08em;
+}
+.cash-desk-page .cash-desk-now-money {
+  color: #f8fbff !important;
+  font-size: clamp(3rem, 6vw, 4.65rem);
+  line-height: .9;
+  font-weight: 770;
+  letter-spacing: -.07em;
+}
+.cash-desk-page .cash-desk-now > div:last-child {
+  color: #9fb5cc !important;
+  font-size: 14px;
+}
+.cash-desk-page .cash-desk-now > div:last-child strong {
+  color: #f8fbff !important;
+}
+.cash-desk-page .cash-desk-metric-card {
+  min-height: 108px;
+  display: flex;
+
+  flex-direction: column;
+  justify-content: center;
+  background: rgba(255,255,255,.035) !important;
+}
+.cash-desk-page .cash-desk-metric-card > p:first-child {
+  color: #9fb5cc !important;
+  font-size: 12px;
+  letter-spacing: .08em;
+}
+.cash-desk-page .cash-desk-metric-card .money {
+  color: #f8fbff;
+  font-size: clamp(1.35rem, 2vw, 1.65rem);
+  line-height: 1.05;
+}
+.cash-desk-page .cash-desk-metric-card[data-tone="in"] .money {
+  color: #79e7c6;
+}
+.cash-desk-page .cash-desk-metric-card[data-tone="out"] .money {
+  color: #ff9aaa;
+}
+.cash-desk-page .cash-desk-metric-card[data-tone="accent"] .money {
+  color: #a9caff;
+}
+.cash-desk-page .cash-desk-metric-card > p:last-child:not(:first-child) {
+  color: #9fb5cc !important;
+  font-size: 12px;
+}
+.cash-service-mix {
+
+  border-color: color-mix(in srgb, var(--accent) 12%, var(--border)) !important;
+}
+.cash-service-donut {
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 12rem),
+    color-mix(in srgb, var(--surface-soft) 40%, var(--surface));
+}
+.cash-service-donut-frame {
+  width: min(100%, 285px) !important;
+}
+.cash-service-donut-frame > div span {
+  font-size: 13px !important;
+}
+.cash-service-donut-frame > div strong {
+  font-size: clamp(22px, 2.2vw, 30px) !important;
+}
+.cash-service-donut-frame > div small {
+  font-size: 12px !important;
+}
+.cash-service-row {
+  min-height: 78px;
+}
+.cash-ledger-header {
+  font-size: 12px !important;
+}
+.cash-activity-row {
+
+  min-height: 74px;
+}
+.cash-activity-row p:first-child {
+  font-size: 15px;
+  line-height: 1.3;
+}
+.cash-count-row > strong {
+  font-size: 15px;
+}
+.cash-count-input {
+  font-size: 19px !important;
+}
+.cash-count-total {
+  font-size: 13px !important;
+}
+html[data-theme="dark"] .cash-desk-page .app-surface:not(.cash-desk-hero) {
+  box-shadow: none;
+}
+@media (max-width: 1023px) {
+  .cash-desk-page .cash-desk-now {
+    min-height: 190px;
+  }
+  .cash-service-donut-frame {
+    width: min(100%, 265px) !important;
+  }
+}
+@media (max-width: 639px) {
+  .cash-desk-page {
+
+    font-size: 15px;
+  }
+  .cash-desk-page .app-section-heading h2 {
+    font-size: 2rem;
+  }
+  .cash-desk-page .app-section-heading p {
+    font-size: 14px;
+  }
+  .cash-desk-page .app-surface {
+    border-radius: 21px;
+  }
+  .cash-desk-page .cash-desk-now {
+    min-height: 180px;
+    padding: 20px !important;
+  }
+  .cash-desk-page .cash-desk-now-money {
+    font-size: clamp(2.8rem, 14vw, 3.65rem);
+  }
+  .cash-desk-page .cash-desk-now > div:last-child {
+    font-size: 13px;
+  }
+  .cash-desk-page .cash-desk-metric-card {
+    min-height: 96px;
+    padding: 14px !important;
+  }
+  .cash-desk-page .cash-desk-metric-card .money {
+    font-size: clamp(1.25rem, 6vw, 1.55rem);
+  }
+
+  .cash-service-row {
+    min-height: 82px;
+  }
+  .cash-count-row {
+    grid-template-columns: 58px minmax(0,1fr) 88px !important;
+    padding-inline: 10px !important;
+  }
+}

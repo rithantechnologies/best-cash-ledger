@@ -13,14 +13,11 @@ const navItems = [
   { group:"Today", label:"Transactions", short:"Activity", href:"/transactions", icon:"activity" },
   { group:"Today", label:"Dues", short:"Dues", href:"/dues", icon:"settle" },
   { group:"Today", label:"Customers", short:"Customers", href:"/customers", icon:"people" },
-  { group:"Money due", label:"Payables", short:"Payables", href:"/payables", icon:"settle" },
-  { group:"Money due", label:"Receivables", short:"Receivables", href:"/receivables", icon:"settle" },
-  { group:"Money due", label:"Provider Settlements", short:"Settlements", href:"/provider-settlements", icon:"settle" },
+  { group:"Today", label:"Settlements", short:"Settlements", href:"/provider-settlements", icon:"settle" },
   { group:"Books", label:"Accounts", short:"Accounts", href:"/accounts", icon:"wallet" },
-  { group:"Books", label:"Cash Counter", short:"Cash", href:"/cash-counter", icon:"cash" },
-  { group:"Books", label:"End of Day", short:"EOD", href:"/end-of-day", icon:"check" },
+  { group:"Books", label:"Daily Cash", short:"Cash", href:"/cash-counter", icon:"cash" },
   { group:"Books", label:"Expenses", short:"Expenses", href:"/expenses", icon:"expense" },
-  { group:"Books", label:"Reports", short:"Reports", href:"/reports", icon:"chart" },
+  { group:"Books", label:"Insights", short:"Insights", href:"/reports", icon:"chart" },
   { group:"Admin", label:"Settings", short:"Settings", href:"/settings", icon:"settings", adminOnly:true },
   { group:"Admin", label:"Users", short:"Users", href:"/users", icon:"user", adminOnly:true },
   { group:"Admin", label:"Audit", short:"Audit", href:"/audit", icon:"shield", adminOnly:true },
@@ -37,7 +34,6 @@ function Icon({name,className="h-5 w-5"}:{name:IconName;className?:string}) {
     wallet:<><path d="M4 7.5h15v12H4z"/><path d="M4 8V5h12"/><path d="M15 12h6v4h-6z"/></>,
     cash:<><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 9h.01M18 15h.01"/></>,
     expense:<><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h5M8 16h3"/><path d="M16 14v4M14 16h4"/></>,
-    check:<><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16.5 9"/></>,
     chart:<><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></>,
     settings:<><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A7 7 0 0 0 15 6l-.3-2.6h-4L10.4 6A7 7 0 0 0 9 7.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1A7 7 0 0 0 10.4 18l.3 2.6h4L15 18a7 7 0 0 0 1.5-1.1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z"/></>,
     user:<><circle cx="12" cy="8" r="3.5"/><path d="M5 21c.6-4.7 2.9-7 7-7s6.4 2.3 7 7"/></>,
@@ -60,7 +56,7 @@ type ThemeMode="system"|"light"|"dark";
 const transactionTaskTitles:Record<string,string>={
   "/transactions/card-swipe":"Card swipe",
   "/transactions/cash-transfer":"Cash transfer",
-  "/transactions/aeps":"AePS",
+  "/transactions/aeps":"Aadhaar withdrawal",
   "/transactions/micro-atm":"Micro ATM",
   "/transactions/expense":"Expense",
   "/transactions/internal-transfer":"Move money",
@@ -71,21 +67,23 @@ const transactionTaskTitles:Record<string,string>={
 const quickActions=[
   ["Card swipe","/transactions/card-swipe","Swipe"],
   ["Cash transfer","/transactions/cash-transfer","Transfer"],
-  ["AePS","/transactions/aeps","AePS"],
+  ["Aadhaar withdrawal","/transactions/aeps","AePS"],
   ["Micro ATM","/transactions/micro-atm","ATM"],
   ["Expense","/transactions/expense","Expense"],
   ["Move money","/transactions/internal-transfer","Move"],
 ] as const;
+
+let cachedDesktopCollapsed: boolean | null = null;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const router=useRouter(), pathname=usePathname();
   const isDashboard=pathname==="/";
   const isPreviewIndex=pathname==="/accounts"||pathname==="/transactions";
   const hideShellSearch=isPreviewIndex;
-  const showShellNew=!isDashboard&&pathname!=="/accounts";
+  const showShellNew=pathname!=="/accounts";
   const [role,setRole]=useState(""),[userName,setUserName]=useState(""),[search,setSearch]=useState("");
   const [menuOpen,setMenuOpen]=useState(false),[newOpen,setNewOpen]=useState(false),[navigating,setNavigating]=useState(false);
-  const [desktopCollapsed,setDesktopCollapsed]=useState(true);
+  const [desktopCollapsed,setDesktopCollapsed]=useState(cachedDesktopCollapsed??true);
   const [theme,setTheme]=useState<ThemeMode>("system");
 
   useEffect(()=>{
@@ -94,7 +92,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       setRole(user.role||"");
       setUserName(user.fullName||user.email||"Cash Ledger User");
       setTheme((localStorage.getItem("cashledger_theme") as ThemeMode)||"system");
-      setDesktopCollapsed(localStorage.getItem("cashledger_desktop_nav_collapsed")!=="false");
+      const collapsed=localStorage.getItem("cashledger_desktop_nav_collapsed")!=="false";
+      cachedDesktopCollapsed=collapsed;
+      setDesktopCollapsed(collapsed);
     }catch{}
   },[]);
   useEffect(()=>{setMenuOpen(false);setNewOpen(false);setNavigating(false);},[pathname]);
@@ -120,6 +120,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setDesktopCollapsed((collapsed)=>{
       const next=!collapsed;
       localStorage.setItem("cashledger_desktop_nav_collapsed",String(next));
+      cachedDesktopCollapsed=next;
       return next;
     });
   }
@@ -146,7 +147,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return <div className={"min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)] "+(isDashboard?"dashboard-finance-shell":"")}>
     {navigating?<div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-[var(--accent-soft)]"><div className="h-full w-1/2 bg-[var(--accent)] [animation:cashledger-progress_.9s_ease-in-out_infinite]"/></div>:null}
-    <aside className={"app-sidebar fixed inset-y-0 left-0 z-40 hidden border-r border-[var(--border)] bg-[var(--surface)] transition-[width] duration-200 lg:flex lg:flex-col "+(desktopCollapsed?"w-[80px]":"w-[272px]")}>
+    <aside className={"app-sidebar fixed inset-y-0 left-0 z-40 hidden border-r border-[var(--border)] bg-[var(--surface)] lg:flex lg:flex-col "+(desktopCollapsed?"w-[80px]":"w-[272px]")}>
       <div className="border-b border-[var(--border)] p-3">
         <Link href="/" title={desktopCollapsed?"Cash Ledger":undefined} className={"flex min-h-14 items-center rounded-2xl bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent-soft)_72%,var(--surface)),var(--surface))] ring-1 ring-[color-mix(in_srgb,var(--accent)_9%,var(--border))] "+(desktopCollapsed?"justify-center px-1":"gap-3 px-3")}>
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#fff] shadow-[0_8px_20px_rgba(15,23,42,.08)]"><BrandMark className="h-7 w-7"/></span>
@@ -167,14 +168,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
     </aside>
 
-    <div className={"transition-[padding] duration-200 "+(desktopCollapsed?"lg:pl-[80px]":"lg:pl-[272px]")}>
+    <div className={desktopCollapsed?"lg:pl-[80px]":"lg:pl-[272px]"}>
       <header className="app-topbar sticky top-0 z-30 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_90%,transparent)] backdrop-blur-xl">
         <div className="flex h-15 items-center gap-3 px-3 sm:px-5 lg:px-6">
-          <button onClick={()=>isTaskFlow?router.push("/transactions/new"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm lg:hidden" aria-label={isTaskFlow?"Back to new transaction":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"} className="h-[19px] w-[19px]"/></button>
+          <button onClick={()=>isTaskFlow?router.push("/transactions"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm lg:hidden" aria-label={isTaskFlow?"Back to transactions":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"} className="h-[19px] w-[19px]"/></button>
           <button onClick={toggleDesktopNav} className="hidden h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm transition hover:bg-[var(--surface-soft)] hover:text-[var(--text)] lg:grid" aria-label={desktopCollapsed?"Expand navigation":"Collapse navigation"} title={desktopCollapsed?"Expand menu":"Collapse menu"}><Icon name="menu" className="h-[19px] w-[19px]"/></button>
+          {isTaskFlow?<Link href="/transactions" className="hidden h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm transition hover:bg-[var(--surface-soft)] hover:text-[var(--text)] lg:grid" aria-label="Back to transactions" title="Back to transactions"><Icon name="back" className="h-[19px] w-[19px]"/></Link>:null}
           <div className={"min-w-0 flex-1 lg:flex-none "+(isDashboard?"dashboard-top-title":"")}><p className={"truncate font-extrabold tracking-[-.025em] "+(isTaskFlow?"text-[17px]":"text-[16px] sm:text-[17px]")}>{currentTitle}</p></div>
           {!isTaskFlow?<>{!hideShellSearch?<form onSubmit={submitSearch} className="mx-auto hidden w-full max-w-xl md:block"><div className="relative"><Icon name="search" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile, card last 4…" className="app-shell-search h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] pl-10 pr-3 text-sm"/></div></form>:<div className="hidden flex-1 md:block"/>}
-          {isDashboard?<div className="dashboard-date-pill hidden sm:flex">{new Date().toLocaleDateString("en-IN",{month:"short",year:"numeric"})}</div>:showShellNew?<Link href="/transactions/new" className="app-primary-button hidden min-h-10 items-center gap-2 px-4 text-sm font-bold sm:flex"><Icon name="plus" className="h-4 w-4"/>New</Link>:null}</>:<div className="hidden flex-1 lg:block"/>}
+          {showShellNew?<Link href="/transactions#transaction-actions" className="app-primary-button hidden min-h-10 items-center gap-2 px-4 text-sm font-bold sm:flex"><Icon name="plus" className="h-4 w-4"/>New</Link>:null}
+          {isDashboard?<div className="dashboard-date-pill hidden sm:flex">{new Date().toLocaleDateString("en-IN",{month:"short",year:"numeric"})}</div>:null}</>:<div className="hidden flex-1 lg:block"/>}
         </div>
       </header>
       <main aria-busy={navigating} className={"app-main px-3 py-4 sm:px-5 sm:py-5 lg:px-7 lg:py-6 lg:pb-9 "+(isTaskFlow?"pb-8":"pb-24")}>{children}</main>
@@ -193,7 +196,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <form onSubmit={submitSearch} className="mt-4"><div className="relative"><Icon name="search" className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-[18px] w-[18px] -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, mobile or card…" className="app-control h-11 bg-[var(--surface)] !pl-11 pr-3 text-[15px] shadow-sm"/></div></form>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 py-4">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-5"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[11px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1.5">{rows.map(navLink)}</div></div>:null;})}</nav>
+        <nav className="flex-1 overflow-y-auto px-3 py-4">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-5"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[11px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1.5">{rows.map((item)=>navLink(item))}</div></div>:null;})}</nav>
         <div className="border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-soft)_55%,var(--surface))] p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
           <div className="mb-2.5 flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-sm">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--accent)] text-sm font-black text-white">{userInitial}</span>
@@ -205,12 +208,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
     </div>:null}
 
+    {newOpen?<div className="fixed inset-0 z-[60] hidden lg:block"><button className="absolute inset-0 bg-slate-950/10" onClick={()=>setNewOpen(false)} aria-label="Close new transaction"/><div className="absolute right-6 top-[68px] w-[520px] rounded-[24px] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_70px_rgba(15,23,42,.18)]"><div className="mb-2 flex items-center justify-between px-1.5 py-1"><strong className="text-sm">New transaction</strong><Link href="/transactions/new" className="text-xs font-semibold text-[var(--accent)]">All types</Link></div><div className="grid grid-cols-2 gap-2">{quickActions.map(([label,href,short])=><Link key={href} href={href} className="app-quick-action flex min-h-14 items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-3.5"><span className="text-sm font-bold">{label}</span><span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{short}</span></Link>)}</div></div></div>:null}
+
     {newOpen?<div className="fixed inset-0 z-[60] lg:hidden"><button className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={()=>setNewOpen(false)} aria-label="Close new transaction"/><div className="absolute inset-x-0 bottom-0 rounded-t-[28px] border-t border-[var(--border)] bg-[var(--surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl"><div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border)]"/><div className="mb-3 flex items-center justify-between"><strong>New transaction</strong><Link href="/transactions/new" className="text-xs font-semibold text-[var(--accent)]">All types</Link></div><div className="grid grid-cols-2 gap-2">{quickActions.map(([label,href,short])=><Link key={href} href={href} className="app-quick-action flex min-h-16 items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-4"><span className="font-bold">{label}</span><span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{short}</span></Link>)}</div></div></div>:null}
 
     {!isTaskFlow?<nav className="app-mobile-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_94%,transparent)] px-1.5 pb-[max(.4rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-12px_30px_rgba(15,23,42,.08)] backdrop-blur-xl lg:hidden">
       <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/")?"bg-[var(--accent-soft)]":"")}><Icon name="home" className="h-[19px] w-[19px]"/></span><span>Home</span></Link>
       <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/transactions")?"bg-[var(--accent-soft)]":"")}><Icon name="activity" className="h-[19px] w-[19px]"/></span><span>Activity</span></Link>
-      <button onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[11px] font-black text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-[20px] border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#4f46e5)] text-white shadow-[0_10px_26px_rgba(37,99,235,.34)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
+      <Link href="/transactions#transaction-actions" className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[11px] font-black text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-[20px] border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#4f46e5)] text-white shadow-[0_10px_26px_rgba(37,99,235,.34)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></Link>
       {isDashboard?<Link href="/reports" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/reports")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/reports")?"bg-[var(--accent-soft)]":"")}><Icon name="chart" className="h-[19px] w-[19px]"/></span><span>Reports</span></Link>:<Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/dues")?"bg-[var(--accent-soft)]":"")}><Icon name="settle" className="h-[19px] w-[19px]"/></span><span>Dues</span></Link>}
       <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold text-[var(--text-muted)]"><span className="grid h-8 w-10 place-items-center rounded-xl"><Icon name="more" className="h-[19px] w-[19px]"/></span><span>More</span></button>
     </nav>:null}

@@ -67,7 +67,7 @@ export default function PayablesPage(){
     </div>
     <div className="mt-3 grid grid-cols-2 gap-2"><Link href={"/payables/"+p.id} className="flex min-h-10 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold">View details</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setSource("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button min-h-10 text-xs font-bold disabled:opacity-40">Pay now</button></div>
     {(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="mt-2 min-h-9 w-full rounded-xl text-xs font-bold text-rose-600">Cancel payable</button>:null}
-   </Surface>)}{!items.length?<EmptyState title="No matching payables" description="There are no obligations for the selected filters."/>:null}</div>
+   </Surface>)}{!items.length?<EmptyState title={q.trim()||status?"No matching payables":"Nothing to pay"} description={q.trim()||status?"Try another search or status.":"No outstanding customer payables."}/>:null}</div>
 
    <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm">
     <thead className="bg-slate-50/80 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Customer</th><th>{sh("Original","originalAmount")}</th><th>{sh("Paid","paidAmount")}</th><th>{sh("Remaining","remainingAmount")}</th><th>{sh("Due","dueAt")}</th><th>{sh("Status","status")}</th><th className="pr-5">Actions</th></tr></thead>

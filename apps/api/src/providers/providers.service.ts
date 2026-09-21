@@ -54,6 +54,8 @@ export class ProvidersService {
           newValues: {
             name: provider.name,
             providerType: provider.providerType,
+            supportsAeps: provider.supportsAeps,
+            aepsCommissionRate: provider.aepsCommissionRate.toString(),
             isActive: provider.isActive,
           },
         },
@@ -131,8 +133,20 @@ export class ProvidersService {
           entityType: 'PROVIDER',
           entityId: id,
           action: 'UPDATE',
-          oldValues: { name: existing.name, providerType: existing.providerType, notes: existing.notes },
-          newValues: { name: updated.name, providerType: updated.providerType, notes: updated.notes },
+          oldValues: {
+            name: existing.name,
+            providerType: existing.providerType,
+            notes: existing.notes,
+            supportsAeps: existing.supportsAeps,
+            aepsCommissionRate: existing.aepsCommissionRate.toString(),
+          },
+          newValues: {
+            name: updated.name,
+            providerType: updated.providerType,
+            notes: updated.notes,
+            supportsAeps: updated.supportsAeps,
+            aepsCommissionRate: updated.aepsCommissionRate.toString(),
+          },
         },
       });
       return updated;

@@ -275,6 +275,39 @@ export class SettingsService {
       }))
       .sort((a, b) => b.score - a.score);
 
+    const explicitOverride = ranked.find((item) => item.score > 0)?.rule;
+    if (explicitOverride) return explicitOverride;
+
+    if (
+      input.transactionType === 'AEPS_WITHDRAWAL' &&
+      input.providerId
+    ) {
+      const provider = await this.prisma.provider.findUnique({
+        where: { id: input.providerId },
+        select: {
+          id: true,
+          supportsAeps: true,
+          aepsCommissionRate: true,
+          isActive: true,
+        },
+      });
+      if (provider?.isActive && provider.supportsAeps) {
+        return {
+          id: 'provider-aeps-' + provider.id,
+          customerId: null,
+          providerId: provider.id,
+          gatewayId: null,
+          paymentTermId: null,
+          transactionType: 'AEPS_WITHDRAWAL',
+          commissionType: 'PERCENTAGE',
+          commissionRate: provider.aepsCommissionRate,
+          isActive: true,
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+        };
+      }
+    }
+
     return ranked[0]?.rule ?? null;
   }
 }

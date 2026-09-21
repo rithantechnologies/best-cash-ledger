@@ -24,6 +24,7 @@ export type DashboardSummary = {
   upiBalance: number;
   walletBalance: number;
   availableFunds: number;
+  currentAvailability: number;
   customerPayable: number;
   customerReceivable: number;
   pendingProviderSettlements: number;
@@ -61,6 +62,7 @@ export type DashboardToday = {
   upiIn: number;
   upiOut: number;
   cardSwipe: number;
+  cashTransfer: number;
   aeps: number;
   microAtm: number;
   customerPayout: number;
@@ -68,6 +70,10 @@ export type DashboardToday = {
   receivableCreated: number;
   settlementsReceived: number;
   commission: number;
+  cardSwipeCommission: number;
+  cashTransferCommission: number;
+  aepsCommission: number;
+  microAtmCommission: number;
   providerCharges: number;
   businessExpense: number;
   personalExpense: number;

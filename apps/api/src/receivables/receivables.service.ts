@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AccountType,
   EntryType,
   PaymentStatus,
   Prisma,
@@ -178,6 +179,13 @@ export class ReceivablesService {
           dto.sourceAccountId,
           'Receivable source account',
         );
+        if (sourceAccount.accountType === AccountType.CASH) {
+          await this.validation.requireOpenCashDesk(
+            tx,
+            sourceAccount.id,
+            'Cash receivable advance',
+          );
+        }
         await this.validation.ensureSufficientFunds(
           tx,
           sourceAccount,
@@ -326,6 +334,13 @@ export class ReceivablesService {
         dto.destinationAccountId,
         'Receivable collection destination',
       );
+      if (destinationAccount.accountType === AccountType.CASH) {
+        await this.validation.requireOpenCashDesk(
+          tx,
+          destinationAccount.id,
+          'Cash receivable collection',
+        );
+      }
 
       const receivableLedger = await tx.ledgerAccount.findUnique({
         where: { ledgerCode: 'SYS-CUST-RECEIVABLE' },
@@ -461,6 +476,12 @@ export class ReceivablesService {
       if (!receivable.sourceTransaction.journal) {
         throw new BadRequestException('Source transaction has no posted journal');
       }
+
+      await this.validation.requireOpenCashDeskForLedgerEntries(
+        tx,
+        receivable.sourceTransaction.journal.entries,
+        'Cash receivable cancellation',
+      );
 
       const reversal = await tx.transaction.create({
         data: {

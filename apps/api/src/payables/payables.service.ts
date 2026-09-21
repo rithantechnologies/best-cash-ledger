@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { LedgerService } from '../ledger/ledger.service.js';
@@ -156,6 +156,13 @@ export class PayablesService {
         dto.sourceAccountId,
         'Customer payout source',
       );
+      if (sourceAccount.accountType === AccountType.CASH) {
+        await this.validation.requireOpenCashDesk(
+          tx,
+          sourceAccount.id,
+          'Customer cash payout',
+        );
+      }
       await this.validation.ensureSufficientFunds(
         tx,
         sourceAccount,
@@ -296,6 +303,12 @@ export class PayablesService {
       if (!payable.sourceTransaction.journal) {
         throw new BadRequestException('Source transaction has no posted journal');
       }
+
+      await this.validation.requireOpenCashDeskForLedgerEntries(
+        tx,
+        payable.sourceTransaction.journal.entries,
+        'Cash payable cancellation',
+      );
 
       const reversal = await tx.transaction.create({
         data: {

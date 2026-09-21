@@ -1,7 +1,36 @@
-import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { CommissionMethod } from '@prisma/client';
+import {
+  IsBoolean,
+  IsEnum,
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+
+class AepsNewCustomerDto {
+  @IsString() @MaxLength(150) fullName!: string;
+  @IsOptional()
+  @IsString()
+  @Matches(/^[6-9]\d{9}$/, {
+    message: 'Mobile must be a valid 10-digit Indian number',
+  })
+  mobile?: string;
+}
 
 export class CreateAepsDto {
-  @IsString() customerId!: string;
+  @IsOptional() @IsString() customerId?: string;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AepsNewCustomerDto)
+  newCustomer?: AepsNewCustomerDto;
+
   @IsString() @Length(4, 4) aadhaarLastFour!: string;
   @IsString() customerBankName!: string;
   @IsNumber() @Min(0.01) withdrawalAmount!: number;
@@ -10,7 +39,11 @@ export class CreateAepsDto {
   @IsOptional() @IsString() gatewayId?: string;
   @IsNumber() @Min(0) platformChargeRate!: number;
   @IsNumber() @Min(0) commissionRate!: number;
-  @IsString() cashAccountId!: string;
+  @IsOptional() @IsEnum(CommissionMethod) commissionMethod?: CommissionMethod;
+  @IsOptional() @IsBoolean() successful?: boolean;
+  @IsOptional() @IsBoolean() cashPayoutNow?: boolean;
+  @IsOptional() @IsDateString() cashPayoutDueAt?: string;
+  @IsOptional() @IsString() cashAccountId?: string;
   @IsString() settlementAccountId!: string;
   @IsOptional() @IsBoolean() settledNow?: boolean;
   @IsOptional() @IsDateString() settlementDueAt?: string;

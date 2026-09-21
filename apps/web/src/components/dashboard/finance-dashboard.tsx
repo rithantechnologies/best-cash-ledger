@@ -12,7 +12,7 @@ import {
 } from "react";
 import { AppShell } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
-import { CashFlowChart, ExpenseDonut, PositionSparkline } from "./dashboard-charts";
+import { CashFlowChart, ExpenseDonut, FundsAllocationDonut, PositionSparkline } from "./dashboard-charts";
 import { DashboardIcon, type DashboardIconName } from "./dashboard-icons";
 import type {
   CashFlowPoint,
@@ -414,6 +414,7 @@ export function FinanceDashboard() {
   const [analyticsError, setAnalyticsError] = useState("");
   const [viewer, setViewer] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [selectedAllocationId, setSelectedAllocationId] = useState<string | null>(null);
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null);
 
   const loadCore = useCallback(async () => {
@@ -538,14 +539,31 @@ export function FinanceDashboard() {
         (context === "ALL" || account.usageType === context || account.usageType === "MIXED"),
     )
     .sort((a, b) => Math.abs(b.currentBalance) - Math.abs(a.currentBalance));
+  const scopeCards = core.accounts.filter(
+    (account) =>
+      (account.isActive || Math.abs(account.currentBalance) > 0.005) &&
+      account.accountType === "OWNER_CREDIT_CARD" &&
+      (context === "ALL" || account.usageType === context || account.usageType === "MIXED"),
+  );
   const maxAccountBalance = Math.max(1, ...scopeAccounts.map((account) => Math.abs(account.currentBalance)));
   const scopeFunds = scopeAccounts.reduce((sum, account) => sum + account.currentBalance, 0);
-  const liquidityParts = [
-    { label: "Cash", value: summary.cashBalance, color: "#55a4f4" },
-    { label: "Bank + UPI", value: summary.bankBalance + summary.upiBalance, color: "#6366d9" },
-    { label: "Provider wallets", value: summary.walletBalance, color: "#12a47b" },
+  const scopeCreditAvailable = scopeCards.reduce((sum, account) => sum + Math.max(0, account.availableCredit ?? 0), 0);
+  const scopeCurrentAvailability = scopeFunds + scopeCreditAvailable;
+  const scopedBalance = (types: string[]) => scopeAccounts
+    .filter((account) => types.includes(account.accountType))
+    .reduce((sum, account) => sum + account.currentBalance, 0);
+  const currentAvailability = context === "ALL" ? summary.currentAvailability : scopeCurrentAvailability;
+  const allocationSource = [
+    { id: "cash", label: "Cash", value: context === "ALL" ? summary.cashBalance : scopedBalance(["CASH"]), color: "#55a4f4", href: "/cash-counter" },
+    { id: "bank", label: "Bank + UPI", value: context === "ALL" ? summary.bankBalance + summary.upiBalance : scopedBalance(["BANK", "UPI"]), color: "#6366d9", href: "/accounts?type=BANK" },
+    { id: "wallet", label: "Provider wallets", value: context === "ALL" ? summary.walletBalance : scopedBalance(["PROVIDER_WALLET"]), color: "#12a47b", href: "/accounts?type=PROVIDER_WALLET" },
+    { id: "credit", label: "Available credit", value: context === "ALL" ? summary.creditCardAvailable : scopeCreditAvailable, color: "#f0ad4e", href: "/accounts?type=OWNER_CREDIT_CARD" },
   ];
-  const liquidityTotal = Math.max(1, liquidityParts.reduce((sum, item) => sum + Math.max(0, item.value), 0));
+  const allocationBase = Math.max(1, allocationSource.reduce((sum, item) => sum + Math.max(0, item.value), 0));
+  const allocationItems = allocationSource.map((item) => ({
+    ...item,
+    percentage: (Math.max(0, item.value) / allocationBase) * 100,
+  }));
   const largestCategory = categories[0];
   const selectedCategory = categories.find((category) => category.id === selectedCategoryId) ?? largestCategory;
   const topExpenses = analytics?.expenses.transactions.slice().sort((a, b) => b.amount - a.amount).slice(0, 4) ?? [];
@@ -612,16 +630,16 @@ export function FinanceDashboard() {
   const todayMetrics = [
     { label: "Cash in", value: today.cashIn, icon: "arrowDown" as DashboardIconName, tone: "positive", href: "/transactions?range=today" },
     { label: "Cash out", value: today.cashOut, icon: "arrowUp" as DashboardIconName, tone: "negative", href: "/transactions?range=today" },
+    { label: "GPay / transfer", value: today.cashTransfer, icon: "upi" as DashboardIconName, tone: "neutral", href: "/transactions?type=CASH_TRANSFER" },
     { label: "Card swipe", value: today.cardSwipe, icon: "card" as DashboardIconName, tone: "neutral", href: "/transactions?type=CARD_SWIPE" },
-    { label: "AePS", value: today.aeps, icon: "user" as DashboardIconName, tone: "neutral", href: "/transactions?type=AEPS_WITHDRAWAL" },
+    { label: "AePS / Aadhaar", value: today.aeps, icon: "user" as DashboardIconName, tone: "neutral", href: "/transactions?type=AEPS_WITHDRAWAL" },
     { label: "Micro ATM", value: today.microAtm, icon: "cash" as DashboardIconName, tone: "neutral", href: "/transactions?type=MICRO_ATM" },
-    { label: "Bank / UPI in", value: today.bankIn + today.upiIn, icon: "upi" as DashboardIconName, tone: "positive", href: "/transactions?range=today" },
-    { label: "Bank / UPI out", value: today.bankOut + today.upiOut, icon: "upi" as DashboardIconName, tone: "negative", href: "/transactions?range=today" },
     { label: "Settlements", value: today.settlementsReceived, icon: "wallet" as DashboardIconName, tone: "positive", href: "/provider-settlements" },
     { label: "Commission", value: today.commission, icon: "spark" as DashboardIconName, tone: "positive", href: "/reports" },
     { label: "Provider charges", value: today.providerCharges, icon: "expense" as DashboardIconName, tone: "negative", href: "/reports" },
     { label: "Expenses", value: today.businessExpense + today.personalExpense, icon: "expense" as DashboardIconName, tone: "negative", href: "/expenses" },
     { label: "Collections", value: today.customerReceipt, icon: "receive" as DashboardIconName, tone: "positive", href: "/receivables" },
+    { label: "Customer payout", value: today.customerPayout, icon: "arrowUp" as DashboardIconName, tone: "negative", href: "/payables" },
   ];
 
   function openCategory(category: ExpenseCategoryGroup) {
@@ -700,7 +718,7 @@ export function FinanceDashboard() {
                   <DashboardIcon name={trendDelta >= 0 ? "arrowUp" : "arrowDown"} />
                   {trendDelta >= 0 ? "+" : ""}{money(trendDelta)} over 10 days
                 </span>
-                <span>{money(summary.availableFunds)} available</span>
+                <span>{money(summary.currentAvailability)} current availability</span>
               </div>
             </div>
             <div className={styles.positionTrend}>
@@ -727,7 +745,7 @@ export function FinanceDashboard() {
               action={<TextLink href="/accounts">Manage accounts</TextLink>}
             />
             <div className={styles.accountList}>
-              {scopeAccounts.slice(0, 7).map((account) => (
+              {scopeAccounts.slice(0, 5).map((account) => (
                 <Link href={`/accounts/${account.id}`} key={account.id} className={styles.accountRow}>
                   <span className={styles.accountIcon}><DashboardIcon name={accountIcon(account.accountType)} /></span>
                   <div className={styles.accountIdentity}>
@@ -747,224 +765,99 @@ export function FinanceDashboard() {
             </div>
           </div>
           <aside className={styles.liquiditySummary}>
-            <p className={styles.eyebrow}>Available funds</p>
-            <strong>{money(context === "ALL" ? summary.availableFunds : scopeFunds)}</strong>
-            <span>{context === "ALL" ? "Across cash, banks, UPI and wallets" : `${titleCase(context)} and mixed-use accounts`}</span>
-            <div className={styles.liquidityRail} aria-label="Available funds distribution">
-              {liquidityParts.map((item) => (
-                <i
-                  key={item.label}
-                  style={{
-                    width: `${(Math.max(0, item.value) / liquidityTotal) * 100}%`,
-                    background: item.color,
-                  }}
-                />
-              ))}
+            <div className={styles.allocationHeader}>
+              <div>
+                <p className={styles.eyebrow}>Available allocation</p>
+                <strong>{money(currentAvailability)}</strong>
+                <span>{context === "ALL" ? "Where your usable capacity sits" : `${titleCase(context)} + mixed-use capacity`}</span>
+              </div>
+              <Link href="/accounts" className={styles.allocationOpen} aria-label="Open accounts">
+                <DashboardIcon name="arrowRight" />
+              </Link>
             </div>
-            <div className={styles.liquidityLegend}>
-              {liquidityParts.map((item) => (
-                <div key={item.label}><span><i style={{ background: item.color }} />{item.label}</span><b>{money(item.value)}</b></div>
-              ))}
+
+            <div className={styles.allocationChart}>
+              <FundsAllocationDonut
+                items={allocationItems}
+                total={currentAvailability}
+                selectedId={selectedAllocationId}
+                onSelect={(item) => setSelectedAllocationId(item.id)}
+              />
+              <p className={styles.allocationHint}>Hover on desktop or touch a slice to inspect.</p>
             </div>
-            <div className={styles.creditLine}>
-              <span>Credit available</span>
-              <strong>{money(summary.creditCardAvailable)}</strong>
+
+            <div className={styles.allocationRows}>
+              {allocationItems.map((item) => (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className={styles.allocationRow}
+                  data-active={selectedAllocationId === item.id}
+                  onMouseEnter={() => setSelectedAllocationId(item.id)}
+                  onFocus={() => setSelectedAllocationId(item.id)}
+                >
+                  <span className={styles.allocationLabel}>
+                    <i style={{ background: item.color }} />
+                    <span>
+                      <strong>{item.label}</strong>
+                      <small>{item.percentage.toFixed(1)}% of availability</small>
+                    </span>
+                  </span>
+                  <b>{money(item.value)}</b>
+                  <DashboardIcon name="arrowRight" />
+                </Link>
+              ))}
             </div>
           </aside>
         </section>
 
-        <section className={styles.receivePayPanel} aria-labelledby="receive-pay-title">
-          <SectionHeading id="receive-pay-title" title="Receive & pay" />
-          <div className={styles.dueGrid}>
-            <DueSide
-              kind="receive"
-              total={summary.customerReceivable}
-              overdue={summary.receivableBreakdown.overdueAmount}
-              dueToday={summary.receivableBreakdown.dueTodayAmount}
-              rows={core.receivables}
-            />
-            <DueSide
-              kind="pay"
-              total={summary.customerPayable + summary.creditCardOutstanding}
-              overdue={summary.payableBreakdown.overdueAmount}
-              dueToday={summary.payableBreakdown.dueTodayAmount}
-              rows={core.payables}
-            />
-          </div>
-        </section>
-
-        <section className={`${styles.analyticsPanel} ${analyticsLoading ? styles.analyticsRefreshing : ""}`} aria-busy={analyticsLoading}>
+        <section className={`${styles.flowPanel} ${analyticsLoading ? styles.analyticsRefreshing : ""}`} aria-busy={analyticsLoading}>
           <SectionHeading
-            title="Expenses"
+            title="Cash flow"
+            description={`${range.label} · ${context === "ALL" ? "All accounts" : titleCase(context)}`}
             action={
-              <div className={styles.periodControl} role="group" aria-label="Dashboard period">
+              <div className={styles.periodControl} role="group" aria-label="Cash flow period">
                 {([
-                  ["TODAY", "Today"],
                   ["7D", "7 days"],
                   ["30D", "30 days"],
                   ["THIS_MONTH", "This month"],
-                  ["PREVIOUS_MONTH", "Previous"],
                 ] as Array<[DashboardPeriod, string]>).map(([value, label]) => (
-                  <button key={value} onClick={() => setPeriod(value)} className={period === value ? styles.periodActive : ""} aria-pressed={period === value}>
+                  <button
+                    key={value}
+                    onClick={() => setPeriod(value)}
+                    className={period === value ? styles.periodActive : ""}
+                    aria-pressed={period === value}
+                  >
                     {label}
                   </button>
                 ))}
               </div>
             }
           />
-
           {analyticsError ? <div className={styles.inlineError}>{analyticsError}</div> : null}
           {analytics ? (
             <>
-              <div className={styles.expenseSummaryStrip}>
-                <button onClick={() => openAllExpenses()}>
-                  <span>Total expenses</span>
-                  <strong>{money(analytics.expenses.total)}</strong>
-                  <small>
-                    {comparison === null
-                      ? `${analytics.expenses.transactions.length} recorded transactions`
-                      : `${comparison >= 0 ? "+" : ""}${comparison.toFixed(1)}% vs previous period`}
-                  </small>
+              <div className={styles.flowTotals}>
+                <button onClick={() => openFlowSummary("IN")}>
+                  <span><i className={styles.flowInMark} />Money in</span>
+                  <strong className={styles.positiveText}>{money(analytics.cashFlow.moneyIn)}</strong>
                 </button>
-                <button onClick={() => setContext("BUSINESS")}>
-                  <span>Business</span>
-                  <strong>{money(analytics.expenses.businessTotal)}</strong>
-                  <small>{analytics.expenses.total ? `${((analytics.expenses.businessTotal / analytics.expenses.total) * 100).toFixed(0)}% of spend` : "No business spend"}</small>
+                <button onClick={() => openFlowSummary("OUT")}>
+                  <span><i className={styles.flowOutMark} />Money out</span>
+                  <strong className={styles.negativeText}>{money(analytics.cashFlow.moneyOut)}</strong>
                 </button>
-                <button onClick={() => setContext("PERSONAL")}>
-                  <span>Personal</span>
-                  <strong>{money(analytics.expenses.personalTotal)}</strong>
-                  <small>{analytics.expenses.total ? `${((analytics.expenses.personalTotal / analytics.expenses.total) * 100).toFixed(0)}% of spend` : "No personal spend"}</small>
-                </button>
-                <button onClick={() => largestCategory && openCategory(largestCategory)}>
-                  <span>Largest category</span>
-                  <strong className={styles.summaryName}>{largestCategory?.name || "—"}</strong>
-                  <small>{largestCategory ? `${money(largestCategory.amount)} · ${largestCategory.percentage.toFixed(1)}%` : "No category data"}</small>
-                </button>
-              </div>
-
-              {categories.length ? (
-                <div className={styles.expenseVisualGrid}>
-                  <div className={styles.donutColumn}>
-                    <ExpenseDonut
-                      categories={categories}
-                      total={analytics.expenses.total}
-                      selectedId={selectedCategoryId}
-                      onSelect={openCategory}
-                    />
-                    <div className={styles.donutLegend}>
-                      {categories.slice(0, 6).map((category) => (
-                        <button key={category.id} onClick={() => openCategory(category)} className={category.id === selectedCategoryId ? styles.legendSelected : ""}>
-                          <span><i style={{ background: category.color }} />{category.name}</span>
-                          <b>{category.percentage.toFixed(0)}%</b>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className={styles.rankingColumn}>
-                    <div className={styles.subsectionTitle}>
-                      <div><p>Categories</p></div>
-                      <TextLink href={`/expenses?scope=${context === "ALL" ? "COMBINED" : context}`}>View expenses</TextLink>
-                    </div>
-                    <div className={styles.rankedBars}>
-                      {categories.slice(0, 7).map((category, index) => (
-                        <button key={category.id} onClick={() => openCategory(category)} className={category.id === selectedCategoryId ? styles.rankedBarSelected : ""}>
-                          <span className={styles.rankNumber}>{String(index + 1).padStart(2, "0")}</span>
-                          <div>
-                            <p><strong>{category.name}</strong><b>{money(category.amount)}</b></p>
-                            <span>
-                              <i
-                                style={{
-                                  width: `${category.percentage}%`,
-                                  "--bar-color": category.color,
-                                } as CSSProperties}
-                              />
-                            </span>
-                          </div>
-                          <small>{category.percentage.toFixed(1)}%</small>
-                          <DashboardIcon name="arrowRight" />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <aside className={styles.expenseInvestigation}>
-                    <div className={styles.subsectionTitle}>
-                      <div><p>Largest expenses</p><span>{range.label}</span></div>
-                    </div>
-                    <div className={styles.largestExpenses}>
-                      {topExpenses.map((expense) => (
-                        <Link key={expense.id} href={`/transactions/${expense.id}`}>
-                          <span><DashboardIcon name="expense" /></span>
-                          <div><strong>{expense.description}</strong><small>{expense.category.name} · {shortDate(expense.transactionAt)}</small></div>
-                          <b>−{money(expense.amount)}</b>
-                        </Link>
-                      ))}
-                    </div>
-                    {selectedCategory ? (
-                      <button className={styles.inspectButton} onClick={() => openCategory(selectedCategory)}>
-                        <span><strong>{selectedCategory.name}</strong></span>
-                        <b>{selectedCategory.transactions.length} transactions</b>
-                        <DashboardIcon name="arrowRight" />
-                      </button>
-                    ) : null}
-                  </aside>
+                <div>
+                  <span>Net movement</span>
+                  <strong className={analytics.cashFlow.net >= 0 ? styles.positiveText : styles.negativeText}>
+                    {analytics.cashFlow.net >= 0 ? "+" : ""}{money(analytics.cashFlow.net)}
+                  </strong>
                 </div>
-              ) : (
-                <EmptyMessage title="No recorded expenses" detail={`There are no ${context === "ALL" ? "" : `${titleCase(context).toLowerCase()} `}expenses in ${range.label.toLowerCase()}.`} />
-              )}
+              </div>
+              <div className={styles.flowChartFrame}>
+                <CashFlowChart rows={analytics.cashFlow.series} onSelect={openFlow} />
+              </div>
             </>
           ) : <div className={styles.analyticsPlaceholder} />}
-        </section>
-
-        <section className={`${styles.flowGrid} ${analyticsLoading ? styles.analyticsRefreshing : ""}`} aria-busy={analyticsLoading}>
-          <div className={styles.flowPanel}>
-            <SectionHeading
-              title="Cash flow"
-              description={`${range.label} · ${context === "ALL" ? "All" : titleCase(context)}`}
-            />
-            {analytics ? (
-              <>
-                <div className={styles.flowTotals}>
-                  <button onClick={() => openFlowSummary("IN")}>
-                    <span><i className={styles.flowInMark} />Money in</span><strong className={styles.positiveText}>{money(analytics.cashFlow.moneyIn)}</strong>
-                  </button>
-                  <button onClick={() => openFlowSummary("OUT")}>
-                    <span><i className={styles.flowOutMark} />Money out</span><strong className={styles.negativeText}>{money(analytics.cashFlow.moneyOut)}</strong>
-                  </button>
-                  <div><span>Net movement</span><strong className={analytics.cashFlow.net >= 0 ? styles.positiveText : styles.negativeText}>{analytics.cashFlow.net >= 0 ? "+" : ""}{money(analytics.cashFlow.net)}</strong></div>
-                </div>
-                <CashFlowChart rows={analytics.cashFlow.series} onSelect={openFlow} />
-              </>
-            ) : <div className={styles.analyticsPlaceholder} />}
-          </div>
-
-          <aside className={styles.incomeExpensePanel}>
-            <SectionHeading
-              title="Income vs expense"
-              description={context === "PERSONAL" ? "Personal income is not separately recorded." : undefined}
-            />
-            {analytics ? (
-              <div className={styles.incomeExpenseBody}>
-                <button onClick={() => setDrilldown({ kind: "income", title: "Income", records: analytics.income.transactions })}>
-                  <div><span>Income</span><strong className={styles.positiveText}>{money(analytics.income.total)}</strong></div>
-                  <i><b style={{ width: `${(Math.max(0, analytics.income.total) / incomeExpenseMax) * 100}%` }} /></i>
-                </button>
-                <button onClick={() => openAllExpenses()}>
-                  <div><span>Expenses</span><strong className={styles.negativeText}>{money(analytics.expenses.total)}</strong></div>
-                  <i><b className={styles.expenseBar} style={{ width: `${(analytics.expenses.total / incomeExpenseMax) * 100}%` }} /></i>
-                </button>
-                <div className={styles.recordedResult}>
-                  <span>Net</span>
-                  <strong className={analytics.income.total - analytics.expenses.total >= 0 ? styles.positiveText : styles.negativeText}>
-                    {analytics.income.total - analytics.expenses.total >= 0 ? "+" : ""}{money(analytics.income.total - analytics.expenses.total)}
-                  </strong>
-                  <p>Excludes transfers.</p>
-                </div>
-              </div>
-            ) : <div className={styles.analyticsPlaceholder} />}
-          </aside>
         </section>
 
         <section className={styles.todayPanel}>
@@ -994,7 +887,19 @@ export function FinanceDashboard() {
                   <DashboardIcon name="arrowRight" />
                 </Link>
               ))}
-              {!attentionItems.length ? <EmptyMessage title="Nothing needs attention" detail="No overdue dues or pending settlements." /> : null}
+              {summary.creditCardOutstanding > 0 ? (
+                <Link href="/accounts?type=OWNER_CREDIT_CARD" className={styles.attentionRow} data-tone="danger">
+                  <span><DashboardIcon name="card" /></span>
+                  <div>
+                    <strong>Card outstanding · {money(summary.creditCardOutstanding)}</strong>
+                    <p>Statement balance, not a bill due today.</p>
+                  </div>
+                  <DashboardIcon name="arrowRight" />
+                </Link>
+              ) : null}
+              {!attentionItems.length && summary.creditCardOutstanding <= 0 ? (
+                <EmptyMessage title="Nothing needs attention" detail="No overdue dues or pending settlements." />
+              ) : null}
             </div>
           </section>
 

@@ -9,6 +9,19 @@ tmux kill-session -t cashledger-api 2>/dev/null || true
 tmux kill-session -t cashledger-web 2>/dev/null || true
 
 tmux new-session -d -s cashledger-api "cd $ROOT/apps/api && $NODE dist/main"
+
+for attempt in $(seq 1 20); do
+  if curl -fsS http://127.0.0.1:4001/api/health >/dev/null 2>&1; then
+    break
+  fi
+  if [ "$attempt" -eq 20 ]; then
+    echo "Cash Ledger API did not become healthy within 20 seconds." >&2
+    tmux capture-pane -pt cashledger-api -S -30 2>/dev/null || true
+    exit 1
+  fi
+  sleep 1
+done
+
 tmux new-session -d -s cashledger-web "cd $ROOT/apps/web && $NPM run start -- -H 127.0.0.1 -p 3200"
 
 for attempt in $(seq 1 20); do
@@ -19,7 +32,7 @@ for attempt in $(seq 1 20); do
   sleep 1
 done
 
-echo "Cash Ledger did not become healthy within 20 seconds." >&2
+echo "Cash Ledger web proxy did not become healthy within 20 seconds." >&2
 tmux capture-pane -pt cashledger-api -S -30 2>/dev/null || true
 tmux capture-pane -pt cashledger-web -S -30 2>/dev/null || true
 exit 1

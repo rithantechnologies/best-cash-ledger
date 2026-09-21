@@ -80,6 +80,26 @@ export class FinancialValidationService {
     });
   }
 
+  customerReceiptAccount(db: Db, accountId: string) {
+    return this.account(db, accountId, {
+      label: 'Customer payment receiving account',
+      nature: AccountNature.ASSET,
+      types: [AccountType.CASH, AccountType.BANK, AccountType.UPI],
+    });
+  }
+
+  transferFundingAccount(db: Db, accountId: string) {
+    return this.account(db, accountId, {
+      label: 'Transfer funding account',
+      types: [
+        AccountType.BANK,
+        AccountType.UPI,
+        AccountType.PROVIDER_WALLET,
+        AccountType.OWNER_CREDIT_CARD,
+      ],
+    });
+  }
+
   async providerSettlementDestination(
     db: Db,
     accountId: string,
@@ -112,6 +132,59 @@ export class FinancialValidationService {
       nature: AccountNature.ASSET,
       types: [AccountType.CASH],
     });
+  }
+
+  private indiaBusinessDate() {
+    const offset = 330 * 60 * 1000;
+    const local = new Date(Date.now() + offset);
+    return new Date(
+      Date.UTC(
+        local.getUTCFullYear(),
+        local.getUTCMonth(),
+        local.getUTCDate(),
+      ),
+    );
+  }
+
+  async requireOpenCashDesk(
+    db: Db,
+    cashAccountId: string,
+    label = 'Cash account',
+  ) {
+    const session = await db.cashSession.findFirst({
+      where: {
+        cashAccountId,
+        businessDate: this.indiaBusinessDate(),
+        status: 'OPEN',
+      },
+      select: { id: true },
+    });
+    if (!session) {
+      throw new BadRequestException(
+        label +
+          " requires today's Daily Cash Desk to be opened before recording physical cash.",
+      );
+    }
+    return session;
+  }
+
+  async requireOpenCashDeskForLedgerEntries(
+    db: Db,
+    entries: Array<{ ledgerAccountId: string }>,
+    label = 'Cash adjustment',
+  ) {
+    const ledgerIds = [...new Set(entries.map((entry) => entry.ledgerAccountId))];
+    if (!ledgerIds.length) return;
+    const cashAccounts = await db.financialAccount.findMany({
+      where: {
+        accountType: AccountType.CASH,
+        ledgerAccount: { id: { in: ledgerIds } },
+      },
+      select: { id: true },
+    });
+    for (const account of cashAccounts) {
+      await this.requireOpenCashDesk(db, account.id, label);
+    }
   }
 
   bankAccount(db: Db, accountId: string, label = 'Bank account') {

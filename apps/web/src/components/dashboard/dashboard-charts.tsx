@@ -194,6 +194,106 @@ export function ExpenseDonut({
   );
 }
 
+export function FundsAllocationDonut({
+  items,
+  total,
+  selectedId,
+  onSelect,
+  centerLabel = "Current availability",
+  centerHint = "Tap a slice to inspect",
+  ariaLabel = "Current availability allocation",
+  className = "",
+}: {
+  items: Array<{ id: string; label: string; value: number; percentage: number; color: string }>;
+  total: number;
+  selectedId: string | null;
+  onSelect: (item: { id: string; label: string; value: number; percentage: number; color: string }) => void;
+  centerLabel?: string;
+  centerHint?: string;
+  ariaLabel?: string;
+  className?: string;
+}) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const active =
+    items.find((item) => item.id === hoveredId) ??
+    items.find((item) => item.id === selectedId) ??
+    null;
+  const positiveTotal = Math.max(1, items.reduce((sum, item) => sum + Math.max(0, item.value), 0));
+  const segments = items.map((item, index) => ({
+    item,
+    start: items
+      .slice(0, index)
+      .reduce((sum, previous) => sum + Math.max(0, previous.value) / positiveTotal, 0),
+    size: Math.max(0, item.value) / positiveTotal,
+  }));
+
+  return (
+    <div className={styles.donutFrame+" "+className}>
+      <svg
+        viewBox="0 0 180 180"
+        className={styles.donutSvg}
+        role="img"
+        aria-label={ariaLabel}
+        onMouseLeave={() => setHoveredId(null)}
+      >
+        <circle
+          cx="90"
+          cy="90"
+          r="61"
+          fill="none"
+          stroke="var(--surface-soft)"
+          strokeWidth="22"
+        />
+        {segments.map(({ item, start, size }) => {
+          if (size <= 0) return null;
+          const selected = item.id === selectedId || item.id === hoveredId;
+          const dash = Math.max(0, size * 100 - 0.8);
+          return (
+            <circle
+              key={item.id}
+              cx="90"
+              cy="90"
+              r="61"
+              pathLength="100"
+              fill="none"
+              stroke={item.color}
+              strokeWidth={selected ? 27 : 21}
+              strokeDasharray={String(dash) + " " + String(100 - dash)}
+              strokeDashoffset={-start * 100}
+              strokeLinecap="butt"
+              transform="rotate(-90 90 90)"
+              className={styles.donutSegment}
+              role="button"
+              tabIndex={0}
+              aria-label={item.label + ", " + money(item.value) + ", " + item.percentage.toFixed(1) + " percent"}
+              onMouseEnter={() => setHoveredId(item.id)}
+              onFocus={() => setHoveredId(item.id)}
+              onBlur={() => setHoveredId(null)}
+              onPointerDown={(event) => {
+                if (event.pointerType === "touch" || event.pointerType === "pen") onSelect(item);
+              }}
+              onClick={() => onSelect(item)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(item);
+                }
+              }}
+            >
+              <title>{item.label + ": " + money(item.value) + " (" + item.percentage.toFixed(1) + "%)"}</title>
+            </circle>
+          );
+        })}
+      </svg>
+      <div className={styles.donutCenter} aria-hidden="true">
+        <span>{active ? active.label : centerLabel}</span>
+        <strong>{money(active ? active.value : total)}</strong>
+        <small>{active ? active.percentage.toFixed(1) + "% of total" : centerHint}</small>
+      </div>
+    </div>
+  );
+}
+
 export function CashFlowChart({
   rows,
   onSelect,

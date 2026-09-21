@@ -9,6 +9,11 @@ import { OpenCashSessionDto } from './dto/open-cash-session.dto.js';
 export class CashCounterController {
   constructor(private readonly cashCounter: CashCounterService) {}
 
+  @Get('today')
+  today(@Query('cashAccountId') cashAccountId?: string) {
+    return this.cashCounter.today(cashAccountId);
+  }
+
   @Get('current')
   current(@Query('cashAccountId') cashAccountId?: string) {
     return this.cashCounter.current(cashAccountId);

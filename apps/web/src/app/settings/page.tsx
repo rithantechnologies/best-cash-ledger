@@ -3,11 +3,12 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { EmptyState, Modal, PageLoader, SectionHeading, SegmentedTabs, StatusBadge, Surface } from "@/components/ui";
+import { Modal, PageLoader } from "@/components/ui";
+import { SettingsWorkspace } from "@/app/settings/settings-modern";
 import { apiFetch } from "@/lib/api";
 
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string;defaultChargeType:string;isActive:boolean};
-type Provider={id:string;name:string;providerType:string;isActive:boolean;gateways:Gateway[]};
+type Provider={id:string;name:string;providerType:string;supportsAeps:boolean;aepsCommissionRate:string;isActive:boolean;gateways:Gateway[]};
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionType:string;defaultCommissionRate:string;isActive:boolean};
 type Category={id:string;name:string;expenseUsage:string;isActive:boolean};
 type Customer={id:string;fullName:string};
@@ -20,17 +21,16 @@ type EditState=
  | {kind:"rule";item:Rule}
  | null;
 type CreateKind="provider"|"gateway"|"term"|"category"|"rule"|null;
-type Area="payments"|"rules"|"expenses";
 type ToggleState={path:string;isActive:boolean;label:string}|null;
 
-const input="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400";
+const input="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-[color-mix(in_srgb,var(--accent)_45%,var(--border))] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_10%,transparent)]";
 const primary="app-primary-button min-h-11 px-4 text-sm font-bold";
 const secondary="app-secondary-button min-h-10 px-3 text-xs font-bold";
 export default function SettingsPage(){
  const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[categories,setCategories]=useState<Category[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[rules,setRules]=useState<Rule[]>([]);
  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[message,setMessage]=useState("");
- const [area,setArea]=useState<Area>("payments"),[create,setCreate]=useState<CreateKind>(null),[toggleState,setToggleState]=useState<ToggleState>(null);
- const [providerName,setProviderName]=useState(""),[providerType,setProviderType]=useState("MULTI_SERVICE");
+ const [create,setCreate]=useState<CreateKind>(null),[toggleState,setToggleState]=useState<ToggleState>(null);
+ const [providerName,setProviderName]=useState(""),[providerType,setProviderType]=useState("MULTI_SERVICE"),[providerSupportsAeps,setProviderSupportsAeps]=useState(false),[providerAepsRate,setProviderAepsRate]=useState("0");
  const [gatewayProvider,setGatewayProvider]=useState(""),[gatewayName,setGatewayName]=useState(""),[gatewayRate,setGatewayRate]=useState("");
  const [termName,setTermName]=useState(""),[durationValue,setDurationValue]=useState("0"),[durationUnit,setDurationUnit]=useState("DAYS"),[termRate,setTermRate]=useState("0");
  const [categoryName,setCategoryName]=useState(""),[categoryUsage,setCategoryUsage]=useState("BUSINESS");
@@ -54,18 +54,30 @@ export default function SettingsPage(){
 
  async function run(action:()=>Promise<unknown>,reset:()=>void=()=>{},success="Saved."){
   setError("");setMessage("");
-  try{await action();reset();await load();setMessage(success);window.setTimeout(()=>setMessage(""),2600);}
+  try{await action();reset();await load();try{localStorage.setItem("cashledger_settings_updated_at",String(Date.now()));}catch{}setMessage(success);window.setTimeout(()=>setMessage(""),2600);}
   catch(err){setError(err instanceof Error?err.message:"Save failed");throw err;}
  }
- async function addProvider(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers",{method:"POST",body:JSON.stringify({name:providerName,providerType})}),()=>{setProviderName("");setCreate(null);},"Provider added.");}catch{}}
+ async function addProvider(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers",{method:"POST",body:JSON.stringify({name:providerName,providerType,supportsAeps:providerSupportsAeps,aepsCommissionRate:Number(providerAepsRate||0)})}),()=>{setProviderName("");setProviderSupportsAeps(false);setProviderAepsRate("0");setCreate(null);},"Provider added.");}catch{}}
  async function addGateway(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers/"+gatewayProvider+"/gateways",{method:"POST",body:JSON.stringify({gatewayName,defaultChargeType:"PERCENTAGE",defaultChargeRate:Number(gatewayRate)})}),()=>{setGatewayName("");setGatewayRate("");setCreate(null);},"Gateway added.");}catch{}}
  async function addTerm(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/payment-terms",{method:"POST",body:JSON.stringify({name:termName,durationValue:Number(durationValue),durationUnit,defaultCommissionType:"PERCENTAGE",defaultCommissionRate:Number(termRate)})}),()=>{setTermName("");setDurationValue("0");setTermRate("0");setCreate(null);},"Payment term added.");}catch{}}
  async function addCategory(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name:categoryName,expenseUsage:categoryUsage})}),()=>{setCategoryName("");setCreate(null);},"Expense category added.");}catch{}}
+ async function quickAddCategory(name:string){try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name,expenseUsage:"BUSINESS"})}),()=>{},name+" added.");}catch{}}
+ async function saveCashTransferDefault(rate:number){
+  const existing=rules.find(r=>r.transactionType==="CASH_TRANSFER"&&!r.customerId&&!r.providerId&&!r.gatewayId&&!r.paymentTermId);
+  await run(async()=>{
+   if(existing){
+    await apiFetch("/settings/commission-rules/"+existing.id,{method:"PATCH",body:JSON.stringify({commissionType:"PERCENTAGE",commissionRate:rate})});
+    if(!existing.isActive)await apiFetch("/settings/commission-rules/"+existing.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:true})});
+   }else{
+    await apiFetch("/settings/commission-rules",{method:"POST",body:JSON.stringify({transactionType:"CASH_TRANSFER",commissionType:"PERCENTAGE",commissionRate:rate})});
+   }
+  },()=>{},"Cash transfer default updated.");
+ }
  async function addRule(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/commission-rules",{method:"POST",body:JSON.stringify({customerId:ruleCustomer||undefined,providerId:ruleProvider||undefined,gatewayId:ruleGateway||undefined,paymentTermId:ruleTerm||undefined,transactionType:ruleType,commissionType:ruleCalc,commissionRate:Number(ruleRate)})}),()=>{setRuleCustomer("");setRuleGateway("");setRuleTerm("");setRuleRate("");setCreate(null);},"Commission rule added.");}catch{}}
 
  function beginEdit(next:Exclude<EditState,null>){
   setEdit(next);setError("");setMessage("");
-  if(next.kind==="provider"){setE1(next.item.name);setE2(next.item.providerType);setE3("");setE4("");}
+  if(next.kind==="provider"){setE1(next.item.name);setE2(next.item.providerType);setE3(next.item.supportsAeps?"true":"false");setE4(String(Number(next.item.aepsCommissionRate||0)));}
   if(next.kind==="gateway"){setE1(next.item.gatewayName);setE2(String(Number(next.item.defaultChargeRate)));setE3(next.item.defaultChargeType);setE4("");}
   if(next.kind==="term"){setE1(next.item.name);setE2(String(next.item.durationValue));setE3(next.item.durationUnit);setE4(String(Number(next.item.defaultCommissionRate)));}
   if(next.kind==="category"){setE1(next.item.name);setE2(next.item.expenseUsage);setE3("");setE4("");}
@@ -74,7 +86,7 @@ export default function SettingsPage(){
  async function saveEdit(e:FormEvent){
   e.preventDefault();if(!edit)return;
   try{
-   if(edit.kind==="provider")await run(()=>apiFetch("/providers/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),providerType:e2})}),()=>{},"Provider updated.");
+   if(edit.kind==="provider")await run(()=>apiFetch("/providers/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),providerType:e2,supportsAeps:e3==="true",aepsCommissionRate:Number(e4||0)})}),()=>{},"Provider updated.");
    if(edit.kind==="gateway")await run(()=>apiFetch("/providers/gateways/"+edit.item.id,{method:"PATCH",body:JSON.stringify({gatewayName:e1.trim(),defaultChargeRate:Number(e2),defaultChargeType:e3})}),()=>{},"Gateway updated.");
    if(edit.kind==="term")await run(()=>apiFetch("/settings/payment-terms/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),durationValue:Number(e2),durationUnit:e3,defaultCommissionType:edit.item.defaultCommissionType,defaultCommissionRate:Number(e4)})}),()=>{},"Payment term updated.");
    if(edit.kind==="category")await run(()=>apiFetch("/settings/expense-categories/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),expenseUsage:e2})}),()=>{},"Expense category updated.");
@@ -89,74 +101,38 @@ export default function SettingsPage(){
  }
 
  const selectedProvider=providers.find(p=>p.id===ruleProvider);
- const activeProviders=providers.filter(p=>p.isActive).length;
- const activeGateways=providers.flatMap(p=>p.gateways).filter(g=>g.isActive).length;
- const activeTerms=terms.filter(t=>t.isActive).length;
- const activeRules=rules.filter(r=>r.isActive).length;
- const activeCategories=categories.filter(c=>c.isActive).length;
- const tabs=[
-  {id:"payments" as const,label:"Payments",desc:"Providers & gateways",count:activeProviders+activeGateways},
-  {id:"rules" as const,label:"Terms & commission",desc:"Settlement timing & overrides",count:activeTerms+activeRules},
-  {id:"expenses" as const,label:"Expenses",desc:"Expense categories",count:activeCategories},
- ];
 
  if(loading)return <AppShell><PageLoader label="Loading settings…"/></AppShell>;
 
- return <AppShell><div className="page-enter mx-auto max-w-7xl space-y-5">
-  <SectionHeading eyebrow="Configuration" title="Settings" description="Manage the rules that shape daily operations. Only the workspace you choose is shown, so the page stays focused."/>
-
+ return <AppShell><div className="page-enter mx-auto max-w-[1320px] space-y-5">
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
+  <SettingsWorkspace
+   providers={providers}
+   terms={terms}
+   categories={categories}
+   rules={rules}
+   onCreate={(kind,providerId)=>{if(kind==="gateway"&&providerId)setGatewayProvider(providerId);if(kind==="rule"&&providerId){setRuleProvider(providerId);setRuleGateway("");}setCreate(kind);}}
+   onEditProvider={item=>beginEdit({kind:"provider",item})}
+   onEditGateway={item=>beginEdit({kind:"gateway",item})}
+   onEditTerm={item=>beginEdit({kind:"term",item})}
+   onEditCategory={item=>beginEdit({kind:"category",item})}
+   onEditRule={item=>beginEdit({kind:"rule",item})}
+   onToggle={(path,isActive,label)=>setToggleState({path,isActive,label})}
+   onQuickAddCategory={quickAddCategory}
+   onSaveCashTransferDefault={saveCashTransferDefault}
+  />
 
-  <div className="lg:grid lg:grid-cols-[230px_minmax(0,1fr)] lg:gap-5">
-    <div className="lg:hidden">
-      <SegmentedTabs value={area} onChange={setArea} items={tabs.map(tab=>({value:tab.id,label:tab.label,count:tab.count}))}/>
-    </div>
-    <aside className="hidden lg:block">
-      <Surface className="sticky top-20 p-2">
-        <div className="px-3 pb-2 pt-2"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-400">Configuration</p><p className="mt-1 text-xs leading-5 text-slate-500">Choose one area and work without unrelated forms on screen.</p></div>
-        <div className="space-y-1">{tabs.map(tab=><button key={tab.id} onClick={()=>setArea(tab.id)}
-          className={"flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-3 text-left transition "+(area===tab.id?"bg-slate-950 text-white shadow-sm":"text-slate-600 hover:bg-slate-50 hover:text-slate-950")}>
-          <div className="min-w-0"><p className="truncate text-sm font-bold">{tab.label}</p><p className={"mt-0.5 truncate text-[11px] "+(area===tab.id?"text-slate-300":"text-slate-400")}>{tab.desc}</p></div>
-          <span className={"grid h-8 min-w-8 shrink-0 place-items-center rounded-xl px-2 text-xs font-black "+(area===tab.id?"bg-white/10 text-white":"bg-slate-100 text-slate-500")}>{tab.count}</span>
-        </button>)}</div>
-      </Surface>
-    </aside>
-    <div className="mt-4 min-w-0 space-y-4 lg:mt-0">
-  {area==="payments"?<div className="space-y-4">
-    <div className="grid grid-cols-2 gap-3">
-      <Surface className="p-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">Active providers</p><p className="mt-1 text-2xl font-black">{activeProviders}</p></Surface>
-      <Surface className="p-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">Active gateways</p><p className="mt-1 text-2xl font-black">{activeGateways}</p></Surface>
-    </div>
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold tracking-tight">Payment network</h3><p className="text-xs text-slate-500">Providers and their processing gateways.</p></div><div className="flex gap-2"><button onClick={()=>setCreate("provider")} className={secondary}>+ Provider</button><button onClick={()=>setCreate("gateway")} className={primary}>+ Gateway</button></div></div>
-    {providers.length?<div className="grid gap-3 lg:grid-cols-2">{providers.map(p=><Surface key={p.id} className={!p.isActive?"p-4 opacity-60":"p-4"}>
-      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-bold">{p.name}</p><StatusBadge tone={p.isActive?"emerald":"slate"}>{p.isActive?"Active":"Inactive"}</StatusBadge></div><p className="mt-1 text-xs text-slate-400">{p.providerType.replaceAll("_"," ")}</p></div><div className="flex gap-1.5"><button onClick={()=>beginEdit({kind:"provider",item:p})} className={secondary}>Edit</button><button onClick={()=>setToggleState({path:"/providers/"+p.id,isActive:p.isActive,label:p.name})} className={secondary}>{p.isActive?"Retire":"Activate"}</button></div></div>
-      <div className="mt-4 space-y-2">{p.gateways.map(g=><div key={g.id} className={"flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-inset ring-slate-100 "+(!g.isActive?"opacity-60":"")}><div className="min-w-0"><p className="truncate text-sm font-semibold">{g.gatewayName}</p><p className="mt-0.5 text-[11px] text-slate-400">{Number(g.defaultChargeRate)}% default charge · {g.defaultChargeType.toLowerCase()}</p></div><div className="flex shrink-0 gap-1.5"><button onClick={()=>beginEdit({kind:"gateway",item:g})} className={secondary}>Edit</button><button onClick={()=>setToggleState({path:"/providers/gateways/"+g.id,isActive:g.isActive,label:g.gatewayName})} className={secondary}>{g.isActive?"Retire":"Activate"}</button></div></div>)}{!p.gateways.length?<p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-400">No gateways configured.</p>:null}</div>
-    </Surface>)}</div>:<EmptyState title="No payment providers configured" description="Add a provider, then add its gateways."/>}
-  </div>:null}
-  {area==="rules"?<div className="space-y-4">
-    <div className="grid grid-cols-2 gap-3">
-      <Surface className="p-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">Active payment terms</p><p className="mt-1 text-2xl font-black">{activeTerms}</p></Surface>
-      <Surface className="p-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">Active commission rules</p><p className="mt-1 text-2xl font-black">{activeRules}</p></Surface>
-    </div>
-    <div className="grid gap-4 xl:grid-cols-[.9fr_1.1fr]">
-      <Surface className="p-4 sm:p-5"><div className="mb-4 flex items-center justify-between gap-3"><div><h3 className="font-bold">Payment terms</h3><p className="text-xs text-slate-500">Settlement timing and default commission.</p></div><button onClick={()=>setCreate("term")} className={primary}>+ Term</button></div>
-        <div className="space-y-2">{terms.map(t=><div key={t.id} className={"rounded-2xl bg-slate-50 p-3.5 ring-1 ring-inset ring-slate-100 "+(!t.isActive?"opacity-60":"")}><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-bold">{t.name}</p><StatusBadge tone={t.isActive?"emerald":"slate"}>{t.isActive?"Active":"Inactive"}</StatusBadge></div><p className="mt-1 text-xs text-slate-500">{t.durationValue} {t.durationUnit.toLowerCase()} · {Number(t.defaultCommissionRate)}% default commission</p></div><div className="flex gap-1.5"><button onClick={()=>beginEdit({kind:"term",item:t})} className={secondary}>Edit</button><button onClick={()=>setToggleState({path:"/settings/payment-terms/"+t.id,isActive:t.isActive,label:t.name})} className={secondary}>{t.isActive?"Retire":"Activate"}</button></div></div></div>)}{!terms.length?<EmptyState title="No payment terms yet"/>:null}</div>
-      </Surface>
-      <Surface className="p-4 sm:p-5"><div className="mb-4 flex items-center justify-between gap-3"><div><h3 className="font-bold">Commission overrides</h3><p className="text-xs text-slate-500">Specific exceptions override the defaults above.</p></div><button onClick={()=>setCreate("rule")} className={primary}>+ Rule</button></div>
-        <div className="space-y-2">{rules.map(r=><div key={r.id} className={"rounded-2xl bg-slate-50 p-3.5 ring-1 ring-inset ring-slate-100 "+(!r.isActive?"opacity-60":"")}><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-bold">{r.transactionType.replaceAll("_"," ")}</p><StatusBadge tone={r.isActive?"emerald":"slate"}>{r.isActive?"Active":"Inactive"}</StatusBadge></div><p className="mt-1 text-xs text-slate-500">{Number(r.commissionRate)}{r.commissionType==="PERCENTAGE"?"%":" fixed"} · {r.customerId?"Customer-specific":"Any customer"} · {r.paymentTerm?.name||"Any term"}</p></div><div className="flex gap-1.5"><button onClick={()=>beginEdit({kind:"rule",item:r})} className={secondary}>Edit</button><button onClick={()=>setToggleState({path:"/settings/commission-rules/"+r.id,isActive:r.isActive,label:"commission rule"})} className={secondary}>{r.isActive?"Retire":"Activate"}</button></div></div></div>)}{!rules.length?<EmptyState title="No commission override rules" description="Defaults will apply until you add an exception."/>:null}</div>
-      </Surface>
-    </div>
-  </div>:null}
-  {area==="expenses"?<div className="space-y-4">
-    <div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">Active categories</p><p className="mt-1 text-3xl font-black">{activeCategories}</p></div><button onClick={()=>setCreate("category")} className={primary}>+ Expense category</button></div>
-    {categories.length?<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{categories.map(c=><Surface key={c.id} className={!c.isActive?"p-4 opacity-60":"p-4"}><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{c.name}</p><StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge></div><p className="mt-1 text-xs text-slate-500">{c.expenseUsage==="MIXED"?"Business & personal":c.expenseUsage.toLowerCase()}</p></div><div className="flex gap-1.5"><button onClick={()=>beginEdit({kind:"category",item:c})} className={secondary}>Edit</button><button onClick={()=>setToggleState({path:"/settings/expense-categories/"+c.id,isActive:c.isActive,label:c.name})} className={secondary}>{c.isActive?"Retire":"Activate"}</button></div></div></Surface>)}</div>:<EmptyState title="No expense categories yet"/>}
-  </div>:null}
-    </div>
-  </div>
-
-  <Modal open={create==="provider"} title="Add provider" description="Create the service provider first; gateways can be attached next." onClose={()=>setCreate(null)}>
-    <form onSubmit={addProvider} className="space-y-4"><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider name</span><input className={input} placeholder="PaySwitch / EzyPay" value={providerName} onChange={e=>setProviderName(e.target.value)} required/></label><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider type</span><select className={input} value={providerType} onChange={e=>setProviderType(e.target.value)}><option>MULTI_SERVICE</option><option>WALLET</option><option>CARD_PROVIDER</option><option>AEPS_PLATFORM</option></select></label><button className={primary+" w-full"}>Add Provider</button></form>
+  <Modal open={create==="provider"} title="Add provider" description="Configure only the services this provider actually supports." onClose={()=>setCreate(null)}>
+    <form onSubmit={addProvider} className="space-y-4">
+      <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider name</span><input className={input} placeholder="DigiSeva / 24PAY" value={providerName} onChange={e=>setProviderName(e.target.value)} required/></label>
+      <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider type</span><select className={input} value={providerType} onChange={e=>setProviderType(e.target.value)}><option>MULTI_SERVICE</option><option>WALLET</option><option>CARD_PROVIDER</option><option>AEPS_PLATFORM</option></select></label>
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+        <label className="flex cursor-pointer items-center justify-between gap-3"><span><strong className="block text-sm">Aadhaar withdrawal</strong><span className="mt-0.5 block text-xs text-[var(--text-muted)]">Show this provider in Aadhaar-based withdrawals.</span></span><input type="checkbox" checked={providerSupportsAeps} onChange={e=>setProviderSupportsAeps(e.target.checked)} className="h-5 w-5 accent-[var(--accent)]"/></label>
+        {providerSupportsAeps?<label className="mt-3 block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default Aadhaar commission %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={providerAepsRate} onChange={e=>setProviderAepsRate(e.target.value)} /></label>:null}
+      </div>
+      <button className={primary+" w-full"}>Add Provider</button>
+    </form>
   </Modal>
   <Modal open={create==="gateway"} title="Add gateway" description="Attach a processing gateway to an active provider." onClose={()=>setCreate(null)}>
     <form onSubmit={addGateway} className="space-y-4"><select className={input} value={gatewayProvider} onChange={e=>setGatewayProvider(e.target.value)} required><option value="">Select provider</option>{providers.filter(p=>p.isActive).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><input className={input} placeholder="Gateway name" value={gatewayName} onChange={e=>setGatewayName(e.target.value)} required/><input className={input} type="number" step="0.0001" min="0" placeholder="Default charge %" value={gatewayRate} onChange={e=>setGatewayRate(e.target.value)} required/><button className={primary+" w-full"}>Add Gateway</button></form>
@@ -183,7 +159,14 @@ export default function SettingsPage(){
   </Modal>
   <Modal open={!!edit} title={"Edit "+(edit?.kind??"setting")} description="Changes apply to future use; historical transactions remain intact." onClose={()=>setEdit(null)}>
     <form onSubmit={saveEdit} className="space-y-3">
-      {edit?.kind==="provider"?<><input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Provider name" required/><select className={input} value={e2} onChange={e=>setE2(e.target.value)}><option>MULTI_SERVICE</option><option>WALLET</option><option>CARD_PROVIDER</option><option>AEPS_PLATFORM</option></select></>:null}
+      {edit?.kind==="provider"?<>
+        <input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Provider name" required/>
+        <select className={input} value={e2} onChange={e=>setE2(e.target.value)}><option>MULTI_SERVICE</option><option>WALLET</option><option>CARD_PROVIDER</option><option>AEPS_PLATFORM</option></select>
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+          <label className="flex cursor-pointer items-center justify-between gap-3"><span><strong className="block text-sm">Aadhaar withdrawal</strong><span className="mt-0.5 block text-xs text-[var(--text-muted)]">Enable only when this provider supports Aadhaar-linked bank withdrawal.</span></span><input type="checkbox" checked={e3==="true"} onChange={e=>setE3(e.target.checked?"true":"false")} className="h-5 w-5 accent-[var(--accent)]"/></label>
+          {e3==="true"?<label className="mt-3 block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default Aadhaar commission %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={e4} onChange={e=>setE4(e.target.value)} /></label>:null}
+        </div>
+      </>:null}
       {edit?.kind==="gateway"?<><input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Gateway name" required/><input className={input} type="number" min="0" step="0.0001" value={e2} onChange={e=>setE2(e.target.value)} placeholder="Charge rate" required/><select className={input} value={e3} onChange={e=>setE3(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed</option></select></>:null}
       {edit?.kind==="term"?<div className="grid gap-3 sm:grid-cols-2"><input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Term name" required/><input className={input} type="number" min="0" value={e2} onChange={e=>setE2(e.target.value)} placeholder="Duration"/><select className={input} value={e3} onChange={e=>setE3(e.target.value)}><option value="HOURS">Hours</option><option value="DAYS">Days</option></select><input className={input} type="number" min="0" step="0.0001" value={e4} onChange={e=>setE4(e.target.value)} placeholder="Commission rate"/></div>:null}
       {edit?.kind==="category"?<><input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Category name" required/><select className={input} value={e2} onChange={e=>setE2(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Both</option></select></>:null}

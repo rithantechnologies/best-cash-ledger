@@ -41,6 +41,6 @@ export default function ExpensePage(){
     <Field label="Description" className="sm:col-span-2"><input className={control} placeholder="What was this expense for?" value={description} onChange={e=>setDescription(e.target.value)} required/></Field>
    </div>
   </FormSection>
-  <FormSection step="2" title="Reference & notes" description="Optional details that make later reconciliation easier."><div className="grid gap-3 sm:grid-cols-2"><Field label="Reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Receipt / invoice / reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></FormSection>
+  <details className="group rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer list-none px-4 py-3.5 text-sm font-bold">More details <span className="float-right text-[var(--text-muted)] group-open:rotate-45">+</span></summary><div className="grid gap-3 border-t border-[var(--border)] p-4 sm:grid-cols-2"><Field label="Reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Receipt / invoice / reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></details>
  </TransactionFrame></form></AppShell>;
 }

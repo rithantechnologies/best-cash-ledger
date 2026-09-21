@@ -151,18 +151,19 @@ export function SummaryRow({label,value,tone="slate"}:{label:string;value:ReactN
 export function TransactionFrame({
   eyebrow,title,description,children,summary,footer,
 }:{eyebrow:string;title:string;description:string;children:ReactNode;summary:ReactNode;footer?:ReactNode}) {
-  return <div className="page-enter mx-auto max-w-6xl space-y-5">
+  return <div className="page-enter mx-auto max-w-6xl space-y-5 pb-24 lg:pb-0">
     <SectionHeading eyebrow={eyebrow} title={title} description={description}/>
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-3">{children}</div>
       <div className="space-y-3 lg:sticky lg:top-20">
         <Surface className="app-summary-card overflow-hidden">
-          <div className="border-b border-[var(--border)] px-4 py-3.5"><p className="text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--accent)]">Live calculation</p><h3 className="mt-0.5 text-sm font-bold">Summary</h3></div>
+          <div className="border-b border-[var(--border)] px-4 py-3.5"><h3 className="text-sm font-bold">Summary</h3></div>
           <div className="divide-y divide-[var(--border)] px-4">{summary}</div>
         </Surface>
-        {footer}
+        {footer?<div className="hidden lg:block">{footer}</div>:null}
       </div>
     </div>
+    {footer?<div className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_94%,transparent)] px-3 py-2 pb-[max(.5rem,env(safe-area-inset-bottom))] shadow-[0_-12px_30px_rgba(15,23,42,.08)] backdrop-blur-xl lg:hidden"><div className="mx-auto max-w-3xl">{footer}</div></div>:null}
   </div>;
 }
 
