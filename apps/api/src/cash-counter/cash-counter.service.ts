@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CountType, EntryType, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { CountType, EntryType, Prisma, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -107,25 +107,98 @@ export class CashCounterService {
     return this.hydrateSession(session);
   }
 
-  async open(dto: OpenCashSessionDto, userId: string) {
+  async open(dto: OpenCashSessionDto, userId: string, actorRole: RoleName) {
     const existing = await this.prisma.cashSession.findFirst({
       where: { cashAccountId: dto.cashAccountId, status: 'OPEN' },
     });
     if (existing) throw new BadRequestException('Cash session is already open');
 
-    await this.validation.cashAccount(
-      this.prisma,
-      dto.cashAccountId,
-      'Cash counter account',
-    );
+    const responsibleUserId = dto.responsibleUserId ?? userId;
+    if (responsibleUserId !== userId && actorRole === RoleName.STAFF) {
+      throw new ForbiddenException('Staff can only open a cash session for themselves');
+    }
+    const responsibleUser = await this.prisma.user.findUnique({
+      where: { id: responsibleUserId },
+      select: { id: true, fullName: true, isActive: true },
+    });
+    if (!responsibleUser?.isActive) {
+      throw new BadRequestException('Responsible cash operator is not active');
+    }
 
     const openingTotal = this.total(dto.denominations);
+    if (dto.sourceCashAccountId === dto.cashAccountId) {
+      throw new BadRequestException('Opening source must be a different cash account');
+    }
+
     return this.prisma.$transaction(async (tx) => {
+      const destination = await this.validation.cashAccount(
+        tx,
+        dto.cashAccountId,
+        'Cash counter account',
+      );
+
+      let fundingTransactionId: string | null = null;
+      if (dto.sourceCashAccountId && openingTotal > 0) {
+        const source = await this.validation.cashAccount(
+          tx,
+          dto.sourceCashAccountId,
+          'Opening cash source',
+        );
+        for (const accountId of [source.id, destination.id].sort()) {
+          await this.validation.lockAccount(tx, accountId);
+        }
+        await this.validation.requireOpenCashDesk(
+          tx,
+          source.id,
+          'Opening cash source',
+        );
+        await this.validation.ensureSufficientFunds(tx, source, openingTotal);
+
+        const funding = await tx.transaction.create({
+          data: {
+            transactionNumber: 'INT-' + Date.now().toString(36).toUpperCase(),
+            transactionType: TransactionType.INTERNAL_TRANSFER,
+            transactionAt: new Date(),
+            grossAmount: new Prisma.Decimal(openingTotal),
+            netAmount: new Prisma.Decimal(openingTotal),
+            status: TransactionStatus.COMPLETED,
+            referenceNumber: 'CASH-SESSION-OPEN',
+            notes: dto.notes ?? ('Opening cash for ' + responsibleUser.fullName),
+            createdById: userId,
+          },
+        });
+        fundingTransactionId = funding.id;
+        await tx.internalTransferDetail.create({
+          data: {
+            transactionId: funding.id,
+            sourceAccountId: source.id,
+            destinationAccountId: destination.id,
+            transferAmount: new Prisma.Decimal(openingTotal),
+            chargeAmount: new Prisma.Decimal(0),
+            referenceNumber: 'CASH-SESSION-OPEN',
+          },
+        });
+        await this.ledger.post(tx, funding.id, userId, 'Cash session opening transfer', [
+          {
+            ledgerAccountId: destination.ledgerAccount!.id,
+            entryType: EntryType.DEBIT,
+            amount: openingTotal,
+            description: 'Cash issued to drawer',
+          },
+          {
+            ledgerAccountId: source.ledgerAccount!.id,
+            entryType: EntryType.CREDIT,
+            amount: openingTotal,
+            description: 'Cash issued from reserve',
+          },
+        ]);
+      }
+
       const session = await tx.cashSession.create({
         data: {
           cashAccountId: dto.cashAccountId,
           businessDate: this.businessDate(),
-          openedById: userId,
+          openedById: responsibleUserId,
           openedAt: new Date(),
           openingTotal: new Prisma.Decimal(openingTotal),
           status: 'OPEN',
@@ -148,9 +221,14 @@ export class CashCounterService {
           action: 'OPEN',
           newValues: {
             cashAccountId: session.cashAccountId,
+            responsibleUserId,
+            responsibleUserName: responsibleUser.fullName,
             openingTotal: session.openingTotal.toString(),
             businessDate: session.businessDate.toISOString(),
+            sourceCashAccountId: dto.sourceCashAccountId ?? null,
+            fundingTransactionId,
           },
+          reason: dto.notes,
         },
       });
       return session;
@@ -161,6 +239,7 @@ export class CashCounterService {
     tx: Prisma.TransactionClient | PrismaService,
     session: {
       cashAccountId: string;
+      openedById: string;
       openedAt: Date;
       openingTotal: Prisma.Decimal;
       closedAt?: Date | null;
@@ -327,11 +406,74 @@ export class CashCounterService {
       activityMap.set(activityId, activity);
     }
 
+    const commissionOnlyTransactions = await tx.transaction.findMany({
+      where: {
+        transactionAt: {
+          gte: session.openedAt,
+          ...(session.closedAt ? { lte: session.closedAt } : {}),
+        },
+        createdById: session.openedById,
+        status: {
+          notIn: [
+            TransactionStatus.FAILED,
+            TransactionStatus.CANCELLED,
+            TransactionStatus.REVERSED,
+          ],
+        },
+        commissions: { some: {} },
+      },
+      select: {
+        id: true,
+        transactionNumber: true,
+        transactionType: true,
+        transactionAt: true,
+        grossAmount: true,
+        netAmount: true,
+        notes: true,
+        customer: { select: { fullName: true } },
+        commissions: { select: { amount: true } },
+      },
+      orderBy: { transactionAt: 'asc' },
+    });
+
+    for (const transaction of commissionOnlyTransactions) {
+      if (activityMap.has(transaction.id)) continue;
+      const commissionAmount = transaction.commissions.reduce(
+        (sum, commission) => sum + Number(commission.amount),
+        0,
+      );
+      if (commissionAmount <= 0) continue;
+      activityMap.set(transaction.id, {
+        id: transaction.id,
+        transactionId: transaction.id,
+        transactionNumber: transaction.transactionNumber,
+        serviceType: transaction.transactionType,
+        transactionAt: transaction.transactionAt,
+        particular:
+          transaction.customer?.fullName ??
+          transaction.notes ??
+          transaction.transactionNumber,
+        transactionAmount: Number(transaction.grossAmount),
+        netAmount: Number(transaction.netAmount ?? transaction.grossAmount),
+        cashIn: 0,
+        cashOut: 0,
+        commissionAmount,
+        runningBalance: 0,
+        movementCount: 0,
+      });
+    }
+
     const activities = [...activityMap.values()].sort(
       (a, b) =>
         new Date(a.transactionAt).getTime() -
         new Date(b.transactionAt).getTime(),
     );
+    let activityRunningBalance = Number(session.openingTotal);
+    for (const activity of activities) {
+      activityRunningBalance += activity.cashIn - activity.cashOut;
+      activity.runningBalance = activityRunningBalance;
+    }
+
     const serviceMap = new Map<string, any>();
     for (const activity of activities) {
       const row = serviceMap.get(activity.serviceType) ?? {
@@ -489,11 +631,149 @@ export class CashCounterService {
             differenceAmount:
               updated.differenceAmount?.toString() ?? null,
             adjustmentTransactionId,
+            handoverToUserId: dto.handoverToUserId ?? null,
+            handoverToCashAccountId: dto.handoverToCashAccountId ?? null,
           },
           reason: dto.notes,
         },
       });
-      return updated;
+
+      let targetUser: { id: string; fullName: string } | null = null;
+      if (dto.handoverToUserId) {
+        const user = await tx.user.findUnique({
+          where: { id: dto.handoverToUserId },
+          select: { id: true, fullName: true, isActive: true },
+        });
+        if (!user?.isActive) {
+          throw new BadRequestException('Handover operator is not active');
+        }
+        targetUser = { id: user.id, fullName: user.fullName };
+      }
+
+      const destinationAccountId =
+        dto.handoverToCashAccountId ?? session.cashAccountId;
+      let handoverTransactionId: string | null = null;
+
+      if (
+        dto.handoverToCashAccountId &&
+        dto.handoverToCashAccountId !== session.cashAccountId &&
+        actual > 0
+      ) {
+        const destination = await this.validation.cashAccount(
+          tx,
+          dto.handoverToCashAccountId,
+          'Handover cash destination',
+        );
+        await this.validation.ensureSufficientFunds(tx, account, actual);
+
+        const handover = await tx.transaction.create({
+          data: {
+            transactionNumber: 'INT-' + Date.now().toString(36).toUpperCase(),
+            transactionType: TransactionType.INTERNAL_TRANSFER,
+            transactionAt: new Date(),
+            grossAmount: new Prisma.Decimal(actual),
+            netAmount: new Prisma.Decimal(actual),
+            status: TransactionStatus.COMPLETED,
+            referenceNumber: 'CASH-HANDOVER-' + session.id,
+            notes:
+              dto.notes ??
+              ('Cash handover from ' + updated.cashAccount.accountName),
+            createdById: userId,
+          },
+        });
+        handoverTransactionId = handover.id;
+        await tx.internalTransferDetail.create({
+          data: {
+            transactionId: handover.id,
+            sourceAccountId: session.cashAccountId,
+            destinationAccountId: destination.id,
+            transferAmount: new Prisma.Decimal(actual),
+            chargeAmount: new Prisma.Decimal(0),
+            referenceNumber: 'CASH-HANDOVER-' + session.id,
+          },
+        });
+        await this.ledger.post(tx, handover.id, userId, 'Cash drawer handover', [
+          {
+            ledgerAccountId: destination.ledgerAccount!.id,
+            entryType: EntryType.DEBIT,
+            amount: actual,
+            description: 'Cash handover received',
+          },
+          {
+            ledgerAccountId: account.ledgerAccount!.id,
+            entryType: EntryType.CREDIT,
+            amount: actual,
+            description: 'Cash handover sent',
+          },
+        ]);
+      }
+
+      let nextSession: any = null;
+      if (targetUser) {
+        const existingDestinationSession = await tx.cashSession.findFirst({
+          where: { cashAccountId: destinationAccountId, status: 'OPEN' },
+          include: { cashAccount: true, denominationCounts: true },
+        });
+
+        if (existingDestinationSession) {
+          if (existingDestinationSession.openedById !== targetUser.id) {
+            throw new BadRequestException(
+              'Destination drawer is already assigned to another operator',
+            );
+          }
+          nextSession = existingDestinationSession;
+        } else {
+          nextSession = await tx.cashSession.create({
+            data: {
+              cashAccountId: destinationAccountId,
+              businessDate: this.businessDate(),
+              openedById: targetUser.id,
+              openedAt: new Date(),
+              openingTotal: new Prisma.Decimal(actual),
+              status: 'OPEN',
+              denominationCounts: {
+                create: dto.denominations.map((d) => ({
+                  countType: CountType.OPENING,
+                  denomination: new Prisma.Decimal(d.denomination),
+                  quantity: d.quantity,
+                  totalAmount: new Prisma.Decimal(d.denomination * d.quantity),
+                })),
+              },
+            },
+            include: { cashAccount: true, denominationCounts: true },
+          });
+          await tx.auditLog.create({
+            data: {
+              userId,
+              entityType: 'CASH_SESSION',
+              entityId: nextSession.id,
+              action: 'HANDOVER_OPEN',
+              newValues: {
+                cashAccountId: destinationAccountId,
+                responsibleUserId: targetUser.id,
+                responsibleUserName: targetUser.fullName,
+                openingTotal: actual.toString(),
+                fromSessionId: session.id,
+                handoverTransactionId,
+              },
+            },
+          });
+        }
+      }
+
+      return {
+        ...updated,
+        handoverTransactionId,
+        nextSession,
+      };
+    });
+  }
+
+  async operators() {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, fullName: true, role: { select: { name: true } } },
+      orderBy: { fullName: 'asc' },
     });
   }
 

@@ -24,6 +24,7 @@ type ServiceSummary={
   id:string;transactionAmount:number;cashIn:number;cashOut:number;commissionAmount:number;count:number;
 };
 type UserRef={id:string;fullName:string}|null;
+type Operator={id:string;fullName:string;role:{name:string}};
 type Session={
   id:string;cashAccountId:string;businessDate:string;openedAt:string;openingTotal:string;
   expectedClosingTotal:string|null;liveExpectedClosingTotal?:number;liveCashIn?:number;liveCashOut?:number;
@@ -34,7 +35,7 @@ type Session={
 };
 
 type Range="today"|"7d"|"30d";
-type DirectionFilter="ALL"|"IN"|"OUT"|"ADJUSTMENT";
+type DirectionFilter="ALL"|"IN"|"OUT"|"COMMISSION"|"ADJUSTMENT";
 
 const denominations=[2000,500,200,100,50,20,10,5,2,1];
 const money=(value:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(value||0));
@@ -115,9 +116,13 @@ function MetricCard({
 export default function CashCounterPage(){
   const router=useRouter();
   const [accounts,setAccounts]=useState<Account[]>([]);
+  const [operators,setOperators]=useState<Operator[]>([]);
   const [today,setToday]=useState<Session|null>(null);
   const [history,setHistory]=useState<Session[]>([]);
   const [cashAccountId,setCashAccountId]=useState("");
+  const [responsibleUserId,setResponsibleUserId]=useState("");
+  const [sourceCashAccountId,setSourceCashAccountId]=useState("");
+  const [handoverTarget,setHandoverTarget]=useState("");
   const [qty,setQty]=useState<Record<number,string>>({});
   const [remarks,setRemarks]=useState("");
   const [closing,setClosing]=useState(false);
@@ -129,20 +134,27 @@ export default function CashCounterPage(){
   const [serviceFilter,setServiceFilter]=useState<string|null>(null);
   const [selectedActivityId,setSelectedActivityId]=useState<string|null>(null);
   const [selectedHistoryId,setSelectedHistoryId]=useState<string|null>(null);
-  const [role]=useState(()=>{if(typeof window==="undefined")return "";try{return JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"";}catch{return "";}});
+  const [currentUser]=useState<{id?:string;userId?:string;role?:string}>(()=>{if(typeof window==="undefined")return {};try{return JSON.parse(localStorage.getItem("cashledger_user")||"{}");}catch{return {};}});
+  const role=currentUser.role??"";
 
-  const load=()=>Promise.all([
-    apiFetch<Account[]>("/accounts"),
-    apiFetch<Session|null>("/cash-counter/today"),
-    apiFetch<Session[]>("/cash-counter/history"),
-  ]).then(([accountRows,session,historyRows])=>{
-    setAccounts(accountRows);setToday(session);setHistory(historyRows);
-    const drawer=accountRows.find((account)=>account.accountType==="CASH");
-    if(session)setCashAccountId(session.cashAccountId);
-    else if(drawer)setCashAccountId(drawer.id);
-  });
+  const load=async(preferredCashAccountId?:string)=>{
+    const [accountRows,historyRows,operatorRows]=await Promise.all([
+      apiFetch<Account[]>("/accounts"),
+      apiFetch<Session[]>("/cash-counter/history"),
+      apiFetch<Operator[]>("/cash-counter/operators"),
+    ]);
+    const cashRows=accountRows.filter((account)=>account.accountType==="CASH"&&account.isActive!==false);
+    const targetId=preferredCashAccountId||cashAccountId||cashRows[0]?.id||"";
+    const session=targetId
+      ?await apiFetch<Session|null>("/cash-counter/current?cashAccountId="+encodeURIComponent(targetId))
+      :null;
+    setAccounts(accountRows);setToday(session);setHistory(historyRows);setOperators(operatorRows);
+    if(targetId)setCashAccountId(targetId);
+    const me=currentUser.id??currentUser.userId??"";
+    if(!responsibleUserId)setResponsibleUserId(me||operatorRows[0]?.id||"");
+  };
 
-  useEffect(()=>{load().catch(()=>setError("Failed to load daily cash desk")).finally(()=>setLoading(false));},[]);
+  useEffect(()=>{load().catch(()=>setError("Failed to load cash desk")).finally(()=>setLoading(false));},[]);
   const countedTotal=useMemo(()=>denominations.reduce((sum,note)=>sum+note*Number(qty[note]||0),0),[qty]);
   const expected=Number(today?.liveExpectedClosingTotal??today?.expectedClosingTotal??today?.openingTotal??0);
   const cashIn=Number(today?.liveCashIn??0),cashOut=Number(today?.liveCashOut??0);
@@ -150,8 +162,10 @@ export default function CashCounterPage(){
   const previewDifference=countedTotal-expected;
   const closedDifference=Number(today?.differenceAmount??0);
   const isClosed=today?.status==="CLOSED";
-  const cashDrawer=accounts.find((account)=>account.accountType==="CASH"&&account.isActive!==false);
+  const cashAccounts=accounts.filter((account)=>account.accountType==="CASH"&&account.isActive!==false);
+  const cashDrawer=cashAccounts.find((account)=>account.id===cashAccountId)??cashAccounts[0];
   const anyCashDrawer=accounts.find((account)=>account.accountType==="CASH");
+  const otherCashAccounts=cashAccounts.filter((account)=>account.id!==cashAccountId);
   const canConfigure=role==="OWNER"||role==="ADMIN";
 
   const closedHistory=useMemo(()=>history.filter((session)=>session.status==="CLOSED"),[history]);
@@ -179,6 +193,7 @@ export default function CashCounterPage(){
     return [...(today?.activities??[])].filter((activity)=>{
       const directionMatch=direction==="ALL"||
         (direction==="ADJUSTMENT"?activity.serviceType==="CASH_ADJUSTMENT":
+          direction==="COMMISSION"?activity.commissionAmount>0:
           direction==="IN"?activity.cashIn>0:activity.cashOut>0);
       const serviceMatch=!serviceFilter||activity.serviceType===serviceFilter;
       return directionMatch&&serviceMatch;
@@ -206,8 +221,8 @@ export default function CashCounterPage(){
           targetId=created.id;
         }
       }
-      await apiFetch("/cash-counter/open",{method:"POST",body:JSON.stringify({cashAccountId:targetId,denominations:denominationPayload()})});
-      setCashAccountId(targetId);setQty({});setRange("today");await load();
+      await apiFetch("/cash-counter/open",{method:"POST",body:JSON.stringify({cashAccountId:targetId,responsibleUserId:canConfigure?(responsibleUserId||undefined):undefined,sourceCashAccountId:sourceCashAccountId||undefined,denominations:denominationPayload()})});
+      setCashAccountId(targetId);setQty({});setSourceCashAccountId("");setRange("today");await load(targetId);
     }catch(err){setError(err instanceof Error?err.message:"Failed to start today's cash desk");}
     finally{setSaving(false);}
   }
@@ -219,8 +234,15 @@ export default function CashCounterPage(){
     }
     setSaving(true);setError("");
     try{
-      await apiFetch("/cash-counter/"+today.id+"/close",{method:"POST",body:JSON.stringify({denominations:denominationPayload(),notes:remarks.trim()||undefined})});
-      setQty({});setRemarks("");setClosing(false);setRange("today");await load();
+      const handoverToUserId=handoverTarget.startsWith("user:")?handoverTarget.slice(5):undefined;
+      const handoverToCashAccountId=handoverTarget.startsWith("account:")?handoverTarget.slice(8):undefined;
+      await apiFetch("/cash-counter/"+today.id+"/close",{method:"POST",body:JSON.stringify({
+        denominations:denominationPayload(),
+        notes:remarks.trim()||undefined,
+        handoverToUserId,
+        handoverToCashAccountId,
+      })});
+      setQty({});setRemarks("");setHandoverTarget("");setClosing(false);setRange("today");await load(cashAccountId);
     }catch(err){setError(err instanceof Error?err.message:"Failed to close today's cash desk");}
     finally{setSaving(false);}
   }
@@ -229,6 +251,11 @@ export default function CashCounterPage(){
     const activityId=movement.activityId??movement.id;
     setSelectedActivityId(activityId);
     requestAnimationFrame(()=>document.getElementById("cash-activity-"+activityId)?.scrollIntoView({behavior:"smooth",block:"nearest"}));
+  }
+
+  async function selectCashAccount(id:string){
+    setCashAccountId(id);setQty({});setClosing(false);setSourceCashAccountId("");setHandoverTarget("");setError("");
+    try{await load(id);}catch{setError("Failed to load selected cash drawer");}
   }
 
   if(loading)return <AppShell><PageLoader label="Loading daily cash desk…"/></AppShell>;
@@ -244,6 +271,14 @@ export default function CashCounterPage(){
       </div>:undefined}
     />
     {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
+
+    {cashAccounts.length?<Surface className="overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 p-2.5 sm:p-3">
+        <span className="px-1 text-xs font-extrabold uppercase tracking-[.08em] text-[var(--text-muted)]">Cash drawer</span>
+        {cashAccounts.map((account)=><button key={account.id} type="button" onClick={()=>selectCashAccount(account.id)} className={"min-h-9 rounded-xl border px-3 text-sm font-extrabold transition "+(cashAccountId===account.id?"border-[var(--accent)] bg-[var(--accent)] text-white":"border-[var(--border)] bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-soft)]")}>{account.accountName}</button>)}
+        {canConfigure?<button type="button" onClick={()=>router.push("/accounts")} className="ml-auto min-h-9 rounded-xl px-3 text-sm font-bold text-[var(--accent)]">Manage drawers</button>:null}
+      </div>
+    </Surface>:null}
 
     {!today?<Surface className="counter-surface mx-auto max-w-5xl overflow-hidden">
       <form onSubmit={openCounter} className="grid lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -261,8 +296,10 @@ export default function CashCounterPage(){
         <aside className="border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--accent-soft)_36%,var(--surface))] p-4 sm:p-5 lg:border-l lg:border-t-0 lg:p-6">
           <p className="text-xs font-extrabold uppercase tracking-[.12em] text-[var(--text-muted)]">Opening total</p>
           <strong className="money mt-2 block text-[2.25rem] font-black leading-none tracking-[-.055em] text-[var(--accent)] sm:text-[2.6rem]">{money(countedTotal)}</strong>
-          <p className="mt-3 text-sm leading-5 text-[var(--text-muted)]">Starting cash for today.</p>
-          <button disabled={saving||(!cashDrawer&&!canConfigure)} className="app-primary-button mt-5 min-h-12 w-full px-4 text-sm font-black disabled:opacity-40">{saving?"Starting…":"Start day"}</button>
+          <p className="mt-2 text-sm font-semibold text-[var(--text-muted)]">{cashDrawer?.accountName??"Cash drawer"} · new session</p>
+          {canConfigure&&operators.length?<label className="mt-4 block"><span className="mb-1.5 block text-xs font-extrabold uppercase tracking-[.06em] text-[var(--text-muted)]">Responsible</span><select className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={responsibleUserId} onChange={(event)=>setResponsibleUserId(event.target.value)}>{operators.map((operator)=><option key={operator.id} value={operator.id}>{operator.fullName} · {words(operator.role.name)}</option>)}</select></label>:null}
+          {otherCashAccounts.length?<label className="mt-3 block"><span className="mb-1.5 block text-xs font-extrabold uppercase tracking-[.06em] text-[var(--text-muted)]">Opening source</span><select className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={sourceCashAccountId} onChange={(event)=>setSourceCashAccountId(event.target.value)}><option value="">Counted cash already in drawer</option>{otherCashAccounts.map((account)=><option key={account.id} value={account.id}>Issue from {account.accountName}</option>)}</select><p className="mt-1.5 text-xs text-[var(--text-muted)]">If a reserve is selected, this opening amount is transferred from that reserve.</p></label>:null}
+          <button disabled={saving||(!cashDrawer&&!canConfigure)} className="app-primary-button mt-5 min-h-12 w-full px-4 text-sm font-black disabled:opacity-40">{saving?"Starting…":"Start session"}</button>
         </aside>
       </form>
     </Surface>:null}
@@ -288,7 +325,7 @@ export default function CashCounterPage(){
             <MetricCard label="Opening" value={money(today.openingTotal)}/>
             <MetricCard label="In" value={"+"+money(cashIn)} detail={(today.activities??[]).filter((row)=>row.cashIn>0).length+" txns"} tone="in"/>
             <MetricCard label="Out" value={"−"+money(cashOut)} detail={(today.activities??[]).filter((row)=>row.cashOut>0).length+" txns"} tone="out"/>
-            <MetricCard label="Commission" value={money(commission)} tone="accent"/>
+            <MetricCard label="Commission earned" value={money(commission)} detail="All modes · Cash / UPI / Bank" tone="accent"/>
           </div>
         </div>
       </Surface>
@@ -347,12 +384,12 @@ export default function CashCounterPage(){
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
           <div><h3 className="text-sm font-extrabold">Transactions</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{visibleActivities.length} of {today.activities?.length??0}</p></div>
           <div className="flex flex-wrap gap-1.5">
-            {([["ALL","All"],["IN","In"],["OUT","Out"],["ADJUSTMENT","Adjust"]] as Array<[DirectionFilter,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>setDirection(id)} className={"min-h-9 rounded-xl border px-3 text-sm font-extrabold "+(direction===id?"border-[var(--accent)] bg-[var(--accent)] text-white":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{label}</button>)}
+            {([["ALL","All"],["IN","Cash In"],["OUT","Cash Out"],["COMMISSION","Commission"],["ADJUSTMENT","Adjust"]] as Array<[DirectionFilter,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>setDirection(id)} className={"min-h-9 rounded-xl border px-3 text-sm font-extrabold "+(direction===id?"border-[var(--accent)] bg-[var(--accent)] text-white":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{label}</button>)}
           </div>
         </div>
         {visibleActivities.length?<div>
           <div className="cash-ledger-header hidden grid-cols-[72px_minmax(220px,1.6fr)_150px_110px_110px_110px_100px_120px] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-3 text-xs font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)] xl:grid">
-            <span>Time</span><span>Particular</span><span>Service</span><span className="text-right">Txn amount</span><span className="text-right">Cash in</span><span className="text-right">Cash out</span><span className="text-right">Comm.</span><span className="text-right">Drawer</span>
+            <span>Time</span><span>Particular</span><span>Service</span><span className="text-right">Txn amount</span><span className="text-right">Cash in</span><span className="text-right">Cash out</span><span className="text-right">Commission</span><span className="text-right">Drawer</span>
           </div>
           <div className="divide-y divide-[var(--border)]">
           {visibleActivities.map((activity)=>{
@@ -369,7 +406,7 @@ export default function CashCounterPage(){
                 <strong className="money text-right text-sm">{money(activity.runningBalance)}</strong>
               </div>
               <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 xl:hidden">
-                <span className={"grid h-10 w-10 place-items-center rounded-xl text-sm font-black "+(activity.cashIn>=activity.cashOut?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-600")}>{activity.cashIn>=activity.cashOut?"↓":"↑"}</span>
+                <span className={"grid h-10 w-10 place-items-center rounded-xl text-sm font-black "+(!activity.cashIn&&!activity.cashOut&&activity.commissionAmount?"bg-[var(--accent-soft)] text-[var(--accent)]":activity.cashIn>=activity.cashOut?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-600")}>{!activity.cashIn&&!activity.cashOut&&activity.commissionAmount?"₹":activity.cashIn>=activity.cashOut?"↓":"↑"}</span>
                 <div className="min-w-0">
                   <p className="truncate text-[15px] font-bold">{activity.particular}</p>
                   <p className="mt-0.5 truncate text-[13px] text-[var(--text-muted)]">{friendlyService(activity.serviceType)} · {new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
@@ -384,13 +421,13 @@ export default function CashCounterPage(){
             </button>;
           })}
           </div>
-        </div>:<div className="p-5 sm:p-7"><EmptyState title="No cash transactions yet" description="New cash movements will appear here."/></div>}
+        </div>:<div className="p-5 sm:p-7"><EmptyState title="No transactions yet" description="Cash movements and commission earned during this session will appear here."/></div>}
       </Surface>
 
       <div id="cash-close-panel" className="scroll-mt-20">
         <Surface className="counter-surface overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
-            <div><h3 className="text-sm font-extrabold">{isClosed?"Day closed":"Close cash"}</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{isClosed?"Final cash reconciliation":"Count the drawer when the day is finished"}</p></div>
+            <div><h3 className="text-sm font-extrabold">{isClosed?"Session closed":"Close / hand over"}</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{isClosed?"Final cash reconciliation":"Count the drawer when this cash session ends"}</p></div>
             {!isClosed?<span className="rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-sm font-extrabold text-[var(--accent)]">{money(expected)} expected</span>:null}
           </div>
 
@@ -430,7 +467,7 @@ export default function CashCounterPage(){
             </div>
             <div className="flex flex-col justify-center p-4 sm:p-5">
               <button type="button" onClick={()=>{setClosing(true);setQty({});setError("");}} className="app-primary-button min-h-12 w-full px-4 text-sm font-black">Count & close</button>
-              <p className="mt-2 text-center text-xs text-[var(--text-muted)]">Count only when business is finished.</p>
+              <p className="mt-2 text-center text-xs text-[var(--text-muted)]">A session can close and reopen multiple times in the same day.</p>
             </div>
           </div>:<form onSubmit={closeCounter} className="grid gap-0 lg:grid-cols-[minmax(0,1.25fr)_360px]">
             <div className="border-b border-[var(--border)] p-4 sm:p-5 lg:border-b-0 lg:border-r">
@@ -450,8 +487,9 @@ export default function CashCounterPage(){
                 <p className="text-sm font-black text-rose-700">NOT READY TO CLOSE</p>
                 <p className="mt-1 text-[13px] font-semibold text-rose-700">{previewDifference>0?"Over":"Short"} by {money(Math.abs(previewDifference))}. Check the ledger before closing.</p>
               </div>:<div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-black text-emerald-700">✓ Cash matches. Ready to close.</div>}
-              <label className="mt-3 block"><span className="mb-1.5 block text-sm font-semibold">Note <span className="font-normal text-[var(--text-muted)]">(optional)</span></span><textarea className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-base sm:text-sm" placeholder="Closing note" value={remarks} onChange={(event)=>setRemarks(event.target.value)}/></label>
-              <button disabled={saving||Math.abs(previewDifference)>.005} className="mt-4 min-h-12 w-full rounded-xl bg-[var(--text)] px-4 text-sm font-bold text-[var(--surface)] disabled:opacity-35">{saving?"Closing…":Math.abs(previewDifference)>.005?"Match cash to close":"Close day"}</button>
+              <label className="mt-3 block"><span className="mb-1.5 block text-sm font-semibold">After closing</span><select className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={handoverTarget} onChange={(event)=>setHandoverTarget(event.target.value)}><option value="">Close session only</option><optgroup label="Hand over same drawer">{operators.filter((operator)=>operator.id!==today.openedBy?.id).map((operator)=><option key={operator.id} value={"user:"+operator.id}>To {operator.fullName}</option>)}</optgroup>{otherCashAccounts.length?<optgroup label="Move all cash to">{otherCashAccounts.map((account)=><option key={account.id} value={"account:"+account.id}>{account.accountName}</option>)}</optgroup>:null}</select><p className="mt-1.5 text-xs text-[var(--text-muted)]">Person handover keeps cash in this drawer. Reserve/drawer handover moves the cash internally.</p></label>
+              <label className="mt-3 block"><span className="mb-1.5 block text-sm font-semibold">Note <span className="font-normal text-[var(--text-muted)]">(optional)</span></span><textarea className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-base sm:text-sm" placeholder="Closing / handover note" value={remarks} onChange={(event)=>setRemarks(event.target.value)}/></label>
+              <button disabled={saving||Math.abs(previewDifference)>.005} className="mt-4 min-h-12 w-full rounded-xl bg-[var(--text)] px-4 text-sm font-bold text-[var(--surface)] disabled:opacity-35">{saving?"Closing…":Math.abs(previewDifference)>.005?"Match cash to close":handoverTarget?"Close & hand over":"Close session"}</button>
             </div>
           </form>}
         </Surface>
@@ -460,7 +498,7 @@ export default function CashCounterPage(){
 
     {previousHistory.length?<details className="cash-history-collapsible app-surface overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 sm:px-5">
-        <div><h3 className="text-sm font-extrabold">Previous days</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{previousHistory.length} closed</p></div>
+        <div><h3 className="text-sm font-extrabold">Previous sessions</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{previousHistory.length} closed</p></div>
         <span className="cash-history-chevron text-lg text-[var(--text-muted)]">›</span>
       </summary>
       <div className="divide-y divide-[var(--border)] border-t border-[var(--border)]">
@@ -469,8 +507,8 @@ export default function CashCounterPage(){
           return <details key={session.id} className="group">
             <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 sm:px-5">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold">{new Date(session.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p>
-                {session.openedBy?.fullName?<p className="mt-0.5 truncate text-sm text-[var(--text-muted)]">Responsible: {session.openedBy.fullName}</p>:null}
+                <p className="text-sm font-bold">{session.cashAccount.accountName} · {new Date(session.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p>
+                <p className="mt-0.5 truncate text-sm text-[var(--text-muted)]">{session.openedBy?.fullName?"Responsible: "+session.openedBy.fullName+" · ":""}{new Date(session.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}{session.closedAt?" → "+new Date(session.closedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"}):""}</p>
               </div>
               <div className="text-right">
                 <p className="money text-sm font-black">{money(session.actualClosingTotal||0)}</p>

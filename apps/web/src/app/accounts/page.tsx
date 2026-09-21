@@ -34,10 +34,11 @@ function words(value:string){
   return value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(letter)=>letter.toUpperCase());
 }
 const typeLabels:Record<string,string>={
-  CASH:"Shop cash",BANK:"Bank",UPI:"Bank",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card",
+  CASH:"Cash drawer / reserve",BANK:"Bank",UPI:"Bank",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card",
 };
-const typeOrder=["BANK","PROVIDER_WALLET","OWNER_CREDIT_CARD"];
+const typeOrder=["CASH","BANK","PROVIDER_WALLET","OWNER_CREDIT_CARD"];
 function accountGroup(type:string){
+  if(type==="CASH")return "CASH";
   if(type==="BANK"||type==="UPI")return "BANK";
   if(type==="PROVIDER_WALLET")return "PROVIDER_WALLET";
   if(type==="OWNER_CREDIT_CARD")return "OWNER_CREDIT_CARD";
@@ -228,7 +229,7 @@ export default function AccountsPage(){
   },[visibleItems,listType,search]);
   const totals=useMemo(()=>{
     const cards=visibleItems.filter((a)=>a.accountType==="OWNER_CREDIT_CARD");
-    const liquid=visibleItems.filter((a)=>["BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).reduce((sum,a)=>sum+a.currentBalance,0);
+    const liquid=visibleItems.filter((a)=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).reduce((sum,a)=>sum+a.currentBalance,0);
     const creditAvailable=cards.reduce((sum,a)=>sum+Math.max(0,a.availableCredit??0),0);
     const creditLimit=cards.reduce((sum,a)=>sum+Math.max(0,a.creditLimit??0),0);
     return {
@@ -296,7 +297,7 @@ export default function AccountsPage(){
   }
 
   if(loading)return <AccountsSkeleton/>;
-  const typeTabs=[["ALL","All"],["BANK","Banks"],["PROVIDER_WALLET","Wallets"],["OWNER_CREDIT_CARD","Cards"]];
+  const typeTabs=[["ALL","All"],["CASH","Cash"],["BANK","Banks"],["PROVIDER_WALLET","Wallets"],["OWNER_CREDIT_CARD","Cards"]];
   const currentAvailability=availability?.currentAvailability??totals.currentAvailability;
   const liquidFunds=availability?.availableFunds??totals.liquid;
   const availableCredit=availability?.creditCardAvailable??totals.creditAvailable;
@@ -356,6 +357,7 @@ export default function AccountsPage(){
     </Surface>
 
     {filteredItems.length?([
+      {key:"CASH",title:"Cash reserves & drawers",description:"Physical cash custody accounts",icon:"CASH"},
       {key:"BANK",title:"Bank accounts",description:"Bank and UPI balances",icon:"BANK"},
       {key:"OWNER_CREDIT_CARD",title:"Credit cards",description:"Credit capacity and outstanding",icon:"OWNER_CREDIT_CARD"},
       {key:"PROVIDER_WALLET",title:"Wallets",description:"Provider wallet balances",icon:"PROVIDER_WALLET"},
@@ -395,7 +397,7 @@ export default function AccountsPage(){
               const utilisation=limit>0?Math.min(100,(used/limit)*100):0;
               return <div key={account.id} className={"flex items-stretch "+(!account.isActive?"opacity-55":"")}>
                 <Link href={"/accounts/"+account.id} className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] sm:px-4">
-                  <span className={"grid h-10 w-10 shrink-0 place-items-center rounded-xl "+(section.key==="BANK"?"bg-blue-50 text-blue-700":section.key==="OWNER_CREDIT_CARD"?"bg-rose-50 text-rose-600":"bg-emerald-50 text-emerald-700")}>
+                  <span className={"grid h-10 w-10 shrink-0 place-items-center rounded-xl "+(section.key==="CASH"?"bg-amber-50 text-amber-700":section.key==="BANK"?"bg-blue-50 text-blue-700":section.key==="OWNER_CREDIT_CARD"?"bg-rose-50 text-rose-600":"bg-emerald-50 text-emerald-700")}>
                     <AccountIcon type={section.icon}/>
                   </span>
 
@@ -432,12 +434,12 @@ export default function AccountsPage(){
     <AccountModal open={adding} onClose={()=>setAdding(false)} title="Add account">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="PROVIDER_WALLET"?"Wallet name":"Account name"}</span><input className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder={type==="PROVIDER_WALLET"?"e.g. ECPay":"e.g. HDFC Current"} required/></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="PROVIDER_WALLET"?"Wallet name":"Account name"}</span><input className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder={type==="CASH"?"e.g. Main Cash Reserve":type==="PROVIDER_WALLET"?"e.g. ECPay":"e.g. HDFC Current"} required/></label>
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Type</span><select className="app-control" value={type} onChange={(e)=>setType(e.target.value)}>
-            <option value="BANK">Bank</option><option value="OWNER_CREDIT_CARD">Credit card</option><option value="PROVIDER_WALLET">Wallet</option>
+            <option value="CASH">Cash reserve / drawer</option><option value="BANK">Bank</option><option value="OWNER_CREDIT_CARD">Credit card</option><option value="PROVIDER_WALLET">Wallet</option>
           </select></label>
           {type!=="PROVIDER_WALLET"?<><label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><select className="app-control" value={usage} onChange={(e)=>setUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></select></label>
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="OWNER_CREDIT_CARD"?"Opening outstanding":"Opening balance"}</span><input className="app-control" type="number" min="0" step="0.01" inputMode="decimal" value={opening} onChange={(e)=>setOpening(e.target.value)}/></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="OWNER_CREDIT_CARD"?"Opening outstanding":type==="CASH"?"Current physical cash":"Opening balance"}</span><input className="app-control" type="number" min="0" step="0.01" inputMode="decimal" value={opening} onChange={(e)=>setOpening(e.target.value)}/>{type==="CASH"?<span className="mt-1 block text-xs text-[var(--text-muted)]">Enter the cash already held in this reserve/drawer.</span>:null}</label>
           {type==="OWNER_CREDIT_CARD"?<label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Credit limit</span><input className="app-control" type="number" min="0.01" step="0.01" inputMode="decimal" value={limit} onChange={(e)=>setLimit(e.target.value)} placeholder="Total card limit" required/></label>:null}</>:null}
         </div>
         {type!=="PROVIDER_WALLET"?<details className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3.5 py-3">

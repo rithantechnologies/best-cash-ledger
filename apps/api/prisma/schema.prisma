@@ -764,7 +764,7 @@ model CashSession {
   status                  CashSessionStatus
   denominationCounts      CashDenominationCount[]
 
-  @@unique([cashAccountId, businessDate])
+  @@index([cashAccountId, businessDate])
 }
 
 model CashDenominationCount {

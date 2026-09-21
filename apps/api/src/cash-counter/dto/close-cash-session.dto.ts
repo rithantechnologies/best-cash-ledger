@@ -10,4 +10,6 @@ export class CloseCashSessionDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => DenominationDto)
   denominations!: DenominationDto[];
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() handoverToUserId?: string;
+  @IsOptional() @IsString() handoverToCashAccountId?: string;
 }

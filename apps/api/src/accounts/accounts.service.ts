@@ -31,18 +31,6 @@ export class AccountsService {
     if (duplicateName) {
       throw new BadRequestException('An account with this name already exists');
     }
-    if (dto.accountType === AccountType.CASH) {
-      const existingCash = await this.prisma.financialAccount.findFirst({
-        where: { accountType: AccountType.CASH },
-        select: { id: true },
-      });
-      if (existingCash) {
-        throw new BadRequestException(
-          'Only one shop cash drawer is supported. Reactivate the existing cash account if needed.',
-        );
-      }
-    }
-
     const expectedNature =
       dto.accountType === AccountType.OWNER_CREDIT_CARD
         ? AccountNature.LIABILITY

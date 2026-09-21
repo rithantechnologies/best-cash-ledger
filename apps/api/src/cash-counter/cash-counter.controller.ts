@@ -19,6 +19,11 @@ export class CashCounterController {
     return this.cashCounter.current(cashAccountId);
   }
 
+  @Get('operators')
+  operators() {
+    return this.cashCounter.operators();
+  }
+
   @Get('history')
   history() {
     return this.cashCounter.history();
@@ -26,7 +31,7 @@ export class CashCounterController {
 
   @Post('open')
   open(@Body() dto: OpenCashSessionDto, @Req() req: any) {
-    return this.cashCounter.open(dto, req.user.userId);
+    return this.cashCounter.open(dto, req.user.userId, req.user.role);
   }
 
   @Post(':id/close')
