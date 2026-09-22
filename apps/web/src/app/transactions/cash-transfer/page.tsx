@@ -84,6 +84,7 @@ export default function CashTransferPage(){
   const [customers,setCustomers]=useState<Customer[]>([]);
   const [accounts,setAccounts]=useState<Account[]>([]);
   const [openCashAccountIds,setOpenCashAccountIds]=useState<string[]>([]);
+  const [openCashSessions,setOpenCashSessions]=useState<Record<string,{openingTotal?:number|string;liveExpectedClosingTotal?:number|string}>>({});
 
   const [customerMode,setCustomerMode]=useState<CustomerMode>("SEARCH");
   const [customerSearch,setCustomerSearch]=useState("");
@@ -119,11 +120,13 @@ export default function CashTransferPage(){
     const cashRows=rows.filter(account=>account.accountType==="CASH"&&account.isActive!==false);
     const open=await Promise.all(cashRows.map(async account=>{
       try{
-        const session=await apiFetch<{id:string}|null>("/cash-counter/current?cashAccountId="+encodeURIComponent(account.id));
-        return session?account.id:null;
+        const session=await apiFetch<{id:string;openingTotal?:number|string;liveExpectedClosingTotal?:number|string}|null>("/cash-counter/current?cashAccountId="+encodeURIComponent(account.id));
+        return session?{accountId:account.id,session}:null;
       }catch{return null;}
     }));
-    setOpenCashAccountIds(open.filter((id):id is string=>Boolean(id)));
+    const openRows=open.filter((row):row is {accountId:string;session:{id:string;openingTotal?:number|string;liveExpectedClosingTotal?:number|string}}=>Boolean(row));
+    setOpenCashAccountIds(openRows.map(row=>row.accountId));
+    setOpenCashSessions(Object.fromEntries(openRows.map(row=>[row.accountId,row.session])));
   }
 
   useEffect(()=>{
@@ -244,11 +247,19 @@ export default function CashTransferPage(){
   const receiptCashReady=selectedReceipt?.accountType!=="CASH"||openCashAccountIds.includes(selectedReceipt.id);
   const commissionCashReady=!commissionSeparate||selectedCommissionReceipt?.accountType!=="CASH"||openCashAccountIds.includes(selectedCommissionReceipt.id);
   const cashReady=!needsCashSetup&&receiptCashReady&&commissionCashReady;
-  const receiptCashAfter=selectedReceipt?.accountType==="CASH"
-    ?selectedReceipt.currentBalance+receiptAmount
+  const selectedReceiptCashSession=selectedReceipt?.accountType==="CASH"?openCashSessions[selectedReceipt.id]:undefined;
+  const selectedReceiptCashCurrent=selectedReceipt?.accountType==="CASH"
+    ?Number(selectedReceiptCashSession?.liveExpectedClosingTotal??selectedReceiptCashSession?.openingTotal??selectedReceipt.currentBalance)
     :null;
-  const commissionCashAfter=commissionSeparate&&selectedCommissionReceipt?.accountType==="CASH"
-    ?selectedCommissionReceipt.currentBalance+commission
+  const selectedCommissionCashSession=selectedCommissionReceipt?.accountType==="CASH"?openCashSessions[selectedCommissionReceipt.id]:undefined;
+  const selectedCommissionCashCurrent=selectedCommissionReceipt?.accountType==="CASH"
+    ?Number(selectedCommissionCashSession?.liveExpectedClosingTotal??selectedCommissionCashSession?.openingTotal??selectedCommissionReceipt.currentBalance)
+    :null;
+  const receiptCashAfter=selectedReceiptCashCurrent!==null
+    ?selectedReceiptCashCurrent+receiptAmount
+    :null;
+  const commissionCashAfter=commissionSeparate&&selectedCommissionCashCurrent!==null
+    ?selectedCommissionCashCurrent+commission
     :null;
   const incomingToSource=sourceAccount?(
     (receiptAccountId===sourceAccount.id?(method==="ADD_ON"?requested:customerPays):0)+
@@ -535,11 +546,11 @@ export default function CashTransferPage(){
                     <strong className="money text-sm">{money(receiptAmount)}</strong>
                   </div>
                   <select aria-label="Customer payment received into" className={control} value={receiptAccountId} onChange={e=>setReceiptAccountId(e.target.value)} required>
-                    {receiptOptions.map(a=><option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · Current "+money(a.currentBalance):""}</option>)}
+                    {receiptOptions.map(a=>{const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const liveCash=a.accountType==="CASH"?Number(session?.liveExpectedClosingTotal??session?.openingTotal??a.currentBalance):a.currentBalance;return <option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · Current "+money(liveCash):""}</option>;})}
                   </select>
                   {selectedReceipt?.accountType==="CASH"?<div className={"mt-2 rounded-xl border px-3 py-2.5 "+(receiptCashReady?"border-emerald-200 bg-emerald-50":"border-amber-200 bg-amber-50")}>
                     <div className="flex items-center justify-between gap-3 text-xs"><span className="font-semibold">{selectedReceipt.accountName}</span><strong className={receiptCashReady?"text-emerald-700":"text-amber-700"}>{receiptCashReady?"Open":"Closed"}</strong></div>
-                    <div className="mt-1.5 flex items-center justify-between gap-3 text-xs"><span className="text-[var(--text-muted)]">Current cash</span><strong className="money">{money(selectedReceipt.currentBalance)}</strong></div>
+                    <div className="mt-1.5 flex items-center justify-between gap-3 text-xs"><span className="text-[var(--text-muted)]">Current cash</span><strong className="money">{money(selectedReceiptCashCurrent??selectedReceipt.currentBalance)}</strong></div>
                     {receiptCashAfter!==null?<div className="mt-1 flex items-center justify-between gap-3 text-xs"><span className="text-[var(--text-muted)]">After this receipt</span><strong className="money">{money(receiptCashAfter)}</strong></div>:null}
                     {!receiptCashReady?<button type="button" onClick={()=>router.push("/cash-counter")} className="mt-2 text-xs font-bold text-[var(--accent)]">Open this drawer in Cash →</button>:null}
                   </div>:null}
@@ -553,12 +564,12 @@ export default function CashTransferPage(){
                     </div>
                     <div className="flex gap-2">
                       <select aria-label="Commission received into" className={control+" min-w-0 flex-1"} value={commissionReceiptAccountId} onChange={e=>setCommissionReceiptAccountId(e.target.value)}>
-                        {receiptOptions.map(a=><option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · Current "+money(a.currentBalance):""}</option>)}
+                        {receiptOptions.map(a=>{const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const liveCash=a.accountType==="CASH"?Number(session?.liveExpectedClosingTotal??session?.openingTotal??a.currentBalance):a.currentBalance;return <option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · Current "+money(liveCash):""}</option>;})}
                       </select>
                       <button type="button" onClick={()=>setCommissionReceiptAccountId("SAME")} className="min-h-11 shrink-0 rounded-xl border border-[var(--border)] px-3 text-xs font-semibold">Same as payment</button>
                     </div>
                     {selectedCommissionReceipt?.accountType==="CASH"?<div className={"mt-2 rounded-lg px-2.5 py-2 text-xs "+(commissionCashReady?"bg-emerald-50 text-emerald-800":"bg-amber-50 text-amber-800")}>
-                      <div className="flex justify-between gap-3"><span>Current cash</span><strong className="money">{money(selectedCommissionReceipt.currentBalance)}</strong></div>
+                      <div className="flex justify-between gap-3"><span>Current cash</span><strong className="money">{money(selectedCommissionCashCurrent??selectedCommissionReceipt.currentBalance)}</strong></div>
                       {commissionCashAfter!==null?<div className="mt-1 flex justify-between gap-3"><span>After commission</span><strong className="money">{money(commissionCashAfter)}</strong></div>:null}
                       {!commissionCashReady?<button type="button" onClick={()=>router.push("/cash-counter")} className="mt-1.5 font-bold text-[var(--accent)]">Open this drawer in Cash →</button>:null}
                     </div>:null}
