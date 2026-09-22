@@ -1,9 +1,11 @@
 import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
-import { TransactionType } from '@prisma/client';
+import { RoleName, TransactionType } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { Roles } from '../auth/roles.decorator.js';
+import { RolesGuard } from '../auth/roles.guard.js';
 import { ReportsService } from './reports.service.js';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
@@ -62,6 +64,7 @@ export class ReportsController {
   }
 
   @Get('end-of-day')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
   endOfDay() {
     return this.reports.endOfDay();
   }

@@ -11,11 +11,13 @@ export class EndOfDayController {
   constructor(private readonly endOfDay: EndOfDayService) {}
 
   @Get('status')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
   status() {
     return this.endOfDay.status();
   }
 
   @Get('history')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
   history() {
     return this.endOfDay.history();
   }

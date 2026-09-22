@@ -29,6 +29,8 @@ export default function ReportsPage(){
  const [tab,setTab]=useState<Tab>("earnings");
  const [transactions,setTransactions]=useState<Tx[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[providers,setProviders]=useState<Provider[]>([]),[operators,setOperators]=useState<Operator[]>([]);
  const [settlements,setSettlements]=useState<Settlement[]>([]),[eod,setEod]=useState<Eod[]>([]);
+ const [role]=useState(()=>{if(typeof window==="undefined")return "";try{return JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"";}catch{return "";}});
+ const canSeeEod=role==="OWNER"||role==="ADMIN";
  const [from,setFrom]=useState(""),[to,setTo]=useState(""),[type,setType]=useState(""),[customerId,setCustomerId]=useState(""),[accountId,setAccountId]=useState(""),[providerId,setProviderId]=useState(""),[gatewayId,setGatewayId]=useState(""),[staffId,setStaffId]=useState(""),[reference,setReference]=useState("");
  const [ledger,setLedger]=useState<AccountLedger|null>(null),[customerLedger,setCustomerLedger]=useState<CustomerLedger|null>(null),[error,setError]=useState(""),[loading,setLoading]=useState(true),[filtering,setFiltering]=useState(false);
  const control="app-control";
@@ -42,7 +44,7 @@ export default function ReportsPage(){
 
  useEffect(()=>{Promise.all([
   apiFetch<Account[]>("/dashboard/accounts"),apiFetch<Customer[]>("/customers"),apiFetch<Provider[]>("/providers?includeInactive=true"),
-  apiFetch<Operator[]>("/reports/operators"),apiFetch<Settlement[]>("/reports/provider-settlements"),apiFetch<Eod[]>("/reports/end-of-day"),
+  apiFetch<Operator[]>("/reports/operators"),apiFetch<Settlement[]>("/reports/provider-settlements"),canSeeEod?apiFetch<Eod[]>("/reports/end-of-day"):Promise.resolve([] as Eod[]),
  ]).then(([a,c,p,o,s,d])=>{setAccounts(a);setCustomers(c);setProviders(p);setOperators(o);setSettlements(s);setEod(d);return loadTransactions();}).catch(()=>setError("Failed to load reports")).finally(()=>setLoading(false));},[]);
  useEffect(()=>{if(loading)return;const timer=setTimeout(()=>loadTransactions().catch(()=>setError("Failed to filter report")),180);return()=>clearTimeout(timer);},[from,to,type,customerId,providerId,gatewayId,staffId,reference]);
  useEffect(()=>{if(!accountId){setLedger(null);return;}const q=new URLSearchParams();if(from)q.set("from",new Date(from+"T00:00:00").toISOString());if(to)q.set("to",new Date(to+"T23:59:59").toISOString());apiFetch<AccountLedger>("/reports/accounts/"+accountId+(q.toString()?"?"+q.toString():"")).then(setLedger).catch(()=>setError("Failed to load account ledger"));},[accountId,from,to]);
@@ -72,7 +74,8 @@ export default function ReportsPage(){
   <SectionHeading title="Reports" action={<button onClick={downloadCsv} className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-semibold">Export CSV</button>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <SegmentedTabs<Tab> value={tab} onChange={setTab} items={[
-   {value:"earnings",label:"Earnings"},{value:"settlements",label:"Provider clearing",count:settlements.length},{value:"accounting",label:"Account ledger"},{value:"eod",label:"End of day",count:eod.length},
+   {value:"earnings",label:"Earnings"},{value:"settlements",label:"Provider clearing",count:settlements.length},{value:"accounting",label:"Account ledger"},
+   ...(canSeeEod?[{value:"eod" as Tab,label:"End of day",count:eod.length}]:[]),
   ]}/>
 
   {tab==="earnings"?<>

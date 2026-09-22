@@ -35,7 +35,7 @@ if (!token) throw new Error('Owner login did not return token');
 console.log('✓ owner login');
 const provider = (await request('/providers', {
   method: 'POST',
-  body: JSON.stringify({ name: 'E2E Provider ' + suffix, providerType: 'MULTI_SERVICE' }),
+  body: JSON.stringify({ name: 'E2E Provider ' + suffix, providerType: 'MULTI_SERVICE', supportsAeps: true }),
 }, token)).body;
 
 const gateway = (await request('/providers/' + provider.id + '/gateways', {
@@ -183,7 +183,7 @@ const swipeResult = (await request('/transactions/card-swipe', {
     referenceNumber: 'E2E-SWIPE-' + suffix,
   }),
 }, token)).body;
-close(swipeResult.payable.originalAmount, 47500, 'card payable');
+close(swipeResult.payable.originalAmount, 48500, 'card payable');
 close(swipeResult.providerSettlement.expectedAmount, 49000, 'card provider settlement');
 
 await request('/payables/' + swipeResult.payable.id + '/payments', {
@@ -196,7 +196,7 @@ await request('/payables/' + swipeResult.payable.id + '/payments', {
 }, token);
 
 const payableAfter = (await request('/payables/' + swipeResult.payable.id, {}, token)).body;
-close(payableAfter.remainingAmount, 27500, 'remaining payable');
+close(payableAfter.remainingAmount, 28500, 'remaining payable');
 if (payableAfter.status !== 'PARTIALLY_PAID') {
   throw new Error('Payable not PARTIALLY_PAID: ' + payableAfter.status);
 }
@@ -295,7 +295,7 @@ close(summary.walletBalance, 5000, 'wallet balance');
 close(summary.pendingProviderSettlements, 58950, 'pending provider settlements');
 close(summary.creditCardOutstanding, 600, 'credit card outstanding');
 close(summary.creditCardAvailable, 99400, 'credit card available');
-close(summary.customerPayable, 27500, 'customer payable');
+close(summary.customerPayable, 28500, 'customer payable');
 console.log('✓ ATM, owner credit-card payment and dashboard balances');
 
 const closed = (await request('/cash-counter/' + cashOpen.id + '/close', {

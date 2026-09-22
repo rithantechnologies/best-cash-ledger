@@ -348,6 +348,8 @@ await ownerUi.page.screenshot({path:shotDir+'/owner-cash-desktop.png',fullPage:t
 
 const liveMainUi=await request('/cash-counter/current?cashAccountId='+main.id,{},ownerToken);
 eq(liveMainUi.liveExpectedClosingTotal,107580,'Main Reserve tally after UI scenario');
+await expectStatus('/end-of-day/snapshot',400,{method:'POST'},ownerToken);
+pass('End-of-Day is blocked while Main cash session is still open');
 await request('/cash-counter/'+mainForUi.id+'/close',{method:'POST',body:JSON.stringify({
   denominations:denoms(107580),notes:'QA UI final main close',
 })},ownerToken);
@@ -355,6 +357,18 @@ const allOwnerHistory=await request('/cash-counter/history',{},ownerToken);
 assert(allOwnerHistory.filter(s=>s.cashAccountId===staffCash.id).length>=5,'Owner history retains all staff open/close sessions');
 const anyOpenOwner=await request('/cash-counter/current',{},ownerToken);
 assert(anyOpenOwner===null,'All cash sessions fully closed at end of E2E');
+const eodStatus=await request('/end-of-day/status',{},ownerToken);
+assert(eodStatus.openCashSessions===0&&eodStatus.cashReconciled===true,'End-of-Day reports cash fully reconciled');
+assert(eodStatus.cashAccountsRequired===2&&eodStatus.cashAccountsReconciled===2,'End-of-Day requires and sees both cash accounts reconciled');
+await expectStatus('/end-of-day/status',403,{},staffA.token);
+await expectStatus('/end-of-day/history',403,{},staffA.token);
+await expectStatus('/reports/end-of-day',403,{},staffA.token);
+await expectStatus('/end-of-day/snapshot',403,{method:'POST'},staffA.token);
+const eod=await request('/end-of-day/snapshot',{method:'POST'},ownerToken);
+assert(Boolean(eod.position?.id),'Owner saves End-of-Day snapshot after reconciliation');
+await expectStatus('/end-of-day/snapshot',409,{method:'POST'},ownerToken);
+const eodHistory=await request('/end-of-day/history',{},ownerToken);
+assert(eodHistory.some(row=>row.id===eod.position.id),'End-of-Day snapshot appears in history');
 
 await ownerUi.context.close(); await staffUi.context.close(); await browser.close();
 web.kill('SIGTERM');
