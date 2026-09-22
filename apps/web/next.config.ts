@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const apiOrigin = process.env.API_ORIGIN ?? "http://127.0.0.1:4001";
+const distDir = process.env.NEXT_DIST_DIR ?? ".next";
 
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -14,6 +16,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   basePath,
+  distDir,
   async headers() {
     return [
       {
@@ -26,7 +29,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://127.0.0.1:4001/api/:path*",
+        destination: apiOrigin + "/api/:path*",
       },
     ];
   },

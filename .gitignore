@@ -11,3 +11,5 @@ backups/
 *.dump
 apps/api/.e2e-hardening-api.pid
 apps/api/.e2e-hardening-schema
+
+apps/web/.next-e2e/
