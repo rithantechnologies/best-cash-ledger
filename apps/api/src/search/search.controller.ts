@@ -7,6 +7,11 @@ import { SearchService } from './search.service.js';
 export class SearchController {
   constructor(private readonly searchService: SearchService) {}
 
+  @Get('customers')
+  customerSuggestions(@Query('q') q = '') {
+    return this.searchService.customerSuggestions(q);
+  }
+
   @Get()
   search(@Query('q') q = '') {
     return this.searchService.search(q);

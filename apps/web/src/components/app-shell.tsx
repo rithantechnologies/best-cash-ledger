@@ -77,6 +77,47 @@ const quickActions=[
   ["Move money","/transactions/internal-transfer","Move"],
 ] as const;
 
+type CustomerSuggestion={
+  id:string;customerCode:string;fullName:string;mobile:string|null;
+  cards:{id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean}[];
+  match:{cardLastFour:string|null;aadhaarLastFour:string|null;microAtmCardLastFour:string|null};
+};
+
+function canSuggestCustomer(value:string){
+  const query=value.trim(),digits=query.replace(/\D/g,"");
+  return /[a-z]/i.test(query)?query.length>=2:digits.length>=3;
+}
+
+function CustomerSearchSuggestions({query,rows,loading,onClose}:{query:string;rows:CustomerSuggestion[];loading:boolean;onClose:()=>void}){
+  const digits=query.replace(/\D/g,"");
+  return <div className="absolute inset-x-0 top-[calc(100%+.45rem)] z-[80] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_20px_55px_rgba(15,23,42,.22)]">
+    <div className="max-h-[min(65vh,430px)] overflow-y-auto p-1.5">
+      {loading?<div className="px-3 py-5 text-center text-xs font-semibold text-[var(--text-muted)]">Finding customers…</div>:rows.length?rows.map(row=>{
+        const activeCards=row.cards.filter(card=>card.isActive);
+        const matchedCard=(row.match.cardLastFour?activeCards.find(card=>card.lastFourDigits===row.match.cardLastFour):undefined)??(digits?activeCards.find(card=>card.lastFourDigits.includes(digits)):undefined);
+        const selectedCard=matchedCard??(activeCards.length===1?activeCards[0]:undefined);
+        const microLastFour=selectedCard?.lastFourDigits??row.match.microAtmCardLastFour??undefined;
+        const swipeHref="/transactions/card-swipe?customerId="+encodeURIComponent(row.id)+(selectedCard?"&cardId="+encodeURIComponent(selectedCard.id):"");
+        const microHref="/transactions/micro-atm?customerId="+encodeURIComponent(row.id)+(microLastFour?"&cardLastFour="+encodeURIComponent(microLastFour):"");
+        const matchHint=row.match.aadhaarLastFour?"Aadhaar •••• "+row.match.aadhaarLastFour:row.match.cardLastFour?"Card •••• "+row.match.cardLastFour:row.match.microAtmCardLastFour?"ATM card •••• "+row.match.microAtmCardLastFour:null;
+        return <div key={row.id} className="rounded-xl px-2 py-2 hover:bg-[var(--surface-soft)]">
+          <Link href={"/customers/"+row.id} onClick={onClose} className="flex items-start justify-between gap-3 px-1 py-1">
+            <div className="min-w-0"><p className="truncate text-sm font-extrabold">{row.fullName}</p><p className="mt-0.5 truncate text-[11px] font-semibold text-[var(--text-muted)]">{row.mobile||"No mobile"} · {row.customerCode}</p>{matchHint?<p className="mt-1 text-[10px] font-bold text-[var(--accent)]">Matched {matchHint}</p>:null}</div>
+            <span className="shrink-0 text-[10px] font-bold text-[var(--accent)]">View →</span>
+          </Link>
+          <div className="mt-2 grid grid-cols-4 gap-1 border-t border-[var(--border)] pt-2">
+            <Link href={swipeHref} onClick={onClose} className="rounded-lg bg-[var(--text)] px-1.5 py-2 text-center text-[10px] font-bold text-[var(--surface)]">Swipe</Link>
+            <Link href={"/transactions/cash-transfer?customerId="+encodeURIComponent(row.id)} onClick={onClose} className="rounded-lg bg-[var(--surface-soft)] px-1.5 py-2 text-center text-[10px] font-bold">Transfer</Link>
+            <Link href={"/transactions/aeps?customerId="+encodeURIComponent(row.id)} onClick={onClose} className="rounded-lg bg-[var(--surface-soft)] px-1.5 py-2 text-center text-[10px] font-bold">AePS</Link>
+            <Link href={microHref} onClick={onClose} className="rounded-lg bg-[var(--surface-soft)] px-1.5 py-2 text-center text-[10px] font-bold">ATM</Link>
+          </div>
+        </div>;
+      }):<div className="px-3 py-5 text-center"><p className="text-xs font-bold">No customer match</p><p className="mt-1 text-[11px] text-[var(--text-muted)]">Try name, mobile, card last 4 or Aadhaar last 4.</p></div>}
+    </div>
+    <Link href={"/search?q="+encodeURIComponent(query.trim())} onClick={onClose} className="block border-t border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2.5 text-center text-xs font-bold text-[var(--accent)]">See all search results →</Link>
+  </div>;
+}
+
 let cachedDesktopCollapsed: boolean | null = null;
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -90,6 +131,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [desktopCollapsed,setDesktopCollapsed]=useState(cachedDesktopCollapsed??false);
   const [desktopUserOpen,setDesktopUserOpen]=useState(false);
   const [theme,setTheme]=useState<ThemeMode>("system");
+  const [customerSuggestions,setCustomerSuggestions]=useState<CustomerSuggestion[]>([]);
+  const [customerSearchLoading,setCustomerSearchLoading]=useState(false);
+  const [customerSearchOpen,setCustomerSearchOpen]=useState(false);
 
   useEffect(()=>{
     try{
@@ -102,12 +146,27 @@ export function AppShell({ children }: { children: ReactNode }) {
       setDesktopCollapsed(collapsed);
     }catch{}
   },[]);
-  useEffect(()=>{setMenuOpen(false);setNewOpen(false);setDesktopUserOpen(false);setNavigating(false);},[pathname]);
+  useEffect(()=>{setMenuOpen(false);setNewOpen(false);setDesktopUserOpen(false);setCustomerSearchOpen(false);setNavigating(false);},[pathname]);
   useEffect(()=>{
     const locked=menuOpen||newOpen;
     document.body.style.overflow=locked?"hidden":"";
     return()=>{document.body.style.overflow="";};
   },[menuOpen,newOpen]);
+  useEffect(()=>{
+    const query=search.trim();
+    if(!canSuggestCustomer(query)){
+      setCustomerSuggestions([]);setCustomerSearchLoading(false);return;
+    }
+    let cancelled=false;
+    setCustomerSearchLoading(true);
+    const timer=window.setTimeout(()=>{
+      apiFetch<CustomerSuggestion[]>("/search/customers?q="+encodeURIComponent(query))
+        .then(rows=>{if(!cancelled)setCustomerSuggestions(rows);})
+        .catch(()=>{if(!cancelled)setCustomerSuggestions([]);})
+        .finally(()=>{if(!cancelled)setCustomerSearchLoading(false);});
+    },220);
+    return()=>{cancelled=true;window.clearTimeout(timer);};
+  },[search]);
 
   const visibleNav=navItems.filter(item=>!("adminOnly" in item)||!item.adminOnly||role==="OWNER"||role==="ADMIN");
   const active=(href:string)=>href==="/"?pathname==="/":pathname===href||pathname.startsWith(href+"/");
@@ -130,7 +189,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       return next;
     });
   }
-  function submitSearch(e:FormEvent){e.preventDefault();if(search.trim()){setNavigating(true);router.push("/search?q="+encodeURIComponent(search.trim()));}}
+  function submitSearch(e:FormEvent){e.preventDefault();if(search.trim()){setCustomerSearchOpen(false);setNavigating(true);router.push("/search?q="+encodeURIComponent(search.trim()));}}
   async function logout(){try{await apiFetch("/auth/logout",{method:"POST"});}catch{}localStorage.removeItem("cashledger_token");localStorage.removeItem("cashledger_user");router.replace("/login");}
   const navLink=(item:(typeof navItems)[number],compact=false)=>{
     const selected=active(item.href);
@@ -184,7 +243,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button onClick={()=>isTaskFlow?router.push("/transactions"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm lg:hidden" aria-label={isTaskFlow?"Back to transactions":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"} className="h-[19px] w-[19px]"/></button>
           {isTaskFlow?<Link href="/transactions" className="hidden h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm transition hover:bg-[var(--surface-soft)] hover:text-[var(--text)] lg:grid" aria-label="Back to transactions" title="Back to transactions"><Icon name="back" className="h-[19px] w-[19px]"/></Link>:null}
           <div className={"min-w-0 flex-1 lg:flex-none "+(isDashboard?"dashboard-top-title":"")}><p className={"truncate font-extrabold tracking-[-.025em] "+(isTaskFlow?"text-[17px]":"text-[16px] sm:text-[17px]")}>{currentTitle}</p></div>
-          {!isTaskFlow?<>{!hideShellSearch?<form onSubmit={submitSearch} className="mx-auto hidden w-full max-w-xl md:block"><div className="relative"><Icon name="search" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile, card last 4…" className="app-shell-search h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] pl-10 pr-3 text-sm"/></div></form>:<div className="hidden flex-1 md:block"/>}
+          {!isTaskFlow?<>{!hideShellSearch?<form onSubmit={submitSearch} onFocusCapture={()=>setCustomerSearchOpen(true)} onBlurCapture={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setCustomerSearchOpen(false);}} className="mx-auto hidden w-full max-w-xl md:block"><div className="relative"><Icon name="search" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>{setSearch(e.target.value);setCustomerSearchOpen(true);}} placeholder="Name, mobile, card or Aadhaar last 4…" autoComplete="off" className="app-shell-search h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] pl-10 pr-3 text-sm"/>{customerSearchOpen&&canSuggestCustomer(search)?<CustomerSearchSuggestions query={search} rows={customerSuggestions} loading={customerSearchLoading} onClose={()=>setCustomerSearchOpen(false)}/>:null}</div></form>:<div className="hidden flex-1 md:block"/>}
           {showShellNew?<Link href="/transactions#transaction-actions" className="app-primary-button hidden min-h-10 items-center gap-2 px-4 text-sm font-bold sm:flex"><Icon name="plus" className="h-4 w-4"/>New</Link>:null}
           {isDashboard?<div className="dashboard-date-pill hidden sm:flex">{new Date().toLocaleDateString("en-IN",{month:"short",year:"numeric"})}</div>:null}</>:<div className="hidden flex-1 lg:block"/>}
         </div>
@@ -203,7 +262,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
             <button onClick={()=>setMenuOpen(false)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm" aria-label="Close menu"><Icon name="close" className="h-[19px] w-[19px]"/></button>
           </div>
-          <form onSubmit={submitSearch} className="mt-4"><div className="relative"><Icon name="search" className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-[18px] w-[18px] -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, mobile or card…" className="app-control h-11 bg-[var(--surface)] !pl-11 pr-3 text-[15px] shadow-sm"/></div></form>
+          <form onSubmit={submitSearch} onFocusCapture={()=>setCustomerSearchOpen(true)} onBlurCapture={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setCustomerSearchOpen(false);}} className="mt-4"><div className="relative"><Icon name="search" className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-[18px] w-[18px] -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>{setSearch(e.target.value);setCustomerSearchOpen(true);}} placeholder="Name, mobile, card or Aadhaar last 4…" autoComplete="off" className="app-control h-11 bg-[var(--surface)] !pl-11 pr-3 text-[15px] shadow-sm"/>{customerSearchOpen&&canSuggestCustomer(search)?<CustomerSearchSuggestions query={search} rows={customerSuggestions} loading={customerSearchLoading} onClose={()=>setCustomerSearchOpen(false)}/>:null}</div></form>
         </div>
         <nav className="flex-1 overflow-y-auto px-3 py-4">{navGroups.map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-4"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[11px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1">{rows.map((item)=>navLink(item))}</div></div>:null;})}</nav>
         <div className="border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-soft)_55%,var(--surface))] p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
