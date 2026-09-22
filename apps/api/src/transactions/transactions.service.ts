@@ -393,6 +393,12 @@ export class TransactionsService {
       const payoutAccountById = new Map(
         payoutAccounts.map((account) => [account.id, account]),
       );
+      for (const payment of customerPayments) {
+        const sourceAccount = payoutAccountById.get(payment.sourceAccountId)!;
+        if (sourceAccount.accountType !== AccountType.PROVIDER_WALLET && payment.chargeAmount > 0) {
+          throw new BadRequestException('Payout charge is allowed only for wallet payouts');
+        }
+      }
       for (const account of payoutAccounts) {
         if (account.accountType === AccountType.CASH) {
           if (

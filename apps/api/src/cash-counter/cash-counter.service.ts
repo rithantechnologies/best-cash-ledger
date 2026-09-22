@@ -304,6 +304,7 @@ export class CashCounterService {
                 notes: true,
                 customer: { select: { id: true, fullName: true } },
                 commissions: { select: { amount: true } },
+                charges: { select: { amount: true, chargeType: true } },
               },
             },
           },
@@ -333,6 +334,7 @@ export class CashCounterService {
                     notes: true,
                     customer: { select: { id: true, fullName: true } },
                     commissions: { select: { amount: true } },
+                charges: { select: { amount: true, chargeType: true } },
                   },
                 },
               },
@@ -364,6 +366,13 @@ export class CashCounterService {
         (sum, commission) => sum + Number(commission.amount),
         0,
       );
+      const providerFeeAmount = (origin.charges ?? [])
+        .filter((charge) => !charge.chargeType.startsWith('PAYOUT'))
+        .reduce((sum, charge) => sum + Number(charge.amount), 0);
+      const payoutChargeAmount = (origin.charges ?? [])
+        .filter((charge) => charge.chargeType.startsWith('PAYOUT'))
+        .reduce((sum, charge) => sum + Number(charge.amount), 0);
+      const profitAmount = commissionAmount - providerFeeAmount - payoutChargeAmount;
       const direction =
         entry.entryType === EntryType.DEBIT ? 'IN' : 'OUT';
 
@@ -398,6 +407,9 @@ export class CashCounterService {
         grossAmount: Number(origin.grossAmount),
         netAmount: Number(origin.netAmount ?? origin.grossAmount),
         commissionAmount,
+        providerFeeAmount,
+        payoutChargeAmount,
+        profitAmount,
       });
 
       const activity = activityMap.get(activityId) ?? {
@@ -412,6 +424,9 @@ export class CashCounterService {
         cashIn: 0,
         cashOut: 0,
         commissionAmount,
+        providerFeeAmount,
+        payoutChargeAmount,
+        profitAmount,
         runningBalance,
         movementCount: 0,
       };
@@ -454,6 +469,7 @@ export class CashCounterService {
         notes: true,
         customer: { select: { fullName: true } },
         commissions: { select: { amount: true } },
+                charges: { select: { amount: true, chargeType: true } },
       },
       orderBy: { transactionAt: 'asc' },
     });
@@ -464,6 +480,13 @@ export class CashCounterService {
         (sum, commission) => sum + Number(commission.amount),
         0,
       );
+      const providerFeeAmount = (transaction.charges ?? [])
+        .filter((charge) => !charge.chargeType.startsWith('PAYOUT'))
+        .reduce((sum, charge) => sum + Number(charge.amount), 0);
+      const payoutChargeAmount = (transaction.charges ?? [])
+        .filter((charge) => charge.chargeType.startsWith('PAYOUT'))
+        .reduce((sum, charge) => sum + Number(charge.amount), 0);
+      const profitAmount = commissionAmount - providerFeeAmount - payoutChargeAmount;
       if (commissionAmount <= 0) continue;
       activityMap.set(transaction.id, {
         id: transaction.id,
@@ -480,6 +503,9 @@ export class CashCounterService {
         cashIn: 0,
         cashOut: 0,
         commissionAmount,
+        providerFeeAmount,
+        payoutChargeAmount,
+        profitAmount,
         runningBalance: 0,
         movementCount: 0,
       });

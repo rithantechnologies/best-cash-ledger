@@ -18,7 +18,7 @@ type Movement={
 type Activity={
   id:string;transactionId:string;transactionNumber:string;serviceType:string;transactionAt:string;
   particular:string;transactionAmount:number;netAmount:number;cashIn:number;cashOut:number;
-  commissionAmount:number;runningBalance:number;movementCount:number;
+  commissionAmount:number;providerFeeAmount?:number;payoutChargeAmount?:number;profitAmount?:number;runningBalance:number;movementCount:number;
 };
 type ServiceSummary={
   id:string;transactionAmount:number;cashIn:number;cashOut:number;commissionAmount:number;count:number;
@@ -401,14 +401,14 @@ export default function CashCounterPage(){
           </div>
         </div>
         {visibleActivities.length?<div>
-          <div className="cash-ledger-header hidden grid-cols-[72px_minmax(220px,1.6fr)_150px_110px_110px_110px_100px_120px] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-3 text-xs font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)] xl:grid">
-            <span>Time</span><span>Particular</span><span>Service</span><span className="text-right">Txn amount</span><span className="text-right">Cash in</span><span className="text-right">Cash out</span><span className="text-right">Commission</span><span className="text-right">Drawer</span>
+          <div className="cash-ledger-header hidden grid-cols-[72px_minmax(200px,1.5fr)_130px_100px_100px_100px_100px_100px_100px_110px] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-3 text-xs font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)] xl:grid">
+            <span>Time</span><span>Particular</span><span>Service</span><span className="text-right">Txn amount</span><span className="text-right">Cash in</span><span className="text-right">Cash out</span><span className="text-right">Customer fee</span><span className="text-right">Provider fee</span><span className="text-right">Profit</span><span className="text-right">Drawer</span>
           </div>
           <div className="divide-y divide-[var(--border)]">
           {visibleActivities.map((activity)=>{
             const selected=activity.id===selectedActivityId;
             return <button id={"cash-activity-"+activity.id} key={activity.id} type="button" onClick={()=>{setSelectedActivityId(activity.id);router.push("/transactions/"+activity.transactionId);}} className={"cash-activity-row w-full px-4 py-4 text-left transition sm:px-5 "+(selected?"bg-[var(--accent-soft)]":"hover:bg-[var(--surface-soft)]")}>
-              <div className="hidden grid-cols-[72px_minmax(220px,1.6fr)_150px_110px_110px_110px_100px_120px] items-center gap-4 xl:grid">
+              <div className="hidden grid-cols-[72px_minmax(200px,1.5fr)_130px_100px_100px_100px_100px_100px_100px_110px] items-center gap-4 xl:grid">
                 <span className="text-[13px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
                 <div className="min-w-0"><p className="truncate text-[15px] font-bold">{activity.particular}</p><p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{activity.transactionNumber}</p></div>
                 <span className="truncate text-[13px] font-semibold text-[var(--text-muted)]">{friendlyService(activity.serviceType)}</span>
@@ -416,6 +416,8 @@ export default function CashCounterPage(){
                 <strong className="money text-right text-sm text-[var(--money-in)]">{activity.cashIn?money(activity.cashIn):"—"}</strong>
                 <strong className="money text-right text-sm text-[var(--money-out)]">{activity.cashOut?money(activity.cashOut):"—"}</strong>
                 <strong className="money text-right text-sm text-[var(--accent)]">{activity.commissionAmount?money(activity.commissionAmount):"—"}</strong>
+                <strong className="money text-right text-sm text-[var(--money-out)]">{activity.providerFeeAmount?"−"+money(activity.providerFeeAmount):"—"}</strong>
+                <strong className={"money text-right text-sm "+((activity.profitAmount??0)>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{activity.profitAmount!==undefined?money(activity.profitAmount):"—"}</strong>
                 <strong className="money text-right text-sm">{money(activity.runningBalance)}</strong>
               </div>
               <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 xl:hidden">
@@ -423,7 +425,7 @@ export default function CashCounterPage(){
                 <div className="min-w-0">
                   <p className="truncate text-[15px] font-bold">{activity.particular}</p>
                   <p className="mt-0.5 truncate text-[13px] text-[var(--text-muted)]">{friendlyService(activity.serviceType)} · {new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
-                  <p className="mt-1 text-xs text-[var(--text-muted)]">Txn {money(activity.transactionAmount)}{activity.commissionAmount?" · Comm. "+money(activity.commissionAmount):""}</p>
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">Txn {money(activity.transactionAmount)}{activity.commissionAmount?" · Fee "+money(activity.commissionAmount):""}{activity.providerFeeAmount?" · Provider −"+money(activity.providerFeeAmount):""}{activity.profitAmount!==undefined?" · Profit "+money(activity.profitAmount):""}</p>
                 </div>
                 <div className="text-right">
                   {activity.cashIn?<strong className="money block text-[15px] text-[var(--money-in)]">+{money(activity.cashIn)}</strong>:null}
