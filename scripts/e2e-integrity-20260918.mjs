@@ -19,6 +19,8 @@ const provider=await request('/providers',{method:'POST',body:JSON.stringify({na
 const gateway=await request('/providers/'+provider.id+'/gateways',{method:'POST',body:JSON.stringify({gatewayName:'Integrity Gateway',defaultChargeType:'PERCENTAGE',defaultChargeRate:1})},token);
 const provider2=await request('/providers',{method:'POST',body:JSON.stringify({name:'Integrity Provider 2 '+suffix,providerType:'MULTI_SERVICE'})},token);
 const cash=await account('Integrity Cash','CASH',5000);
+await request('/cash-counter/open',{method:'POST',body:JSON.stringify({
+ cashAccountId:cash.id,denominations:[{denomination:500,quantity:10}],notes:'Integrity E2E cash session'})},token);
 const bank=await account('Integrity Bank','BANK',1000);
 const zeroBank=await account('Integrity Zero Bank','BANK',0);
 const wallet=await account('Integrity Wallet','PROVIDER_WALLET',0,{providerId:provider.id});

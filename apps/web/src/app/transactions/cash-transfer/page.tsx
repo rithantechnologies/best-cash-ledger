@@ -489,7 +489,7 @@ export default function CashTransferPage(){
                     <button type="button" onClick={()=>setMethod("ADD_ON")} className={"min-h-11 rounded-lg px-2 text-xs font-bold "+(method==="ADD_ON"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Add on</button>
                     <button type="button" onClick={()=>setMethod("DEDUCT")} className={"min-h-11 rounded-lg px-2 text-xs font-bold "+(method==="DEDUCT"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Deduct</button>
                   </div>
-                  <div className="relative"><input className={control+" h-full pr-7 text-right text-base font-extrabold"} type="number" min="0" max="100" step="0.0001" value={rate} onChange={e=>setRate(e.target.value)} required/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">%</span></div>
+                  <div className="relative"><input aria-label="Commission rate percentage" className={control+" h-full pr-7 text-right text-base font-extrabold"} type="number" min="0" max="100" step="0.0001" value={rate} onChange={e=>setRate(e.target.value)} required/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">%</span></div>
                 </div>
                 {requested>0?<div className="mt-2 flex items-center justify-between rounded-xl bg-[var(--surface-soft)] px-3 py-2 text-xs"><span className="text-[var(--text-muted)]">{method==="ADD_ON"?"Customer gives":"Recipient gets"}</span><strong className="money">{money(method==="ADD_ON"?customerPays:recipientGets)}</strong></div>:null}
               </div>
@@ -505,7 +505,7 @@ export default function CashTransferPage(){
               </div>:null}
             </div>
 
-            {destinationMode==="SAVED"&&savedOptions.length?<div className="mt-3"><Field label="Destination"><select className={control} value={savedDestination} onChange={e=>setSavedDestination(e.target.value)} required><option value="">Choose bank / UPI / beneficiary</option>{savedOptions.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field></div>
+            {destinationMode==="SAVED"&&savedOptions.length?<div className="mt-3"><Field label="Destination"><select aria-label="Transfer destination" className={control} value={savedDestination} onChange={e=>setSavedDestination(e.target.value)} required><option value="">Choose bank / UPI / beneficiary</option>{savedOptions.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field></div>
             :<div className="mt-3 grid gap-3 md:grid-cols-2">
               <div><p className="mb-1.5 text-xs font-bold">Recipient</p><div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
                 <button type="button" onClick={()=>setRecipientScope("SELF")} className={"min-h-10 rounded-lg px-2 text-xs font-bold "+(recipientScope==="SELF"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>Customer</button>
@@ -534,7 +534,7 @@ export default function CashTransferPage(){
                     <p className="operational-label">1 · Customer pays us</p>
                     <strong className="money text-sm">{money(receiptAmount)}</strong>
                   </div>
-                  <select className={control} value={receiptAccountId} onChange={e=>setReceiptAccountId(e.target.value)} required>
+                  <select aria-label="Customer payment received into" className={control} value={receiptAccountId} onChange={e=>setReceiptAccountId(e.target.value)} required>
                     {receiptOptions.map(a=><option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · Current "+money(a.currentBalance):""}</option>)}
                   </select>
                   {selectedReceipt?.accountType==="CASH"?<div className={"mt-2 rounded-xl border px-3 py-2.5 "+(receiptCashReady?"border-emerald-200 bg-emerald-50":"border-amber-200 bg-amber-50")}>
@@ -552,7 +552,7 @@ export default function CashTransferPage(){
                       <strong className="money text-sm text-[var(--money-in)]">{money(commission)}</strong>
                     </div>
                     <div className="flex gap-2">
-                      <select className={control+" min-w-0 flex-1"} value={commissionReceiptAccountId} onChange={e=>setCommissionReceiptAccountId(e.target.value)}>
+                      <select aria-label="Commission received into" className={control+" min-w-0 flex-1"} value={commissionReceiptAccountId} onChange={e=>setCommissionReceiptAccountId(e.target.value)}>
                         {receiptOptions.map(a=><option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · Current "+money(a.currentBalance):""}</option>)}
                       </select>
                       <button type="button" onClick={()=>setCommissionReceiptAccountId("SAME")} className="min-h-11 shrink-0 rounded-xl border border-[var(--border)] px-3 text-xs font-semibold">Same as payment</button>
@@ -573,7 +573,7 @@ export default function CashTransferPage(){
 
               <div>
                 <Field label={"2 · Send "+money(Math.max(0,recipientGets))+" from"}>
-                  <select className={control} value={sourceAccountId} onChange={e=>setSourceAccountId(e.target.value)} required>
+                  <select aria-label="Recipient payout funding account" className={control} value={sourceAccountId} onChange={e=>setSourceAccountId(e.target.value)} required>
                     <option value="">Select funding account</option>
                     {activeAccounts.filter(a=>["BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName} · {money(a.currentBalance)}</option>)}
                   </select>
@@ -587,7 +587,7 @@ export default function CashTransferPage(){
             {commission>0?<div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs">
               <span className="font-bold text-emerald-800">3 · Commission earned</span>
               <strong className="money text-sm text-emerald-700">{money(commission)}</strong>
-              <span className="w-full text-[11px] text-emerald-800/75">{commissionSeparate?"Received separately into "+commissionIntoLabel:"Included in the customer payment into "+receivedIntoLabel}</span>
+              <span className="w-full text-[11px] text-emerald-800">{commissionSeparate?"Received separately into "+commissionIntoLabel:"Included in the customer payment into "+receivedIntoLabel}</span>
             </div>:null}
           </section>
 

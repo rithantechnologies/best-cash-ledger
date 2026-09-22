@@ -119,7 +119,7 @@ export function ExpenseDonut({
       <svg
         viewBox="0 0 180 180"
         className={styles.donutSvg}
-        role="img"
+        role="group"
         aria-label="Expense distribution by category"
       >
         <circle
@@ -232,7 +232,7 @@ export function FundsAllocationDonut({
       <svg
         viewBox="0 0 180 180"
         className={styles.donutSvg}
-        role="img"
+        role="group"
         aria-label={ariaLabel}
         onMouseLeave={() => setHoveredId(null)}
       >

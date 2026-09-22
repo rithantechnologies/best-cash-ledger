@@ -29,6 +29,12 @@ async function account(name,type,opening){
 }
 const cash=await account('Transfer Cash','CASH',10000);
 const bank=await account('Transfer Bank','BANK',10000);
+const cashSession=await request('/cash-counter/open',{method:'POST',body:JSON.stringify({
+  cashAccountId:cash.id,
+  denominations:[{denomination:2000,quantity:5}],
+  notes:'Transfer E2E cash session',
+})},token);
+assert(cashSession.status==='OPEN','Transfer cash session should open');
 
 const customer=await request('/customers',{method:'POST',body:JSON.stringify({customerType:'REGULAR',fullName:'Transfer Customer '+suffix,mobile:'9333333333'})},token);
 const customerBank=await request('/customers/'+customer.id+'/banks',{method:'POST',body:JSON.stringify({accountHolderName:customer.fullName,bankName:'Saved Bank',accountReference:'XXXX3333',ifsc:'TEST0003333'})},token);

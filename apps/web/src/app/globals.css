@@ -370,8 +370,8 @@ html[data-theme="dark"] .ui-preview { --ui-action: #2563eb; }
 .swipe-commerce-page {
   --accent: #2563eb;
   --accent-soft: #eff6ff;
-  --money-in: #0b8f68;
-  --money-out: #d84b5f;
+  --money-in: #047857;
+  --money-out: #c83d57;
   --warning: #c56b14;
 }
 html[data-theme="dark"] .swipe-commerce-page {
@@ -2598,11 +2598,11 @@ body.cashledger-modern-task {
   --surface-soft: #f6f6fa;
   --border: #e7e7ee;
   --text: #18181f;
-  --text-muted: #72727f;
+  --text-muted: #686875;
   --accent: #635bff;
   --accent-soft: #f0efff;
-  --money-in: #069b68;
-  --money-out: #e0526b;
+  --money-in: #047857;
+  --money-out: #c83d57;
   --warning: #b7791f;
   --danger: #d6455d;
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -2940,8 +2940,14 @@ html[data-theme="dark"] .cash-desk-now {
 /* Daily Cash premium finance treatment */
 .cash-desk-page {
   width: min(100%, 1600px);
+  --money-in: #047857;
+  --money-out: #c83d57;
   color: var(--text);
   font-size: 15px;
+}
+html[data-theme="dark"] .cash-desk-page {
+  --money-in: #55d6a5;
+  --money-out: #fb7185;
 }
 .cash-desk-page .app-section-heading {
   align-items: center;
@@ -3026,10 +3032,10 @@ html[data-theme="dark"] .cash-desk-now {
 
   flex-direction: column;
   justify-content: center;
-  background: rgba(255,255,255,.035) !important;
+  background: #112b4a !important;
 }
 .cash-desk-page .cash-desk-metric-card > p:first-child {
-  color: #9fb5cc !important;
+  color: #c5d4e4 !important;
   font-size: 12px;
   letter-spacing: .08em;
 }
@@ -3039,16 +3045,16 @@ html[data-theme="dark"] .cash-desk-now {
   line-height: 1.05;
 }
 .cash-desk-page .cash-desk-metric-card[data-tone="in"] .money {
-  color: #79e7c6;
+  color: #8ef0d0;
 }
 .cash-desk-page .cash-desk-metric-card[data-tone="out"] .money {
-  color: #ff9aaa;
+  color: #ffafbd;
 }
 .cash-desk-page .cash-desk-metric-card[data-tone="accent"] .money {
-  color: #a9caff;
+  color: #bed6ff;
 }
 .cash-desk-page .cash-desk-metric-card > p:last-child:not(:first-child) {
-  color: #9fb5cc !important;
+  color: #c5d4e4 !important;
   font-size: 12px;
 }
 .cash-service-mix {

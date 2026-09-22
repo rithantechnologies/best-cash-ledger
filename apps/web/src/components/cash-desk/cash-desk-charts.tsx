@@ -91,7 +91,7 @@ export function CashMovementChart({
       </div>
     </div>
     <div className="relative overflow-x-auto cash-chart-scroll">
-      <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} className="cash-chart-svg w-full" role="img" aria-label="Expected physical cash balance through today's transactions" onMouseLeave={()=>setHovered(null)}>
+      <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} className="cash-chart-svg w-full" role="group" aria-label="Expected physical cash balance through today's transactions" onMouseLeave={()=>setHovered(null)}>
         <defs>
           <linearGradient id="cash-desk-balance-fill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="var(--accent)" stopOpacity=".20"/>
@@ -173,7 +173,7 @@ export function CashHistoryChart({
       </div>
     </div>
     <div className="overflow-x-auto cash-chart-scroll">
-      <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} className="cash-chart-svg w-full" role="img" aria-label="Expected versus counted closing cash by day" onMouseLeave={()=>setHovered(null)}>
+      <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} className="cash-chart-svg w-full" role="group" aria-label="Expected versus counted closing cash by day" onMouseLeave={()=>setHovered(null)}>
         {[0,.25,.5,.75,1].map((tick)=>{
           const y=geometry.top+geometry.plotHeight*tick;
           const value=geometry.max-(geometry.max-geometry.min)*tick;

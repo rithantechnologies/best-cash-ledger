@@ -215,6 +215,20 @@ const staffForUi=await request('/cash-counter/open',{method:'POST',body:JSON.str
 eq(staffForUi.openingTotal,2000,'UI phase starts with Staff cash ₹2,000');
 const require=createRequire(import.meta.url);
 const puppeteer=require('/home/cashledger/.npm/_npx/4b4c857f6efdfb61/node_modules/puppeteer');
+const axeSource=fs.readFileSync(require.resolve('axe-core/axe.min.js'),'utf8');
+const a11yFindings=[];
+async function auditA11y(page,label){
+  await page.addScriptTag({content:axeSource});
+  const report=await page.evaluate(async()=>await window.axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+  const findings=report.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.length,help:v.help,details:v.nodes.slice(0,20).map(n=>({target:n.target,html:n.html,failureSummary:n.failureSummary}))}));
+  a11yFindings.push({label,findings});
+  const severe=findings.filter(v=>v.impact==='critical'||v.impact==='serious');
+  if(severe.length){
+    console.log('A11Y',label,JSON.stringify(severe));
+    throw new Error('Accessibility '+label+' has serious/critical axe violations');
+  }
+  pass('Accessibility '+label,'no serious/critical axe violations');
+}
 const webLog=fs.openSync(shotDir+'/web.log','a');
 const web=spawn('/home/cashledger/.nvm/versions/node/v22.23.2/bin/node',
   [root+'/node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3202'],{
@@ -288,6 +302,7 @@ assert(!staffCashText.includes('Main Cash Reserve'),'Staff mobile Cash page hide
 assert(staffCashText.includes('₹2,000')||staffCashText.includes('2,000'),'Staff mobile Cash page shows current staff count');
 assert(await noOverflow(staffUi.page),'Staff Cash mobile has no horizontal overflow');
 await staffUi.page.screenshot({path:shotDir+'/staff-cash-open-mobile.png',fullPage:true});
+await auditA11y(staffUi.page,'Staff Cash mobile');
 
 await staffUi.page.goto(webBase+'/transactions/cash-transfer',{waitUntil:'networkidle2'});
 await fillTransferBasics(staffUi.page,'1000');
@@ -306,6 +321,7 @@ const recordState=await staffUi.page.evaluate(()=>{
 assert(recordState&&!recordState.disabled,'Mobile Record is enabled when flow is valid');
 assert(recordState.height>=44,'Mobile Record tap target is at least 44px');
 await staffUi.page.screenshot({path:shotDir+'/staff-transfer-ready-mobile.png',fullPage:true});
+await auditA11y(staffUi.page,'Staff Cash Transfer mobile');
 const clickedRecord=await staffUi.page.evaluate(()=>{
   const buttons=[...document.querySelectorAll('button')].filter(b=>b.offsetParent!==null);
   const b=buttons.find(x=>(x.textContent||'').includes('Record')&&!x.disabled);
@@ -345,6 +361,7 @@ const ownerCashText=await text(ownerUi.page);
 assert(ownerCashText.includes('Main Cash Reserve')&&ownerCashText.includes('Staff Cash Drawer'),'Owner desktop Cash page shows both drawers');
 assert(await noOverflow(ownerUi.page),'Owner Cash desktop has no horizontal overflow');
 await ownerUi.page.screenshot({path:shotDir+'/owner-cash-desktop.png',fullPage:true});
+await auditA11y(ownerUi.page,'Owner Cash desktop');
 
 const liveMainUi=await request('/cash-counter/current?cashAccountId='+main.id,{},ownerToken);
 eq(liveMainUi.liveExpectedClosingTotal,107580,'Main Reserve tally after UI scenario');
@@ -372,6 +389,6 @@ assert(eodHistory.some(row=>row.id===eod.position.id),'End-of-Day snapshot appea
 
 await ownerUi.context.close(); await staffUi.context.close(); await browser.close();
 web.kill('SIGTERM');
-fs.writeFileSync(shotDir+'/results.json',JSON.stringify({suffix,results},null,2));
+fs.writeFileSync(shotDir+'/results.json',JSON.stringify({suffix,results,a11yFindings},null,2));
 console.log('SCREENSHOTS',shotDir);
 console.log('CASH LIFECYCLE E2E PASS',results.length,'checks');
