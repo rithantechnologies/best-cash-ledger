@@ -51,6 +51,9 @@ enum TransactionType {
   PERSONAL_EXPENSE
   ATM_WITHDRAWAL
   OWNER_CC_PAYMENT
+  CARD_DUE_CLEARING
+  CARD_DUE_RECOVERY
+  CARD_DUE_COMMISSION_COLLECTION
   CASH_ADJUSTMENT
   REVERSAL
 }
@@ -204,6 +207,7 @@ model CustomerCard {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   cardSwipeDetails CardSwipeDetail[]
+  cardDueClearings CardDueClearingDetail[]
 }
 
 model CustomerBankAccount {
@@ -276,6 +280,7 @@ model Provider {
   accounts           FinancialAccount[]
   charges            TransactionCharge[]
   settlements        ProviderSettlement[]
+  cardDueRecoveries  CardDueRecovery[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 }
@@ -290,6 +295,7 @@ model ProviderGateway {
   defaultChargeRate Decimal              @db.Decimal(10, 4)
   isActive          Boolean              @default(true)
   settlements       ProviderSettlement[]
+  cardDueRecoveries CardDueRecovery[]
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
@@ -362,6 +368,9 @@ model FinancialAccount {
   atmWithdrawalsToCash           AtmWithdrawalDetail[]       @relation("AtmCashAccount")
   creditCardPaymentsAsCard       CreditCardPaymentDetail[]   @relation("CreditCardPaymentCard")
   creditCardPaymentsAsSource     CreditCardPaymentDetail[]   @relation("CreditCardPaymentSource")
+  cardDueAdvanceSources          CardDueClearingDetail[]       @relation("CardDueAdvanceSource")
+  cardDueRecoveryDestinations    CardDueRecovery[]             @relation("CardDueRecoveryDestination")
+  cardDueCommissionDestinations  CardDueCommissionCollection[] @relation("CardDueCommissionDestination")
   cashSessions                   CashSession[]
   providerSettlementDestinations ProviderSettlement[]        @relation("ProviderSettlementDestination")
   providerSettlementReceipts     ProviderSettlementReceipt[] @relation("ProviderSettlementReceiptAccount")
@@ -410,6 +419,9 @@ model Transaction {
   expense                   ExpenseDetail?
   atmWithdrawal             AtmWithdrawalDetail?
   creditCardPayment         CreditCardPaymentDetail?
+  cardDueClearing           CardDueClearingDetail?
+  cardDueRecovery           CardDueRecovery?
+  cardDueCommissionCollection CardDueCommissionCollection?
   payable                   CustomerPayable?
   payablePayment            PayablePayment?
   receivableSource          CustomerReceivable?        @relation("ReceivableSourceTransaction")
@@ -480,6 +492,78 @@ model CardSwipeDetail {
 
   @@index([providerId, gatewayId])
   @@index([dueAt])
+}
+
+model CardDueClearingDetail {
+  id                    String                         @id @default(uuid())
+  transactionId         String                         @unique
+  transaction           Transaction                    @relation(fields: [transactionId], references: [id])
+  customerCardId        String
+  customerCard          CustomerCard                   @relation(fields: [customerCardId], references: [id])
+  advanceSourceAccountId String
+  advanceSourceAccount  FinancialAccount               @relation("CardDueAdvanceSource", fields: [advanceSourceAccountId], references: [id])
+  dueAmount             Decimal                        @db.Decimal(18, 2)
+  commissionRate        Decimal                        @db.Decimal(10, 4)
+  commissionAmount      Decimal                        @db.Decimal(18, 2)
+  principalRecovered    Decimal                        @default(0) @db.Decimal(18, 2)
+  principalRemaining    Decimal                        @db.Decimal(18, 2)
+  commissionCollected   Decimal                        @default(0) @db.Decimal(18, 2)
+  commissionRemaining   Decimal                        @db.Decimal(18, 2)
+  nextFollowUpAt        DateTime?
+  duePaymentReference   String?
+  recoveries            CardDueRecovery[]
+  commissionCollections CardDueCommissionCollection[]
+  createdAt             DateTime                       @default(now())
+  updatedAt             DateTime                       @updatedAt
+
+  @@index([nextFollowUpAt])
+  @@index([principalRemaining])
+  @@index([commissionRemaining])
+}
+
+model CardDueRecovery {
+  id                   String                @id @default(uuid())
+  clearingId           String
+  clearing             CardDueClearingDetail @relation(fields: [clearingId], references: [id])
+  transactionId        String                @unique
+  transaction          Transaction           @relation(fields: [transactionId], references: [id])
+  swipeAmount          Decimal               @db.Decimal(18, 2)
+  providerId           String
+  provider             Provider              @relation(fields: [providerId], references: [id])
+  gatewayId            String
+  gateway              ProviderGateway       @relation(fields: [gatewayId], references: [id])
+  providerChargeRate   Decimal               @db.Decimal(10, 4)
+  providerChargeAmount Decimal               @db.Decimal(18, 2)
+  destinationAccountId String
+  destinationAccount   FinancialAccount      @relation("CardDueRecoveryDestination", fields: [destinationAccountId], references: [id])
+  referenceNumber      String?
+  notes                String?
+  recoveredAt          DateTime
+  createdById          String
+  createdAt            DateTime              @default(now())
+
+  @@index([clearingId, recoveredAt])
+  @@index([destinationAccountId])
+}
+
+model CardDueCommissionCollection {
+  id                   String                @id @default(uuid())
+  clearingId           String
+  clearing             CardDueClearingDetail @relation(fields: [clearingId], references: [id])
+  transactionId        String                @unique
+  transaction          Transaction           @relation(fields: [transactionId], references: [id])
+  amount               Decimal               @db.Decimal(18, 2)
+  paymentMode          String
+  destinationAccountId String
+  destinationAccount   FinancialAccount      @relation("CardDueCommissionDestination", fields: [destinationAccountId], references: [id])
+  referenceNumber      String?
+  notes                String?
+  collectedAt          DateTime
+  createdById          String
+  createdAt            DateTime              @default(now())
+
+  @@index([clearingId, collectedAt])
+  @@index([destinationAccountId])
 }
 
 model CustomerPayable {

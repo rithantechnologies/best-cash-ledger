@@ -6,18 +6,28 @@ import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateAepsDto } from './dto/create-aeps.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
+import {
+  CardDueCommissionCollectionDto,
+  CardDueRecoveryDto,
+  CreateCardDueClearingDto,
+  SetCardDueFollowUpDto,
+} from './dto/create-card-due-clearing.dto.js';
 import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
 import { CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
+import { CardDueClearingService } from './card-due-clearing.service.js';
 import { TransactionsService } from './transactions.service.js';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('transactions')
 export class TransactionsController {
-  constructor(private readonly transactions: TransactionsService) {}
+  constructor(
+    private readonly transactions: TransactionsService,
+    private readonly cardDueClearings: CardDueClearingService,
+  ) {}
 
   @Get()
   list(
@@ -47,6 +57,60 @@ export class TransactionsController {
   @Get('customer/:customerId/card-swipes')
   customerCardSwipes(@Param('customerId') customerId: string) {
     return this.transactions.listCustomerCardSwipes(customerId);
+  }
+
+  @Get('card-due-clearings')
+  listCardDueClearings(
+    @Query('customerId') customerId?: string,
+    @Query('openOnly') openOnly?: string,
+  ) {
+    return this.cardDueClearings.list({
+      customerId,
+      openOnly: openOnly === 'true',
+    });
+  }
+
+  @Get('card-due-clearings/:id')
+  getCardDueClearing(@Param('id') id: string) {
+    return this.cardDueClearings.get(id);
+  }
+
+  @Post('card-due-clearing')
+  createCardDueClearing(
+    @Body() dto: CreateCardDueClearingDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.cardDueClearings.create(dto, req.user.userId, key);
+  }
+
+  @Post('card-due-clearings/:id/recoveries')
+  addCardDueRecovery(
+    @Param('id') id: string,
+    @Body() dto: CardDueRecoveryDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.cardDueClearings.addRecovery(id, dto, req.user.userId, key);
+  }
+
+  @Post('card-due-clearings/:id/commission-collections')
+  addCardDueCommissionCollection(
+    @Param('id') id: string,
+    @Body() dto: CardDueCommissionCollectionDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.cardDueClearings.addCommissionCollection(id, dto, req.user.userId, key);
+  }
+
+  @Post('card-due-clearings/:id/follow-up')
+  setCardDueFollowUp(
+    @Param('id') id: string,
+    @Body() dto: SetCardDueFollowUpDto,
+    @Req() req: any,
+  ) {
+    return this.cardDueClearings.setFollowUp(id, dto, req.user.userId);
   }
 
   @Get(':id')

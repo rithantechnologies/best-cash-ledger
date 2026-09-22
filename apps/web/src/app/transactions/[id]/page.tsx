@@ -101,7 +101,8 @@ export default function TransactionDetailPage(){
  async function reverse(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/reverse",{method:"POST",body:JSON.stringify({reason})});setReason("");setReverseOpen(false);await load();}catch(err){setError(err instanceof Error?err.message:"Reversal failed");}finally{setSaving(false);}}
  if(!tx)return <AppShell><PageLoader label="Loading transaction…"/></AppShell>;
 
- const canReverse=(role==="OWNER"||role==="ADMIN")&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
+ const cardDueType=["CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION"].includes(tx.transactionType);
+ const canReverse=(role==="OWNER"||role==="ADMIN")&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const fees=sum(tx.charges),earnings=sum(tx.commissions),gross=Number(tx.grossAmount),net=Number(tx.netAmount??tx.grossAmount);
  const payoutFees=tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0;
  const cardProfit=earnings-fees-payoutFees;

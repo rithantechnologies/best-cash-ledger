@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { PayableStatus, RoleName } from '@prisma/client';
+import { PayableStatus, RoleName, TransactionType } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -18,6 +18,7 @@ export class PayablesController {
     @Query('pageSize') pageSize?: string,
     @Query('q') q?: string,
     @Query('status') status?: PayableStatus,
+    @Query('transactionType') transactionType?: TransactionType,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: 'asc' | 'desc',
   ) {
@@ -26,6 +27,7 @@ export class PayablesController {
       pageSize: pageSize ? Number(pageSize) : undefined,
       q,
       status,
+      transactionType,
       sortBy,
       sortDir,
     });

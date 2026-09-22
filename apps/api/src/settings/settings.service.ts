@@ -278,6 +278,9 @@ export class SettingsService {
     const explicitOverride = ranked.find((item) => item.score > 0)?.rule;
     if (explicitOverride) return explicitOverride;
 
+    const serviceDefault = ranked.find((item) => item.score === 0)?.rule;
+    if (serviceDefault) return serviceDefault;
+
     if (
       input.transactionType === 'AEPS_WITHDRAWAL' &&
       input.providerId

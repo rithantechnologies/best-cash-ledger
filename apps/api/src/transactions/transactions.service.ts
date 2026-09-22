@@ -2257,6 +2257,15 @@ export class TransactionsService {
       });
 
       if (!original) throw new NotFoundException('Transaction not found');
+      if (
+        original.transactionType === TransactionType.CARD_DUE_CLEARING ||
+        original.transactionType === TransactionType.CARD_DUE_RECOVERY ||
+        original.transactionType === TransactionType.CARD_DUE_COMMISSION_COLLECTION
+      ) {
+        throw new BadRequestException(
+          'Card due clearing entries are managed from the Card Due Clearing screen',
+        );
+      }
       if (original.status === TransactionStatus.REVERSED || original.transactionType === TransactionType.REVERSAL) {
         throw new BadRequestException('Transaction is already reversed or is a reversal');
       }
