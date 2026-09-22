@@ -43,7 +43,7 @@ export default function TransactionsPage(){
 
  const totals=useMemo(()=>items.reduce((a,t)=>({
   gross:a.gross+Number(t.grossAmount),net:a.net+Number(t.netAmount??t.grossAmount),
-  fees:a.fees+sum(t.charges),earnings:a.earnings+sum(t.commissions),
+  fees:a.fees+sum(t.charges),earnings:a.earnings+sum(t.commissions)-sum(t.charges),
  }),{gross:0,net:0,fees:0,earnings:0}),[items]);
  const grouped=items.reduce((map,t)=>{const k=new Date(t.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});const row=map.get(k)??[];row.push(t);map.set(k,row);return map;},new Map<string,Tx[]>());
 
