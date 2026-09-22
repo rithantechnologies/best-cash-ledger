@@ -72,10 +72,23 @@ function CountGrid({
   return <div className={compact?"grid gap-2":"grid gap-2 sm:grid-cols-2"}>
     {denominations.map((note)=><div key={note} className="cash-count-row grid grid-cols-[64px_minmax(0,1fr)_96px] items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
       <strong className="money text-sm">₹{note}</strong>
-      <div className="cash-count-control grid grid-cols-[40px_minmax(0,1fr)_40px] items-center overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-soft)]">
-        <button type="button" onClick={()=>step(note,-1)} className="h-10 text-lg text-[var(--text-muted)]">−</button>
-        <input className="cash-count-input h-11 min-w-0 border-x border-[var(--border)] bg-[var(--surface)] text-center text-lg font-extrabold" type="number" min="0" step="1" inputMode="numeric" value={qty[note]||""} placeholder="0" onChange={(event)=>setQty((current)=>({...current,[note]:event.target.value}))}/>
-        <button type="button" onClick={()=>step(note,1)} className="h-10 text-lg text-[var(--text-muted)]">+</button>
+      <div className="cash-count-control grid min-w-[150px] grid-cols-[42px_minmax(64px,1fr)_42px] items-center overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-soft)]">
+        <button type="button" aria-label={"Decrease ₹"+note+" note quantity"} onClick={()=>step(note,-1)} className="h-11 text-lg font-bold text-[var(--text-muted)]">−</button>
+        <input
+          aria-label={"Quantity of ₹"+note+" notes"}
+          className="cash-count-input h-11 min-w-[64px] border-x border-[var(--border)] bg-[var(--surface)] px-1 text-center text-lg font-extrabold text-[var(--text)] outline-none"
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={qty[note]||""}
+          placeholder="Qty"
+          onFocus={(event)=>event.currentTarget.select()}
+          onChange={(event)=>{
+            const value=event.target.value.replace(/\D/g,"");
+            setQty((current)=>({...current,[note]:value}));
+          }}
+        />
+        <button type="button" aria-label={"Increase ₹"+note+" note quantity"} onClick={()=>step(note,1)} className="h-11 text-lg font-bold text-[var(--text-muted)]">+</button>
       </div>
       <span className="cash-count-total money text-right text-[13px] font-bold text-[var(--text-muted)]">{money(note*Number(qty[note]||0))}</span>
     </div>)}
