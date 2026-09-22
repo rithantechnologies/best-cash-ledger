@@ -21,6 +21,7 @@ export class PayablesService {
     pageSize?: number;
     q?: string;
     status?: PayableStatus;
+    transactionType?: TransactionType;
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
   }) {
@@ -36,6 +37,7 @@ export class PayablesService {
     const where: Prisma.CustomerPayableWhereInput = {
       ...(options?.q ? { customer: { fullName: { contains: options.q, mode: 'insensitive' } } } : {}),
       ...(options?.status ? { status: options.status } : {}),
+      ...(options?.transactionType ? { sourceTransaction: { transactionType: options.transactionType } } : {}),
     };
     const allowedSort = new Set(['dueAt','createdAt','originalAmount','paidAmount','remainingAmount','status']);
     const sortBy = allowedSort.has(options?.sortBy ?? '') ? options!.sortBy! : 'dueAt';
@@ -157,6 +159,9 @@ export class PayablesService {
         dto.sourceAccountId,
         'Customer payout source',
       );
+      if (sourceAccount.accountType !== AccountType.PROVIDER_WALLET && chargeAmount > 0) {
+        throw new BadRequestException('Payout charge is allowed only for wallet payouts');
+      }
       if (sourceAccount.accountType === AccountType.CASH) {
         await this.validation.requireOpenCashDesk(
           tx,

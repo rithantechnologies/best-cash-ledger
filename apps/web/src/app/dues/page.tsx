@@ -8,11 +8,12 @@ import { apiFetch } from "@/lib/api";
 
 type Tab="payables"|"receivables"|"settlements";
 type Filter="all"|"overdue"|"today"|"week";
-type Payable={id:string;remainingAmount:string;dueAt:string;status:string;customer:{fullName:string}};
+type Payable={id:string;remainingAmount:string;dueAt:string;status:string;customer:{fullName:string};sourceTransaction:{transactionNumber:string;transactionType:string}};
 type Receivable={id:string;remainingAmount:string;dueAt:string|null;status:string;reason:string;customer:{fullName:string}};
 type Settlement={id:string;remainingAmount:string;dueAt:string|null;status:string;provider:{name:string}|null;sourceTransaction:{transactionNumber:string;customer:{fullName:string}|null}};
 type Page<T>={items:T[];pagination:{total:number}};
 const money=(v:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(v||0));
+const serviceLabel=(v:string)=>({AEPS_WITHDRAWAL:"AEPS",CARD_SWIPE:"Card Swipe",MICRO_ATM:"Micro ATM",ATM_WITHDRAWAL:"ATM Withdrawal",CASH_TRANSFER:"Cash Transfer"} as Record<string,string>)[v]??v.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
 const dayStart=()=>{const d=new Date();d.setHours(0,0,0,0);return d;};
 function bucket(date:string|null){
   if(!date)return "week";
@@ -59,7 +60,7 @@ export default function DuesPage(){
   <Surface className="overflow-hidden">
    {filtered.length?<div className="divide-y divide-[var(--border)]">{filtered.map(item=>{
     const late=bucket(item.dueAt)==="overdue";
-    if(tab==="payables"){const p=item as Payable;return <Link key={p.id} href={"/payables/"+p.id} className="flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{p.customer.fullName}</p><p className={"mt-0.5 text-xs "+(late?"text-rose-600":"text-[var(--text-muted)]")}>{relative(p.dueAt)}</p></div><div className="text-right"><p className="money font-semibold">{money(p.remainingAmount)}</p><span className="text-xs font-semibold text-[var(--accent)]">Pay →</span></div></Link>}
+    if(tab==="payables"){const p=item as Payable;return <Link key={p.id} href={"/payables/"+p.id+"?from=dues"} className="flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{p.customer.fullName}</p><p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{serviceLabel(p.sourceTransaction.transactionType)} · {p.sourceTransaction.transactionNumber}</p><p className={"mt-0.5 text-xs "+(late?"text-rose-600":"text-[var(--text-muted)]")}>{relative(p.dueAt)}</p></div><div className="text-right"><p className="money font-semibold">{money(p.remainingAmount)}</p><span className="text-xs font-semibold text-[var(--accent)]">Pay →</span></div></Link>}
     if(tab==="receivables"){const r=item as Receivable;return <Link key={r.id} href={"/receivables/"+r.id} className="flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{r.customer.fullName}</p><p className={"mt-0.5 truncate text-xs "+(late?"text-rose-600":"text-[var(--text-muted)]")}>{r.reason} · {relative(r.dueAt)}</p></div><div className="text-right"><p className="money font-semibold">{money(r.remainingAmount)}</p><span className="text-xs font-semibold text-[var(--money-in)]">Receive →</span></div></Link>}
     const s=item as Settlement;return <Link key={s.id} href="/provider-settlements" className="flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{s.provider?.name??"Provider"} · {s.sourceTransaction.transactionNumber}</p><p className={"mt-0.5 truncate text-xs "+(late?"text-rose-600":"text-[var(--text-muted)]")}>{s.sourceTransaction.customer?.fullName??"Provider settlement"} · {relative(s.dueAt)}</p></div><div className="text-right"><p className="money font-semibold">{money(s.remainingAmount)}</p><span className="text-xs font-semibold text-[var(--accent)]">Open →</span></div></Link>
    })}</div>:<div className="p-4"><EmptyState title={filter==="all"?"Nothing open":"Nothing due here"} description="You are clear for this filter."/></div>}
