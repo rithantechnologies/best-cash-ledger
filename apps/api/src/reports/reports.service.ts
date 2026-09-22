@@ -161,6 +161,21 @@ export class ReportsService {
                   customer: true,
                   payable: true,
                   receivableSource: true,
+                  cardSwipe: { include: { customerCard: true } },
+                  expense: { include: { expenseCategory: true, paymentAccount: true } },
+                  cashTransfer: {
+                    include: {
+                      beneficiary: true,
+                      beneficiaryAccount: true,
+                      customerBankAccount: true,
+                      customerUpiAccount: true,
+                      sourceAccount: true,
+                      cashAccount: true,
+                    },
+                  },
+                  internalTransfer: { include: { sourceAccount: true, destinationAccount: true } },
+                  atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
+                  creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
                   providerSettlementReceipt: {
                     include: {
                       settlement: {
@@ -174,6 +189,7 @@ export class ReportsService {
                   },
                   payablePayment: {
                     include: {
+                      sourceAccount: true,
                       payable: {
                         include: {
                           sourceTransaction: {

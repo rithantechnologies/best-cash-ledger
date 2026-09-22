@@ -14,7 +14,17 @@ type Account={
   bankName:string|null;accountReference:string|null;lastFourDigits:string|null;creditLimit:string|null;
 };
 type MoneyRef={payable:{status:string;dueAt:string|null;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null};
-type RowTx=MoneyRef&{id?:string;transactionNumber:string;status:string;customer:{fullName:string}|null;providerSettlementReceipt:{settlement:{sourceTransaction:MoneyRef}}|null;payablePayment:{payable:{sourceTransaction:MoneyRef}}|null};
+type RowTx=MoneyRef&{
+  id?:string;transactionNumber:string;transactionType:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;
+  cardSwipe:{swipeAmount:string;commissionAmount:string;customerCard:{bankName:string;lastFourDigits:string}}|null;
+  expense:{expenseType:string;amount:string;description:string;expenseCategory:{name:string};paymentAccount:{accountName:string}}|null;
+  cashTransfer:{actualTransferAmount:string;beneficiary:{beneficiaryName:string}|null;beneficiaryAccount:{bankName:string|null;accountReference:string|null;upiId:string|null}|null;customerBankAccount:{bankName:string;accountHolderName:string}|null;customerUpiAccount:{accountName:string;upiId:string|null}|null;sourceAccount:{accountName:string};cashAccount:{accountName:string}}|null;
+  internalTransfer:{transferAmount:string;sourceAccount:{accountName:string};destinationAccount:{accountName:string}}|null;
+  atmWithdrawal:{withdrawalAmount:string;bankAccount:{accountName:string};cashAccount:{accountName:string}}|null;
+  creditCardPayment:{paymentAmount:string;creditCardAccount:{accountName:string};sourceAccount:{accountName:string}}|null;
+  providerSettlementReceipt:{settlement:{sourceTransaction:MoneyRef}}|null;
+  payablePayment:{amount:string;sourceAccount:{accountName:string};payable:{sourceTransaction:MoneyRef}}|null;
+};
 type Row={
   id:string;entryType:"DEBIT"|"CREDIT";amount:string;runningBalance:number;description:string|null;
   journal:{postingDate:string;transaction:RowTx};
@@ -56,6 +66,41 @@ function increases(account:Account,row:Row){
 const nice=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(c)=>c.toUpperCase());
 const total=(items:{amount:string}[])=>items.reduce((sum,item)=>sum+Number(item.amount),0);
 const ledgerMoneySource=(tx:RowTx):MoneyRef=>tx.payable||tx.receivableSource?tx:tx.providerSettlementReceipt?.settlement.sourceTransaction??tx.payablePayment?.payable.sourceTransaction??tx;
+function movementSummary(tx:RowTx,row:Row){
+  if(tx.cardSwipe){
+    const card=tx.cardSwipe.customerCard;
+    return {
+      primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+card.bankName+" •••• "+card.lastFourDigits,
+      secondary:"Card swipe "+money(tx.cardSwipe.swipeAmount)+(Number(tx.cardSwipe.commissionAmount)>0?" · Customer fee "+money(tx.cardSwipe.commissionAmount):""),
+    };
+  }
+  if(tx.expense){
+    return {
+      primary:(tx.expense.expenseType==="PERSONAL"?"Personal · ":"")+tx.expense.expenseCategory.name,
+      secondary:tx.expense.description||row.description||"Expense payment",
+    };
+  }
+  if(tx.cashTransfer){
+    const destination=tx.cashTransfer.beneficiary?.beneficiaryName
+      ??tx.cashTransfer.customerBankAccount?.accountHolderName
+      ??tx.cashTransfer.customerUpiAccount?.accountName
+      ??"Customer transfer";
+    return {primary:(tx.customer?.fullName?tx.customer.fullName+" → ":"")+destination,secondary:"Transfer "+money(tx.cashTransfer.actualTransferAmount)+" · from "+tx.cashTransfer.sourceAccount.accountName};
+  }
+  if(tx.internalTransfer){
+    return {primary:tx.internalTransfer.sourceAccount.accountName+" → "+tx.internalTransfer.destinationAccount.accountName,secondary:"Internal transfer "+money(tx.internalTransfer.transferAmount)};
+  }
+  if(tx.payablePayment){
+    return {primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+"Customer payout",secondary:"Paid "+money(tx.payablePayment.amount)+" from "+tx.payablePayment.sourceAccount.accountName};
+  }
+  if(tx.atmWithdrawal){
+    return {primary:tx.atmWithdrawal.bankAccount.accountName+" → "+tx.atmWithdrawal.cashAccount.accountName,secondary:"ATM withdrawal "+money(tx.atmWithdrawal.withdrawalAmount)};
+  }
+  if(tx.creditCardPayment){
+    return {primary:tx.creditCardPayment.sourceAccount.accountName+" → "+tx.creditCardPayment.creditCardAccount.accountName,secondary:"Credit card payment "+money(tx.creditCardPayment.paymentAmount)};
+  }
+  return {primary:tx.customer?.fullName??row.description??nice(tx.transactionType),secondary:row.description&&row.description!==tx.customer?.fullName?row.description:nice(tx.transactionType)};
+}
 function DetailStat({label,value,tone=""}:{label:string;value:string;tone?:string}){
   return <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p><p className={"mt-1 text-sm font-black "+tone}>{value}</p></div>;
 }
@@ -166,9 +211,11 @@ export default function AccountLedgerPage(){
     const source=[...(data?.rows??[])].reverse();
     const statusFiltered=source.filter((row)=>(!txStatusFilter||row.journal.transaction.status===txStatusFilter)&&(!moneyStatusFilter||moneyStatus(ledgerMoneySource(row.journal.transaction))?.key===moneyStatusFilter));
     if(!query)return statusFiltered;
-    return statusFiltered.filter((row)=>[
-      row.journal.transaction.transactionNumber,row.journal.transaction.customer?.fullName,row.description,
-    ].filter(Boolean).join(" ").toLowerCase().includes(query));
+    return statusFiltered.filter((row)=>{
+      const summary=movementSummary(row.journal.transaction,row);
+      return [row.journal.transaction.transactionNumber,row.journal.transaction.customer?.fullName,row.description,summary.primary,summary.secondary]
+        .filter(Boolean).join(" ").toLowerCase().includes(query);
+    });
   },[data,search,txStatusFilter,moneyStatusFilter]);
 
   if(loading&&!data)return <AccountLedgerSkeleton/>;
@@ -247,6 +294,7 @@ export default function AccountLedgerPage(){
             const isIn=increases(data.account,row);
             const tx=row.journal.transaction;
             const ms=moneyStatus(ledgerMoneySource(tx));
+            const summary=movementSummary(tx,row);
             return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>openMovement(row,isIn)} className="grid w-full gap-2 px-4 py-3.5 text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent sm:grid-cols-[110px_minmax(0,1fr)_130px_130px] sm:items-center sm:px-5">
               <div className="text-[11px] font-semibold text-[var(--text-muted)]">
                 <p>{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</p>
@@ -254,7 +302,8 @@ export default function AccountLedgerPage(){
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold">{tx.transactionNumber}</p>
-                <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{tx.customer?.fullName??row.description??"—"}</p>
+                <p className="mt-0.5 truncate text-xs font-semibold text-[var(--text)]">{summary.primary}</p>
+                <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{summary.secondary}</p>
                 <div className="mt-1.5 flex flex-wrap gap-1"><StatusBadge tone={tx.status==="COMPLETED"?"emerald":tx.status==="REVERSED"?"rose":"amber"}>{nice(tx.status)}</StatusBadge>{ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}{ms?.dueAt?<span className="px-1 py-0.5 text-[10px] text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}</div>
                 {tx.id?<p className="mt-1 text-[10px] font-bold text-[var(--accent)]">View details</p>:null}
               </div>
