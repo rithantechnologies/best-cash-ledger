@@ -100,6 +100,8 @@ export class CustomersService {
             netAmount: true,
             status: true,
             referenceNumber: true,
+            payable: { select: { status: true, dueAt: true, remainingAmount: true } },
+            receivableSource: { select: { status: true, dueAt: true, remainingAmount: true } },
           },
         },
         payables: { orderBy: { dueAt: 'asc' } },

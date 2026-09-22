@@ -17,6 +17,7 @@ export class ReportsController {
     @Query('customerId') customerId?: string,
     @Query('type') type?: TransactionType,
     @Query('status') status?: string,
+    @Query('moneyStatus') moneyStatus?: string,
     @Query('reference') reference?: string,
     @Query('providerId') providerId?: string,
     @Query('gatewayId') gatewayId?: string,
@@ -24,7 +25,7 @@ export class ReportsController {
     @Query('staffId') staffId?: string,
   ) {
     return this.reports.transactions({
-      from, to, customerId, type, status, reference, providerId, gatewayId, accountId, staffId,
+      from, to, customerId, type, status, moneyStatus, reference, providerId, gatewayId, accountId, staffId,
     });
   }
 

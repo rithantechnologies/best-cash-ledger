@@ -5,16 +5,19 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { EmptyState, Modal, PageFrame, Surface } from "@/components/ui";
+import { EmptyState, Modal, PageFrame, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 
 type Account={
   accountName:string;accountType:string;accountNature:"ASSET"|"LIABILITY";usageType:string;
   bankName:string|null;accountReference:string|null;lastFourDigits:string|null;creditLimit:string|null;
 };
+type MoneyRef={payable:{status:string;dueAt:string|null;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null};
+type RowTx=MoneyRef&{id?:string;transactionNumber:string;status:string;customer:{fullName:string}|null;providerSettlementReceipt:{settlement:{sourceTransaction:MoneyRef}}|null;payablePayment:{payable:{sourceTransaction:MoneyRef}}|null};
 type Row={
   id:string;entryType:"DEBIT"|"CREDIT";amount:string;runningBalance:number;description:string|null;
-  journal:{postingDate:string;transaction:{id?:string;transactionNumber:string;customer:{fullName:string}|null}};
+  journal:{postingDate:string;transaction:RowTx};
 };
 type Ledger={account:Account;openingBalance:number;openingBalanceIntroducedInRange:number;rows:Row[]};
 type Charge={amount:string;rate:string|null;chargeType:string};
@@ -52,6 +55,7 @@ function increases(account:Account,row:Row){
 }
 const nice=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(c)=>c.toUpperCase());
 const total=(items:{amount:string}[])=>items.reduce((sum,item)=>sum+Number(item.amount),0);
+const ledgerMoneySource=(tx:RowTx):MoneyRef=>tx.payable||tx.receivableSource?tx:tx.providerSettlementReceipt?.settlement.sourceTransaction??tx.payablePayment?.payable.sourceTransaction??tx;
 function DetailStat({label,value,tone=""}:{label:string;value:string;tone?:string}){
   return <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p><p className={"mt-1 text-sm font-black "+tone}>{value}</p></div>;
 }
@@ -128,6 +132,7 @@ export default function AccountLedgerPage(){
   const [data,setData]=useState<Ledger|null>(null);
   const [range,setRange]=useState<Range>("30d");
   const [search,setSearch]=useState("");
+  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
   const [loading,setLoading]=useState(true),[error,setError]=useState(""),[role,setRole]=useState("");
   const [detailOpen,setDetailOpen]=useState(false),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState("");
   const [detail,setDetail]=useState<DrillDetail|null>(null);
@@ -159,11 +164,12 @@ export default function AccountLedgerPage(){
   const rows=useMemo(()=>{
     const query=search.trim().toLowerCase();
     const source=[...(data?.rows??[])].reverse();
-    if(!query)return source;
-    return source.filter((row)=>[
+    const statusFiltered=source.filter((row)=>(!txStatusFilter||row.journal.transaction.status===txStatusFilter)&&(!moneyStatusFilter||moneyStatus(ledgerMoneySource(row.journal.transaction))?.key===moneyStatusFilter));
+    if(!query)return statusFiltered;
+    return statusFiltered.filter((row)=>[
       row.journal.transaction.transactionNumber,row.journal.transaction.customer?.fullName,row.description,
     ].filter(Boolean).join(" ").toLowerCase().includes(query));
-  },[data,search]);
+  },[data,search,txStatusFilter,moneyStatusFilter]);
 
   if(loading&&!data)return <AccountLedgerSkeleton/>;
   const account=data?.account;
@@ -228,16 +234,19 @@ export default function AccountLedgerPage(){
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
           <div><h2 className="text-sm font-extrabold">Activity</h2><p className="mt-0.5 text-xs text-[var(--text-muted)]">{rows.length} transaction entr{rows.length===1?"y":"ies"}</p></div>
         </div>
-        <div className="border-b border-[var(--border)] p-3">
+        <div className="grid gap-2 border-b border-[var(--border)] p-3 md:grid-cols-[minmax(0,1fr)_180px_220px]">
           <div className="relative">
             <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
             <input className="app-control !pl-10" value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Search activity"/>
           </div>
+          <select className="app-control" value={txStatusFilter} onChange={(event)=>setTxStatusFilter(event.target.value)}><option value="">All transaction status</option>{["COMPLETED","PENDING","FAILED","CANCELLED","REVERSED"].map((x)=><option key={x}>{nice(x)}</option>)}</select>
+          <select className="app-control" value={moneyStatusFilter} onChange={(event)=>setMoneyStatusFilter(event.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>
         </div>
         {rows.length?<div className="divide-y divide-[var(--border)]">
           {rows.map((row)=>{
             const isIn=increases(data.account,row);
             const tx=row.journal.transaction;
+            const ms=moneyStatus(ledgerMoneySource(tx));
             return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>openMovement(row,isIn)} className="grid w-full gap-2 px-4 py-3.5 text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent sm:grid-cols-[110px_minmax(0,1fr)_130px_130px] sm:items-center sm:px-5">
               <div className="text-[11px] font-semibold text-[var(--text-muted)]">
                 <p>{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</p>
@@ -246,6 +255,7 @@ export default function AccountLedgerPage(){
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold">{tx.transactionNumber}</p>
                 <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{tx.customer?.fullName??row.description??"—"}</p>
+                <div className="mt-1.5 flex flex-wrap gap-1"><StatusBadge tone={tx.status==="COMPLETED"?"emerald":tx.status==="REVERSED"?"rose":"amber"}>{nice(tx.status)}</StatusBadge>{ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}{ms?.dueAt?<span className="px-1 py-0.5 text-[10px] text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}</div>
                 {tx.id?<p className="mt-1 text-[10px] font-bold text-[var(--accent)]">View details</p>:null}
               </div>
               <p className={"money text-sm font-extrabold sm:text-right "+(isIn?"text-emerald-700":"text-rose-600")}>{isIn?"+":"−"}{money(row.amount)}</p>

@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountType, EntryType, Prisma, RoleName, TransactionType } from '@prisma/client';
+import { AccountType, EntryType, PayableStatus, Prisma, ReceivableStatus, RoleName, TransactionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 type TxFilters = {
@@ -8,6 +8,7 @@ type TxFilters = {
   customerId?: string;
   type?: TransactionType;
   status?: string;
+  moneyStatus?: string;
   reference?: string;
   providerId?: string;
   gatewayId?: string;
@@ -54,12 +55,35 @@ export class ReportsService {
       { providerSettlementReceipt: { settlement: { gatewayId: filters.gatewayId } } },
     ] : [];
 
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const moneyStatusWhere: Prisma.TransactionWhereInput = filters.moneyStatus
+      ? filters.moneyStatus === 'PAYOUT_PENDING'
+        ? { payable: { status: PayableStatus.PENDING, dueAt: { gte: startOfToday } } }
+        : filters.moneyStatus === 'PAYOUT_OVERDUE'
+          ? { payable: { OR: [{ status: PayableStatus.OVERDUE }, { status: PayableStatus.PENDING, dueAt: { lt: startOfToday } }] } }
+          : filters.moneyStatus === 'PAYOUT_PARTIALLY_PAID'
+            ? { payable: { status: PayableStatus.PARTIALLY_PAID } }
+            : filters.moneyStatus === 'PAYOUT_PAID'
+              ? { payable: { status: PayableStatus.PAID } }
+              : filters.moneyStatus === 'PAYIN_PENDING'
+                ? { receivableSource: { status: ReceivableStatus.PENDING, OR: [{ dueAt: null }, { dueAt: { gte: startOfToday } }] } }
+                : filters.moneyStatus === 'PAYIN_OVERDUE'
+                  ? { receivableSource: { OR: [{ status: ReceivableStatus.OVERDUE }, { status: ReceivableStatus.PENDING, dueAt: { lt: startOfToday } }] } }
+                  : filters.moneyStatus === 'PAYIN_PARTIALLY_RECEIVED'
+                    ? { receivableSource: { status: ReceivableStatus.PARTIALLY_RECEIVED } }
+                    : filters.moneyStatus === 'PAYIN_RECEIVED'
+                      ? { receivableSource: { status: ReceivableStatus.RECEIVED } }
+                      : {}
+      : {};
+
     const rows = await this.prisma.transaction.findMany({
       where: {
         ...(Object.keys(transactionAt).length ? { transactionAt } : {}),
         ...(filters.customerId ? { customerId: filters.customerId } : {}),
         ...(filters.type ? { transactionType: filters.type } : {}),
         ...(filters.status ? { status: filters.status as any } : {}),
+        ...moneyStatusWhere,
         ...(filters.staffId ? { createdById: filters.staffId } : {}),
         ...(filters.reference ? {
           referenceNumber: { contains: filters.reference, mode: 'insensitive' },
@@ -83,6 +107,7 @@ export class ReportsService {
         receivableCollection: true,
         providerSettlementSource: true,
         providerSettlementReceipt: true,
+        payable: true,
       },
       orderBy: { transactionAt: 'desc' },
       take: 1000,
@@ -129,7 +154,39 @@ export class ReportsService {
           },
         },
         include: {
-          journal: { include: { transaction: { include: { customer: true } } } },
+          journal: {
+            include: {
+              transaction: {
+                include: {
+                  customer: true,
+                  payable: true,
+                  receivableSource: true,
+                  providerSettlementReceipt: {
+                    include: {
+                      settlement: {
+                        include: {
+                          sourceTransaction: {
+                            include: { payable: true, receivableSource: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  payablePayment: {
+                    include: {
+                      payable: {
+                        include: {
+                          sourceTransaction: {
+                            include: { payable: true, receivableSource: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -194,7 +251,7 @@ export class ReportsService {
     const [transactions, payables, receivables] = await Promise.all([
       this.prisma.transaction.findMany({
         where: { customerId },
-        include: { charges: true, commissions: true },
+        include: { charges: true, commissions: true, payable: true, receivableSource: true },
         orderBy: { transactionAt: 'desc' },
       }),
       this.prisma.customerPayable.findMany({

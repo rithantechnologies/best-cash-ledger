@@ -38,6 +38,7 @@ export class TransactionsController {
     @Query('q') q?: string,
     @Query('type') type?: TransactionType,
     @Query('status') status?: TransactionStatus,
+    @Query('moneyStatus') moneyStatus?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
@@ -49,6 +50,7 @@ export class TransactionsController {
       q,
       type,
       status,
+      moneyStatus,
       from: from ? new Date(from) : undefined,
       to: to ? new Date(to) : undefined,
     });

@@ -79,9 +79,32 @@ export class TransactionsService {
     q?: string;
     type?: TransactionType;
     status?: TransactionStatus;
+    moneyStatus?: string;
     from?: Date;
     to?: Date;
   }) {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const moneyStatusWhere: Prisma.TransactionWhereInput = options?.moneyStatus
+      ? options.moneyStatus === 'PAYOUT_PENDING'
+        ? { payable: { status: PayableStatus.PENDING, dueAt: { gte: startOfToday } } }
+        : options.moneyStatus === 'PAYOUT_OVERDUE'
+          ? { payable: { OR: [{ status: PayableStatus.OVERDUE }, { status: PayableStatus.PENDING, dueAt: { lt: startOfToday } }] } }
+          : options.moneyStatus === 'PAYOUT_PARTIALLY_PAID'
+            ? { payable: { status: PayableStatus.PARTIALLY_PAID } }
+            : options.moneyStatus === 'PAYOUT_PAID'
+              ? { payable: { status: PayableStatus.PAID } }
+              : options.moneyStatus === 'PAYIN_PENDING'
+                ? { receivableSource: { status: ReceivableStatus.PENDING, OR: [{ dueAt: null }, { dueAt: { gte: startOfToday } }] } }
+                : options.moneyStatus === 'PAYIN_OVERDUE'
+                  ? { receivableSource: { OR: [{ status: ReceivableStatus.OVERDUE }, { status: ReceivableStatus.PENDING, dueAt: { lt: startOfToday } }] } }
+                  : options.moneyStatus === 'PAYIN_PARTIALLY_RECEIVED'
+                    ? { receivableSource: { status: ReceivableStatus.PARTIALLY_RECEIVED } }
+                    : options.moneyStatus === 'PAYIN_RECEIVED'
+                      ? { receivableSource: { status: ReceivableStatus.RECEIVED } }
+                      : {}
+      : {};
+
     const where: Prisma.TransactionWhereInput = {
       ...(options?.q ? {
         OR: [
@@ -92,6 +115,7 @@ export class TransactionsService {
       } : {}),
       ...(options?.type ? { transactionType: options.type } : {}),
       ...(options?.status ? { status: options.status } : {}),
+      ...moneyStatusWhere,
       ...(options?.from || options?.to
         ? {
             transactionAt: {
@@ -110,7 +134,7 @@ export class TransactionsService {
     if (!options?.page) {
       const items = await this.prisma.transaction.findMany({
         where,
-        include: { customer: true, charges: true, commissions: true, payable: true },
+        include: { customer: true, charges: true, commissions: true, payable: true, receivableSource: true },
         orderBy,
         take: 100,
       });
@@ -122,7 +146,7 @@ export class TransactionsService {
     const [items, total] = await Promise.all([
       this.prisma.transaction.findMany({
         where,
-        include: { customer: true, charges: true, commissions: true, payable: true },
+        include: { customer: true, charges: true, commissions: true, payable: true, receivableSource: true },
         orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,

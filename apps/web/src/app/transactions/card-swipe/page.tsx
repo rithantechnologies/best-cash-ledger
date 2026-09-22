@@ -208,7 +208,7 @@ function CustomerCardSwipeHistory({rows,loading}:{rows:CustomerSwipeHistory[];lo
       {!loading?<span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{rows.length} txn{rows.length===1?"":"s"}</span>:null}
     </div>
     {loading?<p className="px-3 py-4 text-xs text-[var(--text-muted)]">Loading customer transactions…</p>:rows.length?<div className="max-h-72 overflow-auto"><table className="w-full min-w-[980px] text-xs">
-      <thead className="sticky top-0 bg-[var(--surface-soft)] text-left text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]"><tr><th className="px-3 py-2">Transaction</th><th>Swipe</th><th>Customer fee</th><th>Gateway fee</th><th>Paid</th><th>Paid from</th><th>Payout charge</th><th>Profit</th><th>Status</th></tr></thead>
+      <thead className="sticky top-0 bg-[var(--surface-soft)] text-left text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]"><tr><th className="px-3 py-2">Transaction</th><th>Swipe</th><th>Customer fee</th><th>Gateway fee</th><th>Paid</th><th>Paid from</th><th>Payout charge</th><th>Profit</th><th>Transaction status</th><th>Payout status</th><th>Due date</th></tr></thead>
       <tbody>{rows.map(row=>{
         const customerFee=Number(row.cardSwipe?.commissionAmount??row.commissions.reduce((sum,x)=>sum+Number(x.amount),0));
         const gatewayFee=Number(row.cardSwipe?.providerChargeAmount??row.charges.reduce((sum,x)=>sum+Number(x.amount),0));
@@ -225,7 +225,7 @@ function CustomerCardSwipeHistory({rows,loading}:{rows:CustomerSwipeHistory[];lo
           <td className="max-w-[180px] truncate">{sources.length?sources.join(", "):"—"}</td>
           <td className="money text-[var(--money-out)]">{money(payoutCharge)}</td>
           <td className={"money font-bold "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(profit)}</td>
-          <td>{historyPayoutStatus(row.payable)?<span className={"rounded-full px-2 py-1 text-[10px] font-bold "+historyPayoutStatus(row.payable)!.className}>{historyPayoutStatus(row.payable)!.label}</span>:<span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-bold">{row.status.replaceAll("_"," ")}</span>}</td>
+          <td><span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-bold">{row.status.replaceAll("_"," ")}</span></td><td>{historyPayoutStatus(row.payable)?<span className={"rounded-full px-2 py-1 text-[10px] font-bold "+historyPayoutStatus(row.payable)!.className}>{historyPayoutStatus(row.payable)!.label}</span>:<span className="text-[10px] text-[var(--text-muted)]">—</span>}</td><td className="text-[10px] text-[var(--text-muted)]">{row.payable?.dueAt?new Date(row.payable.dueAt).toLocaleDateString("en-IN"):"—"}</td>
         </tr>;
       })}</tbody>
     </table></div>:<p className="px-3 py-4 text-xs text-[var(--text-muted)]">No previous card swipes for this customer.</p>}

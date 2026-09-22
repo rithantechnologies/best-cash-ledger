@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, PanelHeader, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 
 type Card={id:string;bankName:string;cardType:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
 type Bank={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
@@ -16,7 +17,7 @@ type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;
 type Customer={
  id:string;customerCode:string;customerType:string;fullName:string;mobile:string|null;notes:string|null;isActive:boolean;
  cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];beneficiaries:Beneficiary[];
- transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null}[];
+ transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;payable:{status:string;dueAt:string;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null}[];
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
  receivables:{id:string;reason:string;remainingAmount:string;receivedAmount:string;originalAmount:string;dueAt:string|null;status:string}[];
 };
@@ -28,6 +29,7 @@ const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",c
 export default function CustomerDetailPage(){
  const {id}=useParams<{id:string}>();
  const [c,setC]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
+ const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [addKind,setAddKind]=useState<AddKind>(null),[toggleTarget,setToggleTarget]=useState<ToggleTarget>(null);
  const [bankName,setBankName]=useState(""),[holder,setHolder]=useState(""),[accountRef,setAccountRef]=useState(""),[ifsc,setIfsc]=useState("");
  const [upiName,setUpiName]=useState(""),[upiId,setUpiId]=useState(""),[upiMobile,setUpiMobile]=useState(""),[upiProvider,setUpiProvider]=useState("");
@@ -77,6 +79,7 @@ export default function CustomerDetailPage(){
  const openReceivable=c.receivables.filter(x=>!["RECEIVED","CANCELLED","REVERSED"].includes(x.status)).reduce((s,x)=>s+Number(x.remainingAmount),0);
  const primaryCard=c.cards.find(x=>x.isActive);
  const customerParam="customerId="+encodeURIComponent(c.id);
+ const visibleTransactions=c.transactions.filter(t=>(!txStatusFilter||t.status===txStatusFilter)&&(!moneyStatusFilter||moneyStatus(t)?.key===moneyStatusFilter));
  return <AppShell><PageFrame>
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href="/customers" className="text-xs font-bold text-indigo-600">← Customers</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{c.customerCode} · {c.customerType.replaceAll("_"," ")}</p><h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{c.fullName}</h2><p className="mt-1 text-sm text-slate-500">{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</p></div>
@@ -99,8 +102,12 @@ export default function CustomerDetailPage(){
    <DetailStat label="Recipients" value={c.beneficiaries.filter(x=>x.isActive).length} tone="cyan"/>
   </div>
   <Surface className="overflow-hidden">
-   <PanelHeader title="Recent transactions" description={c.transactions.length+" recent transaction(s)"} action={<Link href={"/search?q="+encodeURIComponent(c.customerCode)} className="text-xs font-bold text-indigo-600">Search all →</Link>}/>
-   {c.transactions.length?<div className="divide-y divide-slate-100">{c.transactions.map(t=><Link key={t.id} href={"/transactions/"+t.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"><div className="min-w-0"><p className="truncate text-sm font-semibold">{t.transactionType.replaceAll("_"," ")} · {t.transactionNumber}</p><p className="mt-0.5 text-[11px] text-slate-400">{new Date(t.transactionAt).toLocaleString("en-IN")} · {t.status.replaceAll("_"," ")}</p></div><strong className="shrink-0 text-sm">{money(t.grossAmount)}</strong></Link>)}</div>:<div className="p-4"><EmptyState title="No transactions yet"/></div>}
+   <PanelHeader title="Recent transactions" description={visibleTransactions.length+" of "+c.transactions.length+" recent transaction(s)"} action={<Link href={"/search?q="+encodeURIComponent(c.customerCode)} className="text-xs font-bold text-indigo-600">Search all →</Link>}/>
+   <div className="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-2">
+    <select className={control} value={txStatusFilter} onChange={e=>setTxStatusFilter(e.target.value)}><option value="">All transaction status</option>{["COMPLETED","PENDING","FAILED","CANCELLED","REVERSED"].map(x=><option key={x}>{x.replaceAll("_"," ")}</option>)}</select>
+    <select className={control} value={moneyStatusFilter} onChange={e=>setMoneyStatusFilter(e.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>
+   </div>
+   {visibleTransactions.length?<><div className="space-y-2 p-3 md:hidden">{visibleTransactions.map(t=>{const ms=moneyStatus(t);return <Link key={t.id} href={"/transactions/"+t.id} className="block rounded-xl border border-slate-100 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{t.transactionType.replaceAll("_"," ")} · {t.transactionNumber}</p><p className="mt-0.5 text-[11px] text-slate-400">{new Date(t.transactionAt).toLocaleString("en-IN")}</p></div><strong className="shrink-0 text-sm">{money(t.grossAmount)}</strong></div><div className="mt-2 flex flex-wrap gap-1.5"><StatusBadge tone={t.status==="COMPLETED"?"emerald":t.status==="REVERSED"?"rose":"amber"}>{t.status.replaceAll("_"," ")}</StatusBadge>{ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}{ms?.dueAt?<span className="px-2 py-1 text-[10px] text-slate-400">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}</div></Link>})}</div><div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[900px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Transaction</th><th>Date</th><th className="text-right">Amount</th><th>Transaction status</th><th>Payout / Pay-in</th><th className="pr-5">Due date</th></tr></thead><tbody>{visibleTransactions.map(t=>{const ms=moneyStatus(t);return <tr key={t.id} className="border-t border-slate-100"><td className="px-5 py-3"><Link href={"/transactions/"+t.id} className="font-semibold text-indigo-600">{t.transactionType.replaceAll("_"," ")} · {t.transactionNumber}</Link></td><td className="text-xs text-slate-500">{new Date(t.transactionAt).toLocaleString("en-IN")}</td><td className="text-right font-semibold">{money(t.grossAmount)}</td><td><StatusBadge tone={t.status==="COMPLETED"?"emerald":t.status==="REVERSED"?"rose":"amber"}>{t.status.replaceAll("_"," ")}</StatusBadge></td><td>{ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:<span className="text-slate-400">—</span>}</td><td className="pr-5 text-xs text-slate-500">{ms?.dueAt?new Date(ms.dueAt).toLocaleDateString("en-IN"):"—"}</td></tr>})}</tbody></table></div></>:<div className="p-4"><EmptyState title="No matching transactions"/></div>}
   </Surface>
   <div className="grid gap-4 lg:grid-cols-2">
    <Surface className="overflow-hidden"><PanelHeader title="Money to receive" description="Open and recent receivables." action={<Link href="/receivables" className="text-xs font-bold text-indigo-600">View all →</Link>}/><div className="divide-y divide-slate-100">{c.receivables.slice(0,5).map(x=><Link key={x.id} href={"/receivables/"+x.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"><div className="min-w-0"><p className="truncate text-sm font-semibold">{x.reason}</p><p className="text-[11px] text-slate-400">{x.status.replaceAll("_"," ")}{x.dueAt?" · "+new Date(x.dueAt).toLocaleDateString("en-IN"):""}</p></div><strong className="text-sm text-emerald-700">{money(x.remainingAmount)}</strong></Link>)}{!c.receivables.length?<div className="p-4"><EmptyState title="No receivables"/></div>:null}</div></Surface>
