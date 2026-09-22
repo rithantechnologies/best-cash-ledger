@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { TransactionType } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { ReportsService } from './reports.service.js';
@@ -27,8 +27,8 @@ export class ReportsController {
   }
 
   @Get('accounts/:id')
-  account(@Param('id') id: string, @Query('from') from?: string, @Query('to') to?: string) {
-    return this.reports.accountLedger(id, from, to);
+  account(@Req() req: any, @Param('id') id: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.reports.accountLedger(id, from, to, req.user.role);
   }
 
   @Get('customers/:id')

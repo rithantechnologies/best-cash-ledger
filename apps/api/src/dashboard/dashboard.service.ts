@@ -8,6 +8,7 @@ import {
   PaymentStatus,
   Prisma,
   ReceivableStatus,
+  RoleName,
   TransactionType,
   UsageType,
 } from '@prisma/client';
@@ -46,7 +47,7 @@ export class DashboardService {
       end: new Date(Date.UTC(y, m, d + 1) - offset),
     };
   }
-  private async getAccountBalances(): Promise<AccountBalance[]> {
+  private async getAccountBalances(role?: RoleName): Promise<AccountBalance[]> {
     const accounts = await this.prisma.financialAccount.findMany({
       include: { ledgerAccount: true },
       orderBy: { accountName: 'asc' },
@@ -106,11 +107,16 @@ export class DashboardService {
       };
     }).filter(
       (account) => account.isActive || Math.abs(account.currentBalance) > 0.005,
+    ).filter(
+      (account) =>
+        role !== RoleName.STAFF ||
+        account.accountType !== AccountType.CASH ||
+        account.accountName !== 'Main Cash Reserve',
     );
   }
 
-  async summary() {
-    const balances = await this.getAccountBalances();
+  async summary(role?: RoleName) {
+    const balances = await this.getAccountBalances(role);
     const sumType = (type: AccountType) =>
       balances.filter((a) => a.accountType === type)
         .reduce((sum, a) => sum + a.currentBalance, 0);
@@ -234,8 +240,8 @@ export class DashboardService {
     };
   }
 
-  accounts() {
-    return this.getAccountBalances();
+  accounts(role?: RoleName) {
+    return this.getAccountBalances(role);
   }
   async today() {
     const { start, end } = this.indiaDayRange();

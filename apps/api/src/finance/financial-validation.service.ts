@@ -151,18 +151,26 @@ export class FinancialValidationService {
     cashAccountId: string,
     label = 'Cash account',
   ) {
-    const session = await db.cashSession.findFirst({
-      where: {
-        cashAccountId,
-        businessDate: this.indiaBusinessDate(),
-        status: 'OPEN',
-      },
-      select: { id: true },
-    });
+    const [session, account] = await Promise.all([
+      db.cashSession.findFirst({
+        where: {
+          cashAccountId,
+          businessDate: this.indiaBusinessDate(),
+          status: 'OPEN',
+        },
+        select: { id: true },
+      }),
+      db.financialAccount.findUnique({
+        where: { id: cashAccountId },
+        select: { accountName: true },
+      }),
+    ]);
     if (!session) {
       throw new BadRequestException(
         label +
-          " requires today's Daily Cash Desk to be opened before recording physical cash.",
+          ' needs an open cash session for ' +
+          (account?.accountName ?? 'this cash drawer') +
+          '. Open it from Cash first.',
       );
     }
     return session;

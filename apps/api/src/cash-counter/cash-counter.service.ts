@@ -81,11 +81,19 @@ export class CashCounterService {
     };
   }
 
-  async today(cashAccountId?: string) {
+  async today(cashAccountId?: string, userId?: string, actorRole?: RoleName) {
     const session = await this.prisma.cashSession.findFirst({
       where: {
         businessDate: this.businessDate(),
-        ...(cashAccountId ? { cashAccountId } : {}),
+        ...(actorRole === RoleName.STAFF
+          ? {
+              openedById: userId,
+              cashAccount: { accountName: { not: 'Main Cash Reserve' } },
+              ...(cashAccountId ? { cashAccountId } : {}),
+            }
+          : cashAccountId
+            ? { cashAccountId }
+            : {}),
       },
       include: { cashAccount: true, denominationCounts: true },
       orderBy: { openedAt: 'desc' },
@@ -94,11 +102,19 @@ export class CashCounterService {
     return this.hydrateSession(session);
   }
 
-  async current(cashAccountId?: string) {
+  async current(cashAccountId?: string, userId?: string, actorRole?: RoleName) {
     const session = await this.prisma.cashSession.findFirst({
       where: {
         status: 'OPEN',
-        ...(cashAccountId ? { cashAccountId } : {}),
+        ...(actorRole === RoleName.STAFF
+          ? {
+              openedById: userId,
+              cashAccount: { accountName: { not: 'Main Cash Reserve' } },
+              ...(cashAccountId ? { cashAccountId } : {}),
+            }
+          : cashAccountId
+            ? { cashAccountId }
+            : {}),
       },
       include: { cashAccount: true, denominationCounts: true },
       orderBy: { openedAt: 'desc' },
@@ -136,6 +152,12 @@ export class CashCounterService {
         dto.cashAccountId,
         'Cash counter account',
       );
+      if (
+        actorRole === RoleName.STAFF &&
+        destination.accountName === 'Main Cash Reserve'
+      ) {
+        throw new ForbiddenException('Main Cash Reserve is owner-only');
+      }
 
       let fundingTransactionId: string | null = null;
       if (dto.sourceCashAccountId && openingTotal > 0) {
@@ -514,7 +536,12 @@ export class CashCounterService {
     };
   }
 
-  async close(id: string, dto: CloseCashSessionDto, userId: string) {
+  async close(
+    id: string,
+    dto: CloseCashSessionDto,
+    userId: string,
+    actorRole: RoleName,
+  ) {
     const actual = this.total(dto.denominations);
 
     return this.prisma.$transaction(async (tx) => {
@@ -522,8 +549,18 @@ export class CashCounterService {
         'SELECT "id" FROM "CashSession" WHERE "id" = $1 FOR UPDATE',
         id,
       );
-      const session = await tx.cashSession.findUnique({ where: { id } });
+      const session = await tx.cashSession.findUnique({
+        where: { id },
+        include: { cashAccount: true },
+      });
       if (!session) throw new NotFoundException('Cash session not found');
+      if (
+        actorRole === RoleName.STAFF &&
+        (session.openedById !== userId ||
+          session.cashAccount.accountName === 'Main Cash Reserve')
+      ) {
+        throw new ForbiddenException('Staff can only close their own staff cash session');
+      }
       if (session.status !== 'OPEN') {
         throw new BadRequestException('Cash session is already closed');
       }
@@ -777,8 +814,15 @@ export class CashCounterService {
     });
   }
 
-  async history() {
+  async history(userId?: string, actorRole?: RoleName) {
     const sessions = await this.prisma.cashSession.findMany({
+      where:
+        actorRole === RoleName.STAFF
+          ? {
+              openedById: userId,
+              cashAccount: { accountName: { not: 'Main Cash Reserve' } },
+            }
+          : undefined,
       include: { cashAccount: true, denominationCounts: true },
       orderBy: { openedAt: 'desc' },
       take: 100,

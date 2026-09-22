@@ -10,13 +10,13 @@ export class CashCounterController {
   constructor(private readonly cashCounter: CashCounterService) {}
 
   @Get('today')
-  today(@Query('cashAccountId') cashAccountId?: string) {
-    return this.cashCounter.today(cashAccountId);
+  today(@Req() req: any, @Query('cashAccountId') cashAccountId?: string) {
+    return this.cashCounter.today(cashAccountId, req.user.userId, req.user.role);
   }
 
   @Get('current')
-  current(@Query('cashAccountId') cashAccountId?: string) {
-    return this.cashCounter.current(cashAccountId);
+  current(@Req() req: any, @Query('cashAccountId') cashAccountId?: string) {
+    return this.cashCounter.current(cashAccountId, req.user.userId, req.user.role);
   }
 
   @Get('operators')
@@ -25,8 +25,8 @@ export class CashCounterController {
   }
 
   @Get('history')
-  history() {
-    return this.cashCounter.history();
+  history(@Req() req: any) {
+    return this.cashCounter.history(req.user.userId, req.user.role);
   }
 
   @Post('open')
@@ -36,6 +36,6 @@ export class CashCounterController {
 
   @Post(':id/close')
   close(@Param('id') id: string, @Body() dto: CloseCashSessionDto, @Req() req: any) {
-    return this.cashCounter.close(id, dto, req.user.userId);
+    return this.cashCounter.close(id, dto, req.user.userId, req.user.role);
   }
 }

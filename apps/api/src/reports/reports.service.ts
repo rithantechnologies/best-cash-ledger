@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { EntryType, Prisma, TransactionType } from '@prisma/client';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { AccountType, EntryType, Prisma, RoleName, TransactionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 type TxFilters = {
@@ -101,12 +101,19 @@ export class ReportsService {
       createdBy: byId.get(row.createdById) ?? null,
     }));
   }
-  async accountLedger(accountId: string, from?: string, to?: string) {
+  async accountLedger(accountId: string, from?: string, to?: string, role?: RoleName) {
     const account = await this.prisma.financialAccount.findUnique({
       where: { id: accountId },
       include: { ledgerAccount: true },
     });
     if (!account?.ledgerAccount) throw new NotFoundException('Account ledger not found');
+    if (
+      role === RoleName.STAFF &&
+      account.accountType === AccountType.CASH &&
+      account.accountName === 'Main Cash Reserve'
+    ) {
+      throw new ForbiddenException('Main Cash Reserve is owner-only');
+    }
 
     const postingDate: Prisma.DateTimeFilter = {};
     if (from) postingDate.gte = new Date(from);

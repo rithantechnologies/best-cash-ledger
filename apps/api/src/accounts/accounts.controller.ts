@@ -14,8 +14,8 @@ export class AccountsController {
   constructor(private readonly accounts: AccountsService) {}
 
   @Get()
-  list() {
-    return this.accounts.list();
+  list(@Req() req: any) {
+    return this.accounts.list(req.user.role);
   }
 
   @Post()

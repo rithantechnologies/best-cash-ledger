@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountNature, AccountType, LedgerType, ProviderSettlementStatus } from '@prisma/client';
+import { AccountNature, AccountType, LedgerType, ProviderSettlementStatus, RoleName } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateAccountDto } from './dto/create-account.dto.js';
@@ -12,11 +12,17 @@ export class AccountsService {
     private readonly validation: FinancialValidationService,
   ) {}
 
-  list() {
-    return this.prisma.financialAccount.findMany({
+  async list(role?: RoleName) {
+    const accounts = await this.prisma.financialAccount.findMany({
       include: { provider: true, ledgerAccount: true },
       orderBy: { accountName: 'asc' },
     });
+    if (role !== RoleName.STAFF) return accounts;
+    return accounts.filter(
+      (account) =>
+        account.accountType !== AccountType.CASH ||
+        account.accountName !== 'Main Cash Reserve',
+    );
   }
 
   async create(dto: CreateAccountDto, actorId: string) {
