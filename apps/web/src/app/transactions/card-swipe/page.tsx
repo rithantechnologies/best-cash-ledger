@@ -14,7 +14,16 @@ type Provider={id:string;name:string;gateways:Gateway[]};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null};
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionRate:string};
 type CommissionRule={commissionType:string;commissionRate:string}|null;
-type PaymentLeg={sourceAccountId:string;amount:string};
+type PaymentLeg={sourceAccountId:string;amount:string;chargeAmount:string};
+type HistoryCharge={amount:string;rate:string|null;chargeType:string};
+type HistoryPayment={id:string;amount:string;status:string;sourceAccount:Account;transaction:{id:string;transactionNumber:string;charges:HistoryCharge[]}};
+type CustomerSwipeHistory={
+  id:string;transactionNumber:string;transactionAt:string;status:string;grossAmount:string;netAmount:string|null;
+  charges:HistoryCharge[];commissions:{amount:string;rate:string|null}[];
+  cardSwipe:{swipeAmount:string;providerChargeAmount:string;commissionAmount:string;customerPayableAmount:string;customerCard:{bankName:string;lastFourDigits:string}|null}|null;
+  payable:{id:string;originalAmount:string;paidAmount:string;remainingAmount:string;status:string;payments:HistoryPayment[]}|null;
+  providerSettlementSource:{status:string;provider:{name:string}|null;gateway:{gatewayName:string}|null}|null;
+};
 type CustomerPreference={providerId:string;gatewayId:string;termId:string;cardId?:string;commissionRate?:string};
 type SavedSwipe={
   transaction:{id:string;transactionNumber:string;grossAmount:string;netAmount:string};
@@ -156,24 +165,58 @@ function RateControl({
 }
 
 function ReceiptSummary({
-  customerName,swipe,providerCharge,commission,payable,paid,remaining,showPaid,ready,
+  customerName,swipe,providerCharge,commission,payoutCharges,payable,paid,remaining,showPaid,ready,
 }:{
-  customerName:string;swipe:number;providerCharge:number;commission:number;payable:number;paid:number;remaining:number;showPaid:boolean;ready:boolean;
+  customerName:string;swipe:number;providerCharge:number;commission:number;payoutCharges:number;payable:number;paid:number;remaining:number;showPaid:boolean;ready:boolean;
 }){
   const totalText=ready?money(payable):"—";
+  const profit=commission-providerCharge-payoutCharges;
   const totalSize=totalText.length>13?"result-total-compact":totalText.length>10?"result-total-medium":"";
   return <div className="swipe-result-card rounded-2xl border border-[var(--border)] p-4 sm:p-5">
     <div className="swipe-result-head grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
       <div className="min-w-0"><p className="text-[13px] font-semibold text-[var(--text-muted)]">{customerName?customerName+" gets":"Customer gets"}</p><p className={"money result-total mt-1 font-black leading-none tracking-[-.045em] "+totalSize}>{totalText}</p></div>
-      <div className="swipe-result-earn max-w-[120px] rounded-xl bg-[color-mix(in_srgb,var(--money-in)_9%,transparent)] px-3 py-2 text-right"><p className="text-[10px] font-semibold text-[var(--text-muted)]">You earn</p><p className="money result-earn mt-0.5 font-extrabold text-[var(--money-in)]">{money(commission)}</p></div>
+      <div className="swipe-result-earn max-w-[132px] rounded-xl bg-[color-mix(in_srgb,var(--money-in)_9%,transparent)] px-3 py-2 text-right"><p className="text-[10px] font-semibold text-[var(--text-muted)]">Business profit</p><p className={"money result-earn mt-0.5 font-extrabold "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{ready?money(profit):"—"}</p></div>
     </div>
-    <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--border)] pt-3 sm:grid-cols-3">
+    <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--border)] pt-3 sm:grid-cols-4">
       <div className="min-w-0"><p className="text-[10px] font-medium text-[var(--text-muted)]">Swipe</p><p className="money result-metric mt-1 font-bold">{money(swipe)}</p></div>
+      <div className="min-w-0"><p className="text-[10px] font-medium text-[var(--text-muted)]">Customer fee</p><p className="money result-metric mt-1 font-bold text-[var(--money-in)]">{money(commission)}</p></div>
       <div className="min-w-0"><p className="text-[10px] font-medium text-[var(--text-muted)]">Gateway fee</p><p className="money result-metric mt-1 font-bold text-[var(--money-out)]">{ready?"−"+money(providerCharge):"—"}</p></div>
-      <div className="min-w-0 col-span-2 sm:col-span-1"><p className="text-[10px] font-medium text-[var(--text-muted)]">Commission</p><p className="money result-metric mt-1 font-bold text-[var(--money-in)]">{money(commission)}</p></div>
+      <div className="min-w-0"><p className="text-[10px] font-medium text-[var(--text-muted)]">Payout charge</p><p className="money result-metric mt-1 font-bold text-[var(--money-out)]">{payoutCharges>0?"−"+money(payoutCharges):money(0)}</p></div>
     </div>
     {!ready&&swipe>0?<p className="mt-3 text-[11px] font-medium leading-4 text-[var(--text-muted)]">Choose wallet / platform and gateway to complete the result.</p>:null}
+    {ready&&!showPaid?<p className="mt-3 text-[11px] font-medium leading-4 text-[var(--text-muted)]">Profit shown before any payout charge entered later.</p>:null}
     {showPaid&&ready?<div className="mt-3 grid grid-cols-2 gap-3 border-t border-[var(--border)] pt-3"><div className="min-w-0"><p className="text-[10px] text-[var(--text-muted)]">Paid</p><p className="money result-metric mt-1 font-bold text-[var(--money-in)]">{money(paid)}</p></div><div className="min-w-0"><p className="text-[10px] text-[var(--text-muted)]">Remaining</p><p className={"money result-metric mt-1 font-bold "+(remaining>.001?"text-amber-400":"text-[var(--money-in)]")}>{money(remaining)}</p></div></div>:null}
+  </div>;
+}
+
+function CustomerCardSwipeHistory({rows,loading}:{rows:CustomerSwipeHistory[];loading:boolean}){
+  return <div className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+    <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-3 py-2.5">
+      <div><p className="text-xs font-extrabold">Card swipe history</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">Swipe, fees, payout source and business profit.</p></div>
+      {!loading?<span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{rows.length} txn{rows.length===1?"":"s"}</span>:null}
+    </div>
+    {loading?<p className="px-3 py-4 text-xs text-[var(--text-muted)]">Loading customer transactions…</p>:rows.length?<div className="max-h-72 overflow-auto"><table className="w-full min-w-[980px] text-xs">
+      <thead className="sticky top-0 bg-[var(--surface-soft)] text-left text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]"><tr><th className="px-3 py-2">Transaction</th><th>Swipe</th><th>Customer fee</th><th>Gateway fee</th><th>Paid</th><th>Paid from</th><th>Payout charge</th><th>Profit</th><th>Status</th></tr></thead>
+      <tbody>{rows.map(row=>{
+        const customerFee=Number(row.cardSwipe?.commissionAmount??row.commissions.reduce((sum,x)=>sum+Number(x.amount),0));
+        const gatewayFee=Number(row.cardSwipe?.providerChargeAmount??row.charges.reduce((sum,x)=>sum+Number(x.amount),0));
+        const activePayments=row.payable?.payments.filter(p=>p.status==="COMPLETED")??[];
+        const payoutCharge=activePayments.reduce((sum,p)=>sum+p.transaction.charges.reduce((chargeSum,c)=>chargeSum+Number(c.amount),0),0);
+        const profit=customerFee-gatewayFee-payoutCharge;
+        const sources=[...new Set(activePayments.map(p=>p.sourceAccount.accountName))];
+        return <tr key={row.id} className="border-t border-[var(--border)] hover:bg-[var(--surface-soft)]">
+          <td className="px-3 py-2.5"><Link href={"/transactions/"+row.id} className="font-bold text-[var(--accent)]">{row.transactionNumber}</Link><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(row.transactionAt).toLocaleString("en-IN")}</p></td>
+          <td className="money font-semibold">{money(row.cardSwipe?.swipeAmount??row.grossAmount)}</td>
+          <td className="money font-semibold text-[var(--money-in)]">{money(customerFee)}</td>
+          <td className="money text-[var(--money-out)]">{money(gatewayFee)}</td>
+          <td className="money">{money(row.payable?.paidAmount??0)}</td>
+          <td className="max-w-[180px] truncate">{sources.length?sources.join(", "):"—"}</td>
+          <td className="money text-[var(--money-out)]">{money(payoutCharge)}</td>
+          <td className={"money font-bold "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(profit)}</td>
+          <td><span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-bold">{row.payable?.status?.replaceAll("_"," ")??row.status}</span></td>
+        </tr>;
+      })}</tbody>
+    </table></div>:<p className="px-3 py-4 text-xs text-[var(--text-muted)]">No previous card swipes for this customer.</p>}
   </div>;
 }
 
@@ -203,8 +246,10 @@ export default function CardSwipePage(){
   const [dueAt,setDueAt]=useState(dateTimeLocal(new Date()));
   const [settledNow,setSettledNow]=useState(true);
   const [recordCustomerPayment,setRecordCustomerPayment]=useState(false);
-  const [paymentLegs,setPaymentLegs]=useState<PaymentLeg[]>([{sourceAccountId:"",amount:""}]);
+  const [paymentLegs,setPaymentLegs]=useState<PaymentLeg[]>([{sourceAccountId:"",amount:"",chargeAmount:""}]);
   const [payoutTouched,setPayoutTouched]=useState(false);
+  const [customerHistory,setCustomerHistory]=useState<CustomerSwipeHistory[]>([]);
+  const [historyLoading,setHistoryLoading]=useState(false);
   const [settlementDueAt,setSettlementDueAt]=useState("");
   const [reference,setReference]=useState("");
   const [notes,setNotes]=useState("");
@@ -255,6 +300,17 @@ export default function CardSwipePage(){
     return()=>{window.removeEventListener("focus",refreshTerms);window.removeEventListener("storage",onStorage);};
   },[]);
 
+  useEffect(()=>{
+    if(!customerId){setCustomerHistory([]);setHistoryLoading(false);return;}
+    let cancelled=false;
+    setHistoryLoading(true);
+    apiFetch<CustomerSwipeHistory[]>("/transactions/customer/"+customerId+"/card-swipes")
+      .then(rows=>{if(!cancelled)setCustomerHistory(rows);})
+      .catch(()=>{if(!cancelled)setCustomerHistory([]);})
+      .finally(()=>{if(!cancelled)setHistoryLoading(false);});
+    return()=>{cancelled=true;};
+  },[customerId]);
+
   const customer=customers.find(c=>c.id===customerId);
   const customerNeedle=customerSearch.trim().toLowerCase();
   const customerDigits=customerSearch.replace(/\D/g,"");
@@ -274,14 +330,15 @@ export default function CardSwipePage(){
   const providerCharge=Math.round(swipe*pRate)/100;
   const commission=Math.round(swipe*cRate)/100;
   const settlement=Math.round((swipe-providerCharge)*100)/100;
-  const rawPayable=Math.round((swipe-providerCharge-commission)*100)/100;
+  const rawPayable=Math.round((swipe-commission)*100)/100;
   const payable=Math.max(0,rawPayable);
   const liquidAccounts=accounts.filter(a=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType));
   const paymentTotal=Math.round(paymentLegs.reduce((sum,leg)=>sum+Number(leg.amount||0),0)*100)/100;
+  const payoutCharges=recordCustomerPayment?Math.round(paymentLegs.reduce((sum,leg)=>sum+Number(leg.chargeAmount||0),0)*100)/100:0;
   const paidAmount=recordCustomerPayment?paymentTotal:0;
   const remainingAmount=Math.max(0,Math.round((payable-paidAmount)*100)/100);
   const payoutRequiredByAccount=(recordCustomerPayment?paymentLegs:[]).reduce((map,leg)=>{
-    if(leg.sourceAccountId)map.set(leg.sourceAccountId,(map.get(leg.sourceAccountId)??0)+Number(leg.amount||0));
+    if(leg.sourceAccountId)map.set(leg.sourceAccountId,(map.get(leg.sourceAccountId)??0)+Number(leg.amount||0)+Number(leg.chargeAmount||0));
     return map;
   },new Map<string,number>());
   const payoutBalanceShort=[...payoutRequiredByAccount.entries()].some(([id,required])=>{
@@ -390,7 +447,7 @@ export default function CardSwipePage(){
   function resetCustomerPayoutState(){
     setRecordCustomerPayment(false);
     setPayoutTouched(false);
-    setPaymentLegs([{sourceAccountId:"",amount:""}]);
+    setPaymentLegs([{sourceAccountId:"",amount:"",chargeAmount:""}]);
   }
 
   function resetSwipeDetails(openRouting=false){
@@ -464,7 +521,7 @@ export default function CardSwipePage(){
       source=settledNow&&providerWallet?providerWallet.id:(liquidAccounts.find(a=>a.accountType==="CASH")?.id??liquidAccounts[0]?.id??"");
     }
     setPayoutTouched(false);
-    setPaymentLegs([{sourceAccountId:source,amount:payable>0?String(payable):""}]);
+    setPaymentLegs([{sourceAccountId:source,amount:payable>0?String(payable):"",chargeAmount:""}]);
     setRecordCustomerPayment(true);
   }
 
@@ -474,7 +531,7 @@ export default function CardSwipePage(){
   }
 
   function updatePaymentLeg(index:number,patch:Partial<PaymentLeg>){
-    if(patch.amount!==undefined)setPayoutTouched(true);
+    if(patch.amount!==undefined||patch.chargeAmount!==undefined)setPayoutTouched(true);
     setPaymentLegs(current=>current.map((leg,i)=>i===index?{...leg,...patch}:leg));
     if(index===0&&patch.sourceAccountId){
       try{localStorage.setItem("cashledger_card_payout_source",patch.sourceAccountId);}catch{}
@@ -483,7 +540,7 @@ export default function CardSwipePage(){
 
   function addPaymentSource(){
     setPayoutTouched(true);
-    setPaymentLegs(current=>[...current,{sourceAccountId:"",amount:""}]);
+    setPaymentLegs(current=>[...current,{sourceAccountId:"",amount:"",chargeAmount:""}]);
   }
 
   function removePaymentSource(index:number){
@@ -520,7 +577,7 @@ export default function CardSwipePage(){
         dueAt:new Date(dueAt).toISOString(),
         settledNow,
         customerPayments:recordCustomerPayment?paymentLegs.map(leg=>({
-          sourceAccountId:leg.sourceAccountId,amount:Number(leg.amount),
+          sourceAccountId:leg.sourceAccountId,amount:Number(leg.amount),chargeAmount:Number(leg.chargeAmount||0),
         })):undefined,
         settlementDueAt:settlementDueAt?new Date(settlementDueAt).toISOString():undefined,
         referenceNumber:reference||undefined,
@@ -554,7 +611,7 @@ export default function CardSwipePage(){
     setSettledNow(true);
     setRecordCustomerPayment(false);
     setPayoutTouched(false);
-    setPaymentLegs([{sourceAccountId:"",amount:""}]);
+    setPaymentLegs([{sourceAccountId:"",amount:"",chargeAmount:""}]);
     setSettlementDueAt("");
     setReference("");
     setNotes("");
@@ -603,7 +660,7 @@ export default function CardSwipePage(){
   const control="app-control";
   const payoutValid=!recordCustomerPayment||(
     paymentLegs.length>0&&
-    paymentLegs.every(leg=>!!leg.sourceAccountId&&Number(leg.amount)>0)&&
+    paymentLegs.every(leg=>!!leg.sourceAccountId&&Number(leg.amount)>0&&Number(leg.chargeAmount||0)>=0)&&
     paidAmount>0&&paidAmount<=payable+0.001&&!payoutBalanceShort
   );
   const customerReady=customerMode==="new"
@@ -661,6 +718,7 @@ export default function CardSwipePage(){
                 <Link href={"/customers/"+customer.id} className="flex min-w-[110px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] px-3 text-xs font-semibold text-[var(--accent)]">+ Add card</Link>
               </div>
             </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, mobile or card last 4" autoComplete="off" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
+            {customer?<CustomerCardSwipeHistory rows={customerHistory} loading={historyLoading}/>:null}
           </section>
 
           <section className="entry-section entry-section-amount">
@@ -700,26 +758,26 @@ export default function CardSwipePage(){
           </section>
 
           <section className="entry-section entry-section-commission">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><h2 className="entry-title">Business commission</h2><div className="min-w-0 max-w-full text-right"><p className="money section-money font-extrabold text-[var(--money-in)]">{money(commission)}</p></div></div>
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><h2 className="entry-title">Customer fee / commission</h2><div className="min-w-0 max-w-full text-right"><p className="money section-money font-extrabold text-[var(--money-in)]">{money(commission)}</p></div></div>
             <div className="mt-2"><RateControl value={cRate} onChange={updateCommission} recent={recentRates} suggested={suggestedCommission}/></div>
           </section>
 
           <section className="entry-section entry-section-payout">
             <div className="flex items-center justify-between gap-3"><h2 className="entry-title">Customer payout</h2><div>{payoutReady&&recordCustomerPayment&&remainingAmount<=.001?<span className="status-chip status-chip-green">Settled</span>:payoutReady&&instantTerm?<span className="status-chip status-chip-blue">Due now</span>:null}</div></div>
             <div className={"mt-2 grid grid-cols-2 gap-1 rounded-lg bg-[var(--surface-soft)] p-1 "+(!payoutReady?"opacity-45":"")}><button type="button" disabled={!payoutReady} onClick={deferCustomerPayment} className={"min-h-10 rounded-md text-[13px] font-bold "+(!recordCustomerPayment&&payoutReady?"bg-[var(--surface)] shadow-sm":"text-[var(--text-muted)]")}>Not paid yet</button><button type="button" disabled={!payoutReady} onClick={startCustomerPayment} className={"min-h-10 rounded-md text-[13px] font-bold "+(recordCustomerPayment&&payoutReady?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Pay now / already paid</button></div>
-            {!payoutReady?<p className="mt-2 text-xs text-[var(--text-muted)]">Choose wallet / platform and gateway first.</p>:!recordCustomerPayment?<div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><span className="text-[13px] font-semibold text-[var(--text-muted)]">Remaining payable</span><strong className="money section-money max-w-full font-extrabold text-amber-600">{money(payable)}</strong></div>:<div className="mt-2 space-y-2">{paymentLegs.map((leg,index)=>{const source=liquidAccounts.find(a=>a.id===leg.sourceAccountId);const sourceIncoming=settledNow&&providerWallet?.id===source?.id?settlement:0;const sourceAvailable=(source?.currentBalance??0)+sourceIncoming;return <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(104px,118px)_24px] items-start gap-1.5"><div><select className={control+" text-xs font-semibold"} value={leg.sourceAccountId} onChange={e=>updatePaymentLeg(index,{sourceAccountId:e.target.value})}><option value="">Paid from</option>{liquidAccounts.map(a=>{const usedElsewhere=paymentLegs.some((other,i)=>i!==index&&other.sourceAccountId===a.id);return <option key={a.id} value={a.id} disabled={usedElsewhere}>{a.accountName}</option>;})}</select>{source?<p className="mt-0.5 px-1 text-[10px] text-[var(--text-muted)]">Available {money(sourceAvailable)}</p>:null}</div><div className="relative"><span className="pointer-events-none absolute left-2.5 top-[22px] -translate-y-1/2 text-sm font-semibold text-[var(--text-muted)]">₹</span><input className={control+" pl-7 pr-2 text-right text-sm font-bold"} type="text" inputMode="decimal" value={formatAmountInput(leg.amount)} onChange={e=>updatePaymentLeg(index,{amount:cleanAmountInput(e.target.value)})}/></div><button type="button" disabled={paymentLegs.length===1} onClick={()=>removePaymentSource(index)} className="h-10 text-base text-[var(--text-muted)] disabled:opacity-20">×</button></div>;})}<div className="flex items-center justify-between"><button type="button" onClick={addPaymentSource} className="text-xs font-semibold text-[var(--accent)]">+ Another account</button><span className="text-xs text-[var(--text-muted)]">Remaining <strong className={remainingAmount>.001?"text-amber-600":"text-[var(--money-in)]"}>{money(remainingAmount)}</strong></span></div>{payoutBalanceShort?<p className="text-xs font-semibold text-rose-600">Selected account balance is not enough.</p>:null}</div>}
+            {!payoutReady?<p className="mt-2 text-xs text-[var(--text-muted)]">Choose wallet / platform and gateway first.</p>:!recordCustomerPayment?<div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><span className="text-[13px] font-semibold text-[var(--text-muted)]">Remaining payable</span><strong className="money section-money max-w-full font-extrabold text-amber-600">{money(payable)}</strong></div>:<div className="mt-2 space-y-2">{paymentLegs.map((leg,index)=>{const source=liquidAccounts.find(a=>a.id===leg.sourceAccountId);const sourceIncoming=settledNow&&providerWallet?.id===source?.id?settlement:0;const sourceAvailable=(source?.currentBalance??0)+sourceIncoming;return <div key={index} className="grid grid-cols-[minmax(0,1fr)_88px_82px_24px] items-start gap-1.5"><div><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Paid from</p><select className={control+" text-xs font-semibold"} value={leg.sourceAccountId} onChange={e=>updatePaymentLeg(index,{sourceAccountId:e.target.value})}><option value="">Select source</option>{liquidAccounts.map(a=>{const usedElsewhere=paymentLegs.some((other,i)=>i!==index&&other.sourceAccountId===a.id);return <option key={a.id} value={a.id} disabled={usedElsewhere}>{a.accountName}</option>;})}</select>{source?<p className="mt-0.5 px-1 text-[10px] text-[var(--text-muted)]">Available {money(sourceAvailable)}</p>:null}</div><div><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payout</p><div className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">₹</span><input className={control+" pl-5 pr-1 text-right text-xs font-bold"} type="text" inputMode="decimal" value={formatAmountInput(leg.amount)} onChange={e=>updatePaymentLeg(index,{amount:cleanAmountInput(e.target.value)})}/></div></div><div><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Charge</p><div className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">₹</span><input className={control+" pl-5 pr-1 text-right text-xs font-bold"} type="text" inputMode="decimal" value={formatAmountInput(leg.chargeAmount)} onChange={e=>updatePaymentLeg(index,{chargeAmount:cleanAmountInput(e.target.value)})} placeholder="0"/></div></div><button type="button" disabled={paymentLegs.length===1} onClick={()=>removePaymentSource(index)} className="mt-5 h-10 text-base text-[var(--text-muted)] disabled:opacity-20">×</button></div>;})}<div className="flex items-center justify-between"><button type="button" onClick={addPaymentSource} className="text-xs font-semibold text-[var(--accent)]">+ Another account</button><span className="text-xs text-[var(--text-muted)]">Remaining <strong className={remainingAmount>.001?"text-amber-600":"text-[var(--money-in)]"}>{money(remainingAmount)}</strong></span></div>{payoutBalanceShort?<p className="text-xs font-semibold text-rose-600">Selected account balance is not enough.</p>:null}</div>}
           </section>
 
-          <section className="entry-section lg:hidden"><ReceiptSummary customerName={displayCustomerName} swipe={swipe} providerCharge={providerCharge} commission={commission} payable={payable} paid={paidAmount} remaining={remainingAmount} showPaid={recordCustomerPayment} ready={calculationReady}/></section>
+          <section className="entry-section lg:hidden"><ReceiptSummary customerName={displayCustomerName} swipe={swipe} providerCharge={providerCharge} commission={commission} payoutCharges={payoutCharges} payable={payable} paid={paidAmount} remaining={remainingAmount} showPaid={recordCustomerPayment} ready={calculationReady}/></section>
 
           <section className="entry-section p-0"><button type="button" onClick={()=>setShowOptional(v=>!v)} className="flex min-h-12 w-full items-center justify-between px-4 text-left"><span className="text-sm font-semibold">More details</span><span className="text-lg text-[var(--text-muted)]">{showOptional?"−":"+"}</span></button>{showOptional?<div className="grid gap-3 border-t border-[var(--border)] p-4 sm:grid-cols-2">{!settledNow?<Field label="Expected settlement"><input className={control} type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)}/></Field>:null}<Field label="Reference" className={settledNow?"sm:col-span-2":undefined}><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="UTR / batch / reference"/></Field><Field label="Notes" className="sm:col-span-2"><textarea className={control+" min-h-20 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div>:null}</section>
         </Surface>
       </div>
 
-      <aside className="fixed right-6 top-[92px] z-20 hidden w-[340px] space-y-3 lg:block"><ReceiptSummary customerName={displayCustomerName} swipe={swipe} providerCharge={providerCharge} commission={commission} payable={payable} paid={paidAmount} remaining={remainingAmount} showPaid={recordCustomerPayment} ready={calculationReady}/></aside>
+      <aside className="fixed right-6 top-[92px] z-20 hidden w-[340px] space-y-3 lg:block"><ReceiptSummary customerName={displayCustomerName} swipe={swipe} providerCharge={providerCharge} commission={commission} payoutCharges={payoutCharges} payable={payable} paid={paidAmount} remaining={remainingAmount} showPaid={recordCustomerPayment} ready={calculationReady}/></aside>
     </div>
 
     <div className="fixed bottom-6 right-6 z-40 hidden w-[340px] lg:block"><button disabled={!canSave} className="swipe-primary-action min-h-12 w-full rounded-xl px-4 text-sm font-bold text-white shadow-[0_14px_36px_rgba(37,99,235,.28)] disabled:opacity-35">{saving?"Saving…":desktopSaveLabel}</button></div>
-    <div className="swipe-sticky-bar fixed inset-x-0 bottom-0 z-30 border-t border-[var(--border)] px-3 py-2 pb-[max(.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden"><div className="mx-auto grid max-w-3xl grid-cols-[minmax(0,1fr)_auto] items-center gap-3"><div className="min-w-0"><p className="truncate text-xs font-semibold text-[var(--text-muted)]">{displayCustomerName?displayCustomerName+" gets":"Customer gets"}</p><p className="sticky-money money truncate font-extrabold tracking-[-.035em]">{calculationReady?money(payable):"—"}</p><p className="money text-xs font-bold text-[var(--money-in)]">Earn {money(commission)}</p></div><button disabled={!canSave} className="swipe-primary-action min-h-12 min-w-[118px] rounded-xl px-4 text-sm font-bold text-white disabled:opacity-35">{saving?"Saving…":mobileSaveLabel}</button></div></div>
+    <div className="swipe-sticky-bar fixed inset-x-0 bottom-0 z-30 border-t border-[var(--border)] px-3 py-2 pb-[max(.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden"><div className="mx-auto grid max-w-3xl grid-cols-[minmax(0,1fr)_auto] items-center gap-3"><div className="min-w-0"><p className="truncate text-xs font-semibold text-[var(--text-muted)]">{displayCustomerName?displayCustomerName+" gets":"Customer gets"}</p><p className="sticky-money money truncate font-extrabold tracking-[-.035em]">{calculationReady?money(payable):"—"}</p><p className={"money text-xs font-bold "+(commission-providerCharge-payoutCharges>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>Profit {calculationReady?money(commission-providerCharge-payoutCharges):"—"}</p></div><button disabled={!canSave} className="swipe-primary-action min-h-12 min-w-[118px] rounded-xl px-4 text-sm font-bold text-white disabled:opacity-35">{saving?"Saving…":mobileSaveLabel}</button></div></div>
   </form></AppShell>;
 }

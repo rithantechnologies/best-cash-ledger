@@ -90,7 +90,7 @@ export class PayablesService {
         payments: {
           include: {
             sourceAccount: true,
-            transaction: true,
+            transaction: { include: { charges: true } },
           },
           orderBy: { paymentDate: 'desc' },
         },
@@ -146,6 +146,7 @@ export class PayablesService {
       }
 
       const remaining = Number(payable.remainingAmount);
+      const chargeAmount = Math.round(((dto.chargeAmount ?? 0) + Number.EPSILON) * 100) / 100;
       if (dto.amount > remaining + 0.001) {
         throw new BadRequestException('Payment exceeds remaining payable');
       }
@@ -166,13 +167,20 @@ export class PayablesService {
       await this.validation.ensureSufficientFunds(
         tx,
         sourceAccount,
-        dto.amount,
+        dto.amount + chargeAmount,
       );
 
       const payableLedger = await tx.ledgerAccount.findUnique({
         where: { ledgerCode: 'SYS-CUST-PAYABLE' },
       });
+      const chargeLedgerCode = sourceAccount.accountType === AccountType.PROVIDER_WALLET
+        ? 'SYS-PROVIDER-CHARGE'
+        : 'SYS-BANK-CHARGE';
+      const chargeLedger = chargeAmount > 0
+        ? await tx.ledgerAccount.findUnique({ where: { ledgerCode: chargeLedgerCode } })
+        : null;
       if (!payableLedger) throw new Error('Customer payable ledger missing');
+      if (chargeAmount > 0 && !chargeLedger) throw new Error('Payout charge ledger missing');
 
       const transaction = await tx.transaction.create({
         data: {
@@ -180,7 +188,7 @@ export class PayablesService {
           transactionType: TransactionType.CUSTOMER_PAYOUT,
           transactionAt: new Date(),
           customerId: payable.customerId,
-          grossAmount: new Prisma.Decimal(dto.amount),
+          grossAmount: new Prisma.Decimal(dto.amount + chargeAmount),
           netAmount: new Prisma.Decimal(dto.amount),
           status: TransactionStatus.COMPLETED,
           idempotencyKey,
@@ -202,6 +210,18 @@ export class PayablesService {
           createdById: userId,
         },
       });
+      if (chargeAmount > 0) {
+        await tx.transactionCharge.create({
+          data: {
+            transactionId: transaction.id,
+            chargeType: sourceAccount.accountType === AccountType.PROVIDER_WALLET ? 'PAYOUT_WALLET' : 'PAYOUT',
+            providerId: sourceAccount.providerId,
+            calculationType: 'FIXED',
+            amount: new Prisma.Decimal(chargeAmount),
+            notes: 'Customer payout charge',
+          },
+        });
+      }
 
       const paidAmount = Number(payable.paidAmount) + dto.amount;
       const remainingAmount = Math.max(0, remaining - dto.amount);
@@ -220,27 +240,36 @@ export class PayablesService {
         },
       });
 
+      const payoutEntries = [
+        {
+          ledgerAccountId: payableLedger.id,
+          entryType: EntryType.DEBIT,
+          amount: dto.amount,
+          customerId: payable.customerId,
+          payableId: payable.id,
+        },
+        ...(chargeAmount > 0 && chargeLedger ? [{
+          ledgerAccountId: chargeLedger.id,
+          entryType: EntryType.DEBIT,
+          amount: chargeAmount,
+          customerId: payable.customerId,
+          payableId: payable.id,
+          description: 'Customer payout charge expense',
+        }] : []),
+        {
+          ledgerAccountId: sourceAccount.ledgerAccount!.id,
+          entryType: EntryType.CREDIT,
+          amount: dto.amount + chargeAmount,
+          customerId: payable.customerId,
+          payableId: payable.id,
+        },
+      ];
       await this.ledger.post(
         tx,
         transaction.id,
         userId,
         'Customer payable payment',
-        [
-          {
-            ledgerAccountId: payableLedger.id,
-            entryType: EntryType.DEBIT,
-            amount: dto.amount,
-            customerId: payable.customerId,
-            payableId: payable.id,
-          },
-          {
-            ledgerAccountId: sourceAccount.ledgerAccount!.id,
-            entryType: EntryType.CREDIT,
-            amount: dto.amount,
-            customerId: payable.customerId,
-            payableId: payable.id,
-          },
-        ],
+        payoutEntries,
       );
 
       await tx.auditLog.create({
@@ -259,6 +288,7 @@ export class PayablesService {
             remainingAmount: remainingAmount.toString(),
             status,
             transactionId: transaction.id,
+            chargeAmount: chargeAmount.toString(),
           },
         },
       });

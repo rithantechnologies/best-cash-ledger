@@ -17,6 +17,7 @@ import {
 class CardSwipeCustomerPaymentDto {
   @IsNumber() @Min(0.01) amount!: number;
   @IsString() sourceAccountId!: string;
+  @IsOptional() @IsNumber() @Min(0) chargeAmount?: number;
 }
 
 class CardSwipeNewCustomerDto {

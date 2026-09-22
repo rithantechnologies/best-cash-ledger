@@ -44,6 +44,11 @@ export class TransactionsController {
     });
   }
 
+  @Get('customer/:customerId/card-swipes')
+  customerCardSwipes(@Param('customerId') customerId: string) {
+    return this.transactions.listCustomerCardSwipes(customerId);
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.transactions.get(id);

@@ -9,6 +9,11 @@ export class CreatePayablePaymentDto {
   sourceAccountId!: string;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  chargeAmount?: number;
+
+  @IsOptional()
   @IsString()
   referenceNumber?: string;
 

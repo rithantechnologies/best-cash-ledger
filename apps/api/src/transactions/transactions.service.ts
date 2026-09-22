@@ -141,6 +141,51 @@ export class TransactionsService {
     };
   }
 
+  async listCustomerCardSwipes(customerId: string) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { id: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    return this.prisma.transaction.findMany({
+      where: {
+        customerId,
+        transactionType: TransactionType.CARD_SWIPE,
+      },
+      include: {
+        charges: true,
+        commissions: true,
+        cardSwipe: {
+          include: {
+            customerCard: true,
+            paymentTerm: true,
+            settlementAccount: true,
+          },
+        },
+        payable: {
+          include: {
+            payments: {
+              include: {
+                sourceAccount: true,
+                transaction: { include: { charges: true } },
+              },
+              orderBy: { paymentDate: 'asc' },
+            },
+          },
+        },
+        providerSettlementSource: {
+          include: {
+            provider: true,
+            gateway: true,
+            destinationAccount: true,
+          },
+        },
+      },
+      orderBy: { transactionAt: 'desc' },
+    });
+  }
+
   async createCardSwipe(
     dto: CreateCardSwipeDto,
     userId: string,
@@ -152,8 +197,16 @@ export class TransactionsService {
       dto,
       providedIdempotencyKey,
     );
+    const configuredGateway = await this.prisma.providerGateway.findFirst({
+      where: { id: dto.gatewayId, providerId: dto.providerId, isActive: true },
+      select: { defaultChargeRate: true },
+    });
+    if (!configuredGateway) {
+      throw new BadRequestException('Selected active gateway does not belong to the provider');
+    }
+    const providerChargeRate = Number(configuredGateway.defaultChargeRate);
     const providerChargeAmount = this.money(
-      dto.swipeAmount * dto.providerChargeRate / 100,
+      dto.swipeAmount * providerChargeRate / 100,
     );
     const commissionAmount = this.money(
       dto.swipeAmount * dto.commissionRate / 100,
@@ -162,11 +215,12 @@ export class TransactionsService {
       dto.swipeAmount - providerChargeAmount,
     );
     const customerPayableAmount = this.money(
-      dto.swipeAmount - providerChargeAmount - commissionAmount,
+      dto.swipeAmount - commissionAmount,
     );
     const customerPayments = (dto.customerPayments ?? []).map((payment) => ({
       sourceAccountId: payment.sourceAccountId,
       amount: this.money(payment.amount),
+      chargeAmount: this.money(payment.chargeAmount ?? 0),
     }));
     const customerPaidAmount = this.money(
       customerPayments.reduce((sum, payment) => sum + payment.amount, 0),
@@ -318,7 +372,7 @@ export class TransactionsService {
           payment.sourceAccountId,
           this.money(
             (payoutRequiredByAccount.get(payment.sourceAccountId) ?? 0) +
-              payment.amount,
+              payment.amount + payment.chargeAmount,
           ),
         );
       }
@@ -355,6 +409,8 @@ export class TransactionsService {
               'SYS-CUST-PAYABLE',
               'SYS-COMMISSION',
               'SYS-PROVIDER-CLEARING',
+              'SYS-PROVIDER-CHARGE',
+              'SYS-BANK-CHARGE',
             ],
           },
         },
@@ -365,7 +421,9 @@ export class TransactionsService {
       const payableLedger = byCode.get('SYS-CUST-PAYABLE');
       const commissionLedger = byCode.get('SYS-COMMISSION');
       const clearingLedger = byCode.get('SYS-PROVIDER-CLEARING');
-      if (!payableLedger || !commissionLedger || !clearingLedger) {
+      const providerChargeLedger = byCode.get('SYS-PROVIDER-CHARGE');
+      const bankChargeLedger = byCode.get('SYS-BANK-CHARGE');
+      if (!payableLedger || !commissionLedger || !clearingLedger || !providerChargeLedger || !bankChargeLedger) {
         throw new Error('Required system ledgers are missing');
       }
 
@@ -392,7 +450,7 @@ export class TransactionsService {
           swipeAmount: new Prisma.Decimal(dto.swipeAmount),
           providerId: dto.providerId,
           gatewayId: dto.gatewayId,
-          providerChargeRate: new Prisma.Decimal(dto.providerChargeRate),
+          providerChargeRate: new Prisma.Decimal(providerChargeRate),
           providerChargeAmount: new Prisma.Decimal(providerChargeAmount),
           commissionRate: new Prisma.Decimal(dto.commissionRate),
           commissionAmount: new Prisma.Decimal(commissionAmount),
@@ -412,7 +470,7 @@ export class TransactionsService {
             providerId: dto.providerId,
             gatewayId: dto.gatewayId,
             calculationType: 'PERCENTAGE',
-            rate: new Prisma.Decimal(dto.providerChargeRate),
+            rate: new Prisma.Decimal(providerChargeRate),
             amount: new Prisma.Decimal(providerChargeAmount),
           },
         });
@@ -464,6 +522,14 @@ export class TransactionsService {
           providerSettlementId: providerSettlement.id,
           description: 'Provider settlement pending',
         },
+        ...(providerChargeAmount > 0 ? [{
+          ledgerAccountId: providerChargeLedger.id,
+          entryType: EntryType.DEBIT,
+          amount: providerChargeAmount,
+          customerId: customerId,
+          providerSettlementId: providerSettlement.id,
+          description: 'Gateway processing charge',
+        }] : []),
         {
           ledgerAccountId: payableLedger.id,
           entryType: EntryType.CREDIT,
@@ -528,7 +594,7 @@ export class TransactionsService {
             transactionType: TransactionType.CUSTOMER_PAYOUT,
             transactionAt: new Date(),
             customerId: customerId,
-            grossAmount: new Prisma.Decimal(payment.amount),
+            grossAmount: new Prisma.Decimal(payment.amount + payment.chargeAmount),
             netAmount: new Prisma.Decimal(payment.amount),
             status: TransactionStatus.COMPLETED,
             idempotencyKey:
@@ -551,27 +617,50 @@ export class TransactionsService {
             createdById: userId,
           },
         });
+        if (payment.chargeAmount > 0) {
+          await tx.transactionCharge.create({
+            data: {
+              transactionId: payoutTransaction.id,
+              chargeType: sourceAccount.accountType === AccountType.PROVIDER_WALLET ? 'PAYOUT_WALLET' : 'PAYOUT',
+              providerId: sourceAccount.providerId,
+              calculationType: 'FIXED',
+              amount: new Prisma.Decimal(payment.chargeAmount),
+              notes: 'Customer payout charge',
+            },
+          });
+        }
+        const payoutEntries: JournalEntry[] = [
+          {
+            ledgerAccountId: payableLedger.id,
+            entryType: EntryType.DEBIT,
+            amount: payment.amount,
+            customerId: customerId,
+            payableId: payable.id,
+          },
+          {
+            ledgerAccountId: sourceAccount.ledgerAccount!.id,
+            entryType: EntryType.CREDIT,
+            amount: payment.amount + payment.chargeAmount,
+            customerId: customerId,
+            payableId: payable.id,
+          },
+        ];
+        if (payment.chargeAmount > 0) {
+          payoutEntries.splice(1, 0, {
+            ledgerAccountId: sourceAccount.accountType === AccountType.PROVIDER_WALLET ? providerChargeLedger.id : bankChargeLedger.id,
+            entryType: EntryType.DEBIT,
+            amount: payment.chargeAmount,
+            customerId: customerId,
+            payableId: payable.id,
+            description: 'Customer payout charge expense',
+          });
+        }
         await this.ledger.post(
           tx,
           payoutTransaction.id,
           userId,
           'Customer payable payment',
-          [
-            {
-              ledgerAccountId: payableLedger.id,
-              entryType: EntryType.DEBIT,
-              amount: payment.amount,
-              customerId: customerId,
-              payableId: payable.id,
-            },
-            {
-              ledgerAccountId: sourceAccount.ledgerAccount!.id,
-              entryType: EntryType.CREDIT,
-              amount: payment.amount,
-              customerId: customerId,
-              payableId: payable.id,
-            },
-          ],
+          payoutEntries,
         );
         await this.auditCreated(tx, payoutTransaction, userId);
         payoutTransactions.push(payoutTransaction);
@@ -2059,7 +2148,7 @@ export class TransactionsService {
         expense: { include: { expenseCategory: true, paymentAccount: true } },
         atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
         creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
-        payable: { include: { payments: { include: { sourceAccount: true } } } },
+        payable: { include: { payments: { include: { sourceAccount: true, transaction: { include: { charges: true } } } } } },
         payablePayment: { include: { payable: true, sourceAccount: true } },
         receivableSource: { include: { collections: { include: { destinationAccount: true } }, sourceAccount: true } },
         receivableCollection: { include: { receivable: true, destinationAccount: true } },

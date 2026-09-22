@@ -18,13 +18,14 @@ export default function PayablesPage(){
  const [items,setItems]=useState<Payable[]>([]),[accounts,setAccounts]=useState<Account[]>([]);
  const [pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
  const [q,setQ]=useState(""),[status,setStatus]=useState(""),[sortBy,setSortBy]=useState("dueAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("asc");
- const [selected,setSelected]=useState<Payable|null>(null),[amount,setAmount]=useState(""),[source,setSource]=useState(""),[reference,setReference]=useState(""),[paymentNotes,setPaymentNotes]=useState("");
+ const [selected,setSelected]=useState<Payable|null>(null),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[reference,setReference]=useState(""),[paymentNotes,setPaymentNotes]=useState("");
  const [role,setRole]=useState(""),[cancelTarget,setCancelTarget]=useState<Payable|null>(null),[cancelReason,setCancelReason]=useState("");
  const [error,setError]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
  const control="app-control";
  const sourceAccount=accounts.find(a=>a.id===source);
  const payoutAmount=Number(amount||0);
- const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount>sourceAccount.currentBalance+0.001:false;
+ const payoutCharge=Number(charge||0);
+ const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
  function load(page=pagination.page){
   const params=new URLSearchParams({page:String(page),pageSize:String(pagination.pageSize),sortBy,sortDir});
   if(q.trim())params.set("q",q.trim());if(status)params.set("status",status);
@@ -38,7 +39,7 @@ export default function PayablesPage(){
 
  async function pay(e:FormEvent){
   e.preventDefault();if(!selected)return;setBusy(true);setError("");
-  try{await apiFetch("/payables/"+selected.id+"/payments",{method:"POST",body:JSON.stringify({amount:Number(amount),sourceAccountId:source,referenceNumber:reference||undefined,notes:paymentNotes||undefined})});setSelected(null);setAmount("");setSource("");setReference("");setPaymentNotes("");await load();}
+  try{await apiFetch("/payables/"+selected.id+"/payments",{method:"POST",body:JSON.stringify({amount:Number(amount),chargeAmount:payoutCharge,sourceAccountId:source,referenceNumber:reference||undefined,notes:paymentNotes||undefined})});setSelected(null);setAmount("");setCharge("");setSource("");setReference("");setPaymentNotes("");await load();}
   catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}
  }
  async function cancelPayable(e:FormEvent){
@@ -65,13 +66,13 @@ export default function PayablesPage(){
     <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded-xl bg-slate-200">
      {[["Original",p.originalAmount,""],["Paid",p.paidAmount,"text-emerald-700"],["Remaining",p.remainingAmount,"text-amber-700"]].map(([l,v,c])=><div key={l} className="bg-slate-50 p-2.5 text-center"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{l}</p><p className={"mt-1 text-sm font-bold "+c}>{money(v)}</p></div>)}
     </div>
-    <div className="mt-3 grid grid-cols-2 gap-2"><Link href={"/payables/"+p.id} className="flex min-h-10 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold">View details</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setSource("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button min-h-10 text-xs font-bold disabled:opacity-40">Pay now</button></div>
+    <div className="mt-3 grid grid-cols-2 gap-2"><Link href={"/payables/"+p.id} className="flex min-h-10 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold">View details</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setCharge("");setSource("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button min-h-10 text-xs font-bold disabled:opacity-40">Pay now</button></div>
     {(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="mt-2 min-h-9 w-full rounded-xl text-xs font-bold text-rose-600">Cancel payable</button>:null}
    </Surface>)}{!items.length?<EmptyState title={q.trim()||status?"No matching payables":"Nothing to pay"} description={q.trim()||status?"Try another search or status.":"No outstanding customer payables."}/>:null}</div>
 
    <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm">
     <thead className="bg-slate-50/80 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Customer</th><th>{sh("Original","originalAmount")}</th><th>{sh("Paid","paidAmount")}</th><th>{sh("Remaining","remainingAmount")}</th><th>{sh("Due","dueAt")}</th><th>{sh("Status","status")}</th><th className="pr-5">Actions</th></tr></thead>
-    <tbody>{items.map(p=><tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/60"><td className="px-5 py-3 font-semibold">{p.customer.fullName}</td><td>{money(p.originalAmount)}</td><td className="text-emerald-700">{money(p.paidAmount)}</td><td className="font-bold text-amber-700">{money(p.remainingAmount)}</td><td>{new Date(p.dueAt).toLocaleString("en-IN")}</td><td><StatusBadge tone={statusTone(p.status) as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{p.status.replaceAll("_"," ")}</StatusBadge></td><td className="pr-5"><div className="flex gap-2"><Link href={"/payables/"+p.id} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold">View</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setSource("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button px-3 py-1.5 text-xs font-bold disabled:opacity-40">Pay</button>{(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="rounded-lg px-3 py-1.5 text-xs font-bold text-rose-600">Cancel</button>:null}</div></td></tr>)}</tbody>
+    <tbody>{items.map(p=><tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/60"><td className="px-5 py-3 font-semibold">{p.customer.fullName}</td><td>{money(p.originalAmount)}</td><td className="text-emerald-700">{money(p.paidAmount)}</td><td className="font-bold text-amber-700">{money(p.remainingAmount)}</td><td>{new Date(p.dueAt).toLocaleString("en-IN")}</td><td><StatusBadge tone={statusTone(p.status) as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{p.status.replaceAll("_"," ")}</StatusBadge></td><td className="pr-5"><div className="flex gap-2"><Link href={"/payables/"+p.id} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold">View</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setCharge("");setSource("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button px-3 py-1.5 text-xs font-bold disabled:opacity-40">Pay</button>{(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="rounded-lg px-3 py-1.5 text-xs font-bold text-rose-600">Cancel</button>:null}</div></td></tr>)}</tbody>
    </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="payable" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
   </>}
@@ -79,8 +80,9 @@ export default function PayablesPage(){
   <Modal open={!!selected} title={selected?"Pay "+selected.customer.fullName:"Record payout"} description={selected?"Remaining "+money(selected.remainingAmount):undefined} onClose={()=>setSelected(null)}
    footer={<button form="pay-form" disabled={busy||sourceShort||payoutAmount<=0} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
    <form id="pay-form" onSubmit={pay} className="grid gap-3 sm:grid-cols-2">
-    <Field label="Amount"><input className={control} type="number" step="0.01" max={selected?.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
-    <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance):undefined}><select className={control} value={source} onChange={e=>setSource(e.target.value)} required><option value="">Source account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select>{sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Amount is higher than this account&apos;s available balance.</span>:null}</Field>
+    <Field label="Customer payout"><input className={control} type="number" step="0.01" max={selected?.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
+    <Field label="Wallet / payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>
+    <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):undefined}><select className={control} value={source} onChange={e=>setSource(e.target.value)} required><option value="">Source account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select>{sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Payout plus charge is higher than this account&apos;s available balance.</span>:null}</Field>
     <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Optional reference"/></Field>
     <Field label="Notes"><input className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Optional notes"/></Field>
    </form>
