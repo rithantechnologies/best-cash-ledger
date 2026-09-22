@@ -9,19 +9,21 @@ import { BrandMark } from "@/components/brand-mark";
 import { apiFetch } from "@/lib/api";
 
 const navItems = [
-  { group:"Today", label:"Dashboard", short:"Home", href:"/", icon:"home" },
-  { group:"Today", label:"Transactions", short:"Activity", href:"/transactions", icon:"activity" },
-  { group:"Money due", label:"Dues", short:"Dues", href:"/dues", icon:"settle" },
-  { group:"Today", label:"Customers", short:"Customers", href:"/customers", icon:"people" },
-  { group:"Money due", label:"Settlements", short:"Settlements", href:"/provider-settlements", icon:"settle" },
-  { group:"Books", label:"Accounts", short:"Accounts", href:"/accounts", icon:"wallet" },
-  { group:"Books", label:"Daily Cash", short:"Cash", href:"/cash-counter", icon:"cash" },
-  { group:"Books", label:"Expenses", short:"Expenses", href:"/expenses", icon:"expense" },
-  { group:"Books", label:"Insights", short:"Insights", href:"/reports", icon:"chart" },
+  { group:"Overview", label:"Dashboard", short:"Home", href:"/", icon:"home" },
+  { group:"Operations", label:"Transactions", short:"Activity", href:"/transactions", icon:"activity" },
+  { group:"Operations", label:"Customers", short:"Customers", href:"/customers", icon:"people" },
+  { group:"Cash", label:"Daily Cash", short:"Cash", href:"/cash-counter", icon:"cash" },
+  { group:"Receivables", label:"Dues", short:"Dues", href:"/dues", icon:"settle" },
+  { group:"Receivables", label:"Settlements", short:"Settlements", href:"/provider-settlements", icon:"settle" },
+  { group:"Finance", label:"Accounts", short:"Accounts", href:"/accounts", icon:"wallet" },
+  { group:"Finance", label:"Expenses", short:"Expenses", href:"/expenses", icon:"expense" },
+  { group:"Finance", label:"Insights", short:"Insights", href:"/reports", icon:"chart" },
   { group:"Admin", label:"Settings", short:"Settings", href:"/settings", icon:"settings", adminOnly:true },
   { group:"Admin", label:"Users", short:"Users", href:"/users", icon:"user", adminOnly:true },
   { group:"Admin", label:"Audit", short:"Audit", href:"/audit", icon:"shield", adminOnly:true },
 ] as const;
+
+const navGroups=["Overview","Operations","Cash","Receivables","Finance","Admin"] as const;
 
 type IconName=(typeof navItems)[number]["icon"]|"menu"|"close"|"back"|"search"|"plus"|"more"|"logout"|"sun"|"moon"|"chevron";
 function Icon({name,className="h-5 w-5"}:{name:IconName;className?:string}) {
@@ -85,7 +87,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const showShellNew=pathname!=="/accounts";
   const [role,setRole]=useState(""),[userName,setUserName]=useState(""),[search,setSearch]=useState("");
   const [menuOpen,setMenuOpen]=useState(false),[newOpen,setNewOpen]=useState(false),[navigating,setNavigating]=useState(false);
-  const [desktopCollapsed,setDesktopCollapsed]=useState(cachedDesktopCollapsed??true);
+  const [desktopCollapsed,setDesktopCollapsed]=useState(cachedDesktopCollapsed??false);
+  const [desktopUserOpen,setDesktopUserOpen]=useState(false);
   const [theme,setTheme]=useState<ThemeMode>("system");
 
   useEffect(()=>{
@@ -94,12 +97,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       setRole(user.role||"");
       setUserName(user.fullName||user.email||"Cash Ledger User");
       setTheme((localStorage.getItem("cashledger_theme") as ThemeMode)||"system");
-      const collapsed=localStorage.getItem("cashledger_desktop_nav_collapsed")!=="false";
+      const collapsed=localStorage.getItem("cashledger_desktop_nav_collapsed")==="true";
       cachedDesktopCollapsed=collapsed;
       setDesktopCollapsed(collapsed);
     }catch{}
   },[]);
-  useEffect(()=>{setMenuOpen(false);setNewOpen(false);setNavigating(false);},[pathname]);
+  useEffect(()=>{setMenuOpen(false);setNewOpen(false);setDesktopUserOpen(false);setNavigating(false);},[pathname]);
   useEffect(()=>{
     const locked=menuOpen||newOpen;
     document.body.style.overflow=locked?"hidden":"";
@@ -119,6 +122,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute("data-theme",dark?"dark":"light");
   }
   function toggleDesktopNav(){
+    setDesktopUserOpen(false);
     setDesktopCollapsed((collapsed)=>{
       const next=!collapsed;
       localStorage.setItem("cashledger_desktop_nav_collapsed",String(next));
@@ -134,47 +138,50 @@ export function AppShell({ children }: { children: ReactNode }) {
       key={item.href}
       href={item.href}
       title={compact?item.label:undefined}
-      className={"app-nav-link group flex min-h-11 items-center rounded-2xl border py-1.5 text-[14.5px] font-semibold tracking-[-.01em] transition "+(compact?"justify-center px-1.5":"gap-3 px-2.5")+" "+(selected
-        ?"app-nav-link-active border-[color-mix(in_srgb,var(--accent)_12%,var(--border))] bg-[color-mix(in_srgb,var(--accent-soft)_78%,var(--surface))] text-[var(--text)] shadow-[0_5px_16px_color-mix(in_srgb,var(--accent)_8%,transparent)]"
-        :"border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}>
-      <span className={"grid h-8 w-8 shrink-0 place-items-center rounded-xl transition "+(selected
-        ?"bg-[var(--accent)] text-white shadow-[0_5px_12px_color-mix(in_srgb,var(--accent)_22%,transparent)]"
+      className={"app-nav-link group flex min-h-[50px] items-center rounded-xl border py-1 text-[14px] font-semibold tracking-[-.01em] transition "+(compact?"justify-center px-1":"gap-2.5 px-2.5")+" "+(selected
+        ?"app-nav-link-active border-transparent bg-[color-mix(in_srgb,var(--accent-soft)_82%,var(--surface))] text-[var(--accent)]"
+        :"border-transparent text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}>
+      <span className={"grid h-9 w-9 shrink-0 place-items-center rounded-xl transition "+(selected
+        ?"bg-[var(--accent)] text-white"
         :"bg-[var(--surface-soft)] text-[var(--text-muted)] group-hover:bg-[var(--surface)] group-hover:text-[var(--accent)]")}>
-        <Icon name={item.icon} className="h-[17px] w-[17px]"/>
+        <Icon name={item.icon} className="h-[18px] w-[18px]"/>
       </span>
-      {!compact?<><span className="min-w-0 flex-1 truncate">{item.label}</span>
-      <Icon name="chevron" className={"h-4 w-4 shrink-0 transition "+(selected?"text-[var(--accent)]":"text-[color-mix(in_srgb,var(--text-muted)_58%,transparent)] group-hover:text-[var(--text-muted)]")}/></>:null}
+      {!compact?<span className="min-w-0 flex-1 truncate">{item.label}</span>:null}
     </Link>;
   };
 
   return <div className={"min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)] "+(isDashboard?"dashboard-finance-shell":"")}>
     {navigating?<div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-[var(--accent-soft)]"><div className="h-full w-1/2 bg-[var(--accent)] [animation:cashledger-progress_.9s_ease-in-out_infinite]"/></div>:null}
-    <aside className={"app-sidebar fixed inset-y-0 left-0 z-40 hidden border-r border-[var(--border)] bg-[var(--surface)] lg:flex lg:flex-col "+(desktopCollapsed?"w-[80px]":"w-[272px]")}>
-      <div className="border-b border-[var(--border)] p-3">
-        <Link href="/" title={desktopCollapsed?"Cash Ledger":undefined} className={"flex min-h-14 items-center rounded-2xl bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent-soft)_72%,var(--surface)),var(--surface))] ring-1 ring-[color-mix(in_srgb,var(--accent)_9%,var(--border))] "+(desktopCollapsed?"justify-center px-1":"gap-3 px-3")}>
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#fff] shadow-[0_8px_20px_rgba(15,23,42,.08)]"><BrandMark className="h-7 w-7"/></span>
-          {!desktopCollapsed?<div className="min-w-0">
-            <p className="truncate text-[15px] font-black tracking-[-.025em]">Cash Ledger</p>
-            <p className="truncate text-[10.5px] font-semibold uppercase tracking-[.12em] text-[var(--text-muted)]">Operations</p>
-          </div>:null}
+    {desktopUserOpen?<button className="fixed inset-0 z-[35] hidden cursor-default lg:block" onClick={()=>setDesktopUserOpen(false)} aria-label="Close account menu"/>:null}
+    <aside className={"app-sidebar fixed inset-y-0 left-0 z-40 hidden border-r border-[var(--border)] bg-[var(--surface)] transition-[width] duration-200 ease-out lg:flex lg:flex-col "+(desktopCollapsed?"w-[72px]":"w-[288px]")}>
+      <div className="relative flex h-[72px] shrink-0 items-center border-b border-[var(--border)] px-1">
+        <Link href="/" title={desktopCollapsed?"Cash Ledger":undefined} className={"flex min-w-0 flex-1 items-center "+(desktopCollapsed?"px-1 pr-8":"gap-2.5 px-2 pr-10")}>
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#fff] shadow-[0_5px_14px_rgba(15,23,42,.08)]"><BrandMark className="h-[22px] w-[22px]"/></span>
+          {!desktopCollapsed?<div className="min-w-0"><p className="truncate text-[15px] font-black tracking-[-.025em]">Cash Ledger</p><p className="truncate text-[10px] font-semibold uppercase tracking-[.12em] text-[var(--text-muted)]">Operations</p></div>:null}
         </Link>
+        <button onClick={toggleDesktopNav} className="absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg bg-[var(--surface-soft)] text-[var(--text-muted)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]" aria-label={desktopCollapsed?"Expand navigation":"Collapse navigation"} title={desktopCollapsed?"Expand menu":"Collapse menu"}><Icon name="chevron" className={"h-4 w-4 transition-transform duration-200 "+(desktopCollapsed?"":"rotate-180")}/></button>
       </div>
-      <nav className={"flex-1 overflow-y-auto py-4 "+(desktopCollapsed?"px-2":"px-3")}>{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className={desktopCollapsed?"mb-3":"mb-5"}>{desktopCollapsed?<div className="mx-auto mb-2 h-px w-7 bg-[var(--border)]"/>:<div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[11px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div>}<div className="space-y-1.5">{rows.map((item)=>navLink(item,desktopCollapsed))}</div></div>:null;})}</nav>
-      <div className="border-t border-[var(--border)] p-3">
-        <div title={desktopCollapsed?(userName||"Cash Ledger User"):undefined} className={"mb-2.5 flex items-center rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] "+(desktopCollapsed?"justify-center p-2":"gap-3 p-2.5")}>
+      <div className={desktopCollapsed?"px-2 pt-2.5":"px-3 pt-2.5"}>
+        <button onClick={()=>setNewOpen(true)} title={desktopCollapsed?"New transaction":undefined} className={"app-primary-button flex min-h-11 w-full items-center rounded-xl text-sm font-bold "+(desktopCollapsed?"justify-center px-1":"gap-2.5 px-3")}><Icon name="plus" className="h-[18px] w-[18px]"/>{!desktopCollapsed?<span>New transaction</span>:null}</button>
+      </div>
+      <nav className={"flex-1 overflow-y-auto py-3 "+(desktopCollapsed?"px-2":"px-2.5")}>{navGroups.map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className={desktopCollapsed?"mb-2.5":"mb-3"}>{desktopCollapsed?<div className="mx-auto mb-1.5 h-px w-7 bg-[var(--border)]"/>:<div className="mb-1.5 flex items-center gap-2 px-2.5"><span className="h-px w-3.5 bg-[var(--border)]"/><p className="text-[10px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div>}<div className="space-y-1">{rows.map((item)=>navLink(item,desktopCollapsed))}</div></div>:null;})}</nav>
+      <div className="relative shrink-0 border-t border-[var(--border)] p-2">
+        {desktopUserOpen?<div className={"absolute z-50 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-[0_18px_50px_rgba(15,23,42,.18)] "+(desktopCollapsed?"bottom-2 left-[calc(100%+8px)] w-[240px]":"bottom-[68px] left-2 right-2")}>
+          <p className="mb-1.5 px-1 text-[10px] font-extrabold uppercase tracking-[.12em] text-[var(--text-muted)]">Appearance</p>
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-8 rounded-lg text-[10px] font-bold capitalize transition "+(theme===mode?"bg-[var(--surface)] text-[var(--text)] shadow-sm ring-1 ring-[var(--border)]":"text-[var(--text-muted)] hover:text-[var(--text)]")}>{mode}</button>)}</div>
+          <button onClick={logout} className="mt-2 flex min-h-10 w-full items-center gap-2 rounded-xl px-2.5 text-sm font-semibold text-[var(--danger)] transition hover:bg-[color-mix(in_srgb,var(--danger)_6%,var(--surface))]"><Icon name="logout" className="h-[18px] w-[18px]"/>Sign out</button>
+        </div>:null}
+        <button title={desktopCollapsed?(userName||"Cash Ledger User"):undefined} onClick={()=>setDesktopUserOpen(open=>!open)} aria-expanded={desktopUserOpen} className={"flex min-h-[52px] w-full items-center rounded-xl border border-transparent transition hover:bg-[var(--surface-soft)] "+(desktopUserOpen?"bg-[var(--surface-soft)] ":"")+(desktopCollapsed?"justify-center p-1":"gap-2.5 px-2 py-1.5")}>
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--accent)] text-xs font-black text-white">{userInitial}</span>
-          {!desktopCollapsed?<div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{userName||"Cash Ledger User"}</p><p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[.08em] text-[var(--text-muted)]">{role||"User"}</p></div>:null}
-        </div>
-        {!desktopCollapsed?<div className="mb-2 grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-8 rounded-lg text-[10px] font-bold capitalize transition "+(theme===mode?"bg-[var(--surface)] text-[var(--text)] shadow-sm ring-1 ring-[var(--border)]":"text-[var(--text-muted)] hover:text-[var(--text)]")}>{mode}</button>)}</div>:null}
-        <button title={desktopCollapsed?"Sign out":undefined} onClick={logout} className={"flex min-h-10 w-full items-center rounded-xl text-sm font-semibold text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)] "+(desktopCollapsed?"justify-center px-2":"gap-3 px-3")}><Icon name="logout" className="h-[18px] w-[18px]"/>{!desktopCollapsed?"Sign out":null}</button>
+          {!desktopCollapsed?<><div className="min-w-0 flex-1 text-left"><p className="truncate text-xs font-bold">{userName||"Cash Ledger User"}</p><p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[.08em] text-[var(--text-muted)]">{role||"User"}</p></div><Icon name="chevron" className={"h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform "+(desktopUserOpen?"-rotate-90":"rotate-90")}/></>:null}
+        </button>
       </div>
     </aside>
 
-    <div className={desktopCollapsed?"lg:pl-[80px]":"lg:pl-[272px]"}>
+    <div className={(desktopCollapsed?"lg:pl-[72px]":"lg:pl-[288px]")+" transition-[padding-left] duration-200 ease-out"}>
       <header className="app-topbar sticky top-0 z-30 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_90%,transparent)] backdrop-blur-xl">
         <div className="flex h-15 items-center gap-3 px-3 sm:px-5 lg:px-6">
           <button onClick={()=>isTaskFlow?router.push("/transactions"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm lg:hidden" aria-label={isTaskFlow?"Back to transactions":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"} className="h-[19px] w-[19px]"/></button>
-          <button onClick={toggleDesktopNav} className="hidden h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm transition hover:bg-[var(--surface-soft)] hover:text-[var(--text)] lg:grid" aria-label={desktopCollapsed?"Expand navigation":"Collapse navigation"} title={desktopCollapsed?"Expand menu":"Collapse menu"}><Icon name="menu" className="h-[19px] w-[19px]"/></button>
           {isTaskFlow?<Link href="/transactions" className="hidden h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm transition hover:bg-[var(--surface-soft)] hover:text-[var(--text)] lg:grid" aria-label="Back to transactions" title="Back to transactions"><Icon name="back" className="h-[19px] w-[19px]"/></Link>:null}
           <div className={"min-w-0 flex-1 lg:flex-none "+(isDashboard?"dashboard-top-title":"")}><p className={"truncate font-extrabold tracking-[-.025em] "+(isTaskFlow?"text-[17px]":"text-[16px] sm:text-[17px]")}>{currentTitle}</p></div>
           {!isTaskFlow?<>{!hideShellSearch?<form onSubmit={submitSearch} className="mx-auto hidden w-full max-w-xl md:block"><div className="relative"><Icon name="search" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Name, mobile, card last 4…" className="app-shell-search h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] pl-10 pr-3 text-sm"/></div></form>:<div className="hidden flex-1 md:block"/>}
@@ -198,7 +205,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <form onSubmit={submitSearch} className="mt-4"><div className="relative"><Icon name="search" className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-[18px] w-[18px] -translate-y-1/2 text-[var(--text-muted)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, mobile or card…" className="app-control h-11 bg-[var(--surface)] !pl-11 pr-3 text-[15px] shadow-sm"/></div></form>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 py-4">{["Today","Money due","Books","Admin"].map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-5"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[11px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1.5">{rows.map((item)=>navLink(item))}</div></div>:null;})}</nav>
+        <nav className="flex-1 overflow-y-auto px-3 py-4">{navGroups.map(group=>{const rows=visibleNav.filter(x=>x.group===group);return rows.length?<div key={group} className="mb-4"><div className="mb-2 flex items-center gap-2 px-2.5"><span className="h-px w-4 bg-[var(--border)]"/><p className="text-[11px] font-extrabold uppercase tracking-[.13em] text-[var(--text-muted)]">{group==="Admin"?"Administration":group}</p></div><div className="space-y-1">{rows.map((item)=>navLink(item))}</div></div>:null;})}</nav>
         <div className="border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-soft)_55%,var(--surface))] p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
           <div className="mb-2.5 flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-sm">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--accent)] text-sm font-black text-white">{userInitial}</span>
