@@ -13,3 +13,6 @@ apps/api/.e2e-hardening-api.pid
 apps/api/.e2e-hardening-schema
 
 apps/web/.next-e2e/
+apps/web/.next-*/
+apps/web/node_modules.partial-*/
+run/
