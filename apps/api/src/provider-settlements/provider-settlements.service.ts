@@ -77,6 +77,7 @@ export class ProviderSettlementsService {
     amount: number,
     userId: string,
     referenceNumber?: string,
+    idempotencySuffix?: string,
   ) {
     return this.receiveWithinTransaction(
       tx,
@@ -88,7 +89,7 @@ export class ProviderSettlementsService {
         notes: 'Settlement confirmed at source entry',
       },
       userId,
-      'AUTOSETTLE:' + settlementId,
+      'AUTOSETTLE:' + settlementId + (idempotencySuffix ? ':' + idempotencySuffix : ''),
     );
   }
 

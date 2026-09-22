@@ -45,6 +45,7 @@ export class CreateAepsDto {
   @IsOptional() @IsDateString() cashPayoutDueAt?: string;
   @IsOptional() @IsString() cashAccountId?: string;
   @IsString() settlementAccountId!: string;
+  @IsOptional() @IsString() commissionReceiptAccountId?: string;
   @IsOptional() @IsBoolean() settledNow?: boolean;
   @IsOptional() @IsDateString() settlementDueAt?: string;
   @IsOptional() @IsString() providerReference?: string;

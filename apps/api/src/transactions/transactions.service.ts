@@ -1428,15 +1428,56 @@ export class TransactionsService {
       );
 
       let settlementReceipt = null;
+      let commissionSettlementReceipt = null;
       if (dto.settledNow) {
-        settlementReceipt = await this.settlements.autoReceive(
-          tx,
-          providerSettlement.id,
-          settlementAccount.id,
-          calculatedSettlement,
-          userId,
-          dto.providerReference,
-        );
+        const separateCommission =
+          calculatedCommission > 0 &&
+          !!dto.commissionReceiptAccountId &&
+          dto.commissionReceiptAccountId !== settlementAccount.id;
+        if (separateCommission) {
+          await this.validation.providerSettlementDestination(
+            tx,
+            dto.commissionReceiptAccountId!,
+            dto.providerId,
+          );
+          const mainSettlementAmount = this.money(
+            calculatedSettlement - calculatedCommission,
+          );
+          if (mainSettlementAmount < 0) {
+            throw new BadRequestException(
+              'Commission cannot exceed the provider settlement amount',
+            );
+          }
+          if (mainSettlementAmount > 0) {
+            settlementReceipt = await this.settlements.autoReceive(
+              tx,
+              providerSettlement.id,
+              settlementAccount.id,
+              mainSettlementAmount,
+              userId,
+              dto.providerReference,
+              'main',
+            );
+          }
+          commissionSettlementReceipt = await this.settlements.autoReceive(
+            tx,
+            providerSettlement.id,
+            dto.commissionReceiptAccountId!,
+            calculatedCommission,
+            userId,
+            dto.providerReference,
+            'commission',
+          );
+        } else {
+          settlementReceipt = await this.settlements.autoReceive(
+            tx,
+            providerSettlement.id,
+            settlementAccount.id,
+            calculatedSettlement,
+            userId,
+            dto.providerReference,
+          );
+        }
       }
 
       await this.auditCreated(tx, transaction, userId);
@@ -1444,6 +1485,7 @@ export class TransactionsService {
         transaction,
         providerSettlement,
         settlementReceipt,
+        commissionSettlementReceipt,
         payable,
         createdCustomer,
       };

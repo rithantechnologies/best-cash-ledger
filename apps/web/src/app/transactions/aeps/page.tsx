@@ -158,6 +158,8 @@ export default function AepsPage(){
   const [cashAccountId,setCashAccountId]=useState("");
   const [openCashSessions,setOpenCashSessions]=useState<Record<string,{openingTotal?:number|string;liveExpectedClosingTotal?:number|string}>>({});
   const [settlementAccountId,setSettlementAccountId]=useState("");
+  const [commissionSettlementMode,setCommissionSettlementMode]=useState<"INCLUDED"|"SEPARATE">("INCLUDED");
+  const [commissionReceiptAccountId,setCommissionReceiptAccountId]=useState("");
   const [successful,setSuccessful]=useState(true);
   const [cashPayoutNow,setCashPayoutNow]=useState(true);
   const [cashPayoutDueAt,setCashPayoutDueAt]=useState(()=>localDatePlus(1));
@@ -218,6 +220,9 @@ export default function AepsPage(){
   const gateway=provider?.gateways.find(g=>g.id===gatewayId);
   const providerWallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId&&a.isActive!==false);
   const cashAccount=accounts.find(a=>a.id===cashAccountId);
+  const commissionReceiptOptions=accounts.filter(a=>a.isActive!==false&&(
+    a.accountType==="BANK"||a.accountType==="UPI"||(a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId)
+  ));
 
   const searchNeedle=customerSearch.trim().toLowerCase();
   const searchDigits=mobileDigits(customerSearch);
@@ -252,6 +257,13 @@ export default function AepsPage(){
     const wallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId&&a.isActive!==false);
     setSettlementAccountId(wallet?.id??"");
   },[providerId,providers,accounts]);
+
+  useEffect(()=>{
+    if(commissionReceiptAccountId){
+      const valid=accounts.some(a=>a.id===commissionReceiptAccountId&&a.isActive!==false&&(a.accountType==="BANK"||a.accountType==="UPI"||(a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId)))&&commissionReceiptAccountId!==settlementAccountId;
+      if(!valid)setCommissionReceiptAccountId("");
+    }
+  },[commissionReceiptAccountId,settlementAccountId,providerId,accounts]);
 
   useEffect(()=>{
     if(gatewayId&&providerId)localStorage.setItem("cashledger_aeps_gateway_"+providerId,gatewayId);
@@ -301,6 +313,9 @@ export default function AepsPage(){
   const cashGiven=Math.round((commissionMethod==="ADD_ON"?baseAmount:baseAmount-commission)*100)/100;
   const charge=Math.round(withdrawal*Number(chargeRate||0))/100;
   const settlement=Math.round((withdrawal-charge)*100)/100;
+  const commissionSeparate=settledNow&&commissionSettlementMode==="SEPARATE"&&commission>0;
+  const mainSettlementReceipt=Math.max(0,Math.round((settlement-(commissionSeparate?commission:0))*100)/100);
+  const commissionReceiptReady=!commissionSeparate||Boolean(commissionReceiptAccountId&&commissionReceiptAccountId!==settlementAccountId);
   const cashSession=cashAccount?openCashSessions[cashAccount.id]:undefined;
   const cashCurrent=cashAccount?Number(cashSession?.liveExpectedClosingTotal??cashSession?.openingTotal??cashAccount.currentBalance):0;
   const cashAfter=cashAccount?cashCurrent-cashGiven:0;
@@ -311,8 +326,9 @@ export default function AepsPage(){
   const providerHasGateways=Boolean(provider?.gateways.length);
   const providerAttemptReady=!!providerId&&provider?.supportsAeps===true&&(!providerHasGateways||!!gatewayId);
   const providerReady=providerAttemptReady&&!!settlementAccountId;
-  const calculationReady=successful&&baseAmount>0&&withdrawal>0&&cashGiven>0&&settlement>0&&providerReady;
-  const successfulReady=successful&&withdrawal>0&&cashGiven>0&&settlement>0&&providerReady&&(!cashPayoutNow||Boolean(cashAccountId)&&cashSufficient)&&Boolean(cashPayoutNow||cashPayoutDueAt);
+  const commissionSplitValid=!commissionSeparate||settlement+0.001>=commission;
+  const calculationReady=successful&&baseAmount>0&&withdrawal>0&&cashGiven>0&&settlement>0&&providerReady&&commissionReceiptReady&&commissionSplitValid;
+  const successfulReady=successful&&withdrawal>0&&cashGiven>0&&settlement>0&&providerReady&&commissionReceiptReady&&commissionSplitValid&&(!cashPayoutNow||Boolean(cashAccountId)&&cashSufficient)&&Boolean(cashPayoutNow||cashPayoutDueAt);
   const failedReady=!successful&&providerAttemptReady;
   const canSave=!saving&&customerReady&&aadhaar.length===4&&!!bank.trim()&&baseAmount>0&&(successfulReady||failedReady);
   const displayCustomerName=customer?.fullName??(customerMode==="NEW"?newName.trim():"");
@@ -361,6 +377,7 @@ export default function AepsPage(){
         commissionRate:Number(commissionRate||0),
         cashAccountId:successful&&cashPayoutNow?cashAccountId||undefined:undefined,
         settlementAccountId,
+        commissionReceiptAccountId:successful&&commissionSeparate?commissionReceiptAccountId||undefined:undefined,
         settledNow:successful?settledNow:false,
         settlementDueAt:successful&&!settledNow&&settlementDueAt?new Date(settlementDueAt).toISOString():undefined,
         providerReference:reference.trim()||undefined,
@@ -435,7 +452,7 @@ export default function AepsPage(){
 
             <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
               <button type="button" onClick={()=>setSuccessful(true)} className={"min-h-10 rounded-lg px-3 text-xs font-bold transition "+(successful?"bg-[var(--surface)] text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Successful</button>
-              <button type="button" onClick={()=>{setSuccessful(false);setSettledNow(false);setCashPayoutNow(false);}} className={"min-h-10 rounded-lg px-3 text-xs font-bold transition "+(!successful?"bg-[var(--surface)] text-rose-700 shadow-sm":"text-[var(--text-muted)]")}>Failed attempt</button>
+              <button type="button" onClick={()=>{setSuccessful(false);setSettledNow(false);setCommissionSettlementMode("INCLUDED");setCommissionReceiptAccountId("");setCashPayoutNow(false);}} className={"min-h-10 rounded-lg px-3 text-xs font-bold transition "+(!successful?"bg-[var(--surface)] text-rose-700 shadow-sm":"text-[var(--text-muted)]")}>Failed attempt</button>
             </div>
 
             {!successful?<div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-800"><strong>Record attempt only.</strong> No provider settlement, commission income or customer cash payout will be posted.</div>:null}
@@ -452,14 +469,30 @@ export default function AepsPage(){
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-extrabold">{providerWallet.accountName}</p>
-                  <p className="mt-1 text-[11px] text-[var(--text-muted)]">Expected <strong className="money text-[var(--text)]">{money(settlement)}</strong>{settledNow&&settlement>0?<><span className="mx-1.5">·</span>After <strong className="money text-[var(--money-in)]">{money(providerWallet.currentBalance+settlement)}</strong></>:null}</p>
+                  <p className="mt-1 text-[11px] text-[var(--text-muted)]">Expected <strong className="money text-[var(--text)]">{money(settlement)}</strong>{settledNow&&settlement>0?<><span className="mx-1.5">·</span>{commissionSeparate?<><span>Wallet receives </span><strong className="money text-[var(--text)]">{money(mainSettlementReceipt)}</strong><span className="mx-1.5">·</span></>:null}After <strong className="money text-[var(--money-in)]">{money(providerWallet.currentBalance+mainSettlementReceipt)}</strong></>:null}</p>
                 </div>
                 <div className="grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-[var(--surface-soft)] p-1">
                   <button type="button" onClick={()=>setSettledNow(true)} className={"min-h-8 rounded-md px-3 text-[11px] font-bold "+(settledNow?"bg-[var(--surface)] text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Received</button>
-                  <button type="button" onClick={()=>setSettledNow(false)} className={"min-h-8 rounded-md px-3 text-[11px] font-bold "+(!settledNow?"bg-[var(--surface)] text-amber-700 shadow-sm":"text-[var(--text-muted)]")}>Pending</button>
+                  <button type="button" onClick={()=>{setSettledNow(false);setCommissionSettlementMode("INCLUDED");setCommissionReceiptAccountId("");}} className={"min-h-8 rounded-md px-3 text-[11px] font-bold "+(!settledNow?"bg-[var(--surface)] text-amber-700 shadow-sm":"text-[var(--text-muted)]")}>Pending</button>
                 </div>
               </div>
-            </div>:successful&&providerId?<div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><Field label="Settlement account"><select className={control} value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Select receiving account</option>{accounts.filter(a=>a.isActive!==false&&["BANK","UPI"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field><div className="grid grid-cols-2 gap-1 rounded-lg bg-[var(--surface-soft)] p-1"><button type="button" onClick={()=>setSettledNow(true)} className={"min-h-10 rounded-md px-3 text-xs font-bold "+(settledNow?"bg-[var(--surface)] text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Received</button><button type="button" onClick={()=>setSettledNow(false)} className={"min-h-10 rounded-md px-3 text-xs font-bold "+(!settledNow?"bg-[var(--surface)] text-amber-700 shadow-sm":"text-[var(--text-muted)]")}>Pending</button></div></div>:null}
+            </div>:successful&&providerId?<div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><Field label="Settlement account"><select className={control} value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Select receiving account</option>{accounts.filter(a=>a.isActive!==false&&["BANK","UPI"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field><div className="grid grid-cols-2 gap-1 rounded-lg bg-[var(--surface-soft)] p-1"><button type="button" onClick={()=>setSettledNow(true)} className={"min-h-10 rounded-md px-3 text-xs font-bold "+(settledNow?"bg-[var(--surface)] text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Received</button><button type="button" onClick={()=>{setSettledNow(false);setCommissionSettlementMode("INCLUDED");setCommissionReceiptAccountId("");}} className={"min-h-10 rounded-md px-3 text-xs font-bold "+(!settledNow?"bg-[var(--surface)] text-amber-700 shadow-sm":"text-[var(--text-muted)]")}>Pending</button></div></div>:null}
+
+            {successful&&commission>0?<div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
+              <div className="flex items-center justify-between gap-3"><span className="text-sm font-bold text-emerald-900">Commission settlement</span><strong className="money text-sm text-emerald-700">{money(commission)}</strong></div>
+              {settledNow?<>
+                <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-white/70 p-1">
+                  <button type="button" onClick={()=>{setCommissionSettlementMode("INCLUDED");setCommissionReceiptAccountId("");}} className={"min-h-9 rounded-md px-3 text-xs font-bold "+(commissionSettlementMode==="INCLUDED"?"bg-white text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Included</button>
+                  <button type="button" onClick={()=>setCommissionSettlementMode("SEPARATE")} className={"min-h-9 rounded-md px-3 text-xs font-bold "+(commissionSettlementMode==="SEPARATE"?"bg-white text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Receive separately</button>
+                </div>
+                {commissionSettlementMode==="SEPARATE"?<div className="mt-2">
+                  <Field label="Commission received into"><select className={control+" bg-white"} value={commissionReceiptAccountId} onChange={e=>setCommissionReceiptAccountId(e.target.value)} required><option value="">Select account</option>{commissionReceiptOptions.map(a=><option key={a.id} value={a.id} disabled={a.id===settlementAccountId}>{a.accountName} · {money(a.currentBalance)} available{a.id===settlementAccountId?" · settlement account":""}</option>)}</select></Field>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg bg-white/70 px-3 py-2"><span className="block text-[var(--text-muted)]">Main settlement</span><strong className="money">{money(mainSettlementReceipt)}</strong></div><div className="rounded-lg bg-white/70 px-3 py-2"><span className="block text-[var(--text-muted)]">Commission</span><strong className="money text-emerald-700">{money(commission)}</strong></div></div>
+                  {!commissionReceiptReady?<p className="mt-2 text-[11px] font-semibold text-rose-600">Choose a different account for the commission.</p>:null}
+                  {!commissionSplitValid?<p className="mt-2 text-[11px] font-semibold text-rose-600">Commission cannot exceed the provider settlement.</p>:null}
+                </div>:<p className="mt-2 text-xs text-emerald-900">Included in the provider settlement to {accounts.find(a=>a.id===settlementAccountId)?.accountName??"the settlement account"}.</p>}
+              </>:<p className="mt-2 text-xs text-emerald-900">Commission stays inside the pending provider settlement. You can split it when the settlement is received.</p>}
+            </div>:null}
           </section>
 
           {successful?<section className="entry-section entry-section-payout">
