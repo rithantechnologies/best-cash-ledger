@@ -325,7 +325,43 @@ export class FinancialValidationService {
     if (account.accountNature !== AccountNature.ASSET) {
       throw new BadRequestException('Source account must be an asset account');
     }
-    const current = await this.balance(db, account);
+    let current = await this.balance(db, account);
+    if (account.accountName && current + 0.001 < requiredAmount) {
+      const openCashSession = await db.cashSession.findFirst({
+        where: {
+          status: 'OPEN',
+          cashAccount: { accountName: account.accountName },
+        },
+        select: { openingTotal: true, openedAt: true },
+        orderBy: { openedAt: 'desc' },
+      });
+      if (openCashSession) {
+        const cashAccount = await db.financialAccount.findFirst({
+          where: { accountName: account.accountName },
+          include: { ledgerAccount: true },
+        });
+        if (cashAccount?.ledgerAccount) {
+          const rows = await db.ledgerEntry.groupBy({
+            by: ['entryType'],
+            where: {
+              ledgerAccountId: cashAccount.ledgerAccount.id,
+              journal: {
+                postingDate: { gte: openCashSession.openedAt },
+                status: 'POSTED',
+              },
+            },
+            _sum: { amount: true },
+          });
+          let debit = 0;
+          let credit = 0;
+          for (const row of rows) {
+            if (row.entryType === 'DEBIT') debit += Number(row._sum.amount ?? 0);
+            else credit += Number(row._sum.amount ?? 0);
+          }
+          current = Number(openCashSession.openingTotal) + debit - credit;
+        }
+      }
+    }
     if (current + 0.001 < requiredAmount) {
       throw new BadRequestException(
         (account.accountName ?? 'Account') +
