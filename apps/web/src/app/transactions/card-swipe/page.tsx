@@ -4,7 +4,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { Field, PageLoader, Surface } from "@/components/ui";
+import { Field, Modal, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Card={id:string;bankName:string;cardType?:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
@@ -247,6 +247,12 @@ export default function CardSwipePage(){
   const [quickMobile,setQuickMobile]=useState("");
   const [quickBank,setQuickBank]=useState("");
   const [quickLastFour,setQuickLastFour]=useState("");
+  const [addingCard,setAddingCard]=useState(false);
+  const [newCardBank,setNewCardBank]=useState("");
+  const [newCardType,setNewCardType]=useState("CREDIT");
+  const [newCardLastFour,setNewCardLastFour]=useState("");
+  const [newCardNickname,setNewCardNickname]=useState("");
+  const [addingCardBusy,setAddingCardBusy]=useState(false);
   const [amount,setAmount]=useState("");
   const [providerId,setProviderId]=useState("");
   const [gatewayId,setGatewayId]=useState("");
@@ -550,6 +556,38 @@ export default function CardSwipePage(){
     if(typedName&&!/\d{4,}/.test(typedName))setQuickName(typedName);
   }
 
+  function openAddCard(){
+    if(!customer)return;
+    setNewCardBank("");
+    setNewCardType("CREDIT");
+    setNewCardLastFour("");
+    setNewCardNickname("");
+    setError("");
+    setAddingCard(true);
+  }
+
+  async function addCardToSelectedCustomer(e:FormEvent){
+    e.preventDefault();
+    if(!customerId||newCardLastFour.length!==4||!newCardBank)return;
+    setAddingCardBusy(true);
+    setError("");
+    try{
+      const card=await apiFetch<Card>("/customers/"+customerId+"/cards",{method:"POST",body:JSON.stringify({
+        bankName:newCardBank,
+        cardType:newCardType,
+        lastFourDigits:newCardLastFour,
+        nickname:newCardNickname.trim()||undefined,
+      })});
+      setCustomers(current=>current.map(item=>item.id===customerId?{...item,cards:[...item.cards,card]}:item));
+      setCardId(card.id);
+      setAddingCard(false);
+    }catch(err){
+      setError(err instanceof Error?err.message:"Failed to add card");
+    }finally{
+      setAddingCardBusy(false);
+    }
+  }
+
   function startCustomerPayment(){
     if(recordCustomerPayment)return;
     let source="";
@@ -739,7 +777,7 @@ export default function CardSwipePage(){
     .sort((a,b)=>quickTermRank(a)-quickTermRank(b))
     .filter((term,index,list)=>list.findIndex(other=>quickTermRank(other)===quickTermRank(term))===index);
 
-  return <AppShell><form onSubmit={submit} className="swipe-commerce-page">
+  return <AppShell><><form onSubmit={submit} className="swipe-commerce-page">
     <div className="mx-auto max-w-6xl pb-28 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-5 lg:pb-24">
       <div className="space-y-3">
         {error?<div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
@@ -768,7 +806,7 @@ export default function CardSwipePage(){
               </div>
               <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                 {activeCards.map(card=>{const selected=card.id===cardId;const usual=card.id===usualCardId;return <button key={card.id} type="button" onClick={()=>setCardId(card.id)} className={"swipe-card-choice min-w-[145px] rounded-xl border px-3 py-2.5 text-left "+(selected?"swipe-card-choice-selected border-[var(--accent)] bg-[var(--accent-soft)]":"border-[var(--border)] bg-[var(--surface)]")}><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-bold">{card.bankName}</span>{usual?<span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700">Usual</span>:null}</div><p className="mt-1 font-mono text-xs tracking-[.08em] text-[var(--text-muted)]">•••• {card.lastFourDigits}</p></button>;})}
-                <Link href={"/customers/"+customer.id} className="flex min-w-[110px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] px-3 text-xs font-semibold text-[var(--accent)]">+ Add card</Link>
+                <button type="button" onClick={openAddCard} className="flex min-w-[110px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] px-3 text-xs font-semibold text-[var(--accent)]">+ Add card</button>
               </div>
             </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, mobile or card last 4" autoComplete="off" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
             {customer?<CustomerCardSwipeHistory rows={customerHistory} loading={historyLoading}/>:null}
@@ -832,5 +870,15 @@ export default function CardSwipePage(){
 
     <div className="fixed bottom-6 right-6 z-40 hidden w-[340px] lg:block"><button disabled={!canSave} className="swipe-primary-action min-h-12 w-full rounded-xl px-4 text-sm font-bold text-white shadow-[0_14px_36px_rgba(37,99,235,.28)] disabled:opacity-35">{saving?"Saving…":desktopSaveLabel}</button></div>
     <div className="swipe-sticky-bar fixed inset-x-0 bottom-0 z-30 border-t border-[var(--border)] px-3 py-2 pb-[max(.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden"><div className="mx-auto grid max-w-3xl grid-cols-[minmax(0,1fr)_auto] items-center gap-3"><div className="min-w-0"><p className="truncate text-xs font-semibold text-[var(--text-muted)]">{displayCustomerName?displayCustomerName+" gets":"Customer gets"}</p><p className="sticky-money money truncate font-extrabold tracking-[-.035em]">{calculationReady?money(payable):"—"}</p><p className={"money text-xs font-bold "+(commission-providerCharge-payoutCharges>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>Profit {calculationReady?money(commission-providerCharge-payoutCharges):"—"}</p></div><button disabled={!canSave} className="swipe-primary-action min-h-12 min-w-[118px] rounded-xl px-4 text-sm font-bold text-white disabled:opacity-35">{saving?"Saving…":mobileSaveLabel}</button></div></div>
-  </form></AppShell>;
+  </form>
+  <Modal open={addingCard} title="Add card" description={customer?"Save a card for "+customer.fullName+" and continue this swipe.":undefined} onClose={()=>{if(!addingCardBusy)setAddingCard(false);}}
+    footer={<button form="swipe-add-card" disabled={addingCardBusy||!newCardBank||newCardLastFour.length!==4} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{addingCardBusy?"Saving…":"Save & use card"}</button>}>
+    <form id="swipe-add-card" onSubmit={addCardToSelectedCustomer} className="grid gap-3 sm:grid-cols-2">
+      <Field label="Bank"><select className={control} value={newCardBank} onChange={e=>setNewCardBank(e.target.value)} required><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</select></Field>
+      <Field label="Card type"><select className={control} value={newCardType} onChange={e=>setNewCardType(e.target.value)}>{["CREDIT","DEBIT","BUSINESS","OTHER"].map(type=><option key={type} value={type}>{type}</option>)}</select></Field>
+      <Field label="Last 4 digits"><input className={control+" font-semibold tracking-[.12em]"} inputMode="numeric" value={newCardLastFour} onChange={e=>setNewCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
+      <Field label="Nickname"><input className={control} value={newCardNickname} onChange={e=>setNewCardNickname(e.target.value)} placeholder="Optional"/></Field>
+    </form>
+  </Modal>
+  </></AppShell>;
 }
