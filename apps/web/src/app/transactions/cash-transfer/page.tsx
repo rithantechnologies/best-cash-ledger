@@ -536,56 +536,27 @@ export default function CashTransferPage(){
           </section>
 
           <section className="entry-section entry-section-commission">
-            <div className="flex items-center justify-between gap-3"><h2 className="entry-title">Payment flow</h2>{commission>0?<span className="status-chip status-chip-green">Earn {money(commission)}</span>:null}</div>
-
-            <div className="mt-3 grid gap-3 md:grid-cols-[1.1fr_.9fr]">
-              <div className="space-y-2.5">
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <p className="operational-label">1 · Customer pays us</p>
-                    <strong className="money text-sm">{money(receiptAmount)}</strong>
-                  </div>
-                  <select aria-label="Customer payment received into" className={control} value={receiptAccountId} onChange={e=>setReceiptAccountId(e.target.value)} required>
-                    {receiptOptions.map(a=>{const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const liveCash=a.accountType==="CASH"?Number(session?.liveExpectedClosingTotal??session?.openingTotal??a.currentBalance):a.currentBalance;return <option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · Current "+money(liveCash):""}</option>;})}
-                  </select>
-                  {selectedReceipt?.accountType==="CASH"?<div className={"mt-2 rounded-xl border px-3 py-2.5 "+(receiptCashReady?"border-emerald-200 bg-emerald-50":"border-amber-200 bg-amber-50")}>
-                    <div className="flex items-center justify-between gap-3 text-xs"><span className="font-semibold">{selectedReceipt.accountName}</span><strong className={receiptCashReady?"text-emerald-700":"text-amber-700"}>{receiptCashReady?"Open":"Closed"}</strong></div>
-                    <div className="mt-1.5 flex items-center justify-between gap-3 text-xs"><span className="text-[var(--text-muted)]">Current cash</span><strong className="money">{money(selectedReceiptCashCurrent??selectedReceipt.currentBalance)}</strong></div>
-                    {receiptCashAfter!==null?<div className="mt-1 flex items-center justify-between gap-3 text-xs"><span className="text-[var(--text-muted)]">After this receipt</span><strong className="money">{money(receiptCashAfter)}</strong></div>:null}
-                    {!receiptCashReady?<button type="button" onClick={()=>router.push("/cash-counter")} className="mt-2 text-xs font-bold text-[var(--accent)]">Open this drawer in Cash →</button>:null}
-                  </div>:null}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <p className="operational-label">Customer pays us</p>
+                  <strong className="money text-sm">{money(receiptAmount)}</strong>
                 </div>
-
-                {method==="ADD_ON"&&commission>0?(
-                  commissionSeparate?<div className="wallet-summary-card rounded-xl border px-3 py-2.5">
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <p className="operational-label text-[var(--money-in)]">Commission received separately</p>
-                      <strong className="money text-sm text-[var(--money-in)]">{money(commission)}</strong>
-                    </div>
-                    <div className="flex gap-2">
-                      <select aria-label="Commission received into" className={control+" min-w-0 flex-1"} value={commissionReceiptAccountId} onChange={e=>setCommissionReceiptAccountId(e.target.value)}>
-                        {receiptOptions.map(a=>{const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const liveCash=a.accountType==="CASH"?Number(session?.liveExpectedClosingTotal??session?.openingTotal??a.currentBalance):a.currentBalance;return <option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · Current "+money(liveCash):""}</option>;})}
-                      </select>
-                      <button type="button" onClick={()=>setCommissionReceiptAccountId("SAME")} className="min-h-11 shrink-0 rounded-xl border border-[var(--border)] px-3 text-xs font-semibold">Same as payment</button>
-                    </div>
-                    {selectedCommissionReceipt?.accountType==="CASH"?<div className={"mt-2 rounded-lg px-2.5 py-2 text-xs "+(commissionCashReady?"bg-emerald-50 text-emerald-800":"bg-amber-50 text-amber-800")}>
-                      <div className="flex justify-between gap-3"><span>Current cash</span><strong className="money">{money(selectedCommissionCashCurrent??selectedCommissionReceipt.currentBalance)}</strong></div>
-                      {commissionCashAfter!==null?<div className="mt-1 flex justify-between gap-3"><span>After commission</span><strong className="money">{money(commissionCashAfter)}</strong></div>:null}
-                      {!commissionCashReady?<button type="button" onClick={()=>router.push("/cash-counter")} className="mt-1.5 font-bold text-[var(--accent)]">Open this drawer in Cash →</button>:null}
-                    </div>:null}
-                  </div>:<div className="flex items-center justify-between gap-3 rounded-xl bg-[var(--surface-soft)] px-3 py-2.5 text-xs">
-                    <span className="text-[var(--text-muted)]">Commission <strong className="money text-[var(--money-in)]">{money(commission)}</strong> is included in the customer payment.</span>
-                    <button type="button" onClick={()=>{const alternate=receiptOptions.find(a=>a.id!==receiptAccountId);setCommissionReceiptAccountId(alternate?.id??receiptAccountId);}} className="font-bold text-[var(--accent)]">Receive elsewhere</button>
-                  </div>
-                ):method==="DEDUCT"&&commission>0?<div className="rounded-xl bg-[var(--surface-soft)] px-3 py-2.5 text-xs text-[var(--text-muted)]"><strong className="money text-[var(--money-in)]">{money(commission)}</strong> commission stays from this payment.</div>:null}
-
-                {needsCashSetup?<p className="text-[11px] font-semibold text-rose-600">Set up and open a cash drawer from Cash before recording physical cash.</p>:null}
+                <select aria-label="Customer payment received into" className={control} value={receiptAccountId} onChange={e=>setReceiptAccountId(e.target.value)} required>
+                  {receiptOptions.map(a=>{const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const liveCash=a.accountType==="CASH"?Number(session?.liveExpectedClosingTotal??session?.openingTotal??a.currentBalance):a.currentBalance;return <option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · "+money(liveCash):""}</option>;})}
+                </select>
+                {selectedReceipt?.accountType==="CASH"?<div className={"mt-2 rounded-xl border px-3 py-2.5 "+(receiptCashReady?"border-emerald-200 bg-emerald-50":"border-amber-200 bg-amber-50")}>
+                  <div className="flex items-center justify-between gap-3 text-xs"><span className="font-semibold">{selectedReceipt.accountName}</span><strong className={receiptCashReady?"text-emerald-700":"text-amber-700"}>{receiptCashReady?"Open":"Closed"}</strong></div>
+                  <div className="mt-1.5 flex items-center justify-between gap-3 text-xs"><span className="text-[var(--text-muted)]">Current</span><strong className="money">{money(selectedReceiptCashCurrent??selectedReceipt.currentBalance)}</strong></div>
+                  {receiptCashAfter!==null?<div className="mt-1 flex items-center justify-between gap-3 text-xs"><span className="text-[var(--text-muted)]">After</span><strong className="money text-[var(--money-in)]">{money(receiptCashAfter)}</strong></div>:null}
+                  {!receiptCashReady?<button type="button" onClick={()=>router.push("/cash-counter")} className="mt-2 text-xs font-bold text-[var(--accent)]">Open drawer →</button>:null}
+                </div>:null}
               </div>
 
               <div>
-                <Field label={"2 · Send "+money(Math.max(0,recipientGets))+" from"}>
+                <Field label={"Send "+money(Math.max(0,recipientGets))+" from"}>
                   <select aria-label="Recipient payout funding account" className={control} value={sourceAccountId} onChange={e=>setSourceAccountId(e.target.value)} required>
-                    <option value="">Select funding account</option>
+                    <option value="">Select account</option>
                     {activeAccounts.filter(a=>["BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName} · {money(a.currentBalance)}</option>)}
                   </select>
                 </Field>
@@ -595,11 +566,25 @@ export default function CashTransferPage(){
               </div>
             </div>
 
-            {commission>0?<div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs">
-              <span className="font-bold text-emerald-800">3 · Commission earned</span>
-              <strong className="money text-sm text-emerald-700">{money(commission)}</strong>
-              <span className="w-full text-[11px] text-emerald-800">{commissionSeparate?"Received separately into "+commissionIntoLabel:"Included in the customer payment into "+receivedIntoLabel}</span>
+            {commission>0?<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-emerald-900">Commission</span>
+                <strong className="money text-base text-emerald-700">{money(commission)}</strong>
+              </div>
+              {method==="ADD_ON"?(
+                commissionSeparate?<div className="mt-2 flex gap-2">
+                  <select aria-label="Commission received into" className={control+" min-w-0 flex-1 bg-white"} value={commissionReceiptAccountId} onChange={e=>setCommissionReceiptAccountId(e.target.value)}>
+                    {receiptOptions.map(a=>{const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const liveCash=a.accountType==="CASH"?Number(session?.liveExpectedClosingTotal??session?.openingTotal??a.currentBalance):a.currentBalance;return <option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · "+money(liveCash):""}</option>;})}
+                  </select>
+                  <button type="button" onClick={()=>setCommissionReceiptAccountId("SAME")} className="min-h-11 shrink-0 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-semibold">Same account</button>
+                </div>:<div className="mt-2 flex items-center justify-between gap-3 text-xs text-emerald-900">
+                  <span>Included in customer payment</span>
+                  <button type="button" onClick={()=>{const alternate=receiptOptions.find(a=>a.id!==receiptAccountId);setCommissionReceiptAccountId(alternate?.id??receiptAccountId);}} className="font-bold text-[var(--accent)]">Receive separately</button>
+                </div>
+              ):<p className="mt-2 text-xs text-emerald-900">Deducted from customer amount</p>}
             </div>:null}
+
+            {needsCashSetup?<p className="mt-3 text-[11px] font-semibold text-rose-600">Open a cash drawer before recording physical cash.</p>:null}
           </section>
 
           <section className="entry-section lg:hidden">
