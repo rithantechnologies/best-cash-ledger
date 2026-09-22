@@ -19,7 +19,7 @@ type Settlement={
  receipts:{id:string;amount:string;receivedAt:string;destinationAccount:Account}[];
 };
 type Payable={
- id:string;originalAmount:string;paidAmount:string;remainingAmount:string;status:string;
+ id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;
  payments:{id:string;amount:string;status:string;sourceAccount:Account;transaction:{charges:Charge[]}}[];
 };
 type CardSwipe={swipeAmount:string;providerChargeRate:string;providerChargeAmount:string;commissionRate:string;commissionAmount:string;customerPayableAmount:string;settlementAmount:string;dueAt:string;paymentTerm:{name:string}|null;settlementAccount:Account;customerCard:{bankName:string;lastFourDigits:string}|null};
@@ -37,6 +37,18 @@ const money=(v:string|number|null)=>new Intl.NumberFormat("en-IN",{style:"curren
 const tone=(s:string)=>s==="COMPLETED"?"emerald":s==="PENDING"?"amber":s==="REVERSED"?"rose":"slate";
 const label=(s:string)=>s.replaceAll("_"," ").toLowerCase().replace(/w/g,c=>c.toUpperCase());
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
+function payoutDisplay(payable:Payable|null){
+ if(!payable)return null;
+ if(payable.status==="PAID")return {label:"Payout Paid",tone:"emerald" as const};
+ if(payable.status==="PARTIALLY_PAID")return {label:"Payout Partially Paid",tone:"amber" as const};
+ if(["CANCELLED","REVERSED"].includes(payable.status))return {label:"Payout "+label(payable.status),tone:"rose" as const};
+ const due=new Date(payable.dueAt),now=new Date();
+ const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+ const dueDay=new Date(due.getFullYear(),due.getMonth(),due.getDate());
+ if(dueDay<today)return {label:"Payout Overdue",tone:"rose" as const};
+ if(dueDay.getTime()===today.getTime())return {label:"Payout Due Today",tone:"amber" as const};
+ return {label:"Payout Pending",tone:"amber" as const};
+}
 
 function FlowCard({label:heading,value,meta,tone="neutral",children}:{label:string;value:number|string;meta?:string;tone?:"neutral"|"positive"|"negative"|"accent";children?:ReactNode}){
  const cls=tone==="positive"?"text-[var(--money-in)]":tone==="negative"?"text-[var(--money-out)]":tone==="accent"?"text-[var(--accent)]":"text-[var(--text)]";
@@ -103,6 +115,7 @@ export default function TransactionDetailPage(){
 
  const cardDueType=["CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION"].includes(tx.transactionType);
  const canReverse=(role==="OWNER"||role==="ADMIN")&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
+ const payoutState=tx.transactionType==="CARD_SWIPE"?payoutDisplay(tx.payable):null;
  const fees=sum(tx.charges),earnings=sum(tx.commissions),gross=Number(tx.grossAmount),net=Number(tx.netAmount??tx.grossAmount);
  const payoutFees=tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0;
  const cardProfit=earnings-fees-payoutFees;
@@ -111,7 +124,7 @@ export default function TransactionDetailPage(){
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">← Transactions</Link><p className="mt-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--text-muted)]">{label(tx.transactionType)}</p><h1 className="mt-1 text-2xl font-black tracking-[-.035em] sm:text-3xl">{tx.transactionNumber}</h1><p className="mt-1 text-xs text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleString("en-IN")} · {tx.createdBy?.fullName??tx.createdById}</p></div>
-   <div className="flex items-center gap-2"><StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
+   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
@@ -125,7 +138,7 @@ export default function TransactionDetailPage(){
 
   <MoneyFlow tx={tx}/>
 
-  {tx.payable?<Surface className="overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><h3 className="text-sm font-black">Customer payout</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">{tx.payable.payments.length?tx.payable.payments.map(p=>p.sourceAccount.accountName).join(", "):"Not paid yet"}</p></div><StatusBadge tone={tx.payable.status==="PAID"?"emerald":"amber"}>{label(tx.payable.status)}</StatusBadge></div><div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4"><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Customer gets</p><p className="money mt-1 font-black">{money(tx.payable.originalAmount)}</p></div><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Paid</p><p className="money mt-1 font-black text-[var(--money-in)]">{money(tx.payable.paidAmount)}</p></div><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Payout charges</p><p className="money mt-1 font-black text-[var(--money-out)]">{money(payoutFees)}</p></div><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Remaining</p><p className="money mt-1 font-black">{money(tx.payable.remainingAmount)}</p></div></div></Surface>:null}
+  {tx.payable?<Surface className="overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><h3 className="text-sm font-black">Customer payout</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">{tx.payable.payments.length?tx.payable.payments.map(p=>p.sourceAccount.accountName).join(", "):"Not paid yet"}</p></div><StatusBadge tone={(payoutDisplay(tx.payable)?.tone??"amber")}>{payoutDisplay(tx.payable)?.label??label(tx.payable.status)}</StatusBadge></div><div className="border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2.5 text-[11px] text-[var(--text-muted)] sm:px-5">Due <b className="text-[var(--text)]">{new Date(tx.payable.dueAt).toLocaleDateString("en-IN")}</b></div><div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4"><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Customer gets</p><p className="money mt-1 font-black">{money(tx.payable.originalAmount)}</p></div><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Paid</p><p className="money mt-1 font-black text-[var(--money-in)]">{money(tx.payable.paidAmount)}</p></div><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Payout charges</p><p className="money mt-1 font-black text-[var(--money-out)]">{money(payoutFees)}</p></div><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Remaining</p><p className="money mt-1 font-black">{money(tx.payable.remainingAmount)}</p></div></div></Surface>:null}
 
   <div className="grid gap-4 lg:grid-cols-2">
    <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Pricing</h3></div><div className="divide-y divide-[var(--border)] px-4 sm:px-5">{tx.charges.map(c=><div key={c.id} className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">Provider / bank fee{c.rate?" · "+Number(c.rate)+"%":""}</span><strong className="money text-[var(--money-out)]">−{money(c.amount)}</strong></div>)}{tx.commissions.map(c=><div key={c.id} className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">{c.commissionType==="MICRO_ATM_PROVIDER"?"Provider commission":"Customer fee"} · {Number(c.rate)}%</span><strong className="money text-[var(--money-in)]">+{money(c.amount)}</strong></div>)}{tx.transactionType==="CARD_SWIPE"&&payoutFees>0?<div className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">Payout / wallet charges</span><strong className="money text-[var(--money-out)]">−{money(payoutFees)}</strong></div>:null}{tx.transactionType==="CARD_SWIPE"?<div className="flex items-center justify-between gap-4 py-3 text-sm font-bold"><span>Business profit</span><strong className={"money "+(cardProfit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(cardProfit)}</strong></div>:null}{!tx.charges.length&&!tx.commissions.length&&tx.transactionType!=="CARD_SWIPE"?<div className="py-4 text-sm text-[var(--text-muted)]">No fees or commission.</div>:null}</div></Surface>

@@ -21,7 +21,7 @@ type CustomerSwipeHistory={
   id:string;transactionNumber:string;transactionAt:string;status:string;grossAmount:string;netAmount:string|null;
   charges:HistoryCharge[];commissions:{amount:string;rate:string|null}[];
   cardSwipe:{swipeAmount:string;providerChargeAmount:string;commissionAmount:string;customerPayableAmount:string;customerCard:{bankName:string;lastFourDigits:string}|null}|null;
-  payable:{id:string;originalAmount:string;paidAmount:string;remainingAmount:string;status:string;payments:HistoryPayment[]}|null;
+  payable:{id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;payments:HistoryPayment[]}|null;
   providerSettlementSource:{status:string;provider:{name:string}|null;gateway:{gatewayName:string}|null}|null;
 };
 type CustomerPreference={providerId:string;gatewayId:string;termId:string;cardId?:string;commissionRate?:string};
@@ -67,6 +67,18 @@ function termLabel(term:Term){
   if(term.durationUnit==="DAYS")return term.durationValue+" day"+(term.durationValue===1?"":"s");
   return term.name;
 }
+function historyPayoutStatus(payable:CustomerSwipeHistory["payable"]){
+  if(!payable)return null;
+  if(payable.status==="PAID")return {label:"Payout Paid",className:"bg-emerald-50 text-emerald-700"};
+  if(payable.status==="PARTIALLY_PAID")return {label:"Payout Partially Paid",className:"bg-amber-50 text-amber-700"};
+  const due=new Date(payable.dueAt),now=new Date();
+  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const dueDay=new Date(due.getFullYear(),due.getMonth(),due.getDate());
+  if(dueDay<today)return {label:"Payout Overdue",className:"bg-rose-50 text-rose-700"};
+  if(dueDay.getTime()===today.getTime())return {label:"Payout Due Today",className:"bg-amber-50 text-amber-700"};
+  return {label:"Payout Pending",className:"bg-amber-50 text-amber-700"};
+}
+
 function quickTermRank(term:Term){
   if(term.durationValue===0||term.name.toLowerCase().includes("instant"))return 0;
   if((term.durationUnit==="DAYS"&&term.durationValue===1)||(term.durationUnit==="HOURS"&&term.durationValue===24))return 1;
@@ -213,7 +225,7 @@ function CustomerCardSwipeHistory({rows,loading}:{rows:CustomerSwipeHistory[];lo
           <td className="max-w-[180px] truncate">{sources.length?sources.join(", "):"—"}</td>
           <td className="money text-[var(--money-out)]">{money(payoutCharge)}</td>
           <td className={"money font-bold "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(profit)}</td>
-          <td><span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-bold">{row.payable?.status?.replaceAll("_"," ")??row.status}</span></td>
+          <td>{historyPayoutStatus(row.payable)?<span className={"rounded-full px-2 py-1 text-[10px] font-bold "+historyPayoutStatus(row.payable)!.className}>{historyPayoutStatus(row.payable)!.label}</span>:<span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-bold">{row.status.replaceAll("_"," ")}</span>}</td>
         </tr>;
       })}</tbody>
     </table></div>:<p className="px-3 py-4 text-xs text-[var(--text-muted)]">No previous card swipes for this customer.</p>}

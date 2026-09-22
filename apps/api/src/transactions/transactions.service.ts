@@ -110,7 +110,7 @@ export class TransactionsService {
     if (!options?.page) {
       const items = await this.prisma.transaction.findMany({
         where,
-        include: { customer: true, charges: true, commissions: true },
+        include: { customer: true, charges: true, commissions: true, payable: true },
         orderBy,
         take: 100,
       });
@@ -122,7 +122,7 @@ export class TransactionsService {
     const [items, total] = await Promise.all([
       this.prisma.transaction.findMany({
         where,
-        include: { customer: true, charges: true, commissions: true },
+        include: { customer: true, charges: true, commissions: true, payable: true },
         orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
