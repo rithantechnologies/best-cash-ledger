@@ -311,6 +311,7 @@ export default function AccountsPage(){
   const liquidFunds=availability?.availableFunds??totals.liquid;
   const availableCredit=availability?.creditCardAvailable??totals.creditAvailable;
   const cardOutstanding=availability?.creditCardOutstanding??totals.cards;
+  const cashAvailable=visibleItems.filter((account)=>account.accountType==="CASH").reduce((sum,account)=>sum+account.currentBalance,0);
 
   return <AppShell><PageFrame width="max-w-7xl" className="ui-preview accounts-preview">
     <SectionHeading
@@ -336,8 +337,12 @@ export default function AccountsPage(){
           </div>
           <span className="shrink-0 rounded-full bg-[var(--surface-soft)] px-2.5 py-1 text-[11px] font-bold text-[var(--text-muted)]">{totals.active} active</span>
         </div>
-        <div className="mt-4 grid grid-cols-3 divide-x divide-[var(--border)] border-t border-[var(--border)] pt-4">
+        <div className="mt-4 grid grid-cols-2 gap-y-4 divide-x-0 border-t border-[var(--border)] pt-4 sm:grid-cols-4 sm:divide-x sm:divide-[var(--border)]">
           <div className="min-w-0 pr-2.5 sm:pr-4">
+            <p className="text-[11px] font-semibold text-[var(--text-muted)]">Cash available</p>
+            <p className="money mt-1 truncate text-sm font-black text-[var(--text)] sm:text-base">{money(cashAvailable)}</p>
+          </div>
+          <div className="min-w-0 pl-2.5 sm:px-4">
             <p className="text-[11px] font-semibold text-[var(--text-muted)]">Liquid funds</p>
             <p className="money mt-1 truncate text-sm font-black text-[var(--text)] sm:text-base">{money(liquidFunds)}</p>
           </div>
