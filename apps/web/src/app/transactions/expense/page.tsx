@@ -4,9 +4,10 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Field, FormSection, PageLoader, SummaryRow, TransactionFrame } from "@/components/ui";
+import { SearchSelect } from "@/components/search-select";
 import { apiFetch } from "@/lib/api";
 
-type Account={id:string;accountName:string;accountType:string};
+type Account={id:string;accountName:string;accountType:string;bankName?:string|null;accountReference?:string|null;lastFourDigits?:string|null};
 type Category={id:string;name:string;expenseUsage:string};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(v);
 
@@ -19,6 +20,12 @@ export default function ExpensePage(){
  useEffect(()=>{Promise.all([apiFetch<Account[]>("/dashboard/accounts"),apiFetch<Category[]>("/settings/expense-categories")]).then(([a,c])=>{setAccounts(a);setCategories(c);}).catch(()=>setError("Failed to load form")).finally(()=>setLoading(false));},[]);
  const visible=categories.filter(c=>c.expenseUsage==="MIXED"||c.expenseUsage===expenseType);
  const value=Number(amount||0),category=categories.find(c=>c.id===categoryId),account=accounts.find(a=>a.id===accountId);
+ const accountOptions=accounts.map(a=>({
+  value:a.id,
+  label:a.accountName,
+  description:[a.accountType.replaceAll("_"," "),a.bankName,a.lastFourDigits?"•••• "+a.lastFourDigits:a.accountReference].filter(Boolean).join(" · "),
+  searchText:[a.accountName,a.accountType,a.bankName,a.accountReference,a.lastFourDigits].filter(Boolean).join(" "),
+ }));
 
  async function submit(e:FormEvent){
   e.preventDefault();setSaving(true);setError("");
@@ -37,7 +44,7 @@ export default function ExpensePage(){
     <Field label="Expense type"><select className={control} value={expenseType} onChange={e=>{setExpenseType(e.target.value);setCategoryId("");}} required><option value="BUSINESS">Business expense</option><option value="PERSONAL">Personal expense</option></select></Field>
     <Field label="Category"><select className={control} value={categoryId} onChange={e=>setCategoryId(e.target.value)} required><option value="">Select category</option>{visible.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
     <Field label="Amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
-    <Field label="Paid from"><select className={control} value={accountId} onChange={e=>setAccountId(e.target.value)} required><option value="">Select account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} — {a.accountType.replaceAll("_"," ")}</option>)}</select></Field>
+    <Field label="Paid from"><SearchSelect value={accountId} onChange={setAccountId} options={accountOptions} placeholder="Select account" searchPlaceholder="Search bank, cash, wallet or account…"/></Field>
     <Field label="Description" className="sm:col-span-2"><input className={control} placeholder="What was this expense for?" value={description} onChange={e=>setDescription(e.target.value)} required/></Field>
    </div>
   </FormSection>
