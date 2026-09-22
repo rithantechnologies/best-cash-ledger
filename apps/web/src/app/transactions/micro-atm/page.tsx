@@ -19,6 +19,10 @@ export default function MicroAtmPage(){
  const [accounts,setAccounts]=useState<Account[]>([]);
  const [providers,setProviders]=useState<Provider[]>([]);
  const [customerId,setCustomerId]=useState("");
+ const [customerMode,setCustomerMode]=useState<"existing"|"new">("existing");
+ const [customerSearch,setCustomerSearch]=useState("");
+ const [newCustomerName,setNewCustomerName]=useState("");
+ const [newCustomerMobile,setNewCustomerMobile]=useState("");
  const [cardLastFour,setCardLastFour]=useState("");
  const [bank,setBank]=useState("");
  const [amount,setAmount]=useState("");
@@ -52,9 +56,12 @@ export default function MicroAtmPage(){
  const provider=providers.find(p=>p.id===providerId);
  const providerWallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId);
  const withdrawal=Number(amount||0);
+ const filteredCustomers=customerSearch.trim()?customers.filter(c=>(c.fullName+" "+c.mobile).toLowerCase().includes(customerSearch.trim().toLowerCase())).slice(0,20):customers.slice(0,20);
+ const newCustomerReady=newCustomerName.trim().length>=2&&(!newCustomerMobile.trim()||/^[6-9]\d{9}$/.test(newCustomerMobile.trim()));
  const providerCommission=Math.round(withdrawal*Number(commissionRate||0))/100;
  const settlement=Math.round((withdrawal+providerCommission)*100)/100;
  const cashAccount=accounts.find(a=>a.id===cashAccountId);
+ const customerReady=customerMode==="existing"?Boolean(customerId):newCustomerReady;
 
  useEffect(()=>{
   if(!providerId)return;
@@ -68,19 +75,27 @@ export default function MicroAtmPage(){
  useEffect(()=>{if(gatewayId&&providerId)localStorage.setItem("cashledger_micro_gateway_"+providerId,gatewayId);},[gatewayId,providerId]);
 
  useEffect(()=>{
-  if(!customerId||!providerId)return;
-  const q=new URLSearchParams({transactionType:"MICRO_ATM",customerId,providerId});
+  if(!providerId)return;
+  const q=new URLSearchParams({transactionType:"MICRO_ATM",providerId});
+  if(customerMode==="existing"&&customerId)q.set("customerId",customerId);
   if(gatewayId)q.set("gatewayId",gatewayId);
   apiFetch<{commissionRate:string}|null>("/settings/commission-rules/resolve?"+q.toString())
-   .then(rule=>{if(rule)setCommissionRate(String(Number(rule.commissionRate)));})
+   .then(rule=>setCommissionRate(String(Number(rule?.commissionRate||0))))
    .catch(()=>{});
- },[customerId,providerId,gatewayId]);
+ },[customerMode,customerId,providerId,gatewayId]);
 
  async function submit(e:FormEvent){
   e.preventDefault();setSaving(true);setError("");
   try{
+   let targetCustomerId=customerId;
+   if(customerMode==="new"){
+    const created=await apiFetch<Customer>("/customers",{method:"POST",body:JSON.stringify({customerType:"REGULAR",fullName:newCustomerName.trim(),mobile:newCustomerMobile.trim()||undefined})});
+    targetCustomerId=created.id;
+    setCustomers(current=>[created,...current]);
+    setCustomerId(created.id);
+   }
    await apiFetch("/transactions/micro-atm",{method:"POST",body:JSON.stringify({
-    customerId,cardLastFour,customerBankName:bank||undefined,withdrawalAmount:withdrawal,
+    customerId:targetCustomerId,cardLastFour,customerBankName:bank||undefined,withdrawalAmount:withdrawal,
     providerId,gatewayId,providerCommissionRate:Number(commissionRate),
     cashAccountId,settlementAccountId,settledNow,
     settlementDueAt:settlementDueAt?new Date(settlementDueAt).toISOString():undefined,
@@ -94,22 +109,30 @@ export default function MicroAtmPage(){
  if(loading)return <AppShell><PageLoader label="Preparing Micro ATM withdrawal…"/></AppShell>;
  const control="app-control";
  return <AppShell><form onSubmit={submit}>
-  <TransactionFrame eyebrow="Customer service" title="Micro ATM withdrawal" description="Customer card withdrawal: pay cash now, then track the provider principal plus provider commission until settlement."
+  <TransactionFrame eyebrow="Customer service" title="Micro ATM withdrawal" description="Customer receives the full withdrawal amount in cash. Provider commission is tracked separately and is not deducted from the customer."
    summary={<>
-    <SummaryRow label="Customer withdrawal" value={money(withdrawal)}/>
-    <SummaryRow label="Cash given" value={money(withdrawal)} tone="amber"/>
-    <SummaryRow label="Customer commission" value={money(0)}/>
+    <SummaryRow label="Customer gets cash" value={money(withdrawal)} tone="amber"/>
     <SummaryRow label="Provider commission" value={money(providerCommission)} tone="emerald"/>
     <SummaryRow label={settledNow?"Settlement received":"Provider clearing"} value={money(settlement)} tone="cyan"/>
    </>}
-   footer={<button disabled={saving||!customerId||cardLastFour.length!==4||withdrawal<=0||!providerId||!gatewayId||!cashAccountId||!settlementAccountId||(cashAccount&&cashAccount.currentBalance+0.001<withdrawal)} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save Micro ATM withdrawal"}</button>}>
+   footer={<button disabled={saving||!customerReady||cardLastFour.length!==4||withdrawal<=0||!providerId||!gatewayId||!cashAccountId||!settlementAccountId||(cashAccount&&cashAccount.currentBalance+0.001<withdrawal)} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save Micro ATM withdrawal"}</button>}>
 
    {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
-   <FormSection step="1" title="Withdrawal">
-    <div className="grid gap-3 sm:grid-cols-2">
-     <Field label="Amount"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-400">₹</span><input className={control+" pl-8 text-xl font-bold"} type="number" inputMode="decimal" step="0.01" min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" required/></div></Field>
-     <Field label="Customer"><select className={control} value={customerId} onChange={e=>setCustomerId(e.target.value)} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName} · {c.mobile}</option>)}</select></Field>
+   <FormSection step="1" title="Customer & withdrawal">
+    <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
+     <button type="button" onClick={()=>setCustomerMode("existing")} className={"min-h-10 rounded-lg text-sm font-bold "+(customerMode==="existing"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>Existing</button>
+     <button type="button" onClick={()=>setCustomerMode("new")} className={"min-h-10 rounded-lg text-sm font-bold "+(customerMode==="new"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>New</button>
+    </div>
+    {customerMode==="existing"?<div className="grid gap-3 sm:grid-cols-2">
+     <Field label="Find customer"><input className={control} value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name or mobile"/></Field>
+     <Field label="Customer"><select className={control} value={customerId} onChange={e=>setCustomerId(e.target.value)} required><option value="">Select customer</option>{filteredCustomers.map(c=><option key={c.id} value={c.id}>{c.fullName}{c.mobile?" · "+c.mobile:""}</option>)}</select></Field>
+    </div>:<div className="grid gap-3 sm:grid-cols-2">
+     <Field label="Customer name"><input className={control} value={newCustomerName} onChange={e=>setNewCustomerName(e.target.value)} placeholder="Enter customer name" required/></Field>
+     <Field label="Mobile (optional)"><input className={control} inputMode="numeric" maxLength={10} value={newCustomerMobile} onChange={e=>setNewCustomerMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile"/>{newCustomerMobile&& !/^[6-9]\d{9}$/.test(newCustomerMobile)?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Enter a valid 10-digit Indian mobile number.</span>:null}</Field>
+    </div>}
+    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+     <Field label="Customer gets"><input className={control+" text-xl font-bold"} type="number" inputMode="decimal" step="0.01" min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" required/></Field>
      <Field label="Card last 4"><input className={control} inputMode="numeric" maxLength={4} placeholder="Last 4 digits" value={cardLastFour} onChange={e=>setCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
      <Field label="Customer bank"><input className={control} value={bank} onChange={e=>setBank(e.target.value)} placeholder="Optional bank name"/></Field>
     </div>
