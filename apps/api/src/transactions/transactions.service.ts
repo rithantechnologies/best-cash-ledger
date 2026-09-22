@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountNature, AccountType, CommissionMethod, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountNature, AccountType, CommissionMethod, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { LedgerService, type JournalEntry } from '../ledger/ledger.service.js';
@@ -189,6 +189,7 @@ export class TransactionsService {
   async createCardSwipe(
     dto: CreateCardSwipeDto,
     userId: string,
+    actorRole: RoleName,
     providedIdempotencyKey?: string,
   ) {
     const idempotencyKey = await this.idempotency.key(
@@ -204,7 +205,7 @@ export class TransactionsService {
     if (!configuredGateway) {
       throw new BadRequestException('Selected active gateway does not belong to the provider');
     }
-    const providerChargeRate = Number(configuredGateway.defaultChargeRate);
+    const providerChargeRate = Number(dto.providerChargeRate);
     const providerChargeAmount = this.money(
       dto.swipeAmount * providerChargeRate / 100,
     );
@@ -394,10 +395,17 @@ export class TransactionsService {
       );
       for (const account of payoutAccounts) {
         if (account.accountType === AccountType.CASH) {
+          if (
+            actorRole === RoleName.STAFF &&
+            account.accountName === 'Main Cash Reserve'
+          ) {
+            throw new BadRequestException('Main Cash Reserve is owner-only');
+          }
           await this.validation.requireOpenCashDesk(
             tx,
             account.id,
             'Customer cash payout',
+            actorRole === RoleName.STAFF ? userId : undefined,
           );
         }
       }

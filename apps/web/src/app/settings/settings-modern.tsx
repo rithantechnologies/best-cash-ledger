@@ -13,7 +13,7 @@ export type Rule={id:string;customerId:string|null;providerId:string|null;gatewa
 type Area="payments"|"terms"|"commission"|"expenses";
 type ProviderTab="gateways"|"charges"|"conditions";
 type IconName="wallet"|"percent"|"clock"|"receipt"|"search"|"plus"|"chevron"|"info";
-type Props={providers:Provider[];terms:Term[];categories:Category[];rules:Rule[];onCreate:(kind:"provider"|"gateway"|"term"|"category"|"rule",providerId?:string)=>void;onEditProvider:(p:Provider)=>void;onEditGateway:(g:Gateway)=>void;onEditTerm:(t:Term)=>void;onEditCategory:(c:Category)=>void;onEditRule:(r:Rule)=>void;onToggle:(path:string,isActive:boolean,label:string)=>void;onQuickAddCategory:(name:string)=>void;onSaveCashTransferDefault:(rate:number)=>Promise<void>};
+type Props={providers:Provider[];terms:Term[];categories:Category[];rules:Rule[];onCreate:(kind:"provider"|"gateway"|"term"|"category"|"rule",providerId?:string)=>void;onEditProvider:(p:Provider)=>void;onEditGateway:(g:Gateway)=>void;onEditTerm:(t:Term)=>void;onEditCategory:(c:Category)=>void;onEditRule:(r:Rule)=>void;onToggle:(path:string,isActive:boolean,label:string)=>void;onQuickAddCategory:(name:string)=>void;onSaveCashTransferDefault:(rate:number)=>Promise<void>;onSaveCardSwipeDefault:(rate:number)=>Promise<void>};
 
 const primary="app-primary-button min-h-10 px-3.5 text-xs font-bold sm:min-h-11 sm:px-4 sm:text-sm";
 const secondary="app-secondary-button min-h-9 px-3 text-[11px] font-bold";
@@ -31,12 +31,12 @@ function duration(t:Term){return t.durationValue===0?"Instant":t.durationValue+"
 function rateLabel(value:string|number){return Number(value||0).toLocaleString("en-IN",{minimumFractionDigits:0,maximumFractionDigits:4});}
 
 
-function CashTransferDefault({rate,onSave}:{rate:number;onSave:(rate:number)=>Promise<void>}){
+function ServiceDefault({label,rate,onSave}:{label:string;rate:number;onSave:(rate:number)=>Promise<void>}){
  const [value,setValue]=useState(rateLabel(rate)),[saving,setSaving]=useState(false);
  return <div className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4 sm:flex-row sm:items-center sm:justify-between">
-  <div><p className="text-sm font-black">Cash Transfer</p><p className="mt-1 text-xs text-[var(--text-muted)]">Default commission</p></div>
+  <div><p className="text-sm font-black">{label}</p><p className="mt-1 text-xs text-[var(--text-muted)]">Default commission</p></div>
   <div className="flex items-center gap-2">
-   <div className="relative w-28"><input className="min-h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 pr-7 text-right text-sm font-black outline-none focus:border-[var(--accent)]" type="number" min="0" max="100" step="0.0001" value={value} onChange={e=>setValue(e.target.value)}/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)]">%</span></div>
+   <div className="relative w-28"><input aria-label={label+" default commission percentage"} className="min-h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 pr-7 text-right text-sm font-black outline-none focus:border-[var(--accent)]" type="number" min="0" max="100" step="0.0001" value={value} onChange={e=>setValue(e.target.value)}/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)]">%</span></div>
    <button type="button" disabled={saving} onClick={async()=>{setSaving(true);try{await onSave(Number(value||0));}finally{setSaving(false);}}} className={primary}>{saving?"Saving…":"Save"}</button>
   </div>
  </div>;
@@ -45,14 +45,15 @@ function Metric({icon,label,value,tone}:{icon:IconName;label:string;value:number
  return <Surface className="flex min-w-0 items-center gap-3 p-3.5 sm:p-4"><span className={"grid h-11 w-11 shrink-0 place-items-center rounded-2xl "+tone}><Icon name={icon}/></span><div className="min-w-0"><p className="text-xl font-black tracking-[-.03em] sm:text-2xl">{value}</p><p className="truncate text-xs font-bold">{label}</p></div></Surface>;
 }
 
-export function SettingsWorkspace({providers,terms,categories,rules,onCreate,onEditProvider,onEditGateway,onEditTerm,onEditCategory,onEditRule,onToggle,onQuickAddCategory,onSaveCashTransferDefault}:Props){
+export function SettingsWorkspace({providers,terms,categories,rules,onCreate,onEditProvider,onEditGateway,onEditTerm,onEditCategory,onEditRule,onToggle,onQuickAddCategory,onSaveCashTransferDefault,onSaveCardSwipeDefault}:Props){
  const [area,setArea]=useState<Area>("payments"),[providerTab,setProviderTab]=useState<ProviderTab>("gateways"),[selectedId,setSelectedId]=useState(""),[query,setQuery]=useState("");
  const selected=providers.find(p=>p.id===selectedId)||providers.find(p=>p.isActive)||providers[0]||null;
  const activeProviders=providers.filter(p=>p.isActive).length,activeGateways=providers.flatMap(p=>p.gateways).filter(g=>g.isActive).length,activeTerms=terms.filter(t=>t.isActive).length,activeCategories=categories.filter(c=>c.isActive).length;
  const filtered=useMemo(()=>providers.filter(p=>!query.trim()||p.name.toLowerCase().includes(query.trim().toLowerCase())||p.gateways.some(g=>g.gatewayName.toLowerCase().includes(query.trim().toLowerCase()))||(p.supportsAeps&&"aadhaar withdrawal aeps".includes(query.trim().toLowerCase()))),[providers,query]);
  const selectedRules=rules.filter(r=>r.providerId===selected?.id),missing=recommended.filter(name=>!categories.some(c=>c.name.toLowerCase()===name.toLowerCase())).slice(0,8);
  const cashTransferDefaultRule=rules.find(r=>r.transactionType==="CASH_TRANSFER"&&!r.customerId&&!r.providerId&&!r.gatewayId&&!r.paymentTermId);
- const overrideRules=rules.filter(r=>r.id!==cashTransferDefaultRule?.id);
+ const cardSwipeDefaultRule=rules.find(r=>r.transactionType==="CARD_SWIPE"&&!r.customerId&&!r.providerId&&!r.gatewayId&&!r.paymentTermId);
+ const overrideRules=rules.filter(r=>r.id!==cashTransferDefaultRule?.id&&r.id!==cardSwipeDefaultRule?.id);
  function commissionLabel(p:Provider){const v=rules.filter(r=>r.isActive&&r.providerId===p.id&&r.commissionType==="PERCENTAGE").map(r=>Number(r.commissionRate)).filter(Number.isFinite);if(!v.length)return "Uses defaults";const min=Math.min(...v),max=Math.max(...v);return min===max?rateLabel(min)+"%":rateLabel(min)+"–"+rateLabel(max)+"%";}
 
  const tabs=[["payments","Payment Providers","wallet"],["terms","Payment Terms","clock"],["commission","Commission Rules","percent"],["expenses","Expense Categories","receipt"]] as const;
@@ -81,7 +82,7 @@ export function SettingsWorkspace({providers,terms,categories,rules,onCreate,onE
   {area==="commission"?<div className="grid items-start gap-4">
    <Surface className="overflow-hidden">
     <div className="border-b border-[var(--border)] p-4 sm:p-5"><h2 className="text-base font-black">Service defaults</h2></div>
-    <div className="p-3 sm:p-4"><CashTransferDefault key={(cashTransferDefaultRule?.id||"new")+":"+(cashTransferDefaultRule?.commissionRate||"0")} rate={Number(cashTransferDefaultRule?.commissionRate||0)} onSave={onSaveCashTransferDefault}/></div>
+    <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-2"><ServiceDefault label="Card Swipe" key={(cardSwipeDefaultRule?.id||"card-new")+":"+(cardSwipeDefaultRule?.commissionRate||"0")} rate={Number(cardSwipeDefaultRule?.commissionRate||0)} onSave={onSaveCardSwipeDefault}/><ServiceDefault label="Cash Transfer" key={(cashTransferDefaultRule?.id||"cash-new")+":"+(cashTransferDefaultRule?.commissionRate||"0")} rate={Number(cashTransferDefaultRule?.commissionRate||0)} onSave={onSaveCashTransferDefault}/></div>
    </Surface>
    <Surface className="overflow-hidden"><div className="flex items-start justify-between gap-3 border-b border-[var(--border)] p-4 sm:p-5"><div><h2 className="text-base font-black">Commission overrides</h2></div><button type="button" onClick={()=>onCreate("rule")} className={primary}>+ Rule</button></div><div className="space-y-2 p-3 sm:p-4">{overrideRules.map(r=>{const provider=providers.find(p=>p.id===r.providerId);const gateway=provider?.gateways.find(g=>g.id===r.gatewayId);return <div key={r.id} className={"rounded-2xl border border-[var(--border)] p-4 "+(!r.isActive?"opacity-55":"")}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-black">{r.transactionType.replaceAll("_"," ")}</p><StatusBadge tone={r.isActive?"emerald":"slate"}>{r.isActive?"Active":"Inactive"}</StatusBadge></div><p className="mt-1 text-xs text-[var(--text-muted)]">{provider?.name||"Any provider"} · {gateway?.gatewayName||"Any gateway"} · {r.paymentTerm?.name||"Any term"} · {r.customerId?"Specific customer":"Any customer"}</p></div><div className="flex items-center gap-2"><span className="rounded-xl bg-[var(--accent-soft)] px-3 py-2 text-sm font-black text-[var(--accent)]">{Number(r.commissionRate)}{r.commissionType==="PERCENTAGE"?"%":" fixed"}</span><button type="button" onClick={()=>onEditRule(r)} className={secondary}>Edit</button><button type="button" onClick={()=>onToggle("/settings/commission-rules/"+r.id,r.isActive,"commission rule")} className={secondary}>{r.isActive?"Retire":"Activate"}</button></div></div></div>;})}{!overrideRules.length?<EmptyState title="No commission overrides"/>:null}</div></Surface>
   </div>:null}

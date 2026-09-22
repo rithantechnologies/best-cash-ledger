@@ -150,6 +150,7 @@ export class FinancialValidationService {
     db: Db,
     cashAccountId: string,
     label = 'Cash account',
+    openedById?: string,
   ) {
     const [session, account] = await Promise.all([
       db.cashSession.findFirst({
@@ -157,6 +158,7 @@ export class FinancialValidationService {
           cashAccountId,
           businessDate: this.indiaBusinessDate(),
           status: 'OPEN',
+          ...(openedById ? { openedById } : {}),
         },
         select: { id: true },
       }),

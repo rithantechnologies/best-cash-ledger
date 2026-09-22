@@ -56,7 +56,7 @@ export class TransactionsController {
 
   @Post('card-swipe')
   createCardSwipe(@Body() dto: CreateCardSwipeDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
-    return this.transactions.createCardSwipe(dto, req.user.userId, key);
+    return this.transactions.createCardSwipe(dto, req.user.userId, req.user.role, key);
   }
 
   @Post('cash-transfer')

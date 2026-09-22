@@ -62,17 +62,19 @@ export default function SettingsPage(){
  async function addTerm(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/payment-terms",{method:"POST",body:JSON.stringify({name:termName,durationValue:Number(durationValue),durationUnit,defaultCommissionType:"PERCENTAGE",defaultCommissionRate:Number(termRate)})}),()=>{setTermName("");setDurationValue("0");setTermRate("0");setCreate(null);},"Payment term added.");}catch{}}
  async function addCategory(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name:categoryName,expenseUsage:categoryUsage})}),()=>{setCategoryName("");setCreate(null);},"Expense category added.");}catch{}}
  async function quickAddCategory(name:string){try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name,expenseUsage:"BUSINESS"})}),()=>{},name+" added.");}catch{}}
- async function saveCashTransferDefault(rate:number){
-  const existing=rules.find(r=>r.transactionType==="CASH_TRANSFER"&&!r.customerId&&!r.providerId&&!r.gatewayId&&!r.paymentTermId);
+ async function saveServiceDefault(transactionType:"CARD_SWIPE"|"CASH_TRANSFER",rate:number,label:string){
+  const existing=rules.find(r=>r.transactionType===transactionType&&!r.customerId&&!r.providerId&&!r.gatewayId&&!r.paymentTermId);
   await run(async()=>{
    if(existing){
     await apiFetch("/settings/commission-rules/"+existing.id,{method:"PATCH",body:JSON.stringify({commissionType:"PERCENTAGE",commissionRate:rate})});
     if(!existing.isActive)await apiFetch("/settings/commission-rules/"+existing.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:true})});
    }else{
-    await apiFetch("/settings/commission-rules",{method:"POST",body:JSON.stringify({transactionType:"CASH_TRANSFER",commissionType:"PERCENTAGE",commissionRate:rate})});
+    await apiFetch("/settings/commission-rules",{method:"POST",body:JSON.stringify({transactionType,commissionType:"PERCENTAGE",commissionRate:rate})});
    }
-  },()=>{},"Cash transfer default updated.");
+  },()=>{},label+" default updated.");
  }
+ async function saveCashTransferDefault(rate:number){await saveServiceDefault("CASH_TRANSFER",rate,"Cash transfer");}
+ async function saveCardSwipeDefault(rate:number){await saveServiceDefault("CARD_SWIPE",rate,"Card swipe");}
  async function addRule(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/commission-rules",{method:"POST",body:JSON.stringify({customerId:ruleCustomer||undefined,providerId:ruleProvider||undefined,gatewayId:ruleGateway||undefined,paymentTermId:ruleTerm||undefined,transactionType:ruleType,commissionType:ruleCalc,commissionRate:Number(ruleRate)})}),()=>{setRuleCustomer("");setRuleGateway("");setRuleTerm("");setRuleRate("");setCreate(null);},"Commission rule added.");}catch{}}
 
  function beginEdit(next:Exclude<EditState,null>){
@@ -121,6 +123,7 @@ export default function SettingsPage(){
    onToggle={(path,isActive,label)=>setToggleState({path,isActive,label})}
    onQuickAddCategory={quickAddCategory}
    onSaveCashTransferDefault={saveCashTransferDefault}
+   onSaveCardSwipeDefault={saveCardSwipeDefault}
   />
 
   <Modal open={create==="provider"} title="Add provider" description="Configure only the services this provider actually supports." onClose={()=>setCreate(null)}>

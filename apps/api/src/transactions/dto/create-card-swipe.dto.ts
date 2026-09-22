@@ -9,6 +9,7 @@ import {
   IsString,
   Length,
   Matches,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -43,8 +44,8 @@ export class CreateCardSwipeDto {
   @IsNumber() @Min(0.01) swipeAmount!: number;
   @IsString() providerId!: string;
   @IsString() gatewayId!: string;
-  @IsNumber() @Min(0) providerChargeRate!: number;
-  @IsNumber() @Min(0) commissionRate!: number;
+  @IsNumber() @Min(0) @Max(100) providerChargeRate!: number;
+  @IsNumber() @Min(0) @Max(100) commissionRate!: number;
   @IsString() paymentTermId!: string;
   @IsDateString() dueAt!: string;
   @IsOptional() @IsString() settlementAccountId?: string;
