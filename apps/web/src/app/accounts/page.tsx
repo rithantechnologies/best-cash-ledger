@@ -27,6 +27,7 @@ type AvailabilitySummary={
   creditCardAvailable:number;
   creditCardOutstanding:number;
 };
+type CreatedProvider={id:string};
 const money=(value:number|string)=>new Intl.NumberFormat("en-IN",{
   style:"currency",currency:"INR",maximumFractionDigits:0,
 }).format(Number(value||0));
@@ -154,6 +155,7 @@ export default function AccountsPage(){
   const [adding,setAdding]=useState(false),[editing,setEditing]=useState<Account|null>(null),[toggleTarget,setToggleTarget]=useState<Account|null>(null);
   const [name,setName]=useState(""),[type,setType]=useState("BANK"),[usage,setUsage]=useState("BUSINESS");
   const [opening,setOpening]=useState("0"),[limit,setLimit]=useState(""),[reference,setReference]=useState(""),[last4,setLast4]=useState("");
+  const [gatewayName,setGatewayName]=useState(""),[gatewayChargeType,setGatewayChargeType]=useState("PERCENTAGE"),[gatewayRate,setGatewayRate]=useState("");
   const [editName,setEditName]=useState(""),[editUsage,setEditUsage]=useState("BUSINESS");
   const [editRef,setEditRef]=useState(""),[editLast4,setEditLast4]=useState(""),[editLimit,setEditLimit]=useState("");
   const [saving,setSaving]=useState(false);
@@ -245,14 +247,21 @@ export default function AccountsPage(){
   },[visibleItems]);
   function resetAdd(){
     setName("");setType("BANK");setUsage("BUSINESS");setOpening("0");setLimit("");
-    setReference("");setLast4("");
+    setReference("");setLast4("");setGatewayName("");setGatewayChargeType("PERCENTAGE");setGatewayRate("");
   }
   async function submit(event:FormEvent){
     event.preventDefault();setSaving(true);setError("");
     try{
       if(type==="PROVIDER_WALLET"){
         const providerName=name.trim().replace(/\s+wallet$/i,"");
-        await apiFetch("/providers",{method:"POST",body:JSON.stringify({name:providerName,providerType:"WALLET"})});
+        const provider=await apiFetch<CreatedProvider>("/providers",{method:"POST",body:JSON.stringify({name:providerName,providerType:"WALLET"})});
+        if(gatewayName.trim()){
+          await apiFetch("/providers/"+provider.id+"/gateways",{method:"POST",body:JSON.stringify({
+            gatewayName:gatewayName.trim(),
+            defaultChargeType:gatewayChargeType,
+            defaultChargeRate:Number(gatewayRate||0),
+          })});
+        }
       }else{
         await apiFetch("/accounts",{method:"POST",body:JSON.stringify({
           accountName:name.trim(),accountType:type,
@@ -307,10 +316,13 @@ export default function AccountsPage(){
     <SectionHeading
       title="Accounts"
       description="See what you can use now, then drill into any account for its ledger."
-      action={admin?<button type="button" onClick={()=>{resetAdd();setAdding(true);}} className="app-primary-button inline-flex min-h-11 items-center gap-2 px-4 text-xs font-bold">
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Add account
-      </button>:undefined}
+      action={admin?<div className="flex flex-wrap items-center justify-end gap-2">
+        <Link href="/settings" className="app-secondary-button inline-flex min-h-11 items-center px-3 text-xs font-bold">Payment gateways</Link>
+        <button type="button" onClick={()=>{resetAdd();setAdding(true);}} className="app-primary-button inline-flex min-h-11 items-center gap-2 px-4 text-xs font-bold">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Add account
+        </button>
+      </div>:undefined}
     />
     {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
 
@@ -434,9 +446,9 @@ export default function AccountsPage(){
     <AccountModal open={adding} onClose={()=>setAdding(false)} title="Add account">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="PROVIDER_WALLET"?"Wallet name":"Account name"}</span><input className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder={type==="CASH"?"e.g. Main Cash Reserve":type==="PROVIDER_WALLET"?"e.g. ECPay":"e.g. HDFC Current"} required/></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="PROVIDER_WALLET"?"Provider / wallet name":"Account name"}</span><input className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder={type==="CASH"?"e.g. Main Cash Reserve":type==="PROVIDER_WALLET"?"e.g. ECPay":"e.g. HDFC Current"} required/></label>
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Type</span><select className="app-control" value={type} onChange={(e)=>setType(e.target.value)}>
-            <option value="CASH">Cash reserve / drawer</option><option value="BANK">Bank</option><option value="OWNER_CREDIT_CARD">Credit card</option><option value="PROVIDER_WALLET">Wallet</option>
+            <option value="CASH">Cash reserve / drawer</option><option value="BANK">Bank</option><option value="OWNER_CREDIT_CARD">Credit card</option><option value="PROVIDER_WALLET">Payment provider / wallet</option>
           </select></label>
           {type!=="PROVIDER_WALLET"?<><label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><select className="app-control" value={usage} onChange={(e)=>setUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></select></label>
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="OWNER_CREDIT_CARD"?"Opening outstanding":type==="CASH"?"Current physical cash":"Opening balance"}</span><input className="app-control" type="number" min="0" step="0.01" inputMode="decimal" value={opening} onChange={(e)=>setOpening(e.target.value)}/>{type==="CASH"?<span className="mt-1 block text-xs text-[var(--text-muted)]">Enter the cash already held in this reserve/drawer.</span>:null}</label>
@@ -448,7 +460,18 @@ export default function AccountsPage(){
             <label className="block"><span className="mb-1.5 block text-sm font-semibold">Reference</span><input className="app-control" value={reference} onChange={(e)=>setReference(e.target.value)} placeholder="Account / internal reference"/></label>
             <label className="block"><span className="mb-1.5 block text-sm font-semibold">Last 4 digits</span><input className="app-control" inputMode="numeric" maxLength={4} value={last4} onChange={(e)=>setLast4(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Last 4 digits"/></label>
           </div>
-        </details>:<p className="rounded-xl bg-[var(--surface-soft)] px-3 py-2.5 text-xs leading-5 text-[var(--text-muted)]">A wallet account will be created automatically for this provider.</p>}
+        </details>:<div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3.5">
+          <div>
+            <p className="text-sm font-semibold text-[var(--text)]">Payment gateway configuration</p>
+            <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">A wallet account is created automatically. Add the provider&apos;s gateway now, or manage additional gateways later in Settings.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Gateway name <span className="font-normal text-[var(--text-muted)]">(optional)</span></span><input className="app-control" value={gatewayName} onChange={(e)=>setGatewayName(e.target.value)} placeholder="e.g. Razorpay / Pine Labs / Paytm"/></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-semibold">Charge type</span><select className="app-control" value={gatewayChargeType} onChange={(e)=>setGatewayChargeType(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed amount</option></select></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-semibold">{gatewayChargeType==="PERCENTAGE"?"Default gateway charge %":"Default gateway charge"}</span><input className="app-control" type="number" min="0" step="0.0001" inputMode="decimal" value={gatewayRate} onChange={(e)=>setGatewayRate(e.target.value)} placeholder={gatewayChargeType==="PERCENTAGE"?"e.g. 1.5":"e.g. 10"} required={Boolean(gatewayName.trim())}/></label>
+          </div>
+          <Link href="/settings" className="inline-flex text-xs font-bold text-[var(--accent)] hover:underline">Manage existing providers &amp; gateways in Settings →</Link>
+        </div>}
         <button disabled={saving} className="app-primary-button min-h-11 w-full px-4 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Add account"}</button>
       </form>
     </AccountModal>
