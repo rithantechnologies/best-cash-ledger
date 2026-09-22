@@ -3150,8 +3150,11 @@ html[data-theme="dark"] .cash-desk-page .app-surface:not(.cash-desk-hero) {
     min-height: 82px;
   }
   .cash-count-row {
-    grid-template-columns: 58px minmax(0,1fr) 88px !important;
+    grid-template-columns: 48px minmax(0,1fr) 72px !important;
     padding-inline: 10px !important;
+  }
+  .cash-count-control {
+    grid-template-columns: 36px minmax(40px,1fr) 36px !important;
   }
 }
 

@@ -37,7 +37,7 @@ type Session={
 type Range="today"|"7d"|"30d";
 type DirectionFilter="ALL"|"IN"|"OUT"|"COMMISSION"|"ADJUSTMENT";
 
-const denominations=[2000,500,200,100,50,20,10,5,2,1];
+const denominations=[500,200,100,50,20,10,5,2,1];
 const money=(value:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(value||0));
 const words=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(letter)=>letter.toUpperCase());
 const friendlyService=(value:string)=>{
@@ -69,14 +69,14 @@ function CountGrid({
   function step(note:number,delta:number){
     setQty((current)=>({...current,[note]:String(Math.max(0,Number(current[note]||0)+delta))}));
   }
-  return <div className={compact?"grid gap-2":"grid gap-2 sm:grid-cols-2"}>
-    {denominations.map((note)=><div key={note} className="cash-count-row grid grid-cols-[64px_minmax(0,1fr)_96px] items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+  return <div className={compact?"grid gap-2":"grid gap-2 xl:grid-cols-2"}>
+    {denominations.map((note)=><div key={note} className="cash-count-row grid grid-cols-[56px_minmax(0,1fr)_88px] items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
       <strong className="money text-sm">₹{note}</strong>
-      <div className="cash-count-control grid min-w-[150px] grid-cols-[42px_minmax(64px,1fr)_42px] items-center overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-soft)]">
+      <div className="cash-count-control grid min-w-0 grid-cols-[40px_minmax(48px,1fr)_40px] items-center overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-soft)]">
         <button type="button" aria-label={"Decrease ₹"+note+" note quantity"} onClick={()=>step(note,-1)} className="h-11 text-lg font-bold text-[var(--text-muted)]">−</button>
         <input
           aria-label={"Quantity of ₹"+note+" notes"}
-          className="cash-count-input h-11 min-w-[64px] border-x border-[var(--border)] bg-[var(--surface)] px-1 text-center text-lg font-extrabold text-[var(--text)] outline-none"
+          className="cash-count-input h-11 w-full min-w-0 border-x border-[var(--border)] bg-[var(--surface)] px-1 text-center text-lg font-extrabold text-[var(--text)] outline-none"
           type="text"
           inputMode="numeric"
           pattern="[0-9]*"
