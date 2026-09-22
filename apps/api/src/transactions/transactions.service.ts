@@ -2205,7 +2205,18 @@ export class TransactionsService {
         atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
         creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
         payable: { include: { payments: { include: { sourceAccount: true, transaction: { include: { charges: true } } } } } },
-        payablePayment: { include: { payable: true, sourceAccount: true } },
+        payablePayment: {
+          include: {
+            payable: {
+              include: {
+                sourceTransaction: {
+                  select: { id: true, transactionNumber: true },
+                },
+              },
+            },
+            sourceAccount: true,
+          },
+        },
         receivableSource: { include: { collections: { include: { destinationAccount: true } }, sourceAccount: true } },
         receivableCollection: { include: { receivable: true, destinationAccount: true } },
         providerSettlementSource: {
@@ -2219,7 +2230,16 @@ export class TransactionsService {
         providerSettlementReceipt: {
           include: {
             destinationAccount: true,
-            settlement: { include: { provider: true, gateway: true, destinationAccount: true } },
+            settlement: {
+              include: {
+                provider: true,
+                gateway: true,
+                destinationAccount: true,
+                sourceTransaction: {
+                  select: { id: true, transactionNumber: true },
+                },
+              },
+            },
           },
         },
         journal: {

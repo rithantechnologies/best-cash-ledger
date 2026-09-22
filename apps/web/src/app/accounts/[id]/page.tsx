@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { EmptyState, PageFrame, Surface } from "@/components/ui";
+import { EmptyState, Modal, PageFrame, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Account={
@@ -17,6 +17,21 @@ type Row={
   journal:{postingDate:string;transaction:{id?:string;transactionNumber:string;customer:{fullName:string}|null}};
 };
 type Ledger={account:Account;openingBalance:number;openingBalanceIntroducedInRange:number;rows:Row[]};
+type Charge={amount:string;rate:string|null;chargeType:string};
+type Commission={amount:string;rate:string;commissionType:string};
+type TxAccount={id:string;accountName:string};
+type SourceRef={id:string;transactionNumber:string};
+type DrillTx={
+  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
+  status:string;referenceNumber:string|null;notes:string|null;createdById:string;createdBy:{fullName:string}|null;customer:{fullName:string}|null;
+  charges:Charge[];commissions:Commission[];
+  cardSwipe:{swipeAmount:string;providerChargeRate:string;providerChargeAmount:string;commissionRate:string;commissionAmount:string;customerPayableAmount:string;settlementAmount:string;settlementAccount:TxAccount}|null;
+  payable:{payments:{status:string;transaction:{charges:Charge[]}}[]}|null;
+  payablePayment:{amount:string;sourceAccount:TxAccount;payable:{sourceTransaction:SourceRef}}|null;
+  providerSettlementSource:{provider:{name:string}|null;gateway:{gatewayName:string}|null;destinationAccount:TxAccount}|null;
+  providerSettlementReceipt:{amount:string;destinationAccount:TxAccount;settlement:{provider:{name:string}|null;gateway:{gatewayName:string}|null;destinationAccount:TxAccount;sourceTransaction:SourceRef}}|null;
+};
+type DrillDetail={movement:DrillTx;source:DrillTx|null;row:Row;isIn:boolean};
 type Range="7d"|"30d"|"90d"|"all";
 const money=(value:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(value||0));
 const typeLabels:Record<string,string>={CASH:"Shop cash",BANK:"Bank",UPI:"Bank",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card"};
@@ -35,7 +50,53 @@ function accountMeta(account:Account){
 function increases(account:Account,row:Row){
   return account.accountNature==="ASSET"?row.entryType==="DEBIT":row.entryType==="CREDIT";
 }
-
+const nice=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(c)=>c.toUpperCase());
+const total=(items:{amount:string}[])=>items.reduce((sum,item)=>sum+Number(item.amount),0);
+function DetailStat({label,value,tone=""}:{label:string;value:string;tone?:string}){
+  return <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p><p className={"mt-1 text-sm font-black "+tone}>{value}</p></div>;
+}
+function AccountMovementDetail({detail}:{detail:DrillDetail}){
+  const {movement,source,row,isIn}=detail;
+  const tx=source??movement;
+  const card=tx.cardSwipe;
+  const gatewayFees=total(tx.charges);
+  const customerFees=total(tx.commissions);
+  const payoutFees=tx.payable?.payments.filter((p)=>p.status==="COMPLETED").reduce((sum,p)=>sum+total(p.transaction.charges),0)??0;
+  const profit=customerFees-gatewayFees-payoutFees;
+  const provider=tx.providerSettlementSource?.provider?.name??movement.providerSettlementReceipt?.settlement.provider?.name??null;
+  const gateway=tx.providerSettlementSource?.gateway?.gatewayName??movement.providerSettlementReceipt?.settlement.gateway?.gatewayName??null;
+  return <div className="space-y-4">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+      <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[var(--text-muted)]">{isIn?"Money in":"Money out"}</p><p className={"money mt-1 text-2xl font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Balance after</p><p className="money mt-1 text-sm font-black">{money(row.runningBalance)}</p></div></div>
+      <p className="mt-2 text-xs text-[var(--text-muted)]">{row.description??nice(movement.transactionType)} · {new Date(movement.transactionAt).toLocaleString("en-IN")}</p>
+    </div>
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <DetailStat label="Customer" value={tx.customer?.fullName??"—"}/>
+      <DetailStat label={source?"Source transaction":"Transaction"} value={tx.transactionNumber}/>
+      {source?<DetailStat label="Wallet entry" value={movement.transactionNumber}/>:null}
+      <DetailStat label={source?"Swipe / source by":"Performed by"} value={tx.createdBy?.fullName??tx.createdById}/>
+      {source?<DetailStat label="Wallet entry by" value={movement.createdBy?.fullName??movement.createdById}/>:null}
+      <DetailStat label="Reference" value={tx.referenceNumber??movement.referenceNumber??"—"}/>
+    </div>
+    {card?<>
+      <div><h3 className="text-sm font-black">Transaction breakup</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Same source figures used in the customer transaction ledger.</p></div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <DetailStat label="Original customer amount" value={money(card.customerPayableAmount)}/>
+        <DetailStat label="Customer commission" value={"+"+money(card.commissionAmount)} tone="text-[var(--money-in)]"/>
+        <DetailStat label="Total card swipe" value={money(card.swipeAmount)}/>
+        <DetailStat label="Gateway charge" value={"−"+money(card.providerChargeAmount)} tone="text-[var(--money-out)]"/>
+        <DetailStat label="Wallet settlement" value={money(card.settlementAmount)} tone="text-[var(--accent)]"/>
+        <DetailStat label="Business profit" value={money(profit)} tone={profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]"}/>
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-xl border border-[var(--border)] px-3 py-2.5 text-xs text-[var(--text-muted)]">
+        <span>Provider: <b className="text-[var(--text)]">{provider??"—"}</b></span><span>Gateway: <b className="text-[var(--text)]">{gateway??"—"}</b></span>{payoutFees>0?<span>Payout charges: <b className="money text-[var(--money-out)]">{money(payoutFees)}</b></span>:null}
+      </div>
+    </>:<div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><DetailStat label="Processed" value={money(movement.grossAmount)}/><DetailStat label="Net value" value={money(movement.netAmount??movement.grossAmount)}/><DetailStat label="Charges" value={gatewayFees?"−"+money(gatewayFees):money(0)} tone={gatewayFees?"text-[var(--money-out)]":""}/><DetailStat label="Commission" value={customerFees?"+"+money(customerFees):money(0)} tone={customerFees?"text-[var(--money-in)]":""}/></div>}
+    {movement.payablePayment?<div className="rounded-xl border border-[var(--border)] p-3 text-xs text-[var(--text-muted)]">Paid from <b className="text-[var(--text)]">{movement.payablePayment.sourceAccount.accountName}</b> · payout {money(movement.payablePayment.amount)}</div>:null}
+    {(tx.notes||movement.notes)?<div className="rounded-xl border border-[var(--border)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Notes</p><p className="mt-1 text-sm text-[var(--text-muted)]">{tx.notes??movement.notes}</p></div>:null}
+    <Link href={"/transactions/"+tx.id} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--accent)]">Open full transaction →</Link>
+  </div>;
+}
 
 function AccountLedgerSkeleton(){
   return <AppShell><PageFrame width="max-w-6xl">
@@ -68,6 +129,8 @@ export default function AccountLedgerPage(){
   const [range,setRange]=useState<Range>("30d");
   const [search,setSearch]=useState("");
   const [loading,setLoading]=useState(true),[error,setError]=useState(""),[role,setRole]=useState("");
+  const [detailOpen,setDetailOpen]=useState(false),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState("");
+  const [detail,setDetail]=useState<DrillDetail|null>(null);
   const load=useCallback(async(nextRange:Range)=>{
     setLoading(true);setError("");
     try{
@@ -77,6 +140,18 @@ export default function AccountLedgerPage(){
     }catch(err){setError(err instanceof Error?err.message:"Failed to load ledger");}
     finally{setLoading(false);}
   },[id]);
+  const openMovement=async(row:Row,isIn:boolean)=>{
+    const txId=row.journal.transaction.id;
+    if(!txId)return;
+    setDetailOpen(true);setDetailLoading(true);setDetailError("");setDetail(null);
+    try{
+      const movement=await apiFetch<DrillTx>("/transactions/"+txId);
+      const sourceId=movement.providerSettlementReceipt?.settlement.sourceTransaction?.id??movement.payablePayment?.payable.sourceTransaction?.id??null;
+      const source=sourceId&&sourceId!==movement.id?await apiFetch<DrillTx>("/transactions/"+sourceId):null;
+      setDetail({movement,source,row,isIn});
+    }catch(err){setDetailError(err instanceof Error?err.message:"Failed to load transaction details");}
+    finally{setDetailLoading(false);}
+  };
 
   useEffect(()=>{load(range);},[load,range]);
   useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
@@ -163,21 +238,25 @@ export default function AccountLedgerPage(){
           {rows.map((row)=>{
             const isIn=increases(data.account,row);
             const tx=row.journal.transaction;
-            return <div key={row.id} className="grid gap-2 px-4 py-3.5 sm:grid-cols-[110px_minmax(0,1fr)_130px_130px] sm:items-center sm:px-5">
+            return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>openMovement(row,isIn)} className="grid w-full gap-2 px-4 py-3.5 text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent sm:grid-cols-[110px_minmax(0,1fr)_130px_130px] sm:items-center sm:px-5">
               <div className="text-[11px] font-semibold text-[var(--text-muted)]">
                 <p>{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</p>
                 <p className="mt-0.5">{new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
               </div>
               <div className="min-w-0">
-                {tx.id?<Link href={"/transactions/"+tx.id} className="truncate text-sm font-bold hover:text-[var(--accent)]">{tx.transactionNumber}</Link>:<p className="truncate text-sm font-bold">{tx.transactionNumber}</p>}
+                <p className="truncate text-sm font-bold">{tx.transactionNumber}</p>
                 <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{tx.customer?.fullName??row.description??"—"}</p>
+                {tx.id?<p className="mt-1 text-[10px] font-bold text-[var(--accent)]">View details</p>:null}
               </div>
               <p className={"money text-sm font-extrabold sm:text-right "+(isIn?"text-emerald-700":"text-rose-600")}>{isIn?"+":"−"}{money(row.amount)}</p>
               <div className="flex items-center justify-between gap-2 sm:block sm:text-right"><span className="text-[11px] font-semibold text-[var(--text-muted)] sm:hidden">Balance</span><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
-            </div>;
+            </button>;
           })}
         </div>:search?<div className="p-5"><EmptyState title="No matching activity" description="Try a different search."/></div>:Math.abs(periodOpening)>0.005?<div className="p-4 sm:p-5"><div className="flex items-center justify-between gap-4 rounded-xl bg-[var(--surface-soft)] px-4 py-3.5"><div><p className="text-sm font-bold">Opening balance</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">No transactions in this period yet.</p></div><strong className="money shrink-0 text-sm">{money(periodOpening)}</strong></div></div>:<div className="p-5"><EmptyState title="No transactions yet" description="Activity will appear here when money moves through this account."/></div>}
       </Surface>
     </>:null}
+    <Modal open={detailOpen} title="Account transaction details" description="Trace this account movement back to the customer or source transaction." onClose={()=>{setDetailOpen(false);setDetail(null);setDetailError("");}}>
+      {detailLoading?<div className="py-10 text-center text-sm font-semibold text-[var(--text-muted)]">Loading transaction details…</div>:detailError?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{detailError}</div>:detail?<AccountMovementDetail detail={detail}/>:null}
+    </Modal>
   </PageFrame></AppShell>;
 }
