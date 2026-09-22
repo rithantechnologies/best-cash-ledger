@@ -47,7 +47,7 @@ export class DashboardService {
       end: new Date(Date.UTC(y, m, d + 1) - offset),
     };
   }
-  private async getAccountBalances(role?: RoleName): Promise<AccountBalance[]> {
+  private async getAccountBalances(role?: RoleName, userId?: string): Promise<AccountBalance[]> {
     const accounts = await this.prisma.financialAccount.findMany({
       include: { ledgerAccount: true },
       orderBy: { accountName: 'asc' },
@@ -76,15 +76,55 @@ export class DashboardService {
       else item.credit += amount;
       movement.set(row.ledgerAccountId, item);
     }
+
+    const openCashSessions = await this.prisma.cashSession.findMany({
+      where: {
+        status: 'OPEN',
+        ...(role === RoleName.STAFF && userId ? { openedById: userId } : {}),
+      },
+      include: {
+        cashAccount: { include: { ledgerAccount: true } },
+      },
+    });
+    const liveCashBalance = new Map<string, number>();
+    for (const session of openCashSessions) {
+      const ledgerId = session.cashAccount.ledgerAccount?.id;
+      if (!ledgerId) continue;
+      const rows = await this.prisma.ledgerEntry.groupBy({
+        by: ['entryType'],
+        where: {
+          ledgerAccountId: ledgerId,
+          journal: {
+            postingDate: { gte: session.openedAt },
+            status: 'POSTED',
+            ...(session.adjustmentTransactionId
+              ? { transactionId: { not: session.adjustmentTransactionId } }
+              : {}),
+          },
+        },
+        _sum: { amount: true },
+      });
+      let current = Number(session.openingTotal);
+      for (const row of rows) {
+        const amount = Number(row._sum.amount ?? 0);
+        current += row.entryType === EntryType.DEBIT ? amount : -amount;
+      }
+      liveCashBalance.set(session.cashAccountId, current);
+    }
+
     return accounts.map((account) => {
       const m = account.ledgerAccount
         ? movement.get(account.ledgerAccount.id) ?? { debit: 0, credit: 0 }
         : { debit: 0, credit: 0 };
       const opening = Number(account.openingBalance);
-      const currentBalance =
+      const ledgerBalance =
         account.accountNature === AccountNature.ASSET
           ? opening + m.debit - m.credit
           : opening + m.credit - m.debit;
+      const currentBalance =
+        account.accountType === AccountType.CASH && liveCashBalance.has(account.id)
+          ? liveCashBalance.get(account.id)!
+          : ledgerBalance;
 
       return {
         id: account.id,
@@ -115,8 +155,8 @@ export class DashboardService {
     );
   }
 
-  async summary(role?: RoleName) {
-    const balances = await this.getAccountBalances(role);
+  async summary(role?: RoleName, userId?: string) {
+    const balances = await this.getAccountBalances(role, userId);
     const sumType = (type: AccountType) =>
       balances.filter((a) => a.accountType === type)
         .reduce((sum, a) => sum + a.currentBalance, 0);
@@ -240,8 +280,8 @@ export class DashboardService {
     };
   }
 
-  accounts(role?: RoleName) {
-    return this.getAccountBalances(role);
+  accounts(role?: RoleName, userId?: string) {
+    return this.getAccountBalances(role, userId);
   }
   async today() {
     const { start, end } = this.indiaDayRange();

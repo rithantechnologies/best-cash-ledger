@@ -9,12 +9,12 @@ export class DashboardController {
 
   @Get('summary')
   summary(@Req() req: any) {
-    return this.dashboard.summary(req.user.role);
+    return this.dashboard.summary(req.user.role, req.user.userId);
   }
 
   @Get('accounts')
   accounts(@Req() req: any) {
-    return this.dashboard.accounts(req.user.role);
+    return this.dashboard.accounts(req.user.role, req.user.userId);
   }
 
   @Get('today')

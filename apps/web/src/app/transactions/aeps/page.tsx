@@ -156,6 +156,7 @@ export default function AepsPage(){
   const [commissionMethod,setCommissionMethod]=useState<"DEDUCT"|"ADD_ON">("DEDUCT");
 
   const [cashAccountId,setCashAccountId]=useState("");
+  const [openCashSessions,setOpenCashSessions]=useState<Record<string,{openingTotal?:number|string;liveExpectedClosingTotal?:number|string}>>({});
   const [settlementAccountId,setSettlementAccountId]=useState("");
   const [successful,setSuccessful]=useState(true);
   const [cashPayoutNow,setCashPayoutNow]=useState(true);
@@ -170,6 +171,18 @@ export default function AepsPage(){
   const [saving,setSaving]=useState(false);
   const [loading,setLoading]=useState(true);
 
+  async function refreshCashSessions(rows:Account[]){
+    const cashRows=rows.filter(account=>account.accountType==="CASH"&&account.isActive!==false);
+    const results=await Promise.all(cashRows.map(async account=>{
+      try{
+        const session=await apiFetch<{id:string;openingTotal?:number|string;liveExpectedClosingTotal?:number|string}|null>("/cash-counter/current?cashAccountId="+encodeURIComponent(account.id));
+        return session?{accountId:account.id,session}:null;
+      }catch{return null;}
+    }));
+    const open=results.filter((row):row is {accountId:string;session:{id:string;openingTotal?:number|string;liveExpectedClosingTotal?:number|string}}=>Boolean(row));
+    setOpenCashSessions(Object.fromEntries(open.map(row=>[row.accountId,row.session])));
+  }
+
   useEffect(()=>{
     document.body.classList.add("cashledger-modern-task");
     Promise.all([
@@ -179,11 +192,12 @@ export default function AepsPage(){
       apiFetch<Rule>("/settings/commission-rules/resolve?transactionType=AEPS_WITHDRAWAL"),
     ]).then(([c,a,p,rule])=>{
       setCustomers(c);setAccounts(a);setProviders(p);
+      refreshCashSessions(a).catch(()=>{});
       const base=String(Number(rule?.commissionRate||0));
       setCommissionRate(base);setDefaultCommissionRate(base);
 
       const cash=a.filter(x=>x.accountType==="CASH"&&x.isActive!==false);
-      const preferredCash=cash.find(x=>/shop cash drawer/i.test(x.accountName))??cash[0];
+      const preferredCash=cash.find(x=>/staff cash drawer/i.test(x.accountName))??cash.find(x=>/shop cash drawer/i.test(x.accountName))??cash[0];
       if(preferredCash)setCashAccountId(preferredCash.id);
 
       const supported=p.filter(x=>x.supportsAeps);
@@ -262,6 +276,12 @@ export default function AepsPage(){
   },[customerId,providerId,gatewayId]);
 
   useEffect(()=>{
+    const refreshCash=()=>{if(accounts.length)refreshCashSessions(accounts).catch(()=>{});};
+    window.addEventListener("focus",refreshCash);
+    return()=>window.removeEventListener("focus",refreshCash);
+  },[accounts]);
+
+  useEffect(()=>{
     const refresh=()=>apiFetch<Rule>("/settings/commission-rules/resolve?transactionType=AEPS_WITHDRAWAL").then(rule=>{
       if(rule){
         const value=String(Number(rule.commissionRate));
@@ -281,8 +301,11 @@ export default function AepsPage(){
   const cashGiven=Math.round((commissionMethod==="ADD_ON"?baseAmount:baseAmount-commission)*100)/100;
   const charge=Math.round(withdrawal*Number(chargeRate||0))/100;
   const settlement=Math.round((withdrawal-charge)*100)/100;
-  const cashAfter=cashAccount?cashAccount.currentBalance-cashGiven:0;
-  const cashSufficient=!cashAccount||cashAccount.currentBalance+0.001>=cashGiven;
+  const cashSession=cashAccount?openCashSessions[cashAccount.id]:undefined;
+  const cashCurrent=cashAccount?Number(cashSession?.liveExpectedClosingTotal??cashSession?.openingTotal??cashAccount.currentBalance):0;
+  const cashAfter=cashAccount?cashCurrent-cashGiven:0;
+  const cashOpen=!cashAccount||Boolean(cashSession);
+  const cashSufficient=!cashAccount||(cashOpen&&cashCurrent+0.001>=cashGiven);
   const mobileValid=!newMobile||/^[6-9]\d{9}$/.test(newMobile);
   const customerReady=customerMode==="SEARCH"?!!customerId:!!newName.trim()&&mobileValid;
   const providerHasGateways=Boolean(provider?.gateways.length);
@@ -450,11 +473,11 @@ export default function AepsPage(){
 
             {cashPayoutNow?<>
               {cashAccount&&cashGiven>0?<div className="mt-2 flex justify-end"><span className={"status-chip "+(cashSufficient?"status-chip-green":"bg-rose-50 text-rose-700")}>{cashSufficient?"Cash ready":"Low cash"}</span></div>:null}
-              {accounts.some(a=>a.accountType==="CASH"&&a.isActive!==false)?<div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                <Field label={"Give "+money(Math.max(0,cashGiven))+" from"}><select className={control} value={cashAccountId} onChange={e=>setCashAccountId(e.target.value)} required><option value="">Select cash account</option>{accounts.filter(a=>a.accountType==="CASH"&&a.isActive!==false).map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select></Field>
-                {cashAccount?<div className={"rounded-xl border px-3 py-2.5 text-xs "+(cashSufficient?"border-[var(--border)] bg-[var(--surface)]":"border-rose-200 bg-rose-50")}><span className="text-[var(--text-muted)]">After payout </span><strong className={cashSufficient?"text-[var(--text)]":"text-rose-700"}>{money(cashAfter)}</strong></div>:null}
-              </div>:<div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs"><span className="font-semibold text-amber-900">Open the cash counter before paying the customer now.</span><Link href="/cash-counter" className="shrink-0 font-bold text-[var(--accent)]">Cash counter →</Link></div>}
-              {!cashSufficient&&cashAccount?<p className="mt-2 text-xs font-semibold text-rose-600">{cashAccount.accountName} does not have enough cash for this payout.</p>:null}
+              {Object.keys(openCashSessions).length?<div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <Field label={"Give "+money(Math.max(0,cashGiven))+" from"}><select className={control} value={cashAccountId} onChange={e=>setCashAccountId(e.target.value)} required><option value="">Select cash account</option>{accounts.filter(a=>a.accountType==="CASH"&&a.isActive!==false).map(a=>{const session=openCashSessions[a.id];const live=Number(session?.liveExpectedClosingTotal??session?.openingTotal??a.currentBalance);return <option key={a.id} value={a.id} disabled={!session}>{a.accountName} · {session?money(live)+" available":"Closed"}</option>;})}</select></Field>
+                {cashAccount?<div className={"rounded-xl border px-3 py-2.5 text-xs "+(cashSufficient?"border-[var(--border)] bg-[var(--surface)]":"border-rose-200 bg-rose-50")}><div><span className="text-[var(--text-muted)]">Available </span><strong>{money(cashCurrent)}</strong></div><div className="mt-1"><span className="text-[var(--text-muted)]">After payout </span><strong className={cashSufficient?"text-[var(--text)]":"text-rose-700"}>{money(cashAfter)}</strong></div></div>:null}
+              </div>:<div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs"><span className="font-semibold text-amber-900">Open a cash drawer before paying the customer now.</span><Link href="/cash-counter" className="shrink-0 font-bold text-[var(--accent)]">Open Cash →</Link></div>}
+              {!cashSufficient&&cashAccount?<p className="mt-2 text-xs font-semibold text-rose-600">{cashOpen?cashAccount.accountName+" does not have enough cash for this payout.":cashAccount.accountName+" is closed."}</p>:null}
             </>:<div className="mt-3 grid gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-end">
               <div><p className="text-xs font-bold text-amber-900">Due to customer</p><p className="money mt-1 text-xl font-black text-amber-900">{money(Math.max(0,cashGiven))}</p><p className="mt-1 text-[11px] text-amber-800">This will appear in Dues. Pay it when the customer returns.</p></div>
               <Field label="Expected pickup"><input className={control} type="date" value={cashPayoutDueAt} min={localDatePlus(0)} onChange={e=>setCashPayoutDueAt(e.target.value)} required/></Field>
