@@ -149,9 +149,9 @@ export default function TransactionsPage(){
     {!items.length?<EmptyState title="No transactions" description="Try another date or filter."/>:null}
    </div>
 
-   <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[1860px] text-sm">
+   <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[1940px] table-fixed text-sm">
     <thead className="bg-[var(--surface-soft)] text-left text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]"><tr>
-      <th className="px-4 py-3">Date</th><th>Service</th><th>Customer</th><th>Transaction ID</th><th>Source / settlement</th><th>User</th>
+      <th className="w-[150px] px-4 py-3">Date</th><th className="w-[150px]">Service</th><th className="w-[170px]">Customer</th><th className="w-[165px]">Transaction ID</th><th className="w-[340px]">Source / settlement</th><th className="w-[120px]">User</th>
       <th className="text-right">Processed</th><th className="text-right">Customer fee</th><th className="text-right">Provider fee</th><th className="text-right">Profit</th><th className="text-right">Customer gets / net</th><th className="pl-4">Transaction status</th><th>Payout / Pay-in</th><th>Due date</th>
     </tr></thead>
     <tbody>{items.map(tx=>{const providerFees=sum(tx.charges),custFee=customerFee(tx),providerEarn=providerCommission(tx),profit=custFee+providerEarn-providerFees,direction=activityDirection(tx),source=settlementSource(tx);return <tr key={tx.id} className="border-t border-[var(--border)] align-top hover:bg-[var(--surface-soft)]">
@@ -159,7 +159,7 @@ export default function TransactionsPage(){
       <td className="py-3 font-medium"><span className="flex items-center gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span>{label(tx.transactionType)}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</td>
       <td className="py-3 font-semibold">{displayCustomer(tx)}</td>
       <td className="py-3"><Link className="font-bold text-[var(--accent)] whitespace-nowrap" href={txHref(tx)}>{tx.transactionNumber}</Link></td>
-      <td className="max-w-[280px] py-3 text-xs leading-5 text-[var(--text-muted)]">{source?<span className="text-[var(--text)]">{sourceContext(tx)}</span>:<span>—</span>}</td>
+      <td className="py-3 pr-4 text-xs leading-5 text-[var(--text-muted)]">{source?<span className="block whitespace-normal break-words text-[var(--text)]">{sourceContext(tx)}</span>:<span>—</span>}</td>
       <td className="py-3 text-xs font-semibold whitespace-nowrap">{displayUser(tx)}</td>
       <td className={"money py-3 text-right font-semibold "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</td>
       <td className="money py-3 text-right font-bold text-[var(--money-in)]">{custFee?"+"+money(custFee):"—"}</td>
