@@ -150,26 +150,32 @@ export default function TransactionsPage(){
     {!items.length?<EmptyState title="No transactions" description="Try another date or filter."/>:null}
    </div>
 
-   <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[1940px] table-fixed text-sm">
+   <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[2140px] table-fixed text-sm">
+    <colgroup>
+      <col className="w-[165px]"/><col className="w-[185px]"/><col className="w-[155px]"/><col className="w-[170px]"/>
+      <col className="w-[315px]"/><col className="w-[115px]"/><col className="w-[135px]"/><col className="w-[130px]"/>
+      <col className="w-[130px]"/><col className="w-[120px]"/><col className="w-[155px]"/><col className="w-[150px]"/>
+      <col className="w-[150px]"/><col className="w-[115px]"/>
+    </colgroup>
     <thead className="bg-[var(--surface-soft)] text-left text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]"><tr>
-      <th className="w-[150px] px-4 py-3">Date</th><th className="w-[150px]">Service</th><th className="w-[170px]">Customer</th><th className="w-[165px]">Transaction ID</th><th className="w-[340px]">Source / settlement</th><th className="w-[120px]">User</th>
-      <th className="text-right">Processed</th><th className="text-right">Customer fee</th><th className="text-right">Provider fee</th><th className="text-right">Profit</th><th className="text-right">Customer gets / net</th><th className="pl-4">Transaction status</th><th>Payout / Pay-in</th><th>Due date</th>
+      <th className="px-4 py-3">Date</th><th className="px-3 py-3">Service</th><th className="px-3 py-3">Customer</th><th className="px-3 py-3">Transaction ID</th><th className="px-3 py-3">Source / settlement</th><th className="px-3 py-3">User</th>
+      <th className="px-3 py-3 text-right">Processed</th><th className="px-3 py-3 text-right">Customer fee</th><th className="px-3 py-3 text-right">Provider fee</th><th className="px-3 py-3 text-right">Profit</th><th className="px-3 py-3 text-right">Customer gets / net</th><th className="px-3 py-3">Transaction status</th><th className="px-3 py-3">Payout / Pay-in</th><th className="px-3 py-3">Due date</th>
     </tr></thead>
     <tbody>{items.map(tx=>{const providerFees=sum(tx.charges),custFee=customerFee(tx),providerEarn=providerCommission(tx),profit=custFee+providerEarn-providerFees,direction=activityDirection(tx),source=settlementSource(tx);return <tr key={tx.id} className="border-t border-[var(--border)] align-top hover:bg-[var(--surface-soft)]">
       <td className="px-4 py-3 text-xs whitespace-nowrap">{new Date(tx.transactionAt).toLocaleString("en-IN")}</td>
-      <td className="py-3 font-medium"><span className="flex items-center gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span>{label(tx.transactionType)}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</td>
-      <td className="py-3 font-semibold">{displayCustomer(tx)}</td>
-      <td className="py-3"><Link className="font-bold text-[var(--accent)] whitespace-nowrap" href={txHref(tx)}>{tx.transactionNumber}</Link></td>
-      <td className="py-3 pr-4 text-xs leading-5 text-[var(--text-muted)]">{source?<span className="block whitespace-normal break-words text-[var(--text)]">{sourceContext(tx)}</span>:<span>—</span>}</td>
-      <td className="py-3 text-xs font-semibold whitespace-nowrap">{displayUser(tx)}</td>
-      <td className={"money py-3 text-right font-semibold "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</td>
-      <td className="money py-3 text-right font-bold text-[var(--money-in)]">{custFee?"+"+money(custFee):"—"}</td>
-      <td className="money py-3 text-right text-[var(--money-out)]">{providerFees?"−"+money(providerFees):"—"}</td>
-      <td className={"money py-3 text-right font-bold "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{custFee||providerEarn||providerFees?money(profit):"—"}</td>
-      <td className="money py-3 text-right font-semibold">{money(tx.netAmount??tx.grossAmount)}</td>
-      <td className="py-3 pl-4"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge></td>
-      <td className="py-3">{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:<span className="text-[var(--text-muted)]">—</span>}</td>
-      <td className="py-3 pr-4 text-xs text-[var(--text-muted)] whitespace-nowrap">{moneyStatus(tx)?.dueAt?new Date(moneyStatus(tx)!.dueAt!).toLocaleDateString("en-IN"):"—"}</td>
+      <td className="px-3 py-3 font-medium"><span className="flex min-w-0 items-start gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span className="min-w-0 break-words leading-5">{label(tx.transactionType)}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold leading-4 text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</td>
+      <td className="px-3 py-3 font-semibold"><span className="block break-words">{displayCustomer(tx)}</span></td>
+      <td className="px-3 py-3"><Link className="font-bold text-[var(--accent)] whitespace-nowrap" href={txHref(tx)}>{tx.transactionNumber}</Link></td>
+      <td className="px-3 py-3 text-xs leading-5 text-[var(--text-muted)]">{source?<span className="block whitespace-normal break-words text-[var(--text)]">{sourceContext(tx)}</span>:<span>—</span>}</td>
+      <td className="px-3 py-3 text-xs font-semibold whitespace-nowrap">{displayUser(tx)}</td>
+      <td className={"money px-3 py-3 text-right font-semibold whitespace-nowrap "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</td>
+      <td className="money px-3 py-3 text-right font-bold text-[var(--money-in)] whitespace-nowrap">{custFee?"+"+money(custFee):"—"}</td>
+      <td className="money px-3 py-3 text-right text-[var(--money-out)] whitespace-nowrap">{providerFees?"−"+money(providerFees):"—"}</td>
+      <td className={"money px-3 py-3 text-right font-bold whitespace-nowrap "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{custFee||providerEarn||providerFees?money(profit):"—"}</td>
+      <td className="money px-3 py-3 text-right font-semibold whitespace-nowrap">{money(tx.netAmount??tx.grossAmount)}</td>
+      <td className="px-3 py-3"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge></td>
+      <td className="px-3 py-3">{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:<span className="text-[var(--text-muted)]">—</span>}</td>
+      <td className="px-3 py-3 text-xs text-[var(--text-muted)] whitespace-nowrap">{moneyStatus(tx)?.dueAt?new Date(moneyStatus(tx)!.dueAt!).toLocaleDateString("en-IN"):"—"}</td>
     </tr>})}</tbody>
    </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="transaction" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
