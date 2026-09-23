@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -126,7 +127,7 @@ export default function MicroAtmPage(){
     </div>
     {customerMode==="existing"?<div className="grid gap-3 sm:grid-cols-2">
      <Field label="Find customer"><input className={control} value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name or mobile"/></Field>
-     <Field label="Customer"><select className={control} value={customerId} onChange={e=>setCustomerId(e.target.value)} required><option value="">Select customer</option>{filteredCustomers.map(c=><option key={c.id} value={c.id}>{c.fullName}{c.mobile?" · "+c.mobile:""}</option>)}</select></Field>
+     <Field label="Customer"><SearchableSelect className={control} value={customerId} onChange={e=>setCustomerId(e.target.value)} required><option value="">Select customer</option>{filteredCustomers.map(c=><option key={c.id} value={c.id}>{c.fullName}{c.mobile?" · "+c.mobile:""}</option>)}</SearchableSelect></Field>
     </div>:<div className="grid gap-3 sm:grid-cols-2">
      <Field label="Customer name"><input className={control} value={newCustomerName} onChange={e=>setNewCustomerName(e.target.value)} placeholder="Enter customer name" required/></Field>
      <Field label="Mobile (optional)"><input className={control} inputMode="numeric" maxLength={10} value={newCustomerMobile} onChange={e=>setNewCustomerMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile"/>{newCustomerMobile&& !/^[6-9]\d{9}$/.test(newCustomerMobile)?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Enter a valid 10-digit Indian mobile number.</span>:null}</Field>
@@ -140,16 +141,16 @@ export default function MicroAtmPage(){
 
    <FormSection step="2" title="Provider & commission">
     <div className="grid gap-3 sm:grid-cols-2">
-     <Field label="Provider"><select className={control} value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");setSettlementAccountId("");}} required><option value="">Select provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-     <Field label="Gateway / terminal"><select className={control} value={gatewayId} onChange={e=>setGatewayId(e.target.value)} required><option value="">Select gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</select></Field>
+     <Field label="Provider"><SearchableSelect className={control} value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");setSettlementAccountId("");}} required><option value="">Select provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></Field>
+     <Field label="Gateway / terminal"><SearchableSelect className={control} value={gatewayId} onChange={e=>setGatewayId(e.target.value)} required><option value="">Select gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</SearchableSelect></Field>
      <Field label="Provider commission %"><input className={control} type="number" step="0.0001" min="0" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/></Field>
     </div>
    </FormSection>
 
    <FormSection step="3" title="Cash & settlement">
     <div className="grid gap-3 sm:grid-cols-2">
-     <Field label="Cash account"><select className={control} value={cashAccountId} onChange={e=>setCashAccountId(e.target.value)} required><option value="">Cash account paying customer</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select></Field>
-     <Field label="Settlement wallet">{providerWallet?<div className={control+" flex items-center justify-between"}><span>{providerWallet.accountName}</span><span className="text-xs text-slate-400">{money(providerWallet.currentBalance)}</span></div>:<select className={control} value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Select settlement account</option>{accounts.filter(a=>a.accountType==="BANK"||a.accountType==="UPI").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>}</Field>
+     <Field label="Cash account"><SearchableSelect className={control} value={cashAccountId} onChange={e=>setCashAccountId(e.target.value)} required><option value="">Cash account paying customer</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</SearchableSelect></Field>
+     <Field label="Settlement wallet">{providerWallet?<div className={control+" flex items-center justify-between"}><span>{providerWallet.accountName}</span><span className="text-xs text-slate-400">{money(providerWallet.currentBalance)}</span></div>:<SearchableSelect className={control} value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Select settlement account</option>{accounts.filter(a=>a.accountType==="BANK"||a.accountType==="UPI").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</SearchableSelect>}</Field>
      {!settledNow?<Field label="Expected settlement"><input className={control} type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)}/></Field>:null}
      <label className="flex min-h-11 items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm"><input type="checkbox" checked={settledNow} onChange={e=>setSettledNow(e.target.checked)} className="h-4 w-4"/><span><strong className="block text-emerald-900">Settlement already received</strong><span className="text-[11px] text-emerald-700">Only when the funds are already visible in the selected account.</span></span></label>
     </div>

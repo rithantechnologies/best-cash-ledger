@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
 
+import { SearchableSelect } from "@/components/searchable-select";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
@@ -452,10 +453,10 @@ export default function AccountsPage(){
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="PROVIDER_WALLET"?"Provider / wallet name":"Account name"}</span><input className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder={type==="CASH"?"e.g. Main Cash Reserve":type==="PROVIDER_WALLET"?"e.g. ECPay":"e.g. HDFC Current"} required/></label>
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Type</span><select className="app-control" value={type} onChange={(e)=>setType(e.target.value)}>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Type</span><SearchableSelect className="app-control" value={type} onChange={(e)=>setType(e.target.value)}>
             <option value="CASH">Cash reserve / drawer</option><option value="BANK">Bank</option><option value="OWNER_CREDIT_CARD">Credit card</option><option value="PROVIDER_WALLET">Payment provider / wallet</option>
-          </select></label>
-          {type!=="PROVIDER_WALLET"?<><label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><select className="app-control" value={usage} onChange={(e)=>setUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></select></label>
+          </SearchableSelect></label>
+          {type!=="PROVIDER_WALLET"?<><label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><SearchableSelect className="app-control" value={usage} onChange={(e)=>setUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></SearchableSelect></label>
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="OWNER_CREDIT_CARD"?"Opening outstanding":type==="CASH"?"Current physical cash":"Opening balance"}</span><input className="app-control" type="number" min="0" step="0.01" inputMode="decimal" value={opening} onChange={(e)=>setOpening(e.target.value)}/>{type==="CASH"?<span className="mt-1 block text-xs text-[var(--text-muted)]">Enter the cash already held in this reserve/drawer.</span>:null}</label>
           {type==="OWNER_CREDIT_CARD"?<label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Credit limit</span><input className="app-control" type="number" min="0.01" step="0.01" inputMode="decimal" value={limit} onChange={(e)=>setLimit(e.target.value)} placeholder="Total card limit" required/></label>:null}</>:null}
         </div>
@@ -472,7 +473,7 @@ export default function AccountsPage(){
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Gateway name <span className="font-normal text-[var(--text-muted)]">(optional)</span></span><input className="app-control" value={gatewayName} onChange={(e)=>setGatewayName(e.target.value)} placeholder="e.g. Razorpay / Pine Labs / Paytm"/></label>
-            <label className="block"><span className="mb-1.5 block text-sm font-semibold">Charge type</span><select className="app-control" value={gatewayChargeType} onChange={(e)=>setGatewayChargeType(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed amount</option></select></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-semibold">Charge type</span><SearchableSelect className="app-control" value={gatewayChargeType} onChange={(e)=>setGatewayChargeType(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed amount</option></SearchableSelect></label>
             <label className="block"><span className="mb-1.5 block text-sm font-semibold">{gatewayChargeType==="PERCENTAGE"?"Default gateway charge %":"Default gateway charge"}</span><input className="app-control" type="number" min="0" step="0.0001" inputMode="decimal" value={gatewayRate} onChange={(e)=>setGatewayRate(e.target.value)} placeholder={gatewayChargeType==="PERCENTAGE"?"e.g. 1.5":"e.g. 10"} required={Boolean(gatewayName.trim())}/></label>
           </div>
           <Link href="/settings" className="inline-flex text-xs font-bold text-[var(--accent)] hover:underline">Manage existing providers &amp; gateways in Settings →</Link>
@@ -484,7 +485,7 @@ export default function AccountsPage(){
       {editing?<form onSubmit={saveEdit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Account name</span><input className="app-control" value={editName} onChange={(e)=>setEditName(e.target.value)} required/></label>
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><select className="app-control" value={editUsage} onChange={(e)=>setEditUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></select></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><SearchableSelect className="app-control" value={editUsage} onChange={(e)=>setEditUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></SearchableSelect></label>
           {editing.accountType==="OWNER_CREDIT_CARD"?<label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Credit limit</span><input className="app-control" type="number" min="0.01" step="0.01" value={editLimit} onChange={(e)=>setEditLimit(e.target.value)} required/></label>:null}
         </div>
         {editing.accountType!=="CASH"?<details className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3.5 py-3">

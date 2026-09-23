@@ -1,4 +1,5 @@
 "use client";
+import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -540,7 +541,7 @@ export default function CashTransferPage(){
               </div>:null}
             </div>
 
-            {destinationMode==="SAVED"&&savedOptions.length?<div className="mt-3"><Field label="Destination"><select aria-label="Transfer destination" className={control} value={savedDestination} onChange={e=>setSavedDestination(e.target.value)} required><option value="">Choose bank / UPI / beneficiary</option>{savedOptions.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field></div>
+            {destinationMode==="SAVED"&&savedOptions.length?<div className="mt-3"><Field label="Destination"><SearchableSelect aria-label="Transfer destination" className={control} value={savedDestination} onChange={e=>setSavedDestination(e.target.value)} required><option value="">Choose bank / UPI / beneficiary</option>{savedOptions.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</SearchableSelect></Field></div>
             :<div className="mt-3 grid gap-3 md:grid-cols-2">
               <div><p className="mb-1.5 text-xs font-bold">Recipient</p><div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
                 <button type="button" onClick={()=>setRecipientScope("SELF")} className={"min-h-10 rounded-lg px-2 text-xs font-bold "+(recipientScope==="SELF"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>Customer</button>
@@ -566,9 +567,9 @@ export default function CashTransferPage(){
                   <p className="operational-label">Customer pays us</p>
                   <strong className="money text-sm">{money(receiptAmount)}</strong>
                 </div>
-                <select aria-label="Customer payment received into" className={control} value={receiptAccountId} onChange={e=>setReceiptAccountId(e.target.value)} required>
+                <SearchableSelect aria-label="Customer payment received into" className={control} value={receiptAccountId} onChange={e=>setReceiptAccountId(e.target.value)} required>
                   {receiptOptions.map(a=>{const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const liveCash=a.accountType==="CASH"?Number(session?.liveExpectedClosingTotal??session?.openingTotal??a.currentBalance):a.currentBalance;return <option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · "+money(liveCash):""}</option>;})}
-                </select>
+                </SearchableSelect>
                 {selectedReceipt?.accountType==="CASH"?<div className={"mt-2 rounded-xl border px-3 py-2.5 "+(receiptCashReady?"border-emerald-200 bg-emerald-50":"border-amber-200 bg-amber-50")}>
                   <div className="flex items-center justify-between gap-3 text-xs"><span className="font-semibold">{selectedReceipt.accountName}</span><strong className={receiptCashReady?"text-emerald-700":"text-amber-700"}>{receiptCashReady?"Open":"Closed"}</strong></div>
                   <div className="mt-1.5 flex items-center justify-between gap-3 text-xs"><span className="text-[var(--text-muted)]">Current</span><strong className="money">{money(selectedReceiptCashCurrent??selectedReceipt.currentBalance)}</strong></div>
@@ -594,9 +595,9 @@ export default function CashTransferPage(){
               </div>
               {method==="ADD_ON"?(
                 commissionSeparate?<div className="mt-2 flex gap-2">
-                  <select aria-label="Commission received into" className={control+" min-w-0 flex-1 bg-white"} value={commissionReceiptAccountId} onChange={e=>setCommissionReceiptAccountId(e.target.value)}>
+                  <SearchableSelect aria-label="Commission received into" className={control+" min-w-0 flex-1 bg-white"} value={commissionReceiptAccountId} onChange={e=>setCommissionReceiptAccountId(e.target.value)}>
                     {receiptOptions.map(a=>{const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const liveCash=a.accountType==="CASH"?Number(session?.liveExpectedClosingTotal??session?.openingTotal??a.currentBalance):a.currentBalance;return <option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName}{a.accountType==="CASH"?" · "+money(liveCash):""}</option>;})}
-                  </select>
+                  </SearchableSelect>
                   <button type="button" onClick={()=>setCommissionReceiptAccountId("SAME")} className="min-h-11 shrink-0 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-semibold">Same account</button>
                 </div>:<div className="mt-2 flex items-center justify-between gap-3 text-xs text-emerald-900">
                   <span>Included in customer payment</span>

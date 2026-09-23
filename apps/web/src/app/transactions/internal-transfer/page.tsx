@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Field, FormSection, PageLoader, SummaryRow, TransactionFrame } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { SearchSelect } from "@/components/search-select";
 
 type Account={id:string;accountName:string;accountType:string;currentBalance:number};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(v);
@@ -33,8 +34,8 @@ export default function InternalTransferPage(){
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <FormSection step="1" title="Move the funds" description="Choose the source, destination and amount.">
    <div className="grid gap-3 sm:grid-cols-2">
-    <Field label="From account"><select className={control} value={source} onChange={e=>setSource(e.target.value)} required><option value="">Select source account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} — {money(a.currentBalance)}</option>)}</select></Field>
-    <Field label="To account"><select className={control} value={destination} onChange={e=>setDestination(e.target.value)} required><option value="">Select destination account</option>{accounts.filter(a=>a.id!==source).map(a=><option key={a.id} value={a.id}>{a.accountName} — {money(a.currentBalance)}</option>)}</select></Field>
+    <Field label="From account"><SearchSelect value={source} onChange={setSource} options={accounts.map(a=>({value:a.id,label:a.accountName,description:money(a.currentBalance),searchText:a.accountName+" "+a.accountType}))} placeholder="Select source account" searchPlaceholder="Search account…"/></Field>
+    <Field label="To account"><SearchSelect value={destination} onChange={setDestination} options={accounts.filter(a=>a.id!==source).map(a=>({value:a.id,label:a.accountName,description:money(a.currentBalance),searchText:a.accountName+" "+a.accountType}))} placeholder="Select destination account" searchPlaceholder="Search account…"/></Field>
     <Field label="Transfer amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
     <Field label="Bank / transfer charge"><input className={control} type="number" step="0.01" min="0" placeholder="0.00" value={charge} onChange={e=>setCharge(e.target.value)}/></Field>
    </div>

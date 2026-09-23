@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/exhaustive-deps */
 
+import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
@@ -203,14 +204,14 @@ export default function CardDueClearingPage(){
       <input className="app-control" value={customerSearch} onChange={e=>{setCustomerSearch(e.target.value);setCustomerId("");setCardId("");}} placeholder="Search name or mobile" required/>
       {!customerId&&customerMatches.length?<div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">{customerMatches.map(c=><button type="button" key={c.id} onClick={()=>chooseCustomer(c)} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--surface-soft)]"><span className="font-semibold">{c.fullName}</span><span className="text-xs text-[var(--text-muted)]">{c.mobile??""}</span></button>)}</div>:null}
      </div>
-     <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Customer card</span><select className="app-control" value={cardId} onChange={e=>setCardId(e.target.value)} disabled={!customerId} required><option value="">Choose card</option>{customer?.cards.filter(c=>c.isActive).map(c=><option key={c.id} value={c.id}>{c.bankName} · •••• {c.lastFourDigits}{c.nickname?" · "+c.nickname:""}</option>)}</select></label>
+     <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Customer card</span><SearchableSelect className="app-control" value={cardId} onChange={e=>setCardId(e.target.value)} disabled={!customerId} required><option value="">Choose card</option>{customer?.cards.filter(c=>c.isActive).map(c=><option key={c.id} value={c.id}>{c.bankName} · •••• {c.lastFourDigits}{c.nickname?" · "+c.nickname:""}</option>)}</SearchableSelect></label>
     </div>
 
     {customerId?<div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"><div className="flex items-center justify-between"><p className="text-xs font-black">Recent card swipe history</p><span className="text-[10px] text-[var(--text-muted)]">{history.length} records</span></div>{history.length?<div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">{history.slice(0,6).map(h=><Link key={h.id} href={"/transactions/"+h.id} className="rounded-lg bg-[var(--surface)] px-3 py-2 text-xs ring-1 ring-[var(--border)]"><b>{h.transactionNumber}</b><span className="ml-2 money">{money(h.grossAmount)}</span><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(h.transactionAt).toLocaleDateString("en-IN")}{h.payable&&Number(h.payable.remainingAmount)>0?" · payout due "+money(h.payable.remainingAmount):""}</p></Link>)}</div>:<p className="mt-2 text-xs text-[var(--text-muted)]">No previous card swipes.</p>}</div>:null}
 
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
      <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Card due paid</span><input className="app-control money" inputMode="decimal" value={formatAmount(dueAmount)} onChange={e=>setDueAmount(amountInput(e.target.value))} placeholder="50,000" required/></label>
-     <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Paid from client account</span><select className="app-control" value={sourceAccountId} onChange={e=>setSourceAccountId(e.target.value)} required><option value="">Choose source</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</select></label>
+     <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Paid from client account</span><SearchableSelect className="app-control" value={sourceAccountId} onChange={e=>setSourceAccountId(e.target.value)} required><option value="">Choose source</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</SearchableSelect></label>
      <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Commission</span><div className="relative"><input className="app-control pr-8 text-right font-bold" type="number" min="0" max="100" step="0.01" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)}/><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)]">%</span></div><p className="mt-1 text-[10px] font-bold text-[var(--money-in)]">{money(commission)}</p></label>
      <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Follow up</span><input className="app-control" type="datetime-local" value={followUp} onChange={e=>setFollowUp(e.target.value)}/></label>
     </div>
@@ -221,9 +222,9 @@ export default function CardDueClearingPage(){
       <p className="mt-1 text-[11px] text-[var(--text-muted)]">Use when the card limit has already returned and you are fetching the money back now.</p>
       {recoverNow?<div className="mt-3 grid gap-2 sm:grid-cols-2">
        <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Recovery amount</span><input className="app-control money" value={formatAmount(recoveryAmount)} onChange={e=>setRecoveryAmount(amountInput(e.target.value))}/></label>
-       <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Provider / wallet</span><select className="app-control" value={providerId} onChange={e=>setProviderId(e.target.value)}><option value="">Choose</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-       <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Gateway</span><select className="app-control" value={gatewayId} onChange={e=>setGatewayId(e.target.value)}><option value="">Choose</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {Number(g.defaultChargeRate)}%</option>)}</select></label>
-       <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Money received into</span><select className="app-control" value={recoveryAccountId} onChange={e=>setRecoveryAccountId(e.target.value)}><option value="">Choose account</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></label>
+       <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Provider / wallet</span><SearchableSelect className="app-control" value={providerId} onChange={e=>setProviderId(e.target.value)}><option value="">Choose</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></label>
+       <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Gateway</span><SearchableSelect className="app-control" value={gatewayId} onChange={e=>setGatewayId(e.target.value)}><option value="">Choose</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {Number(g.defaultChargeRate)}%</option>)}</SearchableSelect></label>
+       <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Money received into</span><SearchableSelect className="app-control" value={recoveryAccountId} onChange={e=>setRecoveryAccountId(e.target.value)}><option value="">Choose account</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</SearchableSelect></label>
        {gateway?<p className="sm:col-span-2 text-[11px] text-[var(--text-muted)]">Gateway charge: <b className="text-[var(--money-out)]">{money(calcMoney(num(recoveryAmount)*Number(gateway.defaultChargeRate)/100))}</b></p>:null}
       </div>:null}
      </div>
@@ -233,7 +234,7 @@ export default function CardDueClearingPage(){
       <p className="mt-1 text-[11px] text-[var(--text-muted)]">Commission can be Cash or UPI. Leave this off if the customer will pay later.</p>
       {collectNow?<div className="mt-3 grid gap-2 sm:grid-cols-2">
        <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Amount collected</span><input className="app-control money" value={formatAmount(collectionAmount)} onChange={e=>setCollectionAmount(amountInput(e.target.value))}/></label>
-       <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Cash / UPI account</span><select className="app-control" value={collectionAccountId} onChange={e=>setCollectionAccountId(e.target.value)}><option value="">Choose</option>{commissionAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</select></label>
+       <label><span className="mb-1 block text-[10px] font-bold text-[var(--text-muted)]">Cash / UPI account</span><SearchableSelect className="app-control" value={collectionAccountId} onChange={e=>setCollectionAccountId(e.target.value)}><option value="">Choose</option>{commissionAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</SearchableSelect></label>
       </div>:null}
      </div>
     </div>
@@ -265,9 +266,9 @@ export default function CardDueClearingPage(){
      <h3 className="text-sm font-black">Add card recovery</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Principal still pending: {money(selected.principalRemaining)}</p>
      {Number(selected.principalRemaining)>0.001?<div className="mt-3 space-y-2">
       <input className="app-control money" value={formatAmount(addRecoveryAmount)} onChange={e=>setAddRecoveryAmount(amountInput(e.target.value))} placeholder="Amount"/>
-      <select className="app-control" value={addProviderId} onChange={e=>setAddProviderId(e.target.value)} required><option value="">Provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-      <select className="app-control" value={addGatewayId} onChange={e=>setAddGatewayId(e.target.value)} required><option value="">Gateway</option>{addProvider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {Number(g.defaultChargeRate)}%</option>)}</select>
-      <select className="app-control" value={addRecoveryAccountId} onChange={e=>setAddRecoveryAccountId(e.target.value)} required><option value="">Receive into account</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select>
+      <SearchableSelect className="app-control" value={addProviderId} onChange={e=>setAddProviderId(e.target.value)} required><option value="">Provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect>
+      <SearchableSelect className="app-control" value={addGatewayId} onChange={e=>setAddGatewayId(e.target.value)} required><option value="">Gateway</option>{addProvider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {Number(g.defaultChargeRate)}%</option>)}</SearchableSelect>
+      <SearchableSelect className="app-control" value={addRecoveryAccountId} onChange={e=>setAddRecoveryAccountId(e.target.value)} required><option value="">Receive into account</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</SearchableSelect>
       {addGateway?<p className="text-[10px] text-[var(--text-muted)]">Gateway charge {money(calcMoney(num(addRecoveryAmount)*Number(addGateway.defaultChargeRate)/100))}</p>:null}
       <input className="app-control" value={addRecoveryRef} onChange={e=>setAddRecoveryRef(e.target.value)} placeholder="Reference (optional)"/>
       <button disabled={saving} className="app-primary-button min-h-10 w-full text-xs font-black disabled:opacity-50">Add recovery</button>
@@ -278,7 +279,7 @@ export default function CardDueClearingPage(){
      <h3 className="text-sm font-black">Collect commission</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Commission still pending: {money(selected.commissionRemaining)}</p>
      {Number(selected.commissionRemaining)>0.001?<div className="mt-3 space-y-2">
       <input className="app-control money" value={formatAmount(addFeeAmount)} onChange={e=>setAddFeeAmount(amountInput(e.target.value))} placeholder="Amount"/>
-      <select className="app-control" value={addFeeAccountId} onChange={e=>setAddFeeAccountId(e.target.value)} required><option value="">Cash / UPI account</option>{commissionAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</select>
+      <SearchableSelect className="app-control" value={addFeeAccountId} onChange={e=>setAddFeeAccountId(e.target.value)} required><option value="">Cash / UPI account</option>{commissionAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</SearchableSelect>
       <input className="app-control" value={addFeeRef} onChange={e=>setAddFeeRef(e.target.value)} placeholder="Reference (optional)"/>
       <button disabled={saving} className="app-primary-button min-h-10 w-full text-xs font-black disabled:opacity-50">Collect commission</button>
      </div>:<p className="mt-4 text-xs font-bold text-[var(--money-in)]">Commission fully collected.</p>}

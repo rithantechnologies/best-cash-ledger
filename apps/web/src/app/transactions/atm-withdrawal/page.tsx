@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Field, FormSection, PageLoader, SummaryRow, TransactionFrame } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { SearchSelect } from "@/components/search-select";
 
 type Account={id:string;accountName:string;accountType:string};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(v);
@@ -32,8 +33,8 @@ export default function AtmWithdrawalPage(){
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <FormSection step="1" title="Withdrawal details" description="Choose the bank and cash accounts, then enter what was physically received.">
    <div className="grid gap-3 sm:grid-cols-2">
-    <Field label="Bank account"><select className={control} value={bankId} onChange={e=>setBankId(e.target.value)} required><option value="">Select bank account</option>{accounts.filter(a=>a.accountType==="BANK").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field>
-    <Field label="Cash account"><select className={control} value={cashId} onChange={e=>setCashId(e.target.value)} required><option value="">Select cash account</option>{accounts.filter(a=>a.accountType==="CASH").map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field>
+    <Field label="Bank account"><SearchSelect value={bankId} onChange={setBankId} options={accounts.filter(a=>a.accountType==="BANK").map(a=>({value:a.id,label:a.accountName,searchText:a.accountName}))} placeholder="Select bank account" searchPlaceholder="Search bank account…"/></Field>
+    <Field label="Cash account"><SearchSelect value={cashId} onChange={setCashId} options={accounts.filter(a=>a.accountType==="CASH").map(a=>({value:a.id,label:a.accountName,searchText:a.accountName}))} placeholder="Select cash account" searchPlaceholder="Search cash account…"/></Field>
     <Field label="Cash received"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={cash} onChange={e=>setCash(e.target.value)} required/></Field>
     <Field label="ATM / bank charge"><input className={control} type="number" step="0.01" min="0" placeholder="0.00" value={charge} onChange={e=>setCharge(e.target.value)}/></Field>
    </div>

@@ -1,11 +1,13 @@
 "use client";
 /* eslint-disable react-hooks/exhaustive-deps */
 
+import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Modal, PageLoader, SectionHeading, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { SearchSelect } from "@/components/search-select";
 
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;isActive:boolean};
 type Settlement={
@@ -55,8 +57,8 @@ export default function ProviderSettlementsPage(){
   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3"><Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Expected</p><p className="mt-1 text-lg font-black sm:text-2xl">{money(totals.expected)}</p></Surface><Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Received</p><p className="mt-1 text-lg font-black text-emerald-700 sm:text-2xl">{money(totals.received)}</p></Surface><Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">In clearing</p><p className="mt-1 text-lg font-black text-amber-700 sm:text-2xl">{money(totals.remaining)}</p></Surface></div>
   <Surface className="grid gap-2.5 p-3 sm:grid-cols-3 sm:p-4">
    <input className={input} placeholder="Search transaction, provider or reference…" value={q} onChange={e=>setQ(e.target.value)}/>
-   <select className={input} value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_SETTLED","SETTLED","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</select>
-   <select className={input} value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</select>
+   <SearchableSelect className={input} value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_SETTLED","SETTLED","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</SearchableSelect>
+   <SearchableSelect className={input} value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
   </Surface>
 
   <div className="space-y-2 md:hidden">{items.map(s=><Surface key={s.id} className="p-4">
@@ -70,7 +72,7 @@ export default function ProviderSettlementsPage(){
   <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><span className="text-slate-500">{total} settlement(s) · Page {page} of {totalPages}</span><div className="flex gap-2"><button className="min-h-10 rounded-xl border border-slate-200 px-3 text-xs font-bold disabled:opacity-40" disabled={page<=1} onClick={()=>load(page-1)}>Previous</button><button className="min-h-10 rounded-xl border border-slate-200 px-3 text-xs font-bold disabled:opacity-40" disabled={page>=totalPages} onClick={()=>load(page+1)}>Next</button></div></div>
 
   <Modal open={!!selected} title="Record provider receipt" description={selected?selected.sourceTransaction.transactionNumber+" · Remaining "+money(selected.remainingAmount):undefined} onClose={()=>setSelected(null)}>
-   <form onSubmit={receive} className="space-y-3"><input className={input} type="number" min="0.01" step="0.01" max={selected?.remainingAmount} value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Amount received" required/><select className={input} value={destination} onChange={e=>setDestination(e.target.value)} required><option value="">Received into…</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select><input className={input} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Settlement ID / UTR"/><textarea className={input+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Notes"/><button disabled={busy} className="min-h-11 w-full rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-40">{busy?"Saving receipt…":"Record receipt"}</button></form>
+   <form onSubmit={receive} className="space-y-3"><input className={input} type="number" min="0.01" step="0.01" max={selected?.remainingAmount} value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Amount received" required/><SearchableSelect className={input} value={destination} onChange={e=>setDestination(e.target.value)} required><option value="">Received into…</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</SearchableSelect><input className={input} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Settlement ID / UTR"/><textarea className={input+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Notes"/><button disabled={busy} className="min-h-11 w-full rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-40">{busy?"Saving receipt…":"Record receipt"}</button></form>
   </Modal>
  </div></AppShell>;
 }

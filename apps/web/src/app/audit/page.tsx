@@ -1,10 +1,12 @@
 "use client";
 
+import { SearchableSelect } from "@/components/searchable-select";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, PageFrame, PageLoader, Pager, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { SearchSelect } from "@/components/search-select";
 
 type Audit={
   id:string;userId:string;entityType:string;entityId:string;action:string;reason:string|null;
@@ -162,9 +164,9 @@ export default function AuditPage(){
         <h1 className="text-[1.65rem] font-black tracking-[-.04em] sm:text-[2rem]">Audit & Activity</h1>
         <p className="mt-1.5 text-sm text-[var(--text-muted)]">See who changed what across your business, without digging through raw logs.</p>
       </div>
-      <select className="app-control w-full sm:w-44" value={range} onChange={(event)=>setRange(event.target.value as RangeFilter)} aria-label="Date range">
+      <SearchableSelect className="app-control w-full sm:w-44" value={range} onChange={(event)=>setRange(event.target.value as RangeFilter)} aria-label="Date range">
         <option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="all">All history</option>
-      </select>
+      </SearchableSelect>
     </div>
 
     {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
@@ -180,9 +182,9 @@ export default function AuditPage(){
         <input className="app-control !pl-11" placeholder="Search activity, record, user or reason…" value={q} onChange={(event)=>setQ(event.target.value)}/>
       </div>
       <div className="mt-3 grid gap-2.5 sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
-        <select className="app-control" value={entity} onChange={(event)=>setEntity(event.target.value)}><option value="">All areas</option>{entities.map((value)=><option key={value} value={value}>{words(value)}</option>)}</select>
-        <select className="app-control" value={action} onChange={(event)=>setAction(event.target.value)}><option value="">All actions</option>{actions.map((value)=><option key={value} value={value}>{words(value)}</option>)}</select>
-        <select className="app-control" value={person} onChange={(event)=>setPerson(event.target.value)}><option value="">All users</option>{people.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select>
+        <SearchableSelect className="app-control" value={entity} onChange={(event)=>setEntity(event.target.value)}><option value="">All areas</option>{entities.map((value)=><option key={value} value={value}>{words(value)}</option>)}</SearchableSelect>
+        <SearchableSelect className="app-control" value={action} onChange={(event)=>setAction(event.target.value)}><option value="">All actions</option>{actions.map((value)=><option key={value} value={value}>{words(value)}</option>)}</SearchableSelect>
+        <SearchSelect value={person} onChange={setPerson} options={[{value:"",label:"All users"},...people.map(([id,name])=>({value:id,label:name,searchText:name}))]} placeholder="All users" searchPlaceholder="Search user…"/>
         <button type="button" onClick={()=>{setQ("");setEntity("");setAction("");setPerson("");setRange("7d");}} className="app-secondary-button min-h-11 px-4 text-xs font-bold">Reset</button>
       </div>
     </Surface>

@@ -2,11 +2,13 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
 
+import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { SearchSelect } from "@/components/search-select";
 
 type Payable={id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;customer:{fullName:string};sourceTransaction:{transactionNumber:string;transactionType:string}};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number};
@@ -66,10 +68,10 @@ export default function PayablesPage(){
 
   <Toolbar>
    <input className={control+" bg-slate-50"} placeholder="Search customer…" value={q} onChange={e=>setQ(e.target.value)}/>
-   <select className={control} value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_PAID","PAID","OVERDUE","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</select>
-   <select className={control} value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="">All services</option>{["AEPS_WITHDRAWAL","CARD_SWIPE","MICRO_ATM","ATM_WITHDRAWAL","CASH_TRANSFER"].map(x=><option key={x} value={x}>{serviceLabel(x)}</option>)}</select>
-   <select className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="dueAt">Due date</option><option value="createdAt">Created</option><option value="remainingAmount">Remaining</option><option value="originalAmount">Original</option><option value="paidAmount">Paid</option><option value="status">Status</option></select>
-   <select className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</select>
+   <SearchableSelect className={control} value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_PAID","PAID","OVERDUE","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</SearchableSelect>
+   <SearchableSelect className={control} value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="">All services</option>{["AEPS_WITHDRAWAL","CARD_SWIPE","MICRO_ATM","ATM_WITHDRAWAL","CASH_TRANSFER"].map(x=><option key={x} value={x}>{serviceLabel(x)}</option>)}</SearchableSelect>
+   <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="dueAt">Due date</option><option value="createdAt">Created</option><option value="remainingAmount">Remaining</option><option value="originalAmount">Original</option><option value="paidAmount">Paid</option><option value="status">Status</option></SearchableSelect>
+   <SearchableSelect className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
   </Toolbar>
 
   {loading?<PageLoader label="Loading payables…"/>:<>
@@ -94,7 +96,7 @@ export default function PayablesPage(){
    <form id="pay-form" onSubmit={pay} className="grid gap-3 sm:grid-cols-2">
     <Field label="Customer payout"><input className={control} type="number" step="0.01" max={selected?.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
     {walletSource?<Field label="Wallet payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
-    <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):undefined}><select className={control} value={source} onChange={e=>{setSource(e.target.value);const a=accounts.find(x=>x.id===e.target.value);if(a?.accountType!=="PROVIDER_WALLET")setCharge("");}} required><option value="">Source account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select>{sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Payout plus charge is higher than this account&apos;s available balance.</span>:null}</Field>
+    <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):undefined}><SearchSelect value={source} onChange={value=>{setSource(value);const a=accounts.find(x=>x.id===value);if(a?.accountType!=="PROVIDER_WALLET")setCharge("");}} options={accounts.map(a=>({value:a.id,label:a.accountName,description:money(a.currentBalance)+" · "+a.accountType,searchText:a.accountName+" "+a.accountType}))} placeholder="Select account" searchPlaceholder="Search account or wallet…"/>{sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Payout plus charge is higher than this account&apos;s available balance.</span>:null}</Field>
     <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Optional reference"/></Field>
     <Field label="Notes"><input className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Optional notes"/></Field>
    </form>

@@ -11,7 +11,7 @@ export type SearchSelectOption={
 };
 
 export function SearchSelect({
-  value,onChange,options,placeholder="Select",searchPlaceholder="Search…",emptyText="No matches",className="",
+  value,onChange,options,placeholder="Select",searchPlaceholder="Search…",emptyText="No matches",className="",disabled=false,
 }:{
   value:string;
   onChange:(value:string)=>void;
@@ -20,6 +20,7 @@ export function SearchSelect({
   searchPlaceholder?:string;
   emptyText?:string;
   className?:string;
+  disabled?:boolean;
 }){
   const [open,setOpen]=useState(false);
   const [query,setQuery]=useState("");
@@ -48,11 +49,11 @@ export function SearchSelect({
   },[options,query]);
 
   return <div ref={rootRef} className={"relative "+className}>
-    <button type="button" onClick={()=>{setOpen(current=>!current);setQuery("");}} className="app-control flex w-full items-center justify-between gap-3 text-left" aria-haspopup="listbox" aria-expanded={open}>
+    <button type="button" disabled={disabled} onClick={()=>{if(disabled)return;setOpen(current=>!current);setQuery("");}} className="app-control flex w-full items-center justify-between gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50" aria-haspopup="listbox" aria-expanded={open}>
       <span className={selected?"truncate font-semibold":"truncate text-[var(--text-muted)]"}>{selected?.label??placeholder}</span>
       <span className="shrink-0 text-xs text-[var(--text-muted)]">⌄</span>
     </button>
-    {open?<div className="absolute inset-x-0 top-[calc(100%+.35rem)] z-50 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl">
+    {open&&!disabled?<div className="absolute inset-x-0 top-[calc(100%+.35rem)] z-50 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl">
       <div className="border-b border-[var(--border)] p-2">
         <input autoFocus className="app-control" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Escape")setOpen(false);}} placeholder={searchPlaceholder}/>
       </div>

@@ -2,11 +2,13 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
 
+import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { SearchSelect } from "@/components/search-select";
 
 type Customer={id:string;fullName:string;customerCode:string};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;isActive:boolean};
@@ -79,9 +81,9 @@ export default function ReceivablesPage(){
 
   <Toolbar>
    <input className={control+" bg-slate-50 lg:col-span-1"} placeholder="Search customer, reason or reference…" value={q} onChange={e=>setQ(e.target.value)}/>
-   <select className={control} value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_RECEIVED","RECEIVED","OVERDUE","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</select>
-   <select className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="dueAt">Due date</option><option value="createdAt">Created</option><option value="remainingAmount">Remaining</option><option value="originalAmount">Original</option><option value="receivedAmount">Received</option><option value="status">Status</option></select>
-   <select className={control} value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</select>
+   <SearchableSelect className={control} value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_RECEIVED","RECEIVED","OVERDUE","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</SearchableSelect>
+   <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="dueAt">Due date</option><option value="createdAt">Created</option><option value="remainingAmount">Remaining</option><option value="originalAmount">Original</option><option value="receivedAmount">Received</option><option value="status">Status</option></SearchableSelect>
+   <SearchableSelect className={control} value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
   </Toolbar>
   {loading?<PageLoader label="Loading receivables…"/>:<>
    <div className="space-y-2 md:hidden">{items.map(r=><Surface key={r.id} className="p-4">
@@ -102,11 +104,11 @@ export default function ReceivablesPage(){
   <Modal open={createOpen} title="Add receivable" description="Record money the business expects to receive. Choose a source only when value leaves now." onClose={()=>setCreateOpen(false)}
    footer={<button form="create-receivable" disabled={busy} className="min-h-11 w-full rounded-xl bg-emerald-700 text-sm font-bold text-white disabled:opacity-50">{busy?"Saving…":"Create receivable"}</button>}>
    <form id="create-receivable" onSubmit={createReceivable} className="grid gap-3 sm:grid-cols-2">
-    <Field label="Customer"><select className={control} value={customerId} onChange={e=>setCustomerId(e.target.value)} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName} · {c.customerCode}</option>)}</select></Field>
+    <Field label="Customer"><SearchSelect value={customerId} onChange={setCustomerId} options={customers.map(c=>({value:c.id,label:c.fullName,description:c.customerCode,searchText:c.fullName+" "+c.customerCode}))} placeholder="Select customer" searchPlaceholder="Search customer name or code…"/></Field>
     <Field label="Amount"><input className={control} type="number" step="0.01" min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="₹ 0.00" required/></Field>
-    <Field label="Source account" hint="Leave blank for opening / legacy receivable."><select className={control} value={sourceAccountId} onChange={e=>setSourceAccountId(e.target.value)}><option value="">No source account</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)}</option>)}</select></Field>
+    <Field label="Source account" hint="Leave blank for opening / legacy receivable."><SearchSelect value={sourceAccountId} onChange={setSourceAccountId} options={[{value:"",label:"No source account"},...liquidAccounts.map(a=>({value:a.id,label:a.accountName,description:money(a.currentBalance),searchText:a.accountName+" "+a.accountType}))]} placeholder="No source account" searchPlaceholder="Search account…"/></Field>
     <Field label="Due date"><input className={control} type="date" value={dueAt} onChange={e=>setDueAt(e.target.value)}/></Field>
-    <Field label="Reason category"><select className={control} value={reasonCategory} onChange={e=>setReasonCategory(e.target.value)}>{["ADVANCE","SETTLEMENT_DUE","SHORTAGE_RECOVERY","LOAN","ADJUSTMENT","OTHER"].map(x=><option key={x}>{x}</option>)}</select></Field>
+    <Field label="Reason category"><SearchableSelect className={control} value={reasonCategory} onChange={e=>setReasonCategory(e.target.value)}>{["ADVANCE","SETTLEMENT_DUE","SHORTAGE_RECOVERY","LOAN","ADJUSTMENT","OTHER"].map(x=><option key={x}>{x}</option>)}</SearchableSelect></Field>
     <Field label="Reason"><input className={control} value={reason} onChange={e=>setReason(e.target.value)} required/></Field>
     <Field label="Reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Optional reference"/></Field>
     <Field label="Description"><input className={control} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Optional detail"/></Field>
@@ -116,7 +118,7 @@ export default function ReceivablesPage(){
    footer={<button form="collect-receivable" disabled={busy} className="min-h-11 w-full rounded-xl bg-emerald-700 text-sm font-bold text-white disabled:opacity-50">{busy?"Recording…":"Record collection"}</button>}>
    <form id="collect-receivable" onSubmit={collect} className="grid gap-3 sm:grid-cols-2">
     <Field label="Amount received"><input className={control} type="number" step="0.01" min="0.01" max={selected?.remainingAmount} value={collectAmount} onChange={e=>setCollectAmount(e.target.value)} required/></Field>
-    <Field label="Received into"><select className={control} value={destination} onChange={e=>setDestination(e.target.value)} required><option value="">Select account</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</select></Field>
+    <Field label="Received into"><SearchSelect value={destination} onChange={setDestination} options={liquidAccounts.map(a=>({value:a.id,label:a.accountName,description:a.accountType,searchText:a.accountName+" "+a.accountType}))} placeholder="Select account" searchPlaceholder="Search account…"/></Field>
     <Field label="Reference / UTR"><input className={control} value={collectReference} onChange={e=>setCollectReference(e.target.value)} placeholder="Optional"/></Field>
     <Field label="Notes"><input className={control} value={collectNotes} onChange={e=>setCollectNotes(e.target.value)} placeholder="Optional"/></Field>
    </form>

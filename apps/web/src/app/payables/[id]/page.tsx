@@ -1,11 +1,13 @@
 "use client";
 
+import { SearchableSelect } from "@/components/searchable-select";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, PanelHeader, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { SearchSelect } from "@/components/search-select";
 
 type Payment={
  id:string;paymentDate:string;amount:string;referenceNumber:string|null;notes:string|null;status:string;
@@ -86,7 +88,7 @@ export default function PayableDetailPage(){
    <form id="detail-pay-form" onSubmit={submitPayment} className="grid gap-3 sm:grid-cols-2">
     <Field label="Customer payout"><input className={control} type="number" step="0.01" max={item.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
     {walletSource?<Field label="Wallet payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
-    <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):undefined}><select className={control} value={source} onChange={e=>{setSource(e.target.value);const a=accounts.find(x=>x.id===e.target.value);if(a?.accountType!=="PROVIDER_WALLET")setCharge("");}} required><option value="">Select account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</select>{sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Not enough available balance.</span>:null}</Field>
+    <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):undefined}><SearchableSelect className={control} value={source} onChange={e=>{setSource(e.target.value);const a=accounts.find(x=>x.id===e.target.value);if(a?.accountType!=="PROVIDER_WALLET")setCharge("");}} required><option value="">Select account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</SearchableSelect>{sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Not enough available balance.</span>:null}</Field>
     <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Optional reference"/></Field>
     <Field label="Notes"><input className={control} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field>
    </form>

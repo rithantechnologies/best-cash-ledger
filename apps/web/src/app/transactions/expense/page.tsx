@@ -1,5 +1,6 @@
 "use client";
 
+import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -41,8 +42,8 @@ export default function ExpensePage(){
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <FormSection step="1" title="Expense details" description="Choose the usage, category and source account.">
    <div className="grid gap-3 sm:grid-cols-2">
-    <Field label="Expense type"><select className={control} value={expenseType} onChange={e=>{setExpenseType(e.target.value);setCategoryId("");}} required><option value="BUSINESS">Business expense</option><option value="PERSONAL">Personal expense</option></select></Field>
-    <Field label="Category"><select className={control} value={categoryId} onChange={e=>setCategoryId(e.target.value)} required><option value="">Select category</option>{visible.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+    <Field label="Expense type"><SearchableSelect className={control} value={expenseType} onChange={e=>{setExpenseType(e.target.value);setCategoryId("");}} required><option value="BUSINESS">Business expense</option><option value="PERSONAL">Personal expense</option></SearchableSelect></Field>
+    <Field label="Category"><SearchSelect value={categoryId} onChange={setCategoryId} options={visible.map(c=>({value:c.id,label:c.name,searchText:c.name}))} placeholder="Select category" searchPlaceholder="Search category…"/></Field>
     <Field label="Amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
     <Field label="Paid from"><SearchSelect value={accountId} onChange={setAccountId} options={accountOptions} placeholder="Select account" searchPlaceholder="Search bank, cash, wallet or account…"/></Field>
     <Field label="Description" className="sm:col-span-2"><input className={control} placeholder="What was this expense for?" value={description} onChange={e=>setDescription(e.target.value)} required/></Field>

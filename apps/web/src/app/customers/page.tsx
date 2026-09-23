@@ -2,11 +2,13 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
 
+import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { SearchSelect } from "@/components/search-select";
 
 type Customer={
  id:string;customerCode:string;customerType:string;fullName:string;mobile:string|null;notes:string|null;isActive:boolean;
@@ -72,8 +74,8 @@ export default function CustomersPage(){
 
   <Toolbar>
    <input inputMode="search" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Search name, mobile or card last 4…" value={q} onChange={e=>setQ(e.target.value)}/>
-   <select className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="createdAt">Created date</option><option value="fullName">Name</option><option value="customerCode">Customer code</option><option value="customerType">Type</option><option value="mobile">Mobile</option></select>
-   <select className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</select>
+   <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="createdAt">Created date</option><option value="fullName">Name</option><option value="customerCode">Customer code</option><option value="customerType">Type</option><option value="mobile">Mobile</option></SearchableSelect>
+   <SearchableSelect className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
   </Toolbar>
   {loading?<PageLoader label="Loading customers…"/>:<>
    <div className="space-y-2 md:hidden">{items.map(c=><Surface key={c.id} className={!c.isActive?"p-4 opacity-60":"p-4"}>
@@ -91,22 +93,22 @@ export default function CustomersPage(){
   </>}
   <Modal open={creating} title="Add customer" description="Create a reusable customer profile for faster counter work." onClose={()=>setCreating(false)}
    footer={<button form="create-customer" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Creating…":"Create customer"}</button>}>
-   <form id="create-customer" onSubmit={submit} className="grid gap-3 sm:grid-cols-2"><Field label="Customer name"><input className={control} value={fullName} onChange={e=>setFullName(e.target.value)} required/></Field><Field label="Mobile"><input className={control} inputMode="tel" value={mobile} onChange={e=>setMobile(e.target.value)} placeholder="Optional"/></Field><Field label="Customer type" className="sm:col-span-2"><select className={control} value={customerType} onChange={e=>setCustomerType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></select></Field></form>
+   <form id="create-customer" onSubmit={submit} className="grid gap-3 sm:grid-cols-2"><Field label="Customer name"><input className={control} value={fullName} onChange={e=>setFullName(e.target.value)} required/></Field><Field label="Mobile"><input className={control} inputMode="tel" value={mobile} onChange={e=>setMobile(e.target.value)} placeholder="Optional"/></Field><Field label="Customer type" className="sm:col-span-2"><SearchableSelect className={control} value={customerType} onChange={e=>setCustomerType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></SearchableSelect></Field></form>
   </Modal>
 
   <Modal open={addingCard} title="Add saved card" description="Save only the non-sensitive card details used for identifying the card at the counter." onClose={()=>setAddingCard(false)}
    footer={<button form="add-card" disabled={busy} className="min-h-11 w-full rounded-xl bg-indigo-700 text-sm font-bold text-white disabled:opacity-50">{busy?"Saving…":"Save card"}</button>}>
    <form id="add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
-    <Field label="Customer"><select className={control} value={cardCustomerId} onChange={e=>setCardCustomerId(e.target.value)} required><option value="">Select customer</option>{items.filter(c=>c.isActive).map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</select></Field>
+    <Field label="Customer"><SearchSelect value={cardCustomerId} onChange={setCardCustomerId} options={items.filter(c=>c.isActive).map(c=>({value:c.id,label:c.fullName,searchText:c.fullName+" "+(c.mobile??"")}))} placeholder="Select customer" searchPlaceholder="Search customer…"/></Field>
     <Field label="Bank"><input className={control} value={cardBank} onChange={e=>setCardBank(e.target.value)} required/></Field>
-    <Field label="Card type"><select className={control} value={cardType} onChange={e=>setCardType(e.target.value)}>{["CREDIT","DEBIT","BUSINESS","OTHER"].map(x=><option key={x}>{x}</option>)}</select></Field>
+    <Field label="Card type"><SearchableSelect className={control} value={cardType} onChange={e=>setCardType(e.target.value)}>{["CREDIT","DEBIT","BUSINESS","OTHER"].map(x=><option key={x}>{x}</option>)}</SearchableSelect></Field>
     <Field label="Last 4 digits"><input className={control} inputMode="numeric" maxLength={4} value={cardLast4} onChange={e=>setCardLast4(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
     <Field label="Nickname" className="sm:col-span-2"><input className={control} value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="Optional"/></Field>
    </form>
   </Modal>
   <Modal open={!!editing} title="Edit customer" description={editing?.customerCode} onClose={()=>setEditing(null)}
    footer={<button form="edit-customer" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Save changes"}</button>}>
-   <form id="edit-customer" onSubmit={saveEdit} className="grid gap-3 sm:grid-cols-2"><Field label="Name"><input className={control} value={editName} onChange={e=>setEditName(e.target.value)} required/></Field><Field label="Mobile"><input className={control} value={editMobile} onChange={e=>setEditMobile(e.target.value)}/></Field><Field label="Type"><select className={control} value={editType} onChange={e=>setEditType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></select></Field><Field label="Notes"><input className={control} value={editNotes} onChange={e=>setEditNotes(e.target.value)}/></Field></form>
+   <form id="edit-customer" onSubmit={saveEdit} className="grid gap-3 sm:grid-cols-2"><Field label="Name"><input className={control} value={editName} onChange={e=>setEditName(e.target.value)} required/></Field><Field label="Mobile"><input className={control} value={editMobile} onChange={e=>setEditMobile(e.target.value)}/></Field><Field label="Type"><SearchableSelect className={control} value={editType} onChange={e=>setEditType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></SearchableSelect></Field><Field label="Notes"><input className={control} value={editNotes} onChange={e=>setEditNotes(e.target.value)}/></Field></form>
   </Modal>
 
   <Modal open={!!toggleTarget} title={toggleTarget?.isActive?"Retire customer?":"Reactivate customer?"} description="Historical transactions and ledgers are preserved." onClose={()=>setToggleTarget(null)}
