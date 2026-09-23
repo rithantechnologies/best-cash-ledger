@@ -1001,7 +1001,7 @@ export class DashboardService {
         this.creditCardTenDaySeries(start, end),
       ]);
 
-    return liquid.map((row, index) => {
+    const rows = liquid.map((row, index) => {
       const pendingProviderSettlements =
         providerClearing[index]?.closing ?? 0;
       const customerReceivable = receivable[index]?.closing ?? 0;
@@ -1025,6 +1025,32 @@ export class DashboardService {
           operatingPosition - creditCardOutstanding,
       };
     });
+
+    const snapshots = await this.prisma.$transaction(
+      rows.map((row) => {
+        const businessDate = new Date(row.date + 'T00:00:00.000Z');
+        const data = {
+          availableFunds: new Prisma.Decimal(row.availableFunds),
+          pendingProviderSettlements: new Prisma.Decimal(row.pendingProviderSettlements),
+          customerReceivable: new Prisma.Decimal(row.receivables),
+          customerPayable: new Prisma.Decimal(row.payables),
+          ownerCreditCardOutstanding: new Prisma.Decimal(row.creditCardOutstanding),
+          operatingPosition: new Prisma.Decimal(row.operatingPosition),
+          netFinancialPosition: new Prisma.Decimal(row.netPosition),
+        };
+        return this.prisma.dailyPositionSnapshot.upsert({
+          where: { businessDate },
+          create: { businessDate, ...data },
+          update: data,
+          select: { capturedAt: true, updatedAt: true },
+        });
+      }),
+    );
+
+    return rows.map((row, index) => ({
+      ...row,
+      capturedAt: (snapshots[index]?.updatedAt ?? snapshots[index]?.capturedAt ?? new Date()).toISOString(),
+    }));
   }
 
   async analytics(filters: {

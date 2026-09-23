@@ -960,6 +960,20 @@ model DailyReceivableSummary {
   createdAt         DateTime @default(now())
 }
 
+model DailyPositionSnapshot {
+  id                         String   @id @default(uuid())
+  businessDate               DateTime @unique @db.Date
+  availableFunds             Decimal  @db.Decimal(18, 2)
+  pendingProviderSettlements Decimal  @db.Decimal(18, 2)
+  customerReceivable         Decimal  @db.Decimal(18, 2)
+  customerPayable            Decimal  @db.Decimal(18, 2)
+  ownerCreditCardOutstanding Decimal  @db.Decimal(18, 2)
+  operatingPosition          Decimal  @db.Decimal(18, 2)
+  netFinancialPosition       Decimal  @db.Decimal(18, 2)
+  capturedAt                 DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
 model DailyPositionSummary {
   id                         String   @id @default(uuid())
   businessDate               DateTime @unique @db.Date

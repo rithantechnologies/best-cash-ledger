@@ -249,6 +249,25 @@
 
 .positionTrend > div strong { color: var(--hero-text); font-size: 16px; font-weight: 750; }
 .positionSparkline { display: block; width: 100%; height: 105px; margin-top: 14px; overflow: visible; filter: drop-shadow(0 7px 8px rgba(49, 210, 163, .12)); }
+.positionTrendHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.positionTrendFacts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px;color:var(--hero-muted);font-size:10px}
+.positionTrendFacts span{min-width:0}
+.positionTrendFacts strong{display:block;margin-top:2px;color:var(--hero-text);font-size:11px;font-variant-numeric:tabular-nums}
+.positionHistoryButton{display:flex;align-items:center;justify-content:flex-end;gap:5px;width:100%;margin-top:10px;border:0;background:transparent;color:var(--hero-text);font-size:11px;font-weight:750;cursor:pointer}
+.positionHistoryButton svg{width:13px;height:13px}
+.positionMetaHistory{border:0;background:transparent;padding:0;color:var(--hero-subtle);font:inherit;font-weight:700;cursor:pointer;text-align:left}
+.positionMetaHistory:hover,.positionHistoryButton:hover{color:var(--accent)}
+.positionHistorySummary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--border);border-bottom:1px solid var(--border)}
+.positionHistorySummary>div{background:var(--surface);padding:13px 16px}
+.positionHistorySummary span{display:block;color:var(--text-muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.positionHistorySummary strong{display:block;margin-top:4px;font-size:15px;font-variant-numeric:tabular-nums}
+.positionHistoryChart{padding:15px 18px 5px;border-bottom:1px solid var(--border);background:var(--surface-soft)}
+.positionHistoryChart .positionSparkline{height:125px;margin-top:0}
+.positionHistoryList{display:grid;gap:8px}
+.positionHistoryRow{display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid var(--border);border-radius:13px;background:var(--surface);padding:11px 12px}
+.positionHistoryRow>div:last-child{text-align:right}
+.positionHistoryRow strong{display:block;font-size:13px;font-variant-numeric:tabular-nums}
+.positionHistoryRow small{display:block;margin-top:3px;color:var(--text-muted);font-size:10px}
 
 .positionComposition {
   display: grid;

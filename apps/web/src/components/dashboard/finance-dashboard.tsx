@@ -26,6 +26,7 @@ import type {
   FinancialContext,
   FlowMovement,
   IncomeRecord,
+  PositionTrendPoint,
   RecentRecord,
 } from "./dashboard-types";
 import styles from "./finance-dashboard.module.css";
@@ -387,6 +388,60 @@ function ActivityRow({ record }: { record: RecentRecord }) {
   );
 }
 
+function PositionHistorySheet({
+  open,
+  rows,
+  onClose,
+}: {
+  open: boolean;
+  rows: PositionTrendPoint[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
+  if (!open) return null;
+  const values=rows.map(row=>row.netPosition);
+  const latest=rows.at(-1);
+  const previous=rows.at(-2);
+  const high=values.length?Math.max(...values):0;
+  const low=values.length?Math.min(...values):0;
+  const average=values.length?values.reduce((sum,value)=>sum+value,0)/values.length:0;
+  const change=(latest?.netPosition??0)-(previous?.netPosition??0);
+  return <div className={styles.drawerLayer} role="presentation">
+    <button className={styles.drawerBackdrop} onClick={onClose} aria-label="Close position history" />
+    <aside className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="position-history-title">
+      <div className={styles.drawerHandle} />
+      <header className={styles.drawerHeader}>
+        <div><h2 id="position-history-title">Last 10 Days Position</h2><p>Automatic daily position from the Cash Ledger.</p></div>
+        <button className={styles.iconButton} onClick={onClose} aria-label="Close position history"><DashboardIcon name="close" /></button>
+      </header>
+      <div className={styles.positionHistorySummary}>
+        <div><span>Latest</span><strong className={(latest?.netPosition??0)>=0?styles.positiveText:styles.negativeText}>{money(latest?.netPosition??0)}</strong></div>
+        <div><span>Vs previous day</span><strong className={change>=0?styles.positiveText:styles.negativeText}>{change>=0?"+":""}{money(change)}</strong></div>
+        <div><span>Highest</span><strong>{money(high)}</strong></div>
+        <div><span>Lowest</span><strong>{money(low)}</strong></div>
+        <div><span>Average</span><strong>{money(average)}</strong></div>
+      </div>
+      <div className={styles.positionHistoryChart}><PositionSparkline rows={rows} /></div>
+      <div className={styles.drawerBody}>
+        <div className={styles.positionHistoryList}>
+          {[...rows].reverse().map((row,index)=>{
+            const prior=[...rows].reverse()[index+1];
+            const delta=prior?row.netPosition-prior.netPosition:0;
+            return <div key={row.date} className={styles.positionHistoryRow}>
+              <div><strong>{new Date(row.date+"T00:00:00").toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}</strong><small>Captured {new Date(row.capturedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</small></div>
+              <div><strong className={row.netPosition>=0?styles.positiveText:styles.negativeText}>{money(row.netPosition)}</strong>{prior?<small className={delta>=0?styles.positiveText:styles.negativeText}>{delta>=0?"+":""}{money(delta)} vs previous</small>:<small>First day</small>}</div>
+            </div>;
+          })}
+        </div>
+      </div>
+    </aside>
+  </div>;
+}
+
 export function FinanceDashboard() {
   const [core, setCore] = useState<DashboardCore | null>(null);
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
@@ -399,6 +454,7 @@ export function FinanceDashboard() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedAllocationId, setSelectedAllocationId] = useState<string | null>(null);
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null);
+  const [positionHistoryOpen, setPositionHistoryOpen] = useState(false);
 
   const loadCore = useCallback(async () => {
     setLoading(true);
@@ -509,6 +565,13 @@ export function FinanceDashboard() {
   const { summary, today } = core;
   const trendStart = core.positionTrend[0]?.netPosition ?? summary.netFinancialPosition;
   const trendDelta = summary.netFinancialPosition - trendStart;
+  const positionValues = core.positionTrend.map((row) => row.netPosition);
+  const positionLatest = core.positionTrend.at(-1);
+  const positionPrevious = core.positionTrend.at(-2);
+  const positionDayDelta = (positionLatest?.netPosition ?? summary.netFinancialPosition) - (positionPrevious?.netPosition ?? positionLatest?.netPosition ?? summary.netFinancialPosition);
+  const positionHigh = positionValues.length ? Math.max(...positionValues) : summary.netFinancialPosition;
+  const positionLow = positionValues.length ? Math.min(...positionValues) : summary.netFinancialPosition;
+  const positionAverage = positionValues.length ? positionValues.reduce((sum,value)=>sum+value,0)/positionValues.length : summary.netFinancialPosition;
   const scopeAccounts = core.accounts
     .filter(
       (account) =>
@@ -706,11 +769,20 @@ export function FinanceDashboard() {
                   {trendDelta >= 0 ? "+" : ""}{money(trendDelta)} over 10 days
                 </span>
                 <span>{money(summary.currentAvailability)} current availability</span>
+                <button type="button" className={styles.positionMetaHistory} onClick={()=>setPositionHistoryOpen(true)}>
+                  {positionDayDelta>=0?"+":""}{money(positionDayDelta)} vs previous day · View history
+                </button>
               </div>
             </div>
             <div className={styles.positionTrend}>
-              <div><span>10-day position</span><strong>{compactMoney(summary.netFinancialPosition)}</strong></div>
+              <div className={styles.positionTrendHeader}><span>Last 10 Days Position</span><strong>{compactMoney(summary.netFinancialPosition)}</strong></div>
               <PositionSparkline rows={core.positionTrend} />
+              <div className={styles.positionTrendFacts}>
+                <span>High <strong>{compactMoney(positionHigh)}</strong></span>
+                <span>Low <strong>{compactMoney(positionLow)}</strong></span>
+                <span>Avg <strong>{compactMoney(positionAverage)}</strong></span>
+              </div>
+              <button type="button" className={styles.positionHistoryButton} onClick={()=>setPositionHistoryOpen(true)}>View history <DashboardIcon name="arrowRight" /></button>
             </div>
           </div>
           <div className={styles.positionComposition}>
@@ -894,6 +966,7 @@ export function FinanceDashboard() {
         </div>
       </div>
       <DrilldownSheet detail={drilldown} onClose={closeDrilldown} />
+      <PositionHistorySheet open={positionHistoryOpen} rows={core.positionTrend} onClose={()=>setPositionHistoryOpen(false)} />
     </AppShell>
   );
 }

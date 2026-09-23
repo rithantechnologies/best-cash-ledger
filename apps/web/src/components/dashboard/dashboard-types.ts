@@ -108,6 +108,7 @@ export type PositionTrendPoint = {
   creditCardOutstanding: number;
   operatingPosition: number;
   netPosition: number;
+  capturedAt: string;
 };
 
 export type ExpenseRecord = {

@@ -39,51 +39,58 @@ function linePath(points: Array<{ x: number; y: number }>) {
 export function PositionSparkline({ rows }: { rows: PositionTrendPoint[] }) {
   if (rows.length < 2) return null;
   const width = 340;
-  const height = 82;
-  const pad = 5;
+  const height = 92;
+  const pad = 7;
   const values = rows.map((row) => row.netPosition);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
+  const rawMin = Math.min(...values, 0);
+  const rawMax = Math.max(...values, 0);
+  const range = rawMax - rawMin || 1;
   const points = values.map((value, index) => ({
     x: pad + (index * (width - pad * 2)) / (values.length - 1),
-    y: height - pad - ((value - min) / range) * (height - pad * 2),
+    y: height - pad - ((value - rawMin) / range) * (height - pad * 2),
   }));
+  const zeroY = height - pad - ((0 - rawMin) / range) * (height - pad * 2);
+  const zeroPct = Math.max(0, Math.min(100, (zeroY / height) * 100));
   const path = linePath(points);
-  const area = `${path} L${points.at(-1)?.x ?? 0} ${height} L${points[0].x} ${height} Z`;
+  const area = path + " L" + (points.at(-1)?.x ?? 0) + " " + zeroY + " L" + points[0].x + " " + zeroY + " Z";
   return (
     <svg
-      viewBox={`0 0 ${width} ${height}`}
+      viewBox={"0 0 " + width + " " + height}
       className={styles.positionSparkline}
       role="img"
       aria-label="Overall financial position over the last 10 days"
     >
       <defs>
-        <linearGradient id="position-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#6ee7c2" stopOpacity=".32" />
-          <stop offset="1" stopColor="#6ee7c2" stopOpacity="0" />
+        <linearGradient id="position-stroke" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#34d399" />
+          <stop offset={zeroPct + "%"} stopColor="#34d399" />
+          <stop offset={zeroPct + "%"} stopColor="#fb7185" />
+          <stop offset="100%" stopColor="#fb7185" />
+        </linearGradient>
+        <linearGradient id="position-area" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#34d399" stopOpacity=".20" />
+          <stop offset={zeroPct + "%"} stopColor="#34d399" stopOpacity=".05" />
+          <stop offset={zeroPct + "%"} stopColor="#fb7185" stopOpacity=".05" />
+          <stop offset="100%" stopColor="#fb7185" stopOpacity=".20" />
         </linearGradient>
       </defs>
-      <path d={area} fill="url(#position-fill)" />
-      <path
-        d={path}
-        fill="none"
-        stroke="#79e7c6"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {points.map((point, index) => (
-        <circle
+      {rawMin < 0 && rawMax > 0 ? <line x1={pad} y1={zeroY} x2={width-pad} y2={zeroY} stroke="currentColor" strokeOpacity=".22" strokeDasharray="4 5" /> : null}
+      <path d={area} fill="url(#position-area)" />
+      <path d={path} fill="none" stroke="url(#position-stroke)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+      {points.map((point, index) => {
+        const positive=rows[index].netPosition>=0;
+        return <circle
           key={rows[index].date}
           cx={point.x}
           cy={point.y}
-          r={index === points.length - 1 ? 4 : 2}
-          fill="#c9fff0"
+          r={index === points.length - 1 ? 4.5 : 2.4}
+          fill={positive?"#6ee7b7":"#fda4af"}
+          stroke="var(--surface)"
+          strokeWidth={index===points.length-1?2:1}
         >
-          <title>{`${dateLabel(rows[index].date, true)} · ${money(rows[index].netPosition)}`}</title>
-        </circle>
-      ))}
+          <title>{dateLabel(rows[index].date, true) + " · " + money(rows[index].netPosition)}</title>
+        </circle>;
+      })}
     </svg>
   );
 }
