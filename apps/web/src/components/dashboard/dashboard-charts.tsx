@@ -37,6 +37,7 @@ function linePath(points: Array<{ x: number; y: number }>) {
 }
 
 export function PositionSparkline({ rows }: { rows: PositionTrendPoint[] }) {
+  const [hovered,setHovered]=useState<number|null>(null);
   if (rows.length < 2) return null;
   const width = 340;
   const height = 92;
@@ -53,45 +54,63 @@ export function PositionSparkline({ rows }: { rows: PositionTrendPoint[] }) {
   const zeroPct = Math.max(0, Math.min(100, (zeroY / height) * 100));
   const path = linePath(points);
   const area = path + " L" + (points.at(-1)?.x ?? 0) + " " + zeroY + " L" + points[0].x + " " + zeroY + " Z";
+  const active=hovered===null?null:{row:rows[hovered],point:points[hovered],index:hovered};
+  const compactChange=(value:number)=>{
+    const sign=value>0?"+":value<0?"−":"";
+    return sign+compact(Math.abs(value));
+  };
   return (
-    <svg
-      viewBox={"0 0 " + width + " " + height}
-      className={styles.positionSparkline}
-      role="img"
-      aria-label="Overall financial position over the last 10 days"
-    >
-      <defs>
-        <linearGradient id="position-stroke" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#34d399" />
-          <stop offset={zeroPct + "%"} stopColor="#34d399" />
-          <stop offset={zeroPct + "%"} stopColor="#fb7185" />
-          <stop offset="100%" stopColor="#fb7185" />
-        </linearGradient>
-        <linearGradient id="position-area" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#34d399" stopOpacity=".20" />
-          <stop offset={zeroPct + "%"} stopColor="#34d399" stopOpacity=".05" />
-          <stop offset={zeroPct + "%"} stopColor="#fb7185" stopOpacity=".05" />
-          <stop offset="100%" stopColor="#fb7185" stopOpacity=".20" />
-        </linearGradient>
-      </defs>
-      {rawMin < 0 && rawMax > 0 ? <line x1={pad} y1={zeroY} x2={width-pad} y2={zeroY} stroke="currentColor" strokeOpacity=".22" strokeDasharray="4 5" /> : null}
-      <path d={area} fill="url(#position-area)" />
-      <path d={path} fill="none" stroke="url(#position-stroke)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-      {points.map((point, index) => {
-        const positive=rows[index].netPosition>=0;
-        return <circle
-          key={rows[index].date}
-          cx={point.x}
-          cy={point.y}
-          r={index === points.length - 1 ? 4.5 : 2.4}
-          fill={positive?"#6ee7b7":"#fda4af"}
-          stroke="var(--surface)"
-          strokeWidth={index===points.length-1?2:1}
-        >
-          <title>{dateLabel(rows[index].date, true) + " · " + money(rows[index].netPosition)}</title>
-        </circle>;
-      })}
-    </svg>
+    <div className={styles.positionChartWrap}>
+      <svg
+        viewBox={"0 0 " + width + " " + height}
+        className={styles.positionSparkline}
+        role="img"
+        aria-label="Overall financial position over the last 10 days"
+        onMouseLeave={()=>setHovered(null)}
+      >
+        <defs>
+          <linearGradient id="position-stroke" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#34d399" />
+            <stop offset={zeroPct + "%"} stopColor="#34d399" />
+            <stop offset={zeroPct + "%"} stopColor="#fb7185" />
+            <stop offset="100%" stopColor="#fb7185" />
+          </linearGradient>
+          <linearGradient id="position-area" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#34d399" stopOpacity=".20" />
+            <stop offset={zeroPct + "%"} stopColor="#34d399" stopOpacity=".05" />
+            <stop offset={zeroPct + "%"} stopColor="#fb7185" stopOpacity=".05" />
+            <stop offset="100%" stopColor="#fb7185" stopOpacity=".20" />
+          </linearGradient>
+        </defs>
+        {rawMin < 0 && rawMax > 0 ? <line x1={pad} y1={zeroY} x2={width-pad} y2={zeroY} stroke="currentColor" strokeOpacity=".22" strokeDasharray="4 5" /> : null}
+        <path d={area} fill="url(#position-area)" />
+        <path d={path} fill="none" stroke="url(#position-stroke)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        {points.map((point, index) => {
+          const positive=rows[index].netPosition>=0;
+          const delta=index?rows[index].netPosition-rows[index-1].netPosition:0;
+          return <g key={rows[index].date}>
+            <circle cx={point.x} cy={point.y} r="10" fill="transparent" tabIndex={0}
+              onMouseEnter={()=>setHovered(index)} onFocus={()=>setHovered(index)}
+              onBlur={()=>setHovered(null)} aria-label={dateLabel(rows[index].date,true)+" position "+money(rows[index].netPosition)+(index?" change "+compactChange(delta):"")} />
+            <circle cx={point.x} cy={point.y} r={index === points.length - 1 ? 4.5 : 2.6}
+              fill={positive?"#6ee7b7":"#fda4af"} stroke="var(--surface)" strokeWidth={index===points.length-1?2:1} pointerEvents="none" />
+          </g>;
+        })}
+      </svg>
+      {active?<div className={styles.positionPointTooltip} style={{left:(active.point.x/width*100)+"%",top:(active.point.y/height*100)+"%"}}>
+        <strong>{dateLabel(active.row.date,true)}</strong>
+        <span>Position <b className={active.row.netPosition>=0?styles.positiveText:styles.negativeText}>{money(active.row.netPosition)}</b></span>
+        {active.index>0?<span>Change <b className={active.row.netPosition-rows[active.index-1].netPosition>=0?styles.positiveText:styles.negativeText}>{compactChange(active.row.netPosition-rows[active.index-1].netPosition)}</b></span>:<span>First day</span>}
+      </div>:null}
+      <div className={styles.positionDeltaStrip} aria-label="Daily position changes">
+        {rows.map((row,index)=>{
+          const delta=index?row.netPosition-rows[index-1].netPosition:0;
+          return <button type="button" key={row.date} onMouseEnter={()=>setHovered(index)} onMouseLeave={()=>setHovered(null)} onFocus={()=>setHovered(index)} onBlur={()=>setHovered(null)} className={index===0?styles.positionDeltaNeutral:delta>=0?styles.positionDeltaPositive:styles.positionDeltaNegative}>
+            <small>{dateLabel(row.date)}</small><strong>{index===0?"—":compactChange(delta)}</strong>
+          </button>;
+        })}
+      </div>
+    </div>
   );
 }
 
