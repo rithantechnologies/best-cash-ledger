@@ -597,10 +597,14 @@ model PayablePayment {
   paymentDate     DateTime
   sourceAccountId String
   sourceAccount   FinancialAccount @relation(fields: [sourceAccountId], references: [id])
-  amount          Decimal          @db.Decimal(18, 2)
-  referenceNumber String?
-  notes           String?
-  status          PaymentStatus
+  amount               Decimal          @db.Decimal(18, 2)
+  destinationType      String?
+  destinationLabel     String?
+  destinationReference String?
+  destinationDetails   Json?
+  referenceNumber      String?
+  notes                String?
+  status               PaymentStatus
   createdById     String
   createdAt       DateTime         @default(now())
 

@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreatePayablePaymentDto {
   @IsNumber()
@@ -7,6 +7,13 @@ export class CreatePayablePaymentDto {
 
   @IsString()
   sourceAccountId!: string;
+
+  @IsIn(['CASH', 'CUSTOMER_BANK', 'CUSTOMER_UPI'])
+  destinationType!: 'CASH' | 'CUSTOMER_BANK' | 'CUSTOMER_UPI';
+
+  @IsOptional()
+  @IsString()
+  destinationId?: string;
 
   @IsOptional()
   @IsNumber()

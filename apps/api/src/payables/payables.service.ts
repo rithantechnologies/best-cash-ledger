@@ -77,9 +77,18 @@ export class PayablesService {
     const sortDir = options?.sortDir === 'desc' ? 'desc' : 'asc';
     const orderBy = { [sortBy]: sortDir } as Prisma.CustomerPayableOrderByWithRelationInput;
     const include = {
-      customer: true,
+      customer: {
+        include: {
+          bankAccounts: { where: { isActive: true } },
+          upiAccounts: { where: { isActive: true } },
+        },
+      },
       paymentTerm: true,
-      sourceTransaction: true,
+      sourceTransaction: {
+        include: {
+          cardSwipe: { include: { customerCard: true } },
+        },
+      },
       payments: { orderBy: { paymentDate: 'desc' as const } },
     };
 
@@ -112,11 +121,16 @@ export class PayablesService {
     const payable = await this.prisma.customerPayable.findUnique({
       where: { id },
       include: {
-        customer: true,
+        customer: {
+          include: {
+            bankAccounts: { where: { isActive: true } },
+            upiAccounts: { where: { isActive: true } },
+          },
+        },
         paymentTerm: true,
         sourceTransaction: {
           include: {
-            cardSwipe: true,
+            cardSwipe: { include: { customerCard: true } },
             charges: true,
             commissions: true,
             providerSettlementSource: true,
@@ -170,7 +184,10 @@ export class PayablesService {
         'SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE',
         id,
       );
-      const payable = await tx.customerPayable.findUnique({ where: { id } });
+      const payable = await tx.customerPayable.findUnique({
+        where: { id },
+        include: { customer: true },
+      });
       if (!payable) throw new NotFoundException('Payable not found');
       if (
         payable.status === PayableStatus.PAID ||
@@ -186,12 +203,61 @@ export class PayablesService {
         throw new BadRequestException('Payment exceeds remaining payable');
       }
 
+      let destinationLabel = '';
+      let destinationReference = '';
+      let destinationDetails: Prisma.InputJsonValue;
+
+      if (dto.destinationType === 'CASH') {
+        destinationLabel = payable.customer.fullName + ' · Cash handover';
+        destinationReference = 'Cash directly to customer';
+        destinationDetails = {
+          customerId: payable.customerId,
+          customerName: payable.customer.fullName,
+        };
+      } else if (dto.destinationType === 'CUSTOMER_BANK') {
+        if (!dto.destinationId) throw new BadRequestException('Select customer bank account');
+        const bank = await tx.customerBankAccount.findFirst({
+          where: { id: dto.destinationId, customerId: payable.customerId, isActive: true },
+        });
+        if (!bank) throw new BadRequestException('Selected bank account does not belong to this customer');
+        destinationLabel = bank.accountHolderName + ' · ' + bank.bankName;
+        destinationReference = bank.accountReference;
+        destinationDetails = {
+          customerBankAccountId: bank.id,
+          accountHolderName: bank.accountHolderName,
+          bankName: bank.bankName,
+          accountReference: bank.accountReference,
+          ifsc: bank.ifsc,
+        };
+      } else {
+        if (!dto.destinationId) throw new BadRequestException('Select customer UPI account');
+        const upi = await tx.customerUpiAccount.findFirst({
+          where: { id: dto.destinationId, customerId: payable.customerId, isActive: true },
+        });
+        if (!upi) throw new BadRequestException('Selected UPI account does not belong to this customer');
+        destinationLabel = upi.accountName + (upi.providerName ? ' · ' + upi.providerName : '');
+        destinationReference = upi.upiId || upi.mobileNumber || upi.accountName;
+        destinationDetails = {
+          customerUpiAccountId: upi.id,
+          accountName: upi.accountName,
+          upiId: upi.upiId,
+          mobileNumber: upi.mobileNumber,
+          providerName: upi.providerName,
+        };
+      }
+
       await this.validation.lockAccount(tx, dto.sourceAccountId);
       const sourceAccount = await this.validation.liquidAsset(
         tx,
         dto.sourceAccountId,
         'Customer payout source',
       );
+      if (dto.destinationType === 'CASH' && sourceAccount.accountType !== AccountType.CASH) {
+        throw new BadRequestException('Cash payout must be paid from a cash account');
+      }
+      if (dto.destinationType !== 'CASH' && sourceAccount.accountType === AccountType.CASH) {
+        throw new BadRequestException('Bank or UPI payout cannot be paid directly from a cash account');
+      }
       if (sourceAccount.accountType !== AccountType.PROVIDER_WALLET && chargeAmount > 0) {
         throw new BadRequestException('Payout charge is allowed only for wallet payouts');
       }
@@ -242,6 +308,10 @@ export class PayablesService {
           paymentDate: new Date(),
           sourceAccountId: dto.sourceAccountId,
           amount: new Prisma.Decimal(dto.amount),
+          destinationType: dto.destinationType,
+          destinationLabel,
+          destinationReference,
+          destinationDetails,
           referenceNumber: dto.referenceNumber,
           notes: dto.notes,
           status: PaymentStatus.COMPLETED,

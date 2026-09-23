@@ -10,14 +10,16 @@ import { apiFetch } from "@/lib/api";
 import { SearchSelect } from "@/components/search-select";
 
 type Payment={
- id:string;paymentDate:string;amount:string;referenceNumber:string|null;notes:string|null;status:string;
+ id:string;paymentDate:string;amount:string;destinationType:string|null;destinationLabel:string|null;destinationReference:string|null;destinationDetails:Record<string,unknown>|null;referenceNumber:string|null;notes:string|null;status:string;
  sourceAccount:{accountName:string;accountType:string};transaction:{transactionNumber:string;status:string;charges:{amount:string}[]};
  createdBy:{id:string;fullName:string}|null;
 };
+type BankDestination={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
+type UpiDestination={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
 type Payable={
  id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;createdAt:string;
- customer:{id:string;fullName:string;customerCode:string};paymentTerm:{name:string}|null;
- sourceTransaction:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;referenceNumber:string|null;notes:string|null;status:string;cardSwipe:unknown;providerSettlementSource:{status?:string}|null;charges:{amount:string}[];commissions:{amount:string}[]};
+ customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[]};paymentTerm:{name:string}|null;
+ sourceTransaction:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;referenceNumber:string|null;notes:string|null;status:string;cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}|null}|null;providerSettlementSource:{status?:string}|null;charges:{amount:string}[];commissions:{amount:string}[]};
  payments:Payment[];createdBy:{id:string;fullName:string}|null;
 };
 type Audit={id:string;action:string;reason:string|null;createdAt:string;oldValues:unknown;newValues:unknown;user:{fullName:string}|null};
@@ -32,7 +34,7 @@ export default function PayableDetailPage(){
  const backHref=searchParams.get("from")==="dues"?"/dues":"/payables";
  const backLabel=searchParams.get("from")==="dues"?"Dues":"Payables";
  const [item,setItem]=useState<Payable|null>(null),[audit,setAudit]=useState<Audit[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[error,setError]=useState("");
- const [payOpen,setPayOpen]=useState(false),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState(""),[busy,setBusy]=useState(false);
+ const [payOpen,setPayOpen]=useState(false),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState(""),[busy,setBusy]=useState(false);
  const control="app-control";
  function load(){return apiFetch<Payable>("/payables/"+id).then(x=>{setItem(x);return Promise.all([apiFetch<Audit[]>("/audit?entityType=CUSTOMER_PAYABLE&entityId="+id).then(setAudit).catch(()=>{}),apiFetch<Account[]>("/dashboard/accounts").then(setAccounts)]);});}
  useEffect(()=>{load().catch(e=>setError(e instanceof Error?e.message:"Failed to load payable"));},[id]);
@@ -44,13 +46,18 @@ export default function PayableDetailPage(){
  const payoutCharges=item.payments.filter(p=>p.status==="COMPLETED").reduce((sum,p)=>sum+p.transaction.charges.reduce((chargeSum,x)=>chargeSum+Number(x.amount),0),0);
  const profit=commission-providerCharge-payoutCharges;
  const sourceAccount=accounts.find(a=>a.id===source);
+ const destinationType=destination==="CASH"?"CASH":destination.startsWith("BANK:")?"CUSTOMER_BANK":destination.startsWith("UPI:")?"CUSTOMER_UPI":"";
+ const destinationId=destination.includes(":")?destination.split(":").slice(1).join(":"):undefined;
+ const selectedBank=destinationType==="CUSTOMER_BANK"?item.customer.bankAccounts.find(a=>a.id===destinationId):undefined;
+ const selectedUpi=destinationType==="CUSTOMER_UPI"?item.customer.upiAccounts.find(a=>a.id===destinationId):undefined;
+ const payoutSourceAccounts=accounts.filter(a=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).filter(a=>destinationType==="CASH"?a.accountType==="CASH":destinationType?a.accountType!=="CASH":true);
  const walletSource=sourceAccount?.accountType==="PROVIDER_WALLET";
  const payoutAmount=Number(amount||0);
  const payoutCharge=walletSource?Number(charge||0):0;
  const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
  const canPay=Number(item.remainingAmount)>0&&!["PAID","CANCELLED","REVERSED"].includes(item.status);
- async function submitPayment(e:FormEvent){e.preventDefault();if(!item||!canPay||!source)return;setBusy(true);setError("");try{await apiFetch("/payables/"+item.id+"/payments",{method:"POST",body:JSON.stringify({amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,referenceNumber:reference||undefined,notes:notes||undefined})});setPayOpen(false);setAmount("");setCharge("");setSource("");setReference("");setNotes("");await load();}catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}}
- function openPayment(){if(!item)return;setAmount(item.remainingAmount);setCharge("");setSource("");setReference("");setNotes("");setPayOpen(true);}
+ async function submitPayment(e:FormEvent){e.preventDefault();if(!item||!canPay||!source)return;setBusy(true);setError("");try{await apiFetch("/payables/"+item.id+"/payments",{method:"POST",body:JSON.stringify({amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,destinationType,destinationId,referenceNumber:reference||undefined,notes:notes||undefined})});setPayOpen(false);setAmount("");setCharge("");setSource("");setDestination("");setReference("");setNotes("");await load();}catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}}
+ function openPayment(){if(!item)return;setAmount(item.remainingAmount);setCharge("");setSource("");setDestination("");setReference("");setNotes("");setPayOpen(true);}
 
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -75,23 +82,48 @@ export default function PayableDetailPage(){
    <PanelHeader title="Payout history" description="Every payment recorded against this customer obligation."/>
    {item.payments.length?<><div className="space-y-2 p-3 md:hidden">{item.payments.map(p=><div key={p.id} className="rounded-xl bg-slate-50 p-3">
     <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold">{money(p.amount)}</p><p className="mt-0.5 text-[11px] text-slate-400">{new Date(p.paymentDate).toLocaleString("en-IN")}</p></div><StatusBadge tone={p.status==="COMPLETED"?"emerald":"slate"}>{p.status}</StatusBadge></div>
-    <div className="mt-2 text-xs text-slate-500"><p>{p.sourceAccount.accountName} · {p.transaction.transactionNumber}</p><p className="mt-1">Charge {money(p.transaction.charges.reduce((sum,x)=>sum+Number(x.amount),0))} · {p.referenceNumber||"No reference"} · {p.createdBy?.fullName||"Unknown operator"}</p></div>
+    <div className="mt-2 space-y-1 text-xs text-slate-500"><p><strong className="text-slate-700">Paid to:</strong> {p.destinationLabel||"Destination not recorded"}{p.destinationReference?" · "+p.destinationReference:""}</p><p><strong className="text-slate-700">Paid from:</strong> {p.sourceAccount.accountName} · {p.transaction.transactionNumber}</p><p>Charge {money(p.transaction.charges.reduce((sum,x)=>sum+Number(x.amount),0))} · {p.referenceNumber||"No reference"} · {p.createdBy?.fullName||"Unknown operator"}</p></div>
    </div>)}</div>
-   <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[850px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Date</th><th>Transaction</th><th>Paid from</th><th>Amount</th><th>Charge</th><th>Reference</th><th>Operator</th><th>Status</th></tr></thead><tbody>{item.payments.map(p=><tr key={p.id} className="border-t border-slate-100"><td className="px-5 py-3 text-xs">{new Date(p.paymentDate).toLocaleString("en-IN")}</td><td>{p.transaction.transactionNumber}</td><td>{p.sourceAccount.accountName}</td><td className="font-bold">{money(p.amount)}</td><td className="text-rose-600">{money(p.transaction.charges.reduce((sum,x)=>sum+Number(x.amount),0))}</td><td>{p.referenceNumber||"—"}</td><td>{p.createdBy?.fullName||"Unknown"}</td><td>{p.status}</td></tr>)}</tbody></table></div></>:<div className="p-4"><EmptyState title="No payouts recorded yet"/></div>}
+   <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Date</th><th>Transaction</th><th>Paid to</th><th>Paid from</th><th>Amount</th><th>Charge</th><th>Reference</th><th>Operator</th><th>Status</th></tr></thead><tbody>{item.payments.map(p=><tr key={p.id} className="border-t border-slate-100"><td className="px-5 py-3 text-xs">{new Date(p.paymentDate).toLocaleString("en-IN")}</td><td>{p.transaction.transactionNumber}</td><td><p className="font-semibold">{p.destinationLabel||"Not recorded"}</p>{p.destinationReference?<p className="mt-0.5 text-[10px] text-slate-400">{p.destinationReference}</p>:null}</td><td>{p.sourceAccount.accountName}</td><td className="font-bold">{money(p.amount)}</td><td className="text-rose-600">{money(p.transaction.charges.reduce((sum,x)=>sum+Number(x.amount),0))}</td><td>{p.referenceNumber||"—"}</td><td>{p.createdBy?.fullName||"Unknown"}</td><td>{p.status}</td></tr>)}</tbody></table></div></>:<div className="p-4"><EmptyState title="No payouts recorded yet"/></div>}
   </Surface>
   {audit.length?<Surface className="overflow-hidden"><PanelHeader title="Audit history" description="Recorded changes to this payable."/><div className="divide-y divide-slate-100">{audit.map(a=><div key={a.id} className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between sm:px-5">
    <div><p className="text-sm font-bold">{a.action.replaceAll("_"," ")}</p><p className="mt-0.5 text-[11px] text-slate-400">{a.user?.fullName||"Unknown operator"} · {new Date(a.createdAt).toLocaleString("en-IN")}</p>{a.reason?<p className="mt-1 text-xs text-slate-600">{a.reason}</p>:null}</div>
    <details className="text-xs"><summary className="cursor-pointer font-bold text-indigo-600">View change</summary><pre className="mt-2 max-w-lg overflow-auto rounded-xl bg-slate-950 p-3 text-[10px] text-slate-200">{JSON.stringify({before:a.oldValues,after:a.newValues},null,2)}</pre></details>
   </div>)}</div></Surface>:null}
 
-  <Modal open={payOpen} title={"Pay "+item.customer.fullName} description={serviceLabel(item.sourceTransaction.transactionType)+" · Remaining "+money(item.remainingAmount)} onClose={()=>setPayOpen(false)} footer={<button form="detail-pay-form" disabled={busy||sourceShort||payoutAmount<=0||!source} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
-   <form id="detail-pay-form" onSubmit={submitPayment} className="grid gap-3 sm:grid-cols-2">
-    <Field label="Customer payout"><input className={control} type="number" step="0.01" max={item.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
-    {walletSource?<Field label="Wallet payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
-    <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):undefined}><SearchableSelect className={control} value={source} onChange={e=>{setSource(e.target.value);const a=accounts.find(x=>x.id===e.target.value);if(a?.accountType!=="PROVIDER_WALLET")setCharge("");}} required><option value="">Select account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</SearchableSelect>{sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Not enough available balance.</span>:null}</Field>
-    <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Optional reference"/></Field>
-    <Field label="Notes"><input className={control} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field>
-   </form>
+  <Modal open={payOpen} title={"Pay "+item.customer.fullName} description={serviceLabel(item.sourceTransaction.transactionType)+" · Remaining "+money(item.remainingAmount)} onClose={()=>setPayOpen(false)} footer={<button form="detail-pay-form" disabled={busy||sourceShort||payoutAmount<=0||!source||!destinationType} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
+   <div className="space-y-3">
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
+     <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payable for</p>
+     <p className="mt-1 text-sm font-black">{item.customer.fullName}</p>
+     <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{serviceLabel(item.sourceTransaction.transactionType)} · {item.sourceTransaction.transactionNumber}{item.sourceTransaction.cardSwipe?.customerCard?" · "+item.sourceTransaction.cardSwipe.customerCard.bankName+" •••• "+item.sourceTransaction.cardSwipe.customerCard.lastFourDigits:""}</p>
+     <p className="text-xs text-[var(--text-muted)]">Due {new Date(item.dueAt).toLocaleString("en-IN")} · Remaining {money(item.remainingAmount)}</p>
+    </div>
+    <form id="detail-pay-form" onSubmit={submitPayment} className="grid gap-3 sm:grid-cols-2">
+     <Field label="Pay to" className="sm:col-span-2">
+      <SearchableSelect className={control} value={destination} onChange={e=>{setDestination(e.target.value);setSource("");setCharge("");}} required searchPlaceholder="Search customer bank or UPI…">
+       <option value="">Select payout destination</option>
+       <option value="CASH">Cash directly to {item.customer.fullName}</option>
+       <optgroup label="Customer bank accounts">{item.customer.bankAccounts.map(a=><option key={a.id} value={"BANK:"+a.id}>{a.accountHolderName} · {a.bankName} · {a.accountReference}</option>)}</optgroup>
+       <optgroup label="Customer UPI accounts">{item.customer.upiAccounts.map(a=><option key={a.id} value={"UPI:"+a.id}>{a.accountName} · {a.upiId||a.mobileNumber||"UPI"}</option>)}</optgroup>
+      </SearchableSelect>
+      {destinationType==="CUSTOMER_BANK"&&selectedBank?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedBank.accountHolderName}</strong><br/>{selectedBank.bankName} · {selectedBank.accountReference}{selectedBank.ifsc?<><br/>IFSC {selectedBank.ifsc}</>:null}</div>:null}
+      {destinationType==="CUSTOMER_UPI"&&selectedUpi?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedUpi.accountName}</strong>{selectedUpi.providerName?" · "+selectedUpi.providerName:""}<br/>{selectedUpi.upiId||selectedUpi.mobileNumber||"UPI account"}</div>:null}
+      {!item.customer.bankAccounts.length&&!item.customer.upiAccounts.length?<Link href={"/customers/"+item.customer.id} className="mt-2 inline-block text-xs font-bold text-[var(--accent)]">No saved bank/UPI · Add in customer profile →</Link>:null}
+     </Field>
+     <Field label="Customer payout"><input className={control} type="number" step="0.01" max={item.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
+     {walletSource?<Field label="Wallet payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
+     <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):destinationType==="CASH"?"Choose the cash drawer handing over the cash":"Choose bank, UPI or wallet sending the payment"}>
+      <SearchableSelect className={control} value={source} onChange={e=>{setSource(e.target.value);const a=accounts.find(x=>x.id===e.target.value);if(a?.accountType!=="PROVIDER_WALLET")setCharge("");}} disabled={!destinationType} required searchPlaceholder="Search source account…">
+       <option value="">{destinationType?"Select source account":"Select Pay to first"}</option>
+       {payoutSourceAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}
+      </SearchableSelect>
+      {sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Not enough available balance.</span>:null}
+     </Field>
+     <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder={destinationType==="CASH"?"Optional cash acknowledgement":"UTR / bank reference"}/></Field>
+     <Field label="Notes" className="sm:col-span-2"><input className={control} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field>
+    </form>
+   </div>
   </Modal>
  </PageFrame></AppShell>;
 }
