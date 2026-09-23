@@ -25,6 +25,7 @@ export class CreateCashTransferDto {
   @IsNumber() @Min(0.01) requestedAmount!: number;
   @IsEnum(CommissionMethod) commissionMethod!: CommissionMethod;
   @IsNumber() @Min(0) commissionRate!: number;
+  @IsOptional() @IsNumber() @Min(0) commissionAmount?: number;
   @IsOptional() @IsNumber() @Min(0) transferChargeAmount?: number;
   @IsOptional() @IsString() transferChargeType?: string;
   @IsOptional() @IsString() cashAccountId?: string;

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Field, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { SearchSelect } from "@/components/search-select";
 
 type Customer={
   id:string;fullName:string;mobile?:string|null;
@@ -17,7 +18,7 @@ type DestinationMode="SAVED"|"NEW";
 type RecipientScope="SELF"|"OTHER";
 type DestinationType="UPI"|"BANK";
 type ReceiptAllocation={accountId:string;amount:number};
-type CommissionMode="DEFAULT"|"MANUAL"|"NONE";
+type CommissionMode="DEFAULT"|"PERCENT"|"AMOUNT"|"NONE";
 type Created={id:string};
 
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number.isFinite(v)?v:0);
@@ -104,8 +105,9 @@ export default function CashTransferPage(){
 
   const [amount,setAmount]=useState("");
   const [method,setMethod]=useState("ADD_ON");
-  const [commissionMode,setCommissionMode]=useState<CommissionMode>("DEFAULT");
+  const [commissionMode,setCommissionMode]=useState<CommissionMode>("AMOUNT");
   const [rate,setRate]=useState("0"),[defaultRate,setDefaultRate]=useState("0");
+  const [manualCommissionAmount,setManualCommissionAmount]=useState("");
 
   const [receiptAccountId,setReceiptAccountId]=useState("");
   const [commissionReceiptAccountId,setCommissionReceiptAccountId]=useState("SAME");
@@ -228,10 +230,21 @@ export default function CashTransferPage(){
   const selectedReceipt=receiptOptions.find(a=>a.id===receiptAccountId);
   const selectedCommissionReceipt=commissionReceiptAccountId==="SAME"?selectedReceipt:receiptOptions.find(a=>a.id===commissionReceiptAccountId);
   const sourceAccount=activeAccounts.find(a=>a.id===sourceAccountId);
+  const sourceAccountOptions=activeAccounts
+    .filter(a=>["BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(a.accountType))
+    .map(a=>({
+      value:a.id,
+      label:a.accountName,
+      description:typeLabel(a.accountType)+" · "+money(a.currentBalance),
+      searchText:[a.accountName,a.accountType,typeLabel(a.accountType)].join(" "),
+    }));
   const canConfigureCash=role==="OWNER"||role==="ADMIN";
 
   const requested=Number(amount||0);
-  const commission=requested*Number(rate||0)/100;
+  const commission=commissionMode==="AMOUNT"
+    ? Number(manualCommissionAmount||0)
+    : requested*Number(rate||0)/100;
+  const effectiveRate=requested>0?commission/requested*100:0;
   const customerPays=method==="ADD_ON"?requested+commission:requested;
   const recipientGets=method==="ADD_ON"?requested:requested-commission;
   const commissionSeparate=method==="ADD_ON"&&commission>0&&commissionReceiptAccountId!=="SAME";
@@ -421,7 +434,8 @@ export default function CashTransferPage(){
           ...destination,
           requestedAmount:requested,
           commissionMethod:method,
-          commissionRate:Number(rate||0),
+          commissionRate:commissionMode==="AMOUNT"?effectiveRate:Number(rate||0),
+          commissionAmount:commissionMode==="AMOUNT"?commission:undefined,
           receiptAllocations:mergedAllocations,
           sourceAccountId,
           referenceNumber:reference.trim()||undefined,
@@ -497,17 +511,20 @@ export default function CashTransferPage(){
 
               <div>
                 <div className="flex items-center justify-between gap-2"><h3 className="operational-label">Commission</h3><span className="text-[10px] font-semibold text-[var(--text-muted)]">Default {Number(defaultRate)}%</span></div>
-                <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
-                  <button type="button" onClick={()=>{setCommissionMode("DEFAULT");setRate(defaultRate);}} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="DEFAULT"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Default</button>
-                  <button type="button" onClick={()=>setCommissionMode("MANUAL")} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="MANUAL"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Manual</button>
-                  <button type="button" onClick={()=>{setCommissionMode("NONE");setRate("0");}} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="NONE"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>No commission</button>
+                <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface-soft)] p-1 sm:grid-cols-4">
+                  <button type="button" onClick={()=>{setCommissionMode("DEFAULT");setRate(defaultRate);setManualCommissionAmount("");}} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="DEFAULT"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Default %</button>
+                  <button type="button" onClick={()=>{setCommissionMode("PERCENT");setManualCommissionAmount("");}} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="PERCENT"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Enter %</button>
+                  <button type="button" onClick={()=>{setCommissionMode("AMOUNT");setManualCommissionAmount(commission>0?String(Number(commission.toFixed(2))):"");}} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="AMOUNT"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Enter amount</button>
+                  <button type="button" onClick={()=>{setCommissionMode("NONE");setRate("0");setManualCommissionAmount("");}} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="NONE"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>No commission</button>
                 </div>
-                {commissionMode!=="NONE"?<div className="mt-2 grid grid-cols-[minmax(0,1fr)_96px] gap-2">
+                {commissionMode!=="NONE"?<div className="mt-2 grid grid-cols-[minmax(0,1fr)_112px] gap-2">
                   <div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
                     <button type="button" onClick={()=>setMethod("ADD_ON")} className={"min-h-11 rounded-lg px-2 text-xs font-bold "+(method==="ADD_ON"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Add on</button>
                     <button type="button" onClick={()=>setMethod("DEDUCT")} className={"min-h-11 rounded-lg px-2 text-xs font-bold "+(method==="DEDUCT"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Deduct</button>
                   </div>
-                  <div className="relative"><input aria-label="Commission rate percentage" className={control+" h-full pr-7 text-right text-base font-extrabold "+(commissionMode==="DEFAULT"?"bg-[var(--surface-soft)] text-[var(--text-muted)]":"")} type="number" min="0" max="100" step="0.0001" value={rate} onChange={e=>{setCommissionMode("MANUAL");setRate(e.target.value);}} readOnly={commissionMode==="DEFAULT"} required/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">%</span></div>
+                  {commissionMode==="AMOUNT"
+                    ?<div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--text-muted)]">₹</span><input aria-label="Commission amount" className={control+" h-full pl-7 text-right text-base font-extrabold"} type="number" min="0" step="0.01" value={manualCommissionAmount} onChange={e=>setManualCommissionAmount(e.target.value)} placeholder="0.00" required/></div>
+                    :<div className="relative"><input aria-label="Commission rate percentage" className={control+" h-full pr-7 text-right text-base font-extrabold "+(commissionMode==="DEFAULT"?"bg-[var(--surface-soft)] text-[var(--text-muted)]":"")} type="number" min="0" max="100" step="0.0001" value={rate} onChange={e=>{setCommissionMode("PERCENT");setRate(e.target.value);}} readOnly={commissionMode==="DEFAULT"} required/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">%</span></div>}
                 </div>:null}
                 {requested>0?<div className="mt-2 flex items-center justify-between rounded-xl bg-[var(--surface-soft)] px-3 py-2 text-xs"><span className="text-[var(--text-muted)]">{commissionMode==="NONE"?"No commission":method==="ADD_ON"?"Customer gives":"Recipient gets"}</span><strong className="money">{money(method==="ADD_ON"?customerPays:recipientGets)}</strong></div>:null}
               </div>
@@ -562,10 +579,7 @@ export default function CashTransferPage(){
 
               <div>
                 <Field label={"Send "+money(Math.max(0,recipientGets))+" from"}>
-                  <select aria-label="Recipient payout funding account" className={control} value={sourceAccountId} onChange={e=>setSourceAccountId(e.target.value)} required>
-                    <option value="">Select account</option>
-                    {activeAccounts.filter(a=>["BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{typeLabel(a.accountType)} · {a.accountName} · {money(a.currentBalance)}</option>)}
-                  </select>
+                  <SearchSelect value={sourceAccountId} onChange={setSourceAccountId} options={sourceAccountOptions} placeholder="Select account" searchPlaceholder="Search bank, wallet or account…"/>
                 </Field>
                 {sourceAccount?<div className={"mt-2 rounded-xl border px-3 py-2.5 "+(sourceHasFunds?"border-[var(--border)] bg-[var(--surface)]":"border-rose-200 bg-rose-50")}>
                   <div className="flex items-center justify-between gap-3 text-xs"><span className="truncate font-semibold">{sourceAccount.accountName}</span><strong className={sourceHasFunds?"text-[var(--text)]":"text-rose-700"}>{sourceAccount.accountType==="OWNER_CREDIT_CARD"?"Credit available":money(sourceAvailable)+" available"}</strong></div>

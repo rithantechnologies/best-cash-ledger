@@ -812,8 +812,13 @@ export class TransactionsService {
       providedIdempotencyKey,
     );
     const commissionAmount = this.money(
-      dto.requestedAmount * dto.commissionRate / 100,
+      dto.commissionAmount !== undefined
+        ? dto.commissionAmount
+        : dto.requestedAmount * dto.commissionRate / 100,
     );
+    const effectiveCommissionRate = dto.requestedAmount > 0
+      ? this.money(commissionAmount / dto.requestedAmount * 100)
+      : 0;
     const addOn = dto.commissionMethod === 'ADD_ON';
     const cashReceived = this.money(
       addOn
@@ -1029,7 +1034,7 @@ export class TransactionsService {
           customerUpiAccountId: dto.customerUpiAccountId,
           requestedAmount: new Prisma.Decimal(dto.requestedAmount),
           commissionMethod: dto.commissionMethod,
-          commissionRate: new Prisma.Decimal(dto.commissionRate),
+          commissionRate: new Prisma.Decimal(effectiveCommissionRate),
           commissionAmount: new Prisma.Decimal(commissionAmount),
           cashReceived: new Prisma.Decimal(cashReceived),
           actualTransferAmount: new Prisma.Decimal(actualTransferAmount),
@@ -1046,8 +1051,10 @@ export class TransactionsService {
           data: {
             transactionId: transaction.id,
             commissionType: 'CASH_TRANSFER',
-            calculationType: 'PERCENTAGE',
-            rate: new Prisma.Decimal(dto.commissionRate),
+            calculationType: dto.commissionAmount !== undefined ? 'FIXED' : 'PERCENTAGE',
+            rate: new Prisma.Decimal(
+              dto.commissionAmount !== undefined ? effectiveCommissionRate : dto.commissionRate,
+            ),
             amount: new Prisma.Decimal(commissionAmount),
           },
         });
