@@ -5,7 +5,7 @@ import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { EmptyState, PageFrame, PageLoader, StatusBadge, Surface } from "@/components/ui";
+import { EmptyState, Field, Modal, PageFrame, PageLoader, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Card={id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean};
@@ -41,6 +41,16 @@ const statusTone=(s:string)=>s==="COMPLETED"?"emerald":s==="PARTIALLY_PAID"?"amb
 const statusLabel=(s:string)=>s==="COMPLETED"?"Fully settled":s==="PARTIALLY_PAID"?"Partly settled":"Pending";
 const liquid=(a:Account)=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType);
 const calcMoney=(v:number)=>Math.round((v+Number.EPSILON)*100)/100;
+const INDIAN_BANKS=[
+  "State Bank of India","HDFC Bank","ICICI Bank","Axis Bank","Kotak Mahindra Bank",
+  "IndusInd Bank","Yes Bank","IDFC FIRST Bank","Federal Bank","RBL Bank",
+  "AU Small Finance Bank","Bandhan Bank","Bank of Baroda","Bank of India",
+  "Bank of Maharashtra","Canara Bank","Central Bank of India","Indian Bank",
+  "Indian Overseas Bank","Punjab National Bank","Punjab & Sind Bank","UCO Bank",
+  "Union Bank of India","South Indian Bank","Karur Vysya Bank","Karnataka Bank",
+  "City Union Bank","Tamilnad Mercantile Bank","DCB Bank","CSB Bank",
+];
+const validMobile=(v:string)=>/^[6-9]\d{9}$/.test(v);
 
 export default function CardDueClearingPage(){
  const [customers,setCustomers]=useState<Customer[]>([]),[providers,setProviders]=useState<Provider[]>([]),[accounts,setAccounts]=useState<Account[]>([]);
@@ -54,6 +64,10 @@ export default function CardDueClearingPage(){
  const [addFeeAmount,setAddFeeAmount]=useState(""),[addFeeAccountId,setAddFeeAccountId]=useState(""),[addFeeRef,setAddFeeRef]=useState("");
  const [detailFollowUp,setDetailFollowUp]=useState("");
  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState(""),[success,setSuccess]=useState("");
+ const [newCustomerOpen,setNewCustomerOpen]=useState(false),[newCustomerBusy,setNewCustomerBusy]=useState(false);
+ const [newName,setNewName]=useState(""),[newMobile,setNewMobile]=useState(""),[newBank,setNewBank]=useState(""),[newLastFour,setNewLastFour]=useState("");
+ const [addCardOpen,setAddCardOpen]=useState(false),[addCardBusy,setAddCardBusy]=useState(false);
+ const [addCardBank,setAddCardBank]=useState(""),[addCardType,setAddCardType]=useState("CREDIT"),[addCardLastFour,setAddCardLastFour]=useState(""),[addCardNickname,setAddCardNickname]=useState("");
 
  const customer=customers.find(x=>x.id===customerId),provider=providers.find(x=>x.id===providerId),addProvider=providers.find(x=>x.id===addProviderId);
  const gateway=provider?.gateways.find(x=>x.id===gatewayId),addGateway=addProvider?.gateways.find(x=>x.id===addGatewayId);
@@ -101,6 +115,41 @@ export default function CardDueClearingPage(){
 
  function chooseCustomer(c:Customer){
   setCustomerId(c.id);setCustomerSearch(c.fullName+(c.mobile?" · "+c.mobile:""));
+ }
+ function openNewCustomer(){
+  const typed=customerSearch.trim();
+  setNewName(typed&&!/\d{4,}/.test(typed)?typed:"");setNewMobile("");setNewBank("");setNewLastFour("");setError("");setNewCustomerOpen(true);
+ }
+ async function createNewCustomerCard(e:FormEvent){
+  e.preventDefault();
+  if(!newName.trim()||!validMobile(newMobile)||!newBank||newLastFour.length!==4)return;
+  setNewCustomerBusy(true);setError("");
+  try{
+   const created=await apiFetch<{customer:{id:string;fullName:string;mobile:string|null};card:Card}>("/customers/quick-card",{method:"POST",body:JSON.stringify({
+    fullName:newName.trim(),mobile:newMobile,bankName:newBank,lastFourDigits:newLastFour,
+   })});
+   const next:Customer={...created.customer,cards:[created.card]};
+   setCustomers(current=>[...current,next]);
+   setCustomerId(next.id);setCustomerSearch(next.fullName+(next.mobile?" · "+next.mobile:""));setCardId(created.card.id);
+   setNewCustomerOpen(false);setSuccess("New customer and card added.");
+  }catch(err){setError(err instanceof Error?err.message:"Could not add customer");}
+  finally{setNewCustomerBusy(false);}
+ }
+ function openAddCard(){
+  if(!customer)return;
+  setAddCardBank("");setAddCardType("CREDIT");setAddCardLastFour("");setAddCardNickname("");setError("");setAddCardOpen(true);
+ }
+ async function addCard(e:FormEvent){
+  e.preventDefault();if(!customerId||!addCardBank||addCardLastFour.length!==4)return;
+  setAddCardBusy(true);setError("");
+  try{
+   const card=await apiFetch<Card>("/customers/"+customerId+"/cards",{method:"POST",body:JSON.stringify({
+    bankName:addCardBank,cardType:addCardType,lastFourDigits:addCardLastFour,nickname:addCardNickname.trim()||undefined,
+   })});
+   setCustomers(current=>current.map(c=>c.id===customerId?{...c,cards:[...c.cards,card]}:c));
+   setCardId(card.id);setAddCardOpen(false);setSuccess("Card added and selected.");
+  }catch(err){setError(err instanceof Error?err.message:"Could not add card");}
+  finally{setAddCardBusy(false);}
  }
  function openCase(row:Clearing){
   setSelected(row);setDetailFollowUp(row.nextFollowUpAt?localValue(new Date(row.nextFollowUpAt)):"");
@@ -202,9 +251,9 @@ export default function CardDueClearingPage(){
      <div className="relative">
       <label className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Customer</label>
       <input className="app-control" value={customerSearch} onChange={e=>{setCustomerSearch(e.target.value);setCustomerId("");setCardId("");}} placeholder="Search name or mobile" required/>
-      {!customerId&&customerMatches.length?<div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">{customerMatches.map(c=><button type="button" key={c.id} onClick={()=>chooseCustomer(c)} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--surface-soft)]"><span className="font-semibold">{c.fullName}</span><span className="text-xs text-[var(--text-muted)]">{c.mobile??""}</span></button>)}</div>:null}
+      {!customerId&&customerSearch.trim().length>=2?<div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">{customerMatches.map(c=><button type="button" key={c.id} onClick={()=>chooseCustomer(c)} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--surface-soft)]"><span className="font-semibold">{c.fullName}</span><span className="text-xs text-[var(--text-muted)]">{c.mobile??""}</span></button>)}<button type="button" onClick={openNewCustomer} className="mt-1 w-full rounded-lg border-t border-[var(--border)] px-3 py-3 text-left text-xs font-bold text-[var(--accent)]">+ Create new customer + card</button></div>:null}
      </div>
-     <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Customer card</span><SearchableSelect className="app-control" value={cardId} onChange={e=>setCardId(e.target.value)} disabled={!customerId} required><option value="">Choose card</option>{customer?.cards.filter(c=>c.isActive).map(c=><option key={c.id} value={c.id}>{c.bankName} · •••• {c.lastFourDigits}{c.nickname?" · "+c.nickname:""}</option>)}</SearchableSelect></label>
+     <div><div className="mb-1.5 flex items-center justify-between gap-2"><span className="text-xs font-bold text-[var(--text-muted)]">Customer card</span>{customerId?<button type="button" onClick={openAddCard} className="text-[11px] font-bold text-[var(--accent)]">+ Add card</button>:null}</div><SearchableSelect className="app-control" value={cardId} onChange={e=>setCardId(e.target.value)} disabled={!customerId} required><option value="">{customerId?"Choose card":"Choose customer first"}</option>{customer?.cards.filter(c=>c.isActive).map(c=><option key={c.id} value={c.id}>{c.bankName} · •••• {c.lastFourDigits}{c.nickname?" · "+c.nickname:""}</option>)}</SearchableSelect>{customerId&&!customer?.cards.some(c=>c.isActive)?<button type="button" onClick={openAddCard} className="mt-2 text-xs font-bold text-[var(--accent)]">No active cards · Add card →</button>:null}</div>
     </div>
 
     {customerId?<div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"><div className="flex items-center justify-between"><p className="text-xs font-black">Recent card swipe history</p><span className="text-[10px] text-[var(--text-muted)]">{history.length} records</span></div>{history.length?<div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">{history.slice(0,6).map(h=><Link key={h.id} href={"/transactions/"+h.id} className="rounded-lg bg-[var(--surface)] px-3 py-2 text-xs ring-1 ring-[var(--border)]"><b>{h.transactionNumber}</b><span className="ml-2 money">{money(h.grossAmount)}</span><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(h.transactionAt).toLocaleDateString("en-IN")}{h.payable&&Number(h.payable.remainingAmount)>0?" · payout due "+money(h.payable.remainingAmount):""}</p></Link>)}</div>:<p className="mt-2 text-xs text-[var(--text-muted)]">No previous card swipes.</p>}</div>:null}
@@ -313,5 +362,21 @@ export default function CardDueClearingPage(){
   </Surface>
 
   <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer px-4 py-3.5 text-sm font-black">Completed & all history <span className="float-right text-xs font-normal text-[var(--text-muted)]">{rows.length} total</span></summary><div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">{rows.map(row=><button key={row.id} onClick={()=>openCase(row)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{row.transaction.customer?.fullName??"Customer"} · {row.transaction.transactionNumber}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(row.transaction.transactionAt).toLocaleString("en-IN")}</p></div><div className="flex items-center gap-3"><span className="money text-xs font-bold">{money(row.dueAmount)}</span><StatusBadge tone={statusTone(row.transaction.status) as "rose"|"amber"|"emerald"}>{statusLabel(row.transaction.status)}</StatusBadge></div></button>)}</div></details>
+  <Modal open={newCustomerOpen} title="Add customer + card" description="Create the customer without leaving Card Due Clearing." onClose={()=>{if(!newCustomerBusy)setNewCustomerOpen(false);}} footer={<button form="due-new-customer" disabled={newCustomerBusy||!newName.trim()||!validMobile(newMobile)||!newBank||newLastFour.length!==4} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{newCustomerBusy?"Saving…":"Save & use customer"}</button>}>
+   <form id="due-new-customer" onSubmit={createNewCustomerCard} className="grid gap-3 sm:grid-cols-2">
+    <Field label="Customer name"><input className="app-control" value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Full name" required/></Field>
+    <Field label="Mobile"><div className="flex overflow-hidden rounded-xl border border-[var(--border)]"><span className="grid h-11 place-items-center border-r border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm">+91</span><input className="h-11 min-w-0 flex-1 bg-transparent px-3 outline-none" inputMode="numeric" value={newMobile} onChange={e=>setNewMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile" required/></div></Field>
+    <Field label="Card bank"><SearchableSelect className="app-control" value={newBank} onChange={e=>setNewBank(e.target.value)} required><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
+    <Field label="Card last 4"><input className="app-control font-semibold tracking-[.12em]" inputMode="numeric" value={newLastFour} onChange={e=>setNewLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
+   </form>
+  </Modal>
+  <Modal open={addCardOpen} title="Add card" description={customer?"Save another card for "+customer.fullName+" and continue.":undefined} onClose={()=>{if(!addCardBusy)setAddCardOpen(false);}} footer={<button form="due-add-card" disabled={addCardBusy||!addCardBank||addCardLastFour.length!==4} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{addCardBusy?"Saving…":"Save & use card"}</button>}>
+   <form id="due-add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
+    <Field label="Bank"><SearchableSelect className="app-control" value={addCardBank} onChange={e=>setAddCardBank(e.target.value)} required><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
+    <Field label="Card type"><SearchableSelect className="app-control" value={addCardType} onChange={e=>setAddCardType(e.target.value)}><option value="CREDIT">Credit</option><option value="DEBIT">Debit</option><option value="BUSINESS">Business</option><option value="OTHER">Other</option></SearchableSelect></Field>
+    <Field label="Last 4 digits"><input className="app-control font-semibold tracking-[.12em]" inputMode="numeric" value={addCardLastFour} onChange={e=>setAddCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
+    <Field label="Nickname"><input className="app-control" value={addCardNickname} onChange={e=>setAddCardNickname(e.target.value)} placeholder="Optional"/></Field>
+   </form>
+  </Modal>
  </PageFrame></AppShell>;
 }
