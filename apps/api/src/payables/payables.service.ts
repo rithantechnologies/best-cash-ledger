@@ -16,6 +16,18 @@ export class PayablesService {
     private readonly idempotency: IdempotencyService,
   ) {}
 
+  private indiaDayRange(date = new Date()) {
+    const offset = 330 * 60 * 1000;
+    const local = new Date(date.getTime() + offset);
+    const y = local.getUTCFullYear();
+    const m = local.getUTCMonth();
+    const d = local.getUTCDate();
+    return {
+      start: new Date(Date.UTC(y, m, d) - offset),
+      end: new Date(Date.UTC(y, m, d + 1) - offset),
+    };
+  }
+
   async list(options?: {
     page?: number;
     pageSize?: number;
@@ -25,14 +37,35 @@ export class PayablesService {
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
   }) {
-    await this.prisma.customerPayable.updateMany({
-      where: {
-        dueAt: { lt: new Date() },
-        remainingAmount: { gt: 0 },
-        status: { in: [PayableStatus.PENDING, PayableStatus.PARTIALLY_PAID] },
-      },
-      data: { status: PayableStatus.OVERDUE },
-    });
+    const { start: todayStart, end: todayEnd } = this.indiaDayRange();
+    await this.prisma.$transaction([
+      this.prisma.customerPayable.updateMany({
+        where: {
+          dueAt: { lt: todayStart },
+          remainingAmount: { gt: 0 },
+          status: { in: [PayableStatus.PENDING, PayableStatus.PARTIALLY_PAID] },
+        },
+        data: { status: PayableStatus.OVERDUE },
+      }),
+      this.prisma.customerPayable.updateMany({
+        where: {
+          dueAt: { gte: todayStart, lt: todayEnd },
+          remainingAmount: { gt: 0 },
+          paidAmount: { lte: 0 },
+          status: PayableStatus.OVERDUE,
+        },
+        data: { status: PayableStatus.PENDING },
+      }),
+      this.prisma.customerPayable.updateMany({
+        where: {
+          dueAt: { gte: todayStart, lt: todayEnd },
+          remainingAmount: { gt: 0 },
+          paidAmount: { gt: 0 },
+          status: PayableStatus.OVERDUE,
+        },
+        data: { status: PayableStatus.PARTIALLY_PAID },
+      }),
+    ]);
 
     const where: Prisma.CustomerPayableWhereInput = {
       ...(options?.q ? { customer: { fullName: { contains: options.q, mode: 'insensitive' } } } : {}),
@@ -230,9 +263,10 @@ export class PayablesService {
 
       const paidAmount = Number(payable.paidAmount) + dto.amount;
       const remainingAmount = Math.max(0, remaining - dto.amount);
+      const { start: todayStart } = this.indiaDayRange();
       const status = remainingAmount <= 0.001
         ? PayableStatus.PAID
-        : payable.dueAt < new Date()
+        : payable.dueAt < todayStart
           ? PayableStatus.OVERDUE
           : PayableStatus.PARTIALLY_PAID;
 

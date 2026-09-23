@@ -30,6 +30,18 @@ export class ReceivablesService {
     private readonly idempotency: IdempotencyService,
   ) {}
 
+  private indiaDayRange(date = new Date()) {
+    const offset = 330 * 60 * 1000;
+    const local = new Date(date.getTime() + offset);
+    const y = local.getUTCFullYear();
+    const m = local.getUTCMonth();
+    const d = local.getUTCDate();
+    return {
+      start: new Date(Date.UTC(y, m, d) - offset),
+      end: new Date(Date.UTC(y, m, d + 1) - offset),
+    };
+  }
+
   async list(options?: {
     page?: number;
     pageSize?: number;
@@ -38,16 +50,37 @@ export class ReceivablesService {
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
   }) {
-    await this.prisma.customerReceivable.updateMany({
-      where: {
-        dueAt: { lt: new Date() },
-        remainingAmount: { gt: 0 },
-        status: {
-          in: [ReceivableStatus.PENDING, ReceivableStatus.PARTIALLY_RECEIVED],
+    const { start: todayStart, end: todayEnd } = this.indiaDayRange();
+    await this.prisma.$transaction([
+      this.prisma.customerReceivable.updateMany({
+        where: {
+          dueAt: { lt: todayStart },
+          remainingAmount: { gt: 0 },
+          status: {
+            in: [ReceivableStatus.PENDING, ReceivableStatus.PARTIALLY_RECEIVED],
+          },
         },
-      },
-      data: { status: ReceivableStatus.OVERDUE },
-    });
+        data: { status: ReceivableStatus.OVERDUE },
+      }),
+      this.prisma.customerReceivable.updateMany({
+        where: {
+          dueAt: { gte: todayStart, lt: todayEnd },
+          remainingAmount: { gt: 0 },
+          receivedAmount: { lte: 0 },
+          status: ReceivableStatus.OVERDUE,
+        },
+        data: { status: ReceivableStatus.PENDING },
+      }),
+      this.prisma.customerReceivable.updateMany({
+        where: {
+          dueAt: { gte: todayStart, lt: todayEnd },
+          remainingAmount: { gt: 0 },
+          receivedAmount: { gt: 0 },
+          status: ReceivableStatus.OVERDUE,
+        },
+        data: { status: ReceivableStatus.PARTIALLY_RECEIVED },
+      }),
+    ]);
 
     const where: Prisma.CustomerReceivableWhereInput = {
       ...(options?.q
@@ -239,7 +272,7 @@ export class ReceivablesService {
           remainingAmount: new Prisma.Decimal(dto.amount),
           dueAt,
           status:
-            dueAt && dueAt < now
+            dueAt && dueAt < this.indiaDayRange(now).start
               ? ReceivableStatus.OVERDUE
               : ReceivableStatus.PENDING,
           createdById: userId,
@@ -385,7 +418,7 @@ export class ReceivablesService {
       const status =
         remainingAmount <= 0.001
           ? ReceivableStatus.RECEIVED
-          : receivable.dueAt && receivable.dueAt < now
+          : receivable.dueAt && receivable.dueAt < this.indiaDayRange(now).start
             ? ReceivableStatus.OVERDUE
             : ReceivableStatus.PARTIALLY_RECEIVED;
 
