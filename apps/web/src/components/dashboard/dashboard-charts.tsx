@@ -97,7 +97,13 @@ export function PositionSparkline({ rows }: { rows: PositionTrendPoint[] }) {
           </g>;
         })}
       </svg>
-      {active?<div className={styles.positionPointTooltip} style={{left:(active.point.x/width*100)+"%",top:(active.point.y/height*100)+"%"}}>
+      {active?<div
+        className={active.point.y/height<0.38?styles.positionPointTooltip+" "+styles.positionPointTooltipBelow:styles.positionPointTooltip}
+        style={{
+          left:"clamp(78px, "+(active.point.x/width*100)+"%, calc(100% - 78px))",
+          top:(active.point.y/height*100)+"%",
+        }}
+      >
         <strong>{dateLabel(active.row.date,true)}</strong>
         <span>Position <b className={active.row.netPosition>=0?styles.positiveText:styles.negativeText}>{money(active.row.netPosition)}</b></span>
         {active.index>0?<span>Change <b className={active.row.netPosition-rows[active.index-1].netPosition>=0?styles.positiveText:styles.negativeText}>{compactChange(active.row.netPosition-rows[active.index-1].netPosition)}</b></span>:<span>First day</span>}

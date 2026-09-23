@@ -238,7 +238,7 @@
   padding-left: 28px;
 }
 
-.positionTrend > div {
+.positionTrendHeader {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -246,22 +246,21 @@
   color: var(--hero-muted);
   font-size: 12px;
 }
-
-.positionTrend > div strong { color: var(--hero-text); font-size: 16px; font-weight: 750; }
+.positionTrendHeader strong { color: var(--hero-text); font-size: 16px; font-weight: 750; }
 .positionSparkline { display: block; width: 100%; height: 105px; margin-top: 14px; overflow: visible; filter: drop-shadow(0 7px 8px rgba(49, 210, 163, .12)); }
-.positionChartWrap{position:relative;min-width:0}
-.positionPointTooltip{position:absolute;z-index:8;display:grid;min-width:145px;gap:4px;transform:translate(-50%,calc(-100% - 10px));border:1px solid var(--border);border-radius:11px;background:var(--surface);padding:8px 10px;box-shadow:0 12px 28px color-mix(in srgb,#0f172a 18%,transparent);color:var(--text);font-size:10px;line-height:1.35;pointer-events:none}
+.positionChartWrap{position:relative;width:100%;min-width:0;padding:2px 2px 0}
+.positionPointTooltip{position:absolute;z-index:8;display:grid;width:156px;max-width:calc(100% - 12px);gap:4px;transform:translate(-50%,calc(-100% - 10px));border:1px solid var(--border);border-radius:11px;background:var(--surface);padding:8px 10px;box-shadow:0 12px 28px color-mix(in srgb,#0f172a 18%,transparent);color:var(--text);font-size:10px;line-height:1.35;pointer-events:none}
+.positionPointTooltipBelow{transform:translate(-50%,10px)}
 .positionPointTooltip strong{font-size:11px}
 .positionPointTooltip span{display:flex;justify-content:space-between;gap:10px;color:var(--text-muted)}
 .positionPointTooltip b{font-size:11px}
-.positionDeltaStrip{display:grid!important;grid-template-columns:repeat(10,minmax(0,1fr));align-items:stretch!important;gap:3px!important;margin-top:4px;color:inherit!important}
-.positionDeltaStrip button{min-width:0;border:0;border-radius:7px;background:color-mix(in srgb,var(--surface) 72%,transparent);padding:4px 1px;text-align:center;cursor:pointer}
-.positionDeltaStrip small{display:block;overflow:hidden;color:var(--hero-muted);font-size:7px;line-height:1.15;white-space:nowrap}
-.positionDeltaStrip strong{display:block!important;margin-top:2px;font-size:8px!important;line-height:1!important;white-space:nowrap;font-variant-numeric:tabular-nums}
+.positionDeltaStrip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:stretch;gap:4px;margin-top:6px;color:inherit}
+.positionDeltaStrip button{min-width:0;overflow:hidden;border:0;border-radius:7px;background:color-mix(in srgb,var(--surface) 72%,transparent);padding:5px 2px;text-align:center;cursor:pointer}
+.positionDeltaStrip small{display:block;overflow:hidden;color:var(--hero-muted);font-size:7px;line-height:1.15;text-overflow:ellipsis;white-space:nowrap}
+.positionDeltaStrip strong{display:block;margin-top:2px;overflow:hidden;font-size:8px;line-height:1.05;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
 .positionDeltaPositive strong{color:#34d399!important}
 .positionDeltaNegative strong{color:#fb7185!important}
 .positionDeltaNeutral strong{color:var(--hero-muted)!important}
-.positionTrendHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .positionTrendFacts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px;color:var(--hero-muted);font-size:10px}
 .positionTrendFacts span{min-width:0}
 .positionTrendFacts strong{display:block;margin-top:2px;color:var(--hero-text);font-size:11px;font-variant-numeric:tabular-nums}
