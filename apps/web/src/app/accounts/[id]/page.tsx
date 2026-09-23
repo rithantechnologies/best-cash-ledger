@@ -8,6 +8,7 @@ import { AppShell } from "@/components/app-shell";
 import { EmptyState, Modal, PageFrame, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
+import { MoneyFlowIcon } from "@/components/money-flow-icon";
 
 type Account={
   accountName:string;accountType:string;accountNature:"ASSET"|"LIABILITY";usageType:string;
@@ -342,9 +343,12 @@ export default function AccountLedgerPage(){
                     <p className="mt-2 truncate text-sm font-black">{summary.primary}</p>
                     <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">{summary.secondary}</p>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className={"money text-base font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>
-                    <p className="mt-1 text-[10px] font-semibold text-[var(--text-muted)]">Bal. {money(row.runningBalance)}</p>
+                  <div className="flex shrink-0 items-start gap-2">
+                    <MoneyFlowIcon direction={isIn?"IN":"OUT"}/>
+                    <div className="text-right">
+                      <p className={"money text-base font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>
+                      <p className="mt-1 text-[10px] font-semibold text-[var(--text-muted)]">Bal. {money(row.runningBalance)}</p>
+                    </div>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -369,7 +373,7 @@ export default function AccountLedgerPage(){
                   <div className="mt-1.5 flex flex-wrap gap-1"><StatusBadge tone={tx.status==="COMPLETED"?"emerald":tx.status==="REVERSED"?"rose":"amber"}>{nice(tx.status)}</StatusBadge>{ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}{ms?.dueAt?<span className="px-1 py-0.5 text-[10px] text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}</div>
                   {tx.id?<p className="mt-1 text-[10px] font-bold text-[var(--accent)]">View details</p>:null}
                 </div>
-                <p className={"money text-sm font-extrabold text-right "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>
+                <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} className="h-6 w-6"/><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div>
                 <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
               </div>
             </button>;
