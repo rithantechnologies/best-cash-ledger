@@ -17,6 +17,7 @@ type DestinationMode="SAVED"|"NEW";
 type RecipientScope="SELF"|"OTHER";
 type DestinationType="UPI"|"BANK";
 type ReceiptAllocation={accountId:string;amount:number};
+type CommissionMode="DEFAULT"|"MANUAL"|"NONE";
 type Created={id:string};
 
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number.isFinite(v)?v:0);
@@ -103,6 +104,7 @@ export default function CashTransferPage(){
 
   const [amount,setAmount]=useState("");
   const [method,setMethod]=useState("ADD_ON");
+  const [commissionMode,setCommissionMode]=useState<CommissionMode>("DEFAULT");
   const [rate,setRate]=useState("0"),[defaultRate,setDefaultRate]=useState("0");
 
   const [receiptAccountId,setReceiptAccountId]=useState("");
@@ -197,7 +199,7 @@ export default function CashTransferPage(){
     if(!customerId)return;
     const q=new URLSearchParams({transactionType:"CASH_TRANSFER",customerId});
     apiFetch<{commissionRate:string}|null>("/settings/commission-rules/resolve?"+q.toString())
-      .then(rule=>{if(rule){const resolved=String(Number(rule.commissionRate));setRate(resolved);setDefaultRate(resolved);}})
+      .then(rule=>{if(rule){const resolved=String(Number(rule.commissionRate));setDefaultRate(resolved);if(commissionMode==="DEFAULT")setRate(resolved);}})
       .catch(()=>{});
   },[customerId]);
 
@@ -205,7 +207,7 @@ export default function CashTransferPage(){
     const refresh=()=>{
       if(customerId)return;
       apiFetch<{commissionRate:string}|null>("/settings/commission-rules/resolve?transactionType=CASH_TRANSFER")
-        .then(rule=>{const resolved=String(Number(rule?.commissionRate||0));setRate(resolved);setDefaultRate(resolved);})
+        .then(rule=>{const resolved=String(Number(rule?.commissionRate||0));setDefaultRate(resolved);if(commissionMode==="DEFAULT")setRate(resolved);})
         .catch(()=>{});
     };
     const onStorage=(event:StorageEvent)=>{if(event.key==="cashledger_settings_updated_at")refresh();};
@@ -494,15 +496,20 @@ export default function CashTransferPage(){
               </div>
 
               <div>
-                <div className="flex items-center justify-between gap-2"><h3 className="operational-label">Commission</h3><button type="button" onClick={()=>setRate(defaultRate)} className="status-chip status-chip-blue">Default {Number(defaultRate)}%</button></div>
-                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_96px] gap-2">
+                <div className="flex items-center justify-between gap-2"><h3 className="operational-label">Commission</h3><span className="text-[10px] font-semibold text-[var(--text-muted)]">Default {Number(defaultRate)}%</span></div>
+                <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
+                  <button type="button" onClick={()=>{setCommissionMode("DEFAULT");setRate(defaultRate);}} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="DEFAULT"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Default</button>
+                  <button type="button" onClick={()=>setCommissionMode("MANUAL")} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="MANUAL"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Manual</button>
+                  <button type="button" onClick={()=>{setCommissionMode("NONE");setRate("0");}} className={"min-h-10 rounded-lg px-2 text-[11px] font-bold "+(commissionMode==="NONE"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>No commission</button>
+                </div>
+                {commissionMode!=="NONE"?<div className="mt-2 grid grid-cols-[minmax(0,1fr)_96px] gap-2">
                   <div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
                     <button type="button" onClick={()=>setMethod("ADD_ON")} className={"min-h-11 rounded-lg px-2 text-xs font-bold "+(method==="ADD_ON"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Add on</button>
                     <button type="button" onClick={()=>setMethod("DEDUCT")} className={"min-h-11 rounded-lg px-2 text-xs font-bold "+(method==="DEDUCT"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Deduct</button>
                   </div>
-                  <div className="relative"><input aria-label="Commission rate percentage" className={control+" h-full pr-7 text-right text-base font-extrabold"} type="number" min="0" max="100" step="0.0001" value={rate} onChange={e=>setRate(e.target.value)} required/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">%</span></div>
-                </div>
-                {requested>0?<div className="mt-2 flex items-center justify-between rounded-xl bg-[var(--surface-soft)] px-3 py-2 text-xs"><span className="text-[var(--text-muted)]">{method==="ADD_ON"?"Customer gives":"Recipient gets"}</span><strong className="money">{money(method==="ADD_ON"?customerPays:recipientGets)}</strong></div>:null}
+                  <div className="relative"><input aria-label="Commission rate percentage" className={control+" h-full pr-7 text-right text-base font-extrabold "+(commissionMode==="DEFAULT"?"bg-[var(--surface-soft)] text-[var(--text-muted)]":"")} type="number" min="0" max="100" step="0.0001" value={rate} onChange={e=>{setCommissionMode("MANUAL");setRate(e.target.value);}} readOnly={commissionMode==="DEFAULT"} required/><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">%</span></div>
+                </div>:null}
+                {requested>0?<div className="mt-2 flex items-center justify-between rounded-xl bg-[var(--surface-soft)] px-3 py-2 text-xs"><span className="text-[var(--text-muted)]">{commissionMode==="NONE"?"No commission":method==="ADD_ON"?"Customer gives":"Recipient gets"}</span><strong className="money">{money(method==="ADD_ON"?customerPays:recipientGets)}</strong></div>:null}
               </div>
             </div>
           </section>
