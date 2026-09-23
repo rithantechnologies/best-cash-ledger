@@ -56,8 +56,11 @@ export class TransactionsService {
     });
   }
 
-  private async withCreators<T extends { createdById: string }>(items: T[]) {
-    const userIds = [...new Set(items.map((item) => item.createdById))];
+  private async withCreators<T extends { createdById: string; providerSettlementReceipt?: { settlement?: { sourceTransaction?: { createdById: string } | null } | null } | null }>(items: T[]) {
+    const userIds = [...new Set(items.flatMap((item) => [
+      item.createdById,
+      item.providerSettlementReceipt?.settlement?.sourceTransaction?.createdById,
+    ].filter((id): id is string => Boolean(id))))];
     const users = userIds.length
       ? await this.prisma.user.findMany({
           where: { id: { in: userIds } },
@@ -65,10 +68,26 @@ export class TransactionsService {
         })
       : [];
     const byId = new Map(users.map((user) => [user.id, user]));
-    return items.map((item) => ({
-      ...item,
-      createdBy: byId.get(item.createdById) ?? null,
-    }));
+    return items.map((item) => {
+      const source = item.providerSettlementReceipt?.settlement?.sourceTransaction;
+      return {
+        ...item,
+        createdBy: byId.get(item.createdById) ?? null,
+        providerSettlementReceipt: item.providerSettlementReceipt
+          ? {
+              ...item.providerSettlementReceipt,
+              settlement: item.providerSettlementReceipt.settlement
+                ? {
+                    ...item.providerSettlementReceipt.settlement,
+                    sourceTransaction: source
+                      ? { ...source, createdBy: byId.get(source.createdById) ?? null }
+                      : source,
+                  }
+                : item.providerSettlementReceipt.settlement,
+            }
+          : item.providerSettlementReceipt,
+      };
+    });
   }
 
   async list(options?: {
@@ -131,10 +150,37 @@ export class TransactionsService {
     const sortDir = options?.sortDir === 'asc' ? 'asc' : 'desc';
     const orderBy = { [sortBy]: sortDir } as Prisma.TransactionOrderByWithRelationInput;
 
+    const activityInclude = {
+      customer: true,
+      charges: true,
+      commissions: true,
+      payable: true,
+      receivableSource: true,
+      cardSwipe: { include: { customerCard: true } },
+      microAtm: true,
+      aeps: true,
+      providerSettlementReceipt: {
+        include: {
+          settlement: {
+            include: {
+              sourceTransaction: {
+                include: {
+                  customer: true,
+                  cardSwipe: { include: { customerCard: true } },
+                  microAtm: true,
+                  aeps: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    } satisfies Prisma.TransactionInclude;
+
     if (!options?.page) {
       const items = await this.prisma.transaction.findMany({
         where,
-        include: { customer: true, charges: true, commissions: true, payable: true, receivableSource: true },
+        include: activityInclude,
         orderBy,
         take: 100,
       });
@@ -146,7 +192,7 @@ export class TransactionsService {
     const [items, total] = await Promise.all([
       this.prisma.transaction.findMany({
         where,
-        include: { customer: true, charges: true, commissions: true, payable: true, receivableSource: true },
+        include: activityInclude,
         orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,

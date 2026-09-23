@@ -11,6 +11,15 @@ import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
  status:string;referenceNumber:string|null;customer:{fullName:string}|null;createdBy:{id:string;fullName:string}|null;
+ cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
+ microAtm:{customerBankName:string|null;cardLastFour:string}|null;
+ aeps:{customerBankName:string;aadhaarLastFour:string}|null;
+ providerSettlementReceipt:{settlement:{sourceTransaction:{
+   transactionNumber:string;transactionType:string;customer:{fullName:string}|null;createdBy:{id:string;fullName:string}|null;
+   cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
+   microAtm:{customerBankName:string|null;cardLastFour:string}|null;
+   aeps:{customerBankName:string;aadhaarLastFour:string}|null;
+ }}}|null;
  charges:{amount:string}[];commissions:{amount:string;commissionType:string}[];
  payable:{originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string}|null;
  receivableSource:{originalAmount?:string;receivedAmount?:string;remainingAmount:string;dueAt:string|null;status:string}|null;
@@ -25,6 +34,29 @@ const txHref=(tx:Tx)=>tx.transactionType==="CARD_DUE_CLEARING"?"/transactions/ca
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
 const customerFee=(tx:Tx)=>tx.commissions.filter(c=>c.commissionType!=="MICRO_ATM_PROVIDER").reduce((a,x)=>a+Number(x.amount),0);
 const providerCommission=(tx:Tx)=>tx.commissions.filter(c=>c.commissionType==="MICRO_ATM_PROVIDER").reduce((a,x)=>a+Number(x.amount),0);
+function activityContext(tx:Tx){
+ const source=tx.providerSettlementReceipt?.settlement.sourceTransaction;
+ if(source){
+  const card=source.cardSwipe?.customerCard;
+  const detail=card?card.bankName+" •••• "+card.lastFourDigits
+   :source.microAtm?(source.microAtm.customerBankName??"Bank")+" •••• "+source.microAtm.cardLastFour
+   :source.aeps?source.aeps.customerBankName+" · Aadhaar •••• "+source.aeps.aadhaarLastFour
+   :null;
+  return {
+   title:"Provider settlement"+(source.customer?.fullName?" · "+source.customer.fullName:""),
+   meta:[label(source.transactionType),source.transactionNumber,detail,source.createdBy?.fullName?"By "+source.createdBy.fullName:null].filter(Boolean).join(" · "),
+  };
+ }
+ const card=tx.cardSwipe?.customerCard;
+ const detail=card?card.bankName+" •••• "+card.lastFourDigits
+  :tx.microAtm?(tx.microAtm.customerBankName??"Bank")+" •••• "+tx.microAtm.cardLastFour
+  :tx.aeps?tx.aeps.customerBankName+" · Aadhaar •••• "+tx.aeps.aadhaarLastFour
+  :null;
+ return {
+  title:label(tx.transactionType)+(tx.customer?" · "+tx.customer.fullName:""),
+  meta:[tx.transactionNumber,detail,tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null].filter(Boolean).join(" · "),
+ };
+}
 
 export default function TransactionsPage(){
  const [items,setItems]=useState<Tx[]>([]);
@@ -75,7 +107,7 @@ export default function TransactionsPage(){
   {error?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
   {loading?<PageLoader label="Loading transactions…"/>:<>
    <div className="space-y-4 md:hidden">
-    {[...grouped.entries()].map(([day,rows])=><section key={day}><div className="sticky top-15 z-10 mb-1.5 bg-[var(--bg)] py-1 text-xs font-semibold text-[var(--text-muted)]">{day}</div><Surface className="overflow-hidden"><div className="divide-y divide-[var(--border)]">{rows.map(tx=>{const fees=sum(tx.charges),custFee=customerFee(tx),providerEarn=providerCommission(tx),profit=custFee+providerEarn-fees;return <Link key={tx.id} href={txHref(tx)} className="block px-4 py-3.5 hover:bg-[var(--surface-soft)]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{label(tx.transactionType)}{tx.customer?" · "+tx.customer.fullName:""}</p><p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{tx.transactionNumber} · {new Date(tx.transactionAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</p></div><p className="money shrink-0 text-sm font-bold">{money(tx.grossAmount)}</p></div><div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]"><span className="text-[var(--text-muted)]">Customer / net <b className="text-[var(--text)]">{money(tx.netAmount??tx.grossAmount)}</b></span>{custFee>0?<span className="font-bold text-[var(--money-in)]">Customer fee +{money(custFee)}</span>:null}{providerEarn>0?<span className="font-bold text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}{fees>0?<span className="text-[var(--money-out)]">Provider fee −{money(fees)}</span>:null}{custFee>0||providerEarn>0||fees>0?<span className={"font-bold "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>Profit {money(profit)}</span>:null}<StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:null}</div></Link>})}</div></Surface></section>)}
+    {[...grouped.entries()].map(([day,rows])=><section key={day}><div className="sticky top-15 z-10 mb-1.5 bg-[var(--bg)] py-1 text-xs font-semibold text-[var(--text-muted)]">{day}</div><Surface className="overflow-hidden"><div className="divide-y divide-[var(--border)]">{rows.map(tx=>{const context=activityContext(tx);return <Link key={tx.id} href={txHref(tx)} className="block px-4 py-3.5 hover:bg-[var(--surface-soft)]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{context.title}</p><p className="mt-0.5 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">{context.meta} · {new Date(tx.transactionAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</p></div><p className="money shrink-0 text-sm font-bold">{money(tx.grossAmount)}</p></div><div className="mt-2 flex flex-wrap items-center gap-1.5"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:null}</div></Link>})}</div></Surface></section>)}
     {!items.length?<EmptyState title="No transactions" description="Try another date or filter."/>:null}
    </div>
 
