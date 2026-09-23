@@ -335,14 +335,13 @@ export default function AccountLedgerPage(){
             return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>openMovement(row,isIn)} className="w-full text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent">
               <div className="p-4 sm:hidden">
                 <div className="flex items-start justify-between gap-3">
-                  <MoneyFlowIcon direction={isIn?"IN":"OUT"}/>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <p className="text-[11px] font-semibold text-[var(--text-muted)]">{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
                       <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{nice(tx.transactionType)}</span>
                     </div>
-                    <p className="mt-2 truncate text-sm font-black">{summary.primary}</p>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">{summary.secondary}</p>
+                    <p className="mt-2 text-sm font-black leading-5">{summary.primary}</p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{summary.secondary}</p>
                   </div>
                   <div className="flex shrink-0 items-start gap-2">
                     <MoneyFlowIcon direction={isIn?"IN":"OUT"}/>
@@ -358,7 +357,7 @@ export default function AccountLedgerPage(){
                   {ms?.dueAt?<span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-semibold text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}
                 </div>
                 <div className="mt-3 flex items-center justify-between border-t border-[var(--border)] pt-2.5">
-                  <p className="truncate text-[11px] font-semibold text-[var(--text-muted)]">{tx.transactionNumber}</p>
+                  <p className="break-all text-[11px] font-semibold text-[var(--text-muted)]">{tx.transactionNumber}</p>
                   {tx.id?<span className="text-[11px] font-black text-[var(--accent)]">View details →</span>:null}
                 </div>
               </div>
@@ -377,7 +376,7 @@ export default function AccountLedgerPage(){
                   <div className="mt-1.5 flex flex-wrap gap-1"><StatusBadge tone={tx.status==="COMPLETED"?"emerald":tx.status==="REVERSED"?"rose":"amber"}>{nice(tx.status)}</StatusBadge>{ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}{ms?.dueAt?<span className="px-1 py-0.5 text-[10px] text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}</div>
                   {tx.id?<p className="mt-1 text-[10px] font-bold text-[var(--accent)]">View details</p>:null}
                 </div>
-                <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} className="h-6 w-6"/><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div>
+                <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div>
                 <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
               </div>
             </button>;

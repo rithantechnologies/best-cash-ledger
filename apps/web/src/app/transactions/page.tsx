@@ -40,6 +40,25 @@ function activityDirection(tx:Tx):"IN"|"OUT"|null{
  if(["CUSTOMER_PAYOUT","BUSINESS_EXPENSE","PERSONAL_EXPENSE"].includes(tx.transactionType))return "OUT";
  return null;
 }
+function settlementSource(tx:Tx){
+ return tx.providerSettlementReceipt?.settlement.sourceTransaction??null;
+}
+function displayCustomer(tx:Tx){
+ return tx.customer?.fullName??settlementSource(tx)?.customer?.fullName??"—";
+}
+function displayUser(tx:Tx){
+ return settlementSource(tx)?.createdBy?.fullName??tx.createdBy?.fullName??"—";
+}
+function sourceContext(tx:Tx){
+ const source=settlementSource(tx);
+ if(!source)return "—";
+ const card=source.cardSwipe?.customerCard;
+ const detail=card?card.bankName+" •••• "+card.lastFourDigits
+  :source.microAtm?(source.microAtm.customerBankName??"Bank")+" •••• "+source.microAtm.cardLastFour
+  :source.aeps?source.aeps.customerBankName+" · Aadhaar •••• "+source.aeps.aadhaarLastFour
+  :null;
+ return [label(source.transactionType),source.transactionNumber,detail].filter(Boolean).join(" · ");
+}
 function activityContext(tx:Tx){
  const source=tx.providerSettlementReceipt?.settlement.sourceTransaction;
  if(source){
@@ -113,11 +132,45 @@ export default function TransactionsPage(){
   {error?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
   {loading?<PageLoader label="Loading transactions…"/>:<>
    <div className="space-y-4 md:hidden">
-    {[...grouped.entries()].map(([day,rows])=><section key={day}><div className="sticky top-15 z-10 mb-1.5 bg-[var(--bg)] py-1 text-xs font-semibold text-[var(--text-muted)]">{day}</div><Surface className="overflow-hidden"><div className="divide-y divide-[var(--border)]">{rows.map(tx=>{const context=activityContext(tx),direction=activityDirection(tx);return <Link key={tx.id} href={txHref(tx)} className="block px-4 py-3.5 hover:bg-[var(--surface-soft)]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{context.title}</p><p className="mt-0.5 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">{context.meta} · {new Date(tx.transactionAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</p></div><div className="flex shrink-0 items-center gap-2">{direction?<MoneyFlowIcon direction={direction}/>:null}<p className={"money text-sm font-bold "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</p></div></div><div className="mt-2 flex flex-wrap items-center gap-1.5"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:null}</div></Link>})}</div></Surface></section>)}
+    {[...grouped.entries()].map(([day,rows])=><section key={day}><div className="sticky top-15 z-10 mb-1.5 bg-[var(--bg)] py-1 text-xs font-semibold text-[var(--text-muted)]">{day}</div><Surface className="overflow-hidden"><div className="divide-y divide-[var(--border)]">{rows.map(tx=>{const context=activityContext(tx),direction=activityDirection(tx),source=settlementSource(tx);return <Link key={tx.id} href={txHref(tx)} className="block px-4 py-3.5 hover:bg-[var(--surface-soft)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-black leading-5">{context.title}</p>
+          <div className="mt-1.5 space-y-1 text-[11px] leading-4 text-[var(--text-muted)]">
+            <p className="break-all"><span className="font-bold text-[var(--text)]">Txn:</span> {tx.transactionNumber}</p>
+            {source?<p><span className="font-bold text-[var(--text)]">Source:</span> {sourceContext(tx)}</p>:null}
+            <p><span className="font-bold text-[var(--text)]">By:</span> {displayUser(tx)} · {new Date(tx.transactionAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">{direction?<MoneyFlowIcon direction={direction}/>:null}<p className={"money text-sm font-black "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</p></div>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:null}</div>
+    </Link>})}</div></Surface></section>)}
     {!items.length?<EmptyState title="No transactions" description="Try another date or filter."/>:null}
    </div>
 
-   <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[1480px] text-sm"><thead className="bg-[var(--surface-soft)] text-left text-[11px] text-[var(--text-muted)]"><tr><th className="px-4 py-3">Date</th><th>Service</th><th>Customer</th><th>Transaction</th><th className="text-right">Processed</th><th className="text-right">Customer fee</th><th className="text-right">Provider fee</th><th className="text-right">Profit</th><th className="text-right">Customer gets / net</th><th className="pl-4">Transaction status</th><th>Payout / Pay-in</th><th>Due date</th></tr></thead><tbody>{items.map(tx=>{const providerFees=sum(tx.charges),custFee=customerFee(tx),providerEarn=providerCommission(tx),profit=custFee+providerEarn-providerFees,direction=activityDirection(tx);return <tr key={tx.id} className="border-t border-[var(--border)] hover:bg-[var(--surface-soft)]"><td className="px-4 py-3 text-xs">{new Date(tx.transactionAt).toLocaleString("en-IN")}</td><td className="font-medium"><span className="flex items-center gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span>{label(tx.transactionType)}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</td><td>{tx.customer?.fullName??"—"}</td><td><Link className="font-semibold text-[var(--accent)]" href={txHref(tx)}>{tx.transactionNumber}</Link></td><td className={"money text-right font-semibold "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</td><td className="money text-right font-bold text-[var(--money-in)]">{custFee?"+"+money(custFee):"—"}</td><td className="money text-right text-[var(--money-out)]">{providerFees?"−"+money(providerFees):"—"}</td><td className={"money text-right font-bold "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{custFee||providerEarn||providerFees?money(profit):"—"}</td><td className="money text-right font-semibold">{money(tx.netAmount??tx.grossAmount)}</td><td className="pl-4"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge></td><td>{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:<span className="text-[var(--text-muted)]">—</span>}</td><td className="text-xs text-[var(--text-muted)]">{moneyStatus(tx)?.dueAt?new Date(moneyStatus(tx)!.dueAt!).toLocaleDateString("en-IN"):"—"}</td></tr>})}</tbody></table></div></Surface>
+   <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[1860px] text-sm">
+    <thead className="bg-[var(--surface-soft)] text-left text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]"><tr>
+      <th className="px-4 py-3">Date</th><th>Service</th><th>Customer</th><th>Transaction ID</th><th>Source / settlement</th><th>User</th>
+      <th className="text-right">Processed</th><th className="text-right">Customer fee</th><th className="text-right">Provider fee</th><th className="text-right">Profit</th><th className="text-right">Customer gets / net</th><th className="pl-4">Transaction status</th><th>Payout / Pay-in</th><th>Due date</th>
+    </tr></thead>
+    <tbody>{items.map(tx=>{const providerFees=sum(tx.charges),custFee=customerFee(tx),providerEarn=providerCommission(tx),profit=custFee+providerEarn-providerFees,direction=activityDirection(tx),source=settlementSource(tx);return <tr key={tx.id} className="border-t border-[var(--border)] align-top hover:bg-[var(--surface-soft)]">
+      <td className="px-4 py-3 text-xs whitespace-nowrap">{new Date(tx.transactionAt).toLocaleString("en-IN")}</td>
+      <td className="py-3 font-medium"><span className="flex items-center gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span>{label(tx.transactionType)}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</td>
+      <td className="py-3 font-semibold">{displayCustomer(tx)}</td>
+      <td className="py-3"><Link className="font-bold text-[var(--accent)] whitespace-nowrap" href={txHref(tx)}>{tx.transactionNumber}</Link></td>
+      <td className="max-w-[280px] py-3 text-xs leading-5 text-[var(--text-muted)]">{source?<span className="text-[var(--text)]">{sourceContext(tx)}</span>:<span>—</span>}</td>
+      <td className="py-3 text-xs font-semibold whitespace-nowrap">{displayUser(tx)}</td>
+      <td className={"money py-3 text-right font-semibold "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</td>
+      <td className="money py-3 text-right font-bold text-[var(--money-in)]">{custFee?"+"+money(custFee):"—"}</td>
+      <td className="money py-3 text-right text-[var(--money-out)]">{providerFees?"−"+money(providerFees):"—"}</td>
+      <td className={"money py-3 text-right font-bold "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{custFee||providerEarn||providerFees?money(profit):"—"}</td>
+      <td className="money py-3 text-right font-semibold">{money(tx.netAmount??tx.grossAmount)}</td>
+      <td className="py-3 pl-4"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge></td>
+      <td className="py-3">{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:<span className="text-[var(--text-muted)]">—</span>}</td>
+      <td className="py-3 pr-4 text-xs text-[var(--text-muted)] whitespace-nowrap">{moneyStatus(tx)?.dueAt?new Date(moneyStatus(tx)!.dueAt!).toLocaleDateString("en-IN"):"—"}</td>
+    </tr>})}</tbody>
+   </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="transaction" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
   </>}
  </PageFrame></AppShell>;
