@@ -2342,14 +2342,40 @@ export class TransactionsService {
     }
     const original = await this.prisma.transaction.findUnique({
       where: { id },
-      select: {
-        id: true,
-        transactionNumber: true,
-        transactionAt: true,
-        status: true,
+      include: {
+        journal: { select: { id: true, postingDate: true } },
+        cardSwipe: { select: { id: true, dueAt: true } },
+        payable: { select: { id: true, dueAt: true, status: true, paidAmount: true, remainingAmount: true } },
+        payablePayment: { select: { id: true, paymentDate: true } },
+        receivableSource: { select: { id: true, dueAt: true, status: true, receivedAmount: true, remainingAmount: true } },
+        receivableCollection: { select: { id: true, collectionDate: true } },
+        providerSettlementSource: { select: { id: true, dueAt: true } },
+        providerSettlementReceipt: { select: { id: true, receivedAt: true } },
+        cardDueClearing: { select: { id: true, nextFollowUpAt: true } },
+        cardDueRecovery: { select: { id: true, recoveredAt: true } },
+        cardDueCommissionCollection: { select: { id: true, collectedAt: true } },
       },
     });
     if (!original) throw new NotFoundException('Transaction not found');
+
+    const deltaMs = corrected.getTime() - original.transactionAt.getTime();
+    const shift = (value: Date | null | undefined) =>
+      value ? new Date(value.getTime() + deltaMs) : null;
+
+    const oldValues: Record<string, string | null> = {
+      transactionAt: original.transactionAt.toISOString(),
+      journalPostingDate: original.journal?.postingDate.toISOString() ?? null,
+      cardSwipeDueAt: original.cardSwipe?.dueAt.toISOString() ?? null,
+      payableDueAt: original.payable?.dueAt.toISOString() ?? null,
+      paymentDate: original.payablePayment?.paymentDate.toISOString() ?? null,
+      receivableDueAt: original.receivableSource?.dueAt?.toISOString() ?? null,
+      collectionDate: original.receivableCollection?.collectionDate.toISOString() ?? null,
+      providerSettlementDueAt: original.providerSettlementSource?.dueAt?.toISOString() ?? null,
+      providerSettlementReceivedAt: original.providerSettlementReceipt?.receivedAt.toISOString() ?? null,
+      cardDueNextFollowUpAt: original.cardDueClearing?.nextFollowUpAt?.toISOString() ?? null,
+      cardDueRecoveredAt: original.cardDueRecovery?.recoveredAt.toISOString() ?? null,
+      cardDueCommissionCollectedAt: original.cardDueCommissionCollection?.collectedAt.toISOString() ?? null,
+    };
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.transaction.update({
@@ -2359,20 +2385,134 @@ export class TransactionsService {
           updatedById: userId,
         },
       });
+
+      if (original.journal) {
+        await tx.ledgerJournal.update({
+          where: { id: original.journal.id },
+          data: { postingDate: corrected },
+        });
+      }
+
+      if (original.cardSwipe) {
+        await tx.cardSwipeDetail.update({
+          where: { id: original.cardSwipe.id },
+          data: { dueAt: shift(original.cardSwipe.dueAt)! },
+        });
+      }
+
+      if (original.payable) {
+        const dueAt = shift(original.payable.dueAt)!;
+        let status = original.payable.status;
+        if (status !== PayableStatus.PAID && status !== PayableStatus.CANCELLED && status !== PayableStatus.REVERSED) {
+          const { start: todayStart } = (() => {
+            const offset = 330 * 60 * 1000;
+            const local = new Date(Date.now() + offset);
+            const y = local.getUTCFullYear(), m = local.getUTCMonth(), d = local.getUTCDate();
+            return { start: new Date(Date.UTC(y, m, d) - offset) };
+          })();
+          status = dueAt < todayStart
+            ? PayableStatus.OVERDUE
+            : Number(original.payable.paidAmount) > 0
+              ? PayableStatus.PARTIALLY_PAID
+              : PayableStatus.PENDING;
+        }
+        await tx.customerPayable.update({
+          where: { id: original.payable.id },
+          data: { dueAt, status },
+        });
+      }
+
+      if (original.payablePayment) {
+        await tx.payablePayment.update({
+          where: { id: original.payablePayment.id },
+          data: { paymentDate: corrected },
+        });
+      }
+
+      if (original.receivableSource) {
+        const dueAt = shift(original.receivableSource.dueAt);
+        let status = original.receivableSource.status;
+        if (status !== ReceivableStatus.RECEIVED && status !== ReceivableStatus.CANCELLED && status !== ReceivableStatus.REVERSED) {
+          const offset = 330 * 60 * 1000;
+          const local = new Date(Date.now() + offset);
+          const todayStart = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) - offset);
+          status = dueAt && dueAt < todayStart
+            ? ReceivableStatus.OVERDUE
+            : Number(original.receivableSource.receivedAmount) > 0
+              ? ReceivableStatus.PARTIALLY_RECEIVED
+              : ReceivableStatus.PENDING;
+        }
+        await tx.customerReceivable.update({
+          where: { id: original.receivableSource.id },
+          data: { dueAt, status },
+        });
+      }
+
+      if (original.receivableCollection) {
+        await tx.receivableCollection.update({
+          where: { id: original.receivableCollection.id },
+          data: { collectionDate: corrected },
+        });
+      }
+
+      if (original.providerSettlementSource) {
+        await tx.providerSettlement.update({
+          where: { id: original.providerSettlementSource.id },
+          data: { dueAt: shift(original.providerSettlementSource.dueAt) },
+        });
+      }
+
+      if (original.providerSettlementReceipt) {
+        await tx.providerSettlementReceipt.update({
+          where: { id: original.providerSettlementReceipt.id },
+          data: { receivedAt: corrected },
+        });
+      }
+
+      if (original.cardDueClearing?.nextFollowUpAt) {
+        await tx.cardDueClearingDetail.update({
+          where: { id: original.cardDueClearing.id },
+          data: { nextFollowUpAt: shift(original.cardDueClearing.nextFollowUpAt) },
+        });
+      }
+
+      if (original.cardDueRecovery) {
+        await tx.cardDueRecovery.update({
+          where: { id: original.cardDueRecovery.id },
+          data: { recoveredAt: corrected },
+        });
+      }
+
+      if (original.cardDueCommissionCollection) {
+        await tx.cardDueCommissionCollection.update({
+          where: { id: original.cardDueCommissionCollection.id },
+          data: { collectedAt: corrected },
+        });
+      }
+
+      const newValues: Record<string, string | null> = {
+        transactionAt: corrected.toISOString(),
+        journalPostingDate: original.journal ? corrected.toISOString() : null,
+        cardSwipeDueAt: original.cardSwipe ? shift(original.cardSwipe.dueAt)?.toISOString() ?? null : null,
+        payableDueAt: original.payable ? shift(original.payable.dueAt)?.toISOString() ?? null : null,
+        paymentDate: original.payablePayment ? corrected.toISOString() : null,
+        receivableDueAt: original.receivableSource ? shift(original.receivableSource.dueAt)?.toISOString() ?? null : null,
+        collectionDate: original.receivableCollection ? corrected.toISOString() : null,
+        providerSettlementDueAt: original.providerSettlementSource ? shift(original.providerSettlementSource.dueAt)?.toISOString() ?? null : null,
+        providerSettlementReceivedAt: original.providerSettlementReceipt ? corrected.toISOString() : null,
+        cardDueNextFollowUpAt: original.cardDueClearing ? shift(original.cardDueClearing.nextFollowUpAt)?.toISOString() ?? null : null,
+        cardDueRecoveredAt: original.cardDueRecovery ? corrected.toISOString() : null,
+        cardDueCommissionCollectedAt: original.cardDueCommissionCollection ? corrected.toISOString() : null,
+      };
+
       await tx.auditLog.create({
         data: {
           userId,
           entityType: 'TRANSACTION',
           entityId: id,
-          action: 'UPDATE_DATE_TIME',
-          oldValues: {
-            transactionAt: original.transactionAt.toISOString(),
-            transactionNumber: original.transactionNumber,
-          },
-          newValues: {
-            transactionAt: corrected.toISOString(),
-            transactionNumber: original.transactionNumber,
-          },
+          action: 'UPDATE_LINKED_DATES',
+          oldValues: { ...oldValues, transactionNumber: original.transactionNumber },
+          newValues: { ...newValues, transactionNumber: original.transactionNumber },
           reason: dto.reason.trim(),
         },
       });
