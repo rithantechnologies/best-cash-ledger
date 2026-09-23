@@ -144,6 +144,29 @@ export class ReportsService {
     if (from) postingDate.gte = new Date(from);
     if (to) postingDate.lte = new Date(to);
 
+    const accountMovementSourceInclude = {
+      customer: true,
+      payable: true,
+      receivableSource: true,
+      cardSwipe: { include: { customerCard: true } },
+      expense: { include: { expenseCategory: true, paymentAccount: true } },
+      cashTransfer: {
+        include: {
+          beneficiary: true,
+          beneficiaryAccount: true,
+          customerBankAccount: true,
+          customerUpiAccount: true,
+          sourceAccount: true,
+          cashAccount: true,
+        },
+      },
+      aeps: { include: { cashAccount: true, settlementAccount: true } },
+      microAtm: { include: { cashAccount: true, settlementAccount: true } },
+      internalTransfer: { include: { sourceAccount: true, destinationAccount: true } },
+      atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
+      creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
+    } satisfies Prisma.TransactionInclude;
+
     const [entries, priorEntries] = await Promise.all([
       this.prisma.ledgerEntry.findMany({
         where: {
@@ -158,30 +181,13 @@ export class ReportsService {
             include: {
               transaction: {
                 include: {
-                  customer: true,
-                  payable: true,
-                  receivableSource: true,
-                  cardSwipe: { include: { customerCard: true } },
-                  expense: { include: { expenseCategory: true, paymentAccount: true } },
-                  cashTransfer: {
-                    include: {
-                      beneficiary: true,
-                      beneficiaryAccount: true,
-                      customerBankAccount: true,
-                      customerUpiAccount: true,
-                      sourceAccount: true,
-                      cashAccount: true,
-                    },
-                  },
-                  internalTransfer: { include: { sourceAccount: true, destinationAccount: true } },
-                  atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
-                  creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
+                  ...accountMovementSourceInclude,
                   providerSettlementReceipt: {
                     include: {
                       settlement: {
                         include: {
                           sourceTransaction: {
-                            include: { payable: true, receivableSource: true },
+                            include: accountMovementSourceInclude,
                           },
                         },
                       },
@@ -193,7 +199,7 @@ export class ReportsService {
                       payable: {
                         include: {
                           sourceTransaction: {
-                            include: { payable: true, receivableSource: true },
+                            include: accountMovementSourceInclude,
                           },
                         },
                       },

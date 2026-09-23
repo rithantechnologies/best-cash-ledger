@@ -14,16 +14,20 @@ type Account={
   bankName:string|null;accountReference:string|null;lastFourDigits:string|null;creditLimit:string|null;
 };
 type MoneyRef={payable:{status:string;dueAt:string|null;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null};
-type RowTx=MoneyRef&{
+type BusinessTx=MoneyRef&{
   id?:string;transactionNumber:string;transactionType:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;
   cardSwipe:{swipeAmount:string;commissionAmount:string;customerCard:{bankName:string;lastFourDigits:string}}|null;
   expense:{expenseType:string;amount:string;description:string;expenseCategory:{name:string};paymentAccount:{accountName:string}}|null;
   cashTransfer:{actualTransferAmount:string;beneficiary:{beneficiaryName:string}|null;beneficiaryAccount:{bankName:string|null;accountReference:string|null;upiId:string|null}|null;customerBankAccount:{bankName:string;accountHolderName:string}|null;customerUpiAccount:{accountName:string;upiId:string|null}|null;sourceAccount:{accountName:string};cashAccount:{accountName:string}}|null;
+  aeps:{aadhaarLastFour:string;customerBankName:string;withdrawalAmount:string;cashGiven:string;settlementAmount:string;settlementAccount:{accountName:string}}|null;
+  microAtm:{cardLastFour:string;customerBankName:string|null;withdrawalAmount:string;cashGiven:string;settlementAmount:string;settlementAccount:{accountName:string}}|null;
   internalTransfer:{transferAmount:string;sourceAccount:{accountName:string};destinationAccount:{accountName:string}}|null;
   atmWithdrawal:{withdrawalAmount:string;bankAccount:{accountName:string};cashAccount:{accountName:string}}|null;
   creditCardPayment:{paymentAmount:string;creditCardAccount:{accountName:string};sourceAccount:{accountName:string}}|null;
-  providerSettlementReceipt:{settlement:{sourceTransaction:MoneyRef}}|null;
-  payablePayment:{amount:string;sourceAccount:{accountName:string};payable:{sourceTransaction:MoneyRef}}|null;
+};
+type RowTx=BusinessTx&{
+  providerSettlementReceipt:{settlement:{sourceTransaction:BusinessTx}}|null;
+  payablePayment:{amount:string;sourceAccount:{accountName:string};payable:{sourceTransaction:BusinessTx}}|null;
 };
 type Row={
   id:string;entryType:"DEBIT"|"CREDIT";amount:string;runningBalance:number;description:string|null;
@@ -65,8 +69,9 @@ function increases(account:Account,row:Row){
 }
 const nice=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(c)=>c.toUpperCase());
 const total=(items:{amount:string}[])=>items.reduce((sum,item)=>sum+Number(item.amount),0);
-const ledgerMoneySource=(tx:RowTx):MoneyRef=>tx.payable||tx.receivableSource?tx:tx.providerSettlementReceipt?.settlement.sourceTransaction??tx.payablePayment?.payable.sourceTransaction??tx;
-function movementSummary(tx:RowTx,row:Row){
+const ledgerBusinessSource=(tx:RowTx):BusinessTx=>tx.providerSettlementReceipt?.settlement.sourceTransaction??tx.payablePayment?.payable.sourceTransaction??tx;
+const ledgerMoneySource=(tx:RowTx):MoneyRef=>ledgerBusinessSource(tx);
+function businessSummary(tx:BusinessTx,row:Row){
   if(tx.cardSwipe){
     const card=tx.cardSwipe.customerCard;
     return {
@@ -74,10 +79,22 @@ function movementSummary(tx:RowTx,row:Row){
       secondary:"Card swipe "+money(tx.cardSwipe.swipeAmount)+(Number(tx.cardSwipe.commissionAmount)>0?" · Customer fee "+money(tx.cardSwipe.commissionAmount):""),
     };
   }
+  if(tx.microAtm){
+    return {
+      primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+(tx.microAtm.customerBankName??"Bank")+" •••• "+tx.microAtm.cardLastFour,
+      secondary:"Micro ATM "+money(tx.microAtm.withdrawalAmount)+" · Settlement "+money(tx.microAtm.settlementAmount),
+    };
+  }
+  if(tx.aeps){
+    return {
+      primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+tx.aeps.customerBankName+" · Aadhaar •••• "+tx.aeps.aadhaarLastFour,
+      secondary:"AEPS "+money(tx.aeps.withdrawalAmount)+" · Settlement "+money(tx.aeps.settlementAmount),
+    };
+  }
   if(tx.expense){
     return {
-      primary:(tx.expense.expenseType==="PERSONAL"?"Personal · ":"")+tx.expense.expenseCategory.name,
-      secondary:tx.expense.description||row.description||"Expense payment",
+      primary:(tx.expense.expenseType==="PERSONAL"?"Personal · ":"")+tx.expense.expenseCategory.name+" · "+tx.expense.description,
+      secondary:"Expense "+money(tx.expense.amount)+" · Paid from "+tx.expense.paymentAccount.accountName,
     };
   }
   if(tx.cashTransfer){
@@ -85,21 +102,31 @@ function movementSummary(tx:RowTx,row:Row){
       ??tx.cashTransfer.customerBankAccount?.accountHolderName
       ??tx.cashTransfer.customerUpiAccount?.accountName
       ??"Customer transfer";
-    return {primary:(tx.customer?.fullName?tx.customer.fullName+" → ":"")+destination,secondary:"Transfer "+money(tx.cashTransfer.actualTransferAmount)+" · from "+tx.cashTransfer.sourceAccount.accountName};
+    const destinationMeta=tx.cashTransfer.beneficiaryAccount?.upiId
+      ??tx.cashTransfer.beneficiaryAccount?.accountReference
+      ??tx.cashTransfer.customerUpiAccount?.upiId
+      ??tx.cashTransfer.customerBankAccount?.bankName
+      ??null;
+    return {
+      primary:(tx.customer?.fullName?tx.customer.fullName+" → ":"")+destination+(destinationMeta?" · "+destinationMeta:""),
+      secondary:"Cash transfer "+money(tx.cashTransfer.actualTransferAmount)+" · from "+tx.cashTransfer.sourceAccount.accountName,
+    };
   }
-  if(tx.internalTransfer){
-    return {primary:tx.internalTransfer.sourceAccount.accountName+" → "+tx.internalTransfer.destinationAccount.accountName,secondary:"Internal transfer "+money(tx.internalTransfer.transferAmount)};
+  if(tx.internalTransfer)return {primary:tx.internalTransfer.sourceAccount.accountName+" → "+tx.internalTransfer.destinationAccount.accountName,secondary:"Internal transfer "+money(tx.internalTransfer.transferAmount)};
+  if(tx.atmWithdrawal)return {primary:tx.atmWithdrawal.bankAccount.accountName+" → "+tx.atmWithdrawal.cashAccount.accountName,secondary:"ATM withdrawal "+money(tx.atmWithdrawal.withdrawalAmount)};
+  if(tx.creditCardPayment)return {primary:tx.creditCardPayment.sourceAccount.accountName+" → "+tx.creditCardPayment.creditCardAccount.accountName,secondary:"Credit card payment "+money(tx.creditCardPayment.paymentAmount)};
+  return {primary:tx.customer?.fullName??row.description??nice(tx.transactionType),secondary:row.description&&row.description!==tx.customer?.fullName?row.description:nice(tx.transactionType)};
+}
+function movementSummary(tx:RowTx,row:Row){
+  const source=ledgerBusinessSource(tx);
+  const summary=businessSummary(source,row);
+  if(tx.providerSettlementReceipt){
+    return {primary:"Provider settlement · "+summary.primary,secondary:summary.secondary+" · Source "+source.transactionNumber};
   }
   if(tx.payablePayment){
-    return {primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+"Customer payout",secondary:"Paid "+money(tx.payablePayment.amount)+" from "+tx.payablePayment.sourceAccount.accountName};
+    return {primary:(source.customer?.fullName?source.customer.fullName+" · ":"")+"Customer payout",secondary:"Paid "+money(tx.payablePayment.amount)+" from "+tx.payablePayment.sourceAccount.accountName+" · "+summary.primary};
   }
-  if(tx.atmWithdrawal){
-    return {primary:tx.atmWithdrawal.bankAccount.accountName+" → "+tx.atmWithdrawal.cashAccount.accountName,secondary:"ATM withdrawal "+money(tx.atmWithdrawal.withdrawalAmount)};
-  }
-  if(tx.creditCardPayment){
-    return {primary:tx.creditCardPayment.sourceAccount.accountName+" → "+tx.creditCardPayment.creditCardAccount.accountName,secondary:"Credit card payment "+money(tx.creditCardPayment.paymentAmount)};
-  }
-  return {primary:tx.customer?.fullName??row.description??nice(tx.transactionType),secondary:row.description&&row.description!==tx.customer?.fullName?row.description:nice(tx.transactionType)};
+  return summary;
 }
 function DetailStat({label,value,tone=""}:{label:string;value:string;tone?:string}){
   return <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p><p className={"mt-1 text-sm font-black "+tone}>{value}</p></div>;
@@ -295,20 +322,47 @@ export default function AccountLedgerPage(){
             const tx=row.journal.transaction;
             const ms=moneyStatus(ledgerMoneySource(tx));
             const summary=movementSummary(tx,row);
-            return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>openMovement(row,isIn)} className="grid w-full gap-2 px-4 py-3.5 text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent sm:grid-cols-[110px_minmax(0,1fr)_130px_130px] sm:items-center sm:px-5">
-              <div className="text-[11px] font-semibold text-[var(--text-muted)]">
-                <p>{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</p>
-                <p className="mt-0.5">{new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+            return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>openMovement(row,isIn)} className="w-full text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent">
+              <div className="p-4 sm:hidden">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <p className="text-[11px] font-semibold text-[var(--text-muted)]">{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{nice(tx.transactionType)}</span>
+                    </div>
+                    <p className="mt-2 truncate text-sm font-black">{summary.primary}</p>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">{summary.secondary}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className={"money text-base font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>
+                    <p className="mt-1 text-[10px] font-semibold text-[var(--text-muted)]">Bal. {money(row.runningBalance)}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <StatusBadge tone={tx.status==="COMPLETED"?"emerald":tx.status==="REVERSED"?"rose":"amber"}>{nice(tx.status)}</StatusBadge>
+                  {ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}
+                  {ms?.dueAt?<span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-semibold text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}
+                </div>
+                <div className="mt-3 flex items-center justify-between border-t border-[var(--border)] pt-2.5">
+                  <p className="truncate text-[11px] font-semibold text-[var(--text-muted)]">{tx.transactionNumber}</p>
+                  {tx.id?<span className="text-[11px] font-black text-[var(--accent)]">View details →</span>:null}
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold">{tx.transactionNumber}</p>
-                <p className="mt-0.5 truncate text-xs font-semibold text-[var(--text)]">{summary.primary}</p>
-                <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{summary.secondary}</p>
-                <div className="mt-1.5 flex flex-wrap gap-1"><StatusBadge tone={tx.status==="COMPLETED"?"emerald":tx.status==="REVERSED"?"rose":"amber"}>{nice(tx.status)}</StatusBadge>{ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}{ms?.dueAt?<span className="px-1 py-0.5 text-[10px] text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}</div>
-                {tx.id?<p className="mt-1 text-[10px] font-bold text-[var(--accent)]">View details</p>:null}
+              <div className="hidden gap-2 px-5 py-3.5 sm:grid sm:grid-cols-[110px_minmax(0,1fr)_130px_130px] sm:items-center">
+                <div className="text-[11px] font-semibold text-[var(--text-muted)]">
+                  <p>{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</p>
+                  <p className="mt-0.5">{new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold">{tx.transactionNumber}</p>
+                  <p className="mt-0.5 truncate text-xs font-semibold text-[var(--text)]">{summary.primary}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{summary.secondary}</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1"><StatusBadge tone={tx.status==="COMPLETED"?"emerald":tx.status==="REVERSED"?"rose":"amber"}>{nice(tx.status)}</StatusBadge>{ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}{ms?.dueAt?<span className="px-1 py-0.5 text-[10px] text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}</div>
+                  {tx.id?<p className="mt-1 text-[10px] font-bold text-[var(--accent)]">View details</p>:null}
+                </div>
+                <p className={"money text-sm font-extrabold text-right "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>
+                <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
               </div>
-              <p className={"money text-sm font-extrabold sm:text-right "+(isIn?"text-emerald-700":"text-rose-600")}>{isIn?"+":"−"}{money(row.amount)}</p>
-              <div className="flex items-center justify-between gap-2 sm:block sm:text-right"><span className="text-[11px] font-semibold text-[var(--text-muted)] sm:hidden">Balance</span><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
             </button>;
           })}
         </div>:search?<div className="p-5"><EmptyState title="No matching activity" description="Try a different search."/></div>:Math.abs(periodOpening)>0.005?<div className="p-4 sm:p-5"><div className="flex items-center justify-between gap-4 rounded-xl bg-[var(--surface-soft)] px-4 py-3.5"><div><p className="text-sm font-bold">Opening balance</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">No transactions in this period yet.</p></div><strong className="money shrink-0 text-sm">{money(periodOpening)}</strong></div></div>:<div className="p-5"><EmptyState title="No transactions yet" description="Activity will appear here when money moves through this account."/></div>}
