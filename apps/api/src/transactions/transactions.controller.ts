@@ -18,6 +18,7 @@ import { CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
+import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 import { CardDueClearingService } from './card-due-clearing.service.js';
 import { TransactionsService } from './transactions.service.js';
 
@@ -158,6 +159,12 @@ export class TransactionsController {
   @Post('owner-credit-card-payment')
   createCreditCardPayment(@Body() dto: CreateCreditCardPaymentDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
     return this.transactions.createCreditCardPayment(dto, req.user.userId, key);
+  }
+
+  @Post(':id/date-time')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  updateDateTime(@Param('id') id: string, @Body() dto: UpdateTransactionDateTimeDto, @Req() req: any) {
+    return this.transactions.updateDateTime(id, dto, req.user.userId);
   }
 
   @Post(':id/reverse')

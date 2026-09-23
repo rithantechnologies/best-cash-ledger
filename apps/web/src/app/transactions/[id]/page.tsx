@@ -107,14 +107,28 @@ function MoneyFlow({tx}:{tx:Tx}){
 }
 
 export default function TransactionDetailPage(){
- const {id}=useParams<{id:string}>();const [tx,setTx]=useState<Tx|null>(null),[reason,setReason]=useState(""),[error,setError]=useState(""),[role,setRole]=useState(""),[saving,setSaving]=useState(false),[reverseOpen,setReverseOpen]=useState(false);
+ const {id}=useParams<{id:string}>();const [tx,setTx]=useState<Tx|null>(null),[reason,setReason]=useState(""),[error,setError]=useState(""),[role,setRole]=useState(""),[saving,setSaving]=useState(false),[reverseOpen,setReverseOpen]=useState(false),[dateTimeOpen,setDateTimeOpen]=useState(false),[editDateTime,setEditDateTime]=useState(""),[dateTimeReason,setDateTimeReason]=useState("");
  const load=()=>apiFetch<Tx>("/transactions/"+id).then(setTx);
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}load().catch(e=>setError(e instanceof Error?e.message:"Failed to load transaction"));},[id]);
  async function reverse(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/reverse",{method:"POST",body:JSON.stringify({reason})});setReason("");setReverseOpen(false);await load();}catch(err){setError(err instanceof Error?err.message:"Reversal failed");}finally{setSaving(false);}}
+ function openDateTimeEditor(){
+   if(!tx)return;
+   const d=new Date(tx.transactionAt);
+   const local=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
+   setEditDateTime(local);setDateTimeReason("");setDateTimeOpen(true);
+ }
+ async function updateDateTime(e:FormEvent){
+   e.preventDefault();if(!editDateTime)return;setSaving(true);setError("");
+   try{
+     await apiFetch("/transactions/"+id+"/date-time",{method:"POST",body:JSON.stringify({transactionAt:new Date(editDateTime).toISOString(),reason:dateTimeReason.trim()})});
+     setDateTimeOpen(false);setDateTimeReason("");await load();
+   }catch(err){setError(err instanceof Error?err.message:"Date/time update failed");}finally{setSaving(false);}
+ }
  if(!tx)return <AppShell><PageLoader label="Loading transaction…"/></AppShell>;
 
  const cardDueType=["CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION"].includes(tx.transactionType);
- const canReverse=(role==="OWNER"||role==="ADMIN")&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
+ const canEditDateTime=role==="OWNER"||role==="ADMIN";
+ const canReverse=canEditDateTime&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const payoutState=tx.transactionType==="CARD_SWIPE"?payoutDisplay(tx.payable):null;
  const fees=sum(tx.charges),earnings=sum(tx.commissions),gross=Number(tx.grossAmount),net=Number(tx.netAmount??tx.grossAmount);
  const payoutFees=tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0;
@@ -124,7 +138,7 @@ export default function TransactionDetailPage(){
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">← Transactions</Link><p className="mt-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--text-muted)]">{label(tx.transactionType)}</p><h1 className="mt-1 text-2xl font-black tracking-[-.035em] sm:text-3xl">{tx.transactionNumber}</h1><p className="mt-1 text-xs text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleString("en-IN")} · {tx.createdBy?.fullName??tx.createdById}</p></div>
-   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
+   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{canEditDateTime?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
@@ -149,6 +163,14 @@ export default function TransactionDetailPage(){
    <div className="space-y-2 p-3 md:hidden">{tx.journal.entries.map(e=><div key={e.id} className="rounded-xl bg-[var(--surface-soft)] p-3"><div className="flex items-center justify-between gap-3"><strong className="truncate text-sm">{e.ledgerAccount.ledgerName}</strong><StatusBadge tone={e.entryType==="CREDIT"?"emerald":"indigo"}>{e.entryType}</StatusBadge></div><div className="mt-2 flex items-end justify-between gap-3"><p className="text-[11px] text-[var(--text-muted)]">{e.description??"—"}</p><strong className="money">{money(e.amount)}</strong></div></div>)}</div>
    <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[620px] text-sm"><thead className="bg-[var(--surface-soft)] text-left text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]"><tr><th className="px-5 py-3">Ledger</th><th>Entry</th><th>Amount</th><th>Description</th></tr></thead><tbody>{tx.journal.entries.map(e=><tr key={e.id} className="border-t border-[var(--border)]"><td className="px-5 py-3 font-semibold">{e.ledgerAccount.ledgerName}</td><td>{e.entryType}</td><td className="money font-bold">{money(e.amount)}</td><td className="text-[var(--text-muted)]">{e.description??"—"}</td></tr>)}</tbody></table></div>
   </div></details>:null}
+
+  <Modal open={dateTimeOpen} title="Edit transaction date & time" description="Owner/Admin correction. The previous value is kept in the audit trail." onClose={()=>setDateTimeOpen(false)} footer={<div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setDateTimeOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold">Cancel</button><button form="edit-date-time" disabled={saving||!editDateTime||dateTimeReason.trim().length<3} className="app-primary-button min-h-11 text-sm font-bold disabled:opacity-50">{saving?"Saving…":"Save correction"}</button></div>}>
+   <form id="edit-date-time" onSubmit={updateDateTime} className="space-y-3">
+    <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Transaction date & time</span><input type="datetime-local" className="app-control w-full" value={editDateTime} onChange={e=>setEditDateTime(e.target.value)} required/></label>
+    <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason for correction</span><textarea className="app-control min-h-24 w-full p-3" minLength={3} value={dateTimeReason} onChange={e=>setDateTimeReason(e.target.value)} placeholder="Example: Transaction entered with wrong time" required/></label>
+    <p className="text-[11px] leading-5 text-[var(--text-muted)]">This changes only the transaction date/time. Due dates, payout dates, settlement dates and ledger posting dates are not changed automatically.</p>
+   </form>
+  </Modal>
 
   <Modal open={reverseOpen} title="Reverse transaction?" description="The original stays in the audit trail and a balancing reversal is created." onClose={()=>setReverseOpen(false)} footer={<div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setReverseOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold">Keep</button><button form="reverse-tx" disabled={saving} className="min-h-11 rounded-xl bg-rose-700 text-sm font-bold text-white disabled:opacity-50">{saving?"Reversing…":"Confirm reversal"}</button></div>}>
    <form id="reverse-tx" onSubmit={reverse}><label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason</span><textarea className="app-control min-h-28 w-full p-3" minLength={3} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Why is this being reversed?" required/></label></form>

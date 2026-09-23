@@ -14,6 +14,7 @@ import { CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
+import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 
 @Injectable()
 export class TransactionsService {
@@ -2332,6 +2333,51 @@ export class TransactionsService {
       select: { id: true, fullName: true },
     });
     return { ...transaction, createdBy: creator };
+  }
+
+  async updateDateTime(id: string, dto: UpdateTransactionDateTimeDto, userId: string) {
+    const corrected = new Date(dto.transactionAt);
+    if (Number.isNaN(corrected.getTime())) {
+      throw new BadRequestException('Invalid transaction date or time');
+    }
+    const original = await this.prisma.transaction.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        transactionNumber: true,
+        transactionAt: true,
+        status: true,
+      },
+    });
+    if (!original) throw new NotFoundException('Transaction not found');
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.transaction.update({
+        where: { id },
+        data: {
+          transactionAt: corrected,
+          updatedById: userId,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entityType: 'TRANSACTION',
+          entityId: id,
+          action: 'UPDATE_DATE_TIME',
+          oldValues: {
+            transactionAt: original.transactionAt.toISOString(),
+            transactionNumber: original.transactionNumber,
+          },
+          newValues: {
+            transactionAt: corrected.toISOString(),
+            transactionNumber: original.transactionNumber,
+          },
+          reason: dto.reason.trim(),
+        },
+      });
+      return updated;
+    });
   }
 
   async reverse(id: string, dto: ReverseTransactionDto, userId: string) {
