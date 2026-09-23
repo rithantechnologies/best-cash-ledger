@@ -134,18 +134,6 @@ export class FinancialValidationService {
     });
   }
 
-  private indiaBusinessDate() {
-    const offset = 330 * 60 * 1000;
-    const local = new Date(Date.now() + offset);
-    return new Date(
-      Date.UTC(
-        local.getUTCFullYear(),
-        local.getUTCMonth(),
-        local.getUTCDate(),
-      ),
-    );
-  }
-
   async requireOpenCashDesk(
     db: Db,
     cashAccountId: string,
@@ -156,7 +144,6 @@ export class FinancialValidationService {
       db.cashSession.findFirst({
         where: {
           cashAccountId,
-          businessDate: this.indiaBusinessDate(),
           status: 'OPEN',
           ...(openedById ? { openedById } : {}),
         },
