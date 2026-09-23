@@ -335,6 +335,7 @@ export default function AccountLedgerPage(){
             return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>openMovement(row,isIn)} className="w-full text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent">
               <div className="p-4 sm:hidden">
                 <div className="flex items-start justify-between gap-3">
+                  <MoneyFlowIcon direction={isIn?"IN":"OUT"}/>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <p className="text-[11px] font-semibold text-[var(--text-muted)]">{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
@@ -362,9 +363,12 @@ export default function AccountLedgerPage(){
                 </div>
               </div>
               <div className="hidden gap-2 px-5 py-3.5 sm:grid sm:grid-cols-[110px_minmax(0,1fr)_130px_130px] sm:items-center">
-                <div className="text-[11px] font-semibold text-[var(--text-muted)]">
+                <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-muted)]">
+                  <MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/>
+                  <div>
                   <p>{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</p>
                   <p className="mt-0.5">{new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+                  </div>
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-bold">{tx.transactionNumber}</p>
