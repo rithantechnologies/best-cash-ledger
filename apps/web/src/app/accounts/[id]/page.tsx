@@ -15,7 +15,7 @@ type Account={
 };
 type MoneyRef={payable:{status:string;dueAt:string|null;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null};
 type BusinessTx=MoneyRef&{
-  id?:string;transactionNumber:string;transactionType:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;
+  id?:string;transactionNumber:string;transactionType:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;createdBy:{fullName:string}|null;
   cardSwipe:{swipeAmount:string;commissionAmount:string;customerCard:{bankName:string;lastFourDigits:string}}|null;
   expense:{expenseType:string;amount:string;description:string;expenseCategory:{name:string};paymentAccount:{accountName:string}}|null;
   cashTransfer:{actualTransferAmount:string;beneficiary:{beneficiaryName:string}|null;beneficiaryAccount:{bankName:string|null;accountReference:string|null;upiId:string|null}|null;customerBankAccount:{bankName:string;accountHolderName:string}|null;customerUpiAccount:{accountName:string;upiId:string|null}|null;sourceAccount:{accountName:string};cashAccount:{accountName:string}}|null;
@@ -76,25 +76,25 @@ function businessSummary(tx:BusinessTx,row:Row){
     const card=tx.cardSwipe.customerCard;
     return {
       primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+card.bankName+" •••• "+card.lastFourDigits,
-      secondary:"Card swipe "+money(tx.cardSwipe.swipeAmount)+(Number(tx.cardSwipe.commissionAmount)>0?" · Customer fee "+money(tx.cardSwipe.commissionAmount):""),
+      secondary:"Card swipe · "+tx.transactionNumber+" · "+money(tx.cardSwipe.swipeAmount)+(tx.createdBy?.fullName?" · By "+tx.createdBy.fullName:""),
     };
   }
   if(tx.microAtm){
     return {
       primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+(tx.microAtm.customerBankName??"Bank")+" •••• "+tx.microAtm.cardLastFour,
-      secondary:"Micro ATM "+money(tx.microAtm.withdrawalAmount)+" · Settlement "+money(tx.microAtm.settlementAmount),
+      secondary:"Micro ATM · "+tx.transactionNumber+" · "+money(tx.microAtm.withdrawalAmount)+(tx.createdBy?.fullName?" · By "+tx.createdBy.fullName:""),
     };
   }
   if(tx.aeps){
     return {
       primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+tx.aeps.customerBankName+" · Aadhaar •••• "+tx.aeps.aadhaarLastFour,
-      secondary:"AEPS "+money(tx.aeps.withdrawalAmount)+" · Settlement "+money(tx.aeps.settlementAmount),
+      secondary:"AEPS · "+tx.transactionNumber+" · "+money(tx.aeps.withdrawalAmount)+(tx.createdBy?.fullName?" · By "+tx.createdBy.fullName:""),
     };
   }
   if(tx.expense){
     return {
       primary:(tx.expense.expenseType==="PERSONAL"?"Personal · ":"")+tx.expense.expenseCategory.name+" · "+tx.expense.description,
-      secondary:"Expense "+money(tx.expense.amount)+" · Paid from "+tx.expense.paymentAccount.accountName,
+      secondary:"Expense · "+tx.transactionNumber+" · "+money(tx.expense.amount)+" · Paid from "+tx.expense.paymentAccount.accountName+(tx.createdBy?.fullName?" · By "+tx.createdBy.fullName:""),
     };
   }
   if(tx.cashTransfer){
@@ -109,7 +109,7 @@ function businessSummary(tx:BusinessTx,row:Row){
       ??null;
     return {
       primary:(tx.customer?.fullName?tx.customer.fullName+" → ":"")+destination+(destinationMeta?" · "+destinationMeta:""),
-      secondary:"Cash transfer "+money(tx.cashTransfer.actualTransferAmount)+" · from "+tx.cashTransfer.sourceAccount.accountName,
+      secondary:"Cash transfer · "+tx.transactionNumber+" · "+money(tx.cashTransfer.actualTransferAmount)+" · from "+tx.cashTransfer.sourceAccount.accountName+(tx.createdBy?.fullName?" · By "+tx.createdBy.fullName:""),
     };
   }
   if(tx.internalTransfer)return {primary:tx.internalTransfer.sourceAccount.accountName+" → "+tx.internalTransfer.destinationAccount.accountName,secondary:"Internal transfer "+money(tx.internalTransfer.transferAmount)};
@@ -121,7 +121,16 @@ function movementSummary(tx:RowTx,row:Row){
   const source=ledgerBusinessSource(tx);
   const summary=businessSummary(source,row);
   if(tx.providerSettlementReceipt){
-    return {primary:"Provider settlement · "+summary.primary,secondary:summary.secondary+" · Source "+source.transactionNumber};
+    const customer=source.customer?.fullName??summary.primary;
+    const sourceMeta=[
+      nice(source.transactionType),
+      source.transactionNumber,
+      source.cardSwipe?source.cardSwipe.customerCard.bankName+" •••• "+source.cardSwipe.customerCard.lastFourDigits:null,
+      source.microAtm?(source.microAtm.customerBankName??"Bank")+" •••• "+source.microAtm.cardLastFour:null,
+      source.aeps?source.aeps.customerBankName+" · Aadhaar •••• "+source.aeps.aadhaarLastFour:null,
+      source.createdBy?.fullName?"By "+source.createdBy.fullName:null,
+    ].filter(Boolean).join(" · ");
+    return {primary:"Provider settlement · "+customer,secondary:sourceMeta};
   }
   if(tx.payablePayment){
     return {primary:(source.customer?.fullName?source.customer.fullName+" · ":"")+"Customer payout",secondary:"Paid "+money(tx.payablePayment.amount)+" from "+tx.payablePayment.sourceAccount.accountName+" · "+summary.primary};

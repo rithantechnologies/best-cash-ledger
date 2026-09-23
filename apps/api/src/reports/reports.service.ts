@@ -223,6 +223,22 @@ export class ReportsService {
         : Promise.resolve([]),
     ]);
 
+    const accountUserIds = [...new Set(entries.flatMap((entry) => {
+      const tx = entry.journal.transaction;
+      return [
+        tx.createdById,
+        tx.providerSettlementReceipt?.settlement.sourceTransaction.createdById,
+        tx.payablePayment?.payable.sourceTransaction.createdById,
+      ].filter((id): id is string => Boolean(id));
+    }))];
+    const accountUsers = accountUserIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: accountUserIds } },
+          select: { id: true, fullName: true },
+        })
+      : [];
+    const accountUserById = new Map(accountUsers.map((user) => [user.id, user]));
+
     const rangeStart = from ? new Date(from) : null;
     let running =
       !rangeStart || account.createdAt < rangeStart
@@ -259,7 +275,42 @@ export class ReportsService {
         running += account.accountNature === 'ASSET'
           ? entry.entryType === EntryType.DEBIT ? amount : -amount
           : entry.entryType === EntryType.CREDIT ? amount : -amount;
-        return { ...entry, runningBalance: running };
+        const transaction = entry.journal.transaction;
+        const settlementSource = transaction.providerSettlementReceipt?.settlement.sourceTransaction;
+        const payoutSource = transaction.payablePayment?.payable.sourceTransaction;
+        return {
+          ...entry,
+          journal: {
+            ...entry.journal,
+            transaction: {
+              ...transaction,
+              createdBy: accountUserById.get(transaction.createdById) ?? null,
+              providerSettlementReceipt: transaction.providerSettlementReceipt
+                ? {
+                    ...transaction.providerSettlementReceipt,
+                    settlement: {
+                      ...transaction.providerSettlementReceipt.settlement,
+                      sourceTransaction: settlementSource
+                        ? { ...settlementSource, createdBy: accountUserById.get(settlementSource.createdById) ?? null }
+                        : settlementSource,
+                    },
+                  }
+                : null,
+              payablePayment: transaction.payablePayment
+                ? {
+                    ...transaction.payablePayment,
+                    payable: {
+                      ...transaction.payablePayment.payable,
+                      sourceTransaction: payoutSource
+                        ? { ...payoutSource, createdBy: accountUserById.get(payoutSource.createdById) ?? null }
+                        : payoutSource,
+                    },
+                  }
+                : null,
+            },
+          },
+          runningBalance: running,
+        };
       }),
     };
   }
