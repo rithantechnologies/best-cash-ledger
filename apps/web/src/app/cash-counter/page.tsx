@@ -797,8 +797,8 @@ export default function CashCounterPage(){
           <label className="block">
             <span className="block text-center text-[10px] font-black uppercase tracking-[.16em] text-[var(--text-muted)]">Amount <span className="text-rose-500">*</span></span>
             <div className="mt-1 flex items-center justify-center gap-2 border-b border-[var(--border)] pb-4 pt-1">
-              <span className="text-[52px] font-black leading-none tracking-[-.04em] text-[var(--text)] sm:text-[58px]">₹</span>
-              <input ref={quickAmountRef} autoFocus inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.amount)} aria-describedby={quickFieldErrors.amount?"quick-amount-error":undefined} className="min-w-0 max-w-[340px] flex-1 appearance-none bg-transparent p-0 text-center text-[72px] font-black tabular-nums leading-[.9] tracking-[-.075em] text-[var(--text)] placeholder:text-[color-mix(in_srgb,var(--text-muted)_20%,transparent)] sm:text-[84px]" placeholder="0" value={quickAmount} onChange={(event)=>{setQuickAmount(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("amount");setQuickError("");}}/>
+              <span className="quick-cash-amount-currency font-black leading-none text-[var(--text)]">₹</span>
+              <input ref={quickAmountRef} autoFocus inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.amount)} aria-describedby={quickFieldErrors.amount?"quick-amount-error":undefined} className="quick-cash-amount-input min-w-0 max-w-[360px] flex-1 appearance-none bg-transparent p-0 text-center tabular-nums text-[var(--text)] placeholder:text-[color-mix(in_srgb,var(--text-muted)_20%,transparent)]" placeholder="0" value={quickAmount} onChange={(event)=>{setQuickAmount(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("amount");setQuickError("");}}/>
             </div>
             {quickFieldErrors.amount?<p id="quick-amount-error" className="mt-2 text-center text-[12px] font-bold text-rose-600">{quickFieldErrors.amount}</p>:null}
           </label>
@@ -808,7 +808,7 @@ export default function CashCounterPage(){
               <p className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Commission <span className="text-rose-500">*</span></p>
               <div className="flex min-w-[150px] items-center justify-end gap-1.5">
                 <span className="text-xl font-black">₹</span>
-                <input ref={quickCommissionRef} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.commission)} aria-describedby={quickFieldErrors.commission?"quick-commission-error":undefined} className="w-[132px] appearance-none bg-transparent p-0 text-right text-[36px] font-black tabular-nums tracking-[-.05em] text-[var(--text)]" placeholder="0" value={quickCommission} onChange={(event)=>{setQuickCommission(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("commission");setQuickError("");}}/>
+                <input ref={quickCommissionRef} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.commission)} aria-describedby={quickFieldErrors.commission?"quick-commission-error":undefined} className="quick-cash-commission-input w-[150px] appearance-none bg-transparent p-0 text-right tabular-nums text-[var(--text)]" placeholder="0" value={quickCommission} onChange={(event)=>{setQuickCommission(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("commission");setQuickError("");}}/>
               </div>
             </div>
             {quickFieldErrors.commission?<p id="quick-commission-error" className="px-1 pt-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.commission}</p>:null}
