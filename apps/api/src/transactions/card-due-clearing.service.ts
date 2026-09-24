@@ -30,10 +30,13 @@ export class CardDueClearingService {
     commissionCollected: number;
     commissionRemaining: number;
   }) {
-    if (input.principalRemaining <= 0.001 && input.commissionRemaining <= 0.001) {
+    // Card due operational status follows the money advanced/recovered.
+    // Commission is optional income that may be collected later and must not
+    // keep a customer due case open.
+    if (input.principalRemaining <= 0.001) {
       return TransactionStatus.COMPLETED;
     }
-    if (input.principalRecovered > 0.001 || input.commissionCollected > 0.001) {
+    if (input.principalRecovered > 0.001) {
       return TransactionStatus.PARTIALLY_PAID;
     }
     return TransactionStatus.PENDING;

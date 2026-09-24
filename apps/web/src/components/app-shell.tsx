@@ -57,7 +57,7 @@ function Icon({name,className="h-5 w-5"}:{name:IconName;className?:string}) {
 type ThemeMode="system"|"light"|"dark";
 const transactionTaskTitles:Record<string,string>={
   "/transactions/card-swipe":"Card swipe",
-  "/transactions/card-due-clearing":"Card due clearing",
+  "/transactions/card-due-clearing":"Customer Due",
   "/transactions/cash-transfer":"Cash transfer",
   "/transactions/aeps":"Aadhaar withdrawal",
   "/transactions/micro-atm":"Micro ATM",
@@ -71,7 +71,7 @@ const quickActions=[
   ["Cash In","/cash-counter?quick=IN","Cash In"],
   ["Cash Out","/cash-counter?quick=OUT","Cash Out"],
   ["Card swipe","/transactions/card-swipe","Swipe"],
-  ["Card due clearing","/transactions/card-due-clearing","Due"],
+  ["Customer Due","/transactions/card-due-clearing","Due"],
   ["Cash transfer","/transactions/cash-transfer","Transfer"],
   ["Aadhaar withdrawal","/transactions/aeps","AePS"],
   ["Micro ATM","/transactions/micro-atm","ATM"],

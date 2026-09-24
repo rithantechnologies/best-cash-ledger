@@ -337,15 +337,14 @@ export default function CardDueClearingPage(){
     {customerLedger.length?<div className="space-y-2">{[...customerLedger].reverse().map(m=><div key={m.id} className={"rounded-xl border p-3 "+(m.direction==="OUT"?"border-rose-200 bg-rose-50":"border-emerald-200 bg-emerald-50")}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className={"text-sm font-black "+(m.direction==="OUT"?"text-rose-700":"text-emerald-700")}>{m.direction==="OUT"?"−":"+"} {money(m.amount)} · {m.label}</p><p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{m.detail} · {new Date(m.at).toLocaleString("en-IN")}</p></div><div className="shrink-0 text-right"><p className={"money text-xs font-black "+(m.balance>0.001?"text-rose-700":m.balance<-.001?"text-sky-700":"text-emerald-700")}>{m.balance>0.001?"Receive ":m.balance<-.001?"Give ":"Settled "}{money(Math.abs(m.balance))}</p>{m.href?<Link href={m.href} className="text-[10px] font-bold text-[var(--accent)]">Open</Link>:null}</div></div></div>)}</div>:<EmptyState title="No movements yet" description="Save the first card payment to start this customer ledger."/>}
    </div>
 
-   <div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4 lg:grid-cols-7">
+   <div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-3 lg:grid-cols-6">
     {[
-     ["Due paid",selected.dueAmount,""],
+     ["Card paid",selected.dueAmount,"text-rose-600"],
      ["Recovered",selected.principalRecovered,"text-[var(--money-in)]"],
-     ["Principal pending",selected.principalRemaining,Number(selected.principalRemaining)>0?"text-amber-600":""],
-     ["Commission",selected.commissionAmount,""],
-     ["Commission collected",selected.commissionCollected,"text-[var(--money-in)]"],
-     ["Commission pending",selected.commissionRemaining,Number(selected.commissionRemaining)>0?"text-amber-600":""],
-     ["Net profit",selectedProfit,selectedProfit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]"],
+     ["To receive",selected.principalRemaining,Number(selected.principalRemaining)>0?"text-rose-600":"text-[var(--money-in)]"],
+     ["Commission received",customerCommission,"text-[var(--money-in)]"],
+     ["Gateway charges",selectedGatewayFees,selectedGatewayFees>0?"text-[var(--money-out)]":""],
+     ["Net income",selectedProfit,selectedProfit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]"],
     ].map(([label,value,cls])=><div key={String(label)} className="bg-[var(--surface)] p-3"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p><p className={"money mt-1 text-sm font-black "+cls}>{money(value)}</p></div>)}
    </div>
 
@@ -396,7 +395,7 @@ export default function CardDueClearingPage(){
    </button>)}</div>:<div className="p-4"><EmptyState title="Everything settled" description="No customer currently has money to receive or give."/></div>}
   </Surface>
 
-  <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer px-4 py-3.5 text-sm font-black">Completed & all history <span className="float-right text-xs font-normal text-[var(--text-muted)]">{rows.length} total</span></summary><div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">{rows.map(row=><button key={row.id} onClick={()=>openCase(row)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{row.transaction.customer?.fullName??"Customer"} · {row.transaction.transactionNumber}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(row.transaction.transactionAt).toLocaleString("en-IN")}</p></div><div className="flex items-center gap-3"><span className="money text-xs font-bold">{money(row.dueAmount)}</span><StatusBadge tone={statusTone(row.transaction.status) as "rose"|"amber"|"emerald"}>{statusLabel(row.transaction.status)}</StatusBadge></div></button>)}</div></details>
+  <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer px-4 py-3.5 text-sm font-black">All history <span className="float-right text-xs font-normal text-[var(--text-muted)]">{rows.length} total</span></summary><div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">{rows.map(row=><button key={row.id} onClick={()=>openCase(row)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{row.transaction.customer?.fullName??"Customer"} · {row.transaction.transactionNumber}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(row.transaction.transactionAt).toLocaleString("en-IN")}</p></div><div className="flex items-center gap-3"><span className="money text-xs font-bold">{money(row.dueAmount)}</span><StatusBadge tone={Number(row.principalRemaining)<=0.001?"emerald":Number(row.principalRecovered)>0?"amber":"rose"}>{Number(row.principalRemaining)<=0.001?"Fully settled":Number(row.principalRecovered)>0?"Partly settled":"Pending"}</StatusBadge></div></button>)}</div></details>
   <Modal open={newCustomerOpen} title="Add customer + card" onClose={()=>{if(!newCustomerBusy)setNewCustomerOpen(false);}} footer={<button form="due-new-customer" disabled={newCustomerBusy||!newName.trim()||!validMobile(newMobile)||!newBank||newLastFour.length!==4} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{newCustomerBusy?"Saving…":"Save customer"}</button>}>
    <form id="due-new-customer" onSubmit={createNewCustomerCard} className="grid gap-3 sm:grid-cols-2">
     <Field label="Customer name"><input className="app-control" value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Full name" required/></Field>
