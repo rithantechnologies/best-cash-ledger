@@ -126,6 +126,8 @@ const friendlyService=(value:string)=>{
   const labels:Record<string,string>={
     CARD_SWIPE:"Card Swipe",
     CASH_TRANSFER:"Cash Transfer / UPI",
+    GPAY_TRANSFER:"GPay / UPI Transfer",
+    BANK_TRANSFER:"Bank Transfer",
     SERVICE_INCOME:"Service Income",
     AEPS_WITHDRAWAL:"Aadhaar / AePS",
     MICRO_ATM:"Micro ATM",
@@ -575,7 +577,7 @@ export default function CashCounterPage(){
         commissionAmount:purpose==="TRANSFER"?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful?0:commissionAmount):0,
         commissionCashAmount:purpose==="TRANSFER"&&commissionAmount>0&&!(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful)?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?0:commissionCashAmount):undefined,
         commissionMode:purpose==="TRANSFER"&&commissionAmount>0&&!(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful)?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?"UPI":quickCommissionMode):undefined,
-        beneficiaryMode:purpose==="TRANSFER"&&quickDirection==="IN"&&beneficiaryDetails?quickBeneficiaryMode:undefined,
+        beneficiaryMode:purpose==="TRANSFER"&&quickDirection==="IN"?quickBeneficiaryMode:undefined,
         beneficiaryDetails:purpose==="TRANSFER"&&quickDirection==="IN"?beneficiaryDetails||undefined:undefined,
         servicePaymentMode:purpose==="SERVICE"?quickServicePaymentMode:undefined,
         servicePaymentAccountId:purpose==="SERVICE"&&quickServicePaymentMode==="UPI"?quickServicePaymentAccountId||undefined:undefined,
@@ -807,11 +809,11 @@ export default function CashCounterPage(){
                 <div className="text-right"><strong className="money block text-base font-black">{money(totals.amount)}</strong><span className="text-xs font-bold text-[var(--accent)]">Comm {money(totals.commission)}</span>{totals.commission>0?<span className="mt-0.5 block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{totals.commissionCash>0?"Cash "+money(totals.commissionCash):""}{totals.commissionCash>0&&totals.commissionDigital>0?" · ":""}{totals.commissionDigital>0?"Bank/UPI "+money(totals.commissionDigital):""}</span>:null}</div>
               </div>
               <div className="grid grid-cols-[72px_minmax(0,1fr)_100px_86px] gap-3 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 text-[10px] font-black uppercase tracking-[.06em] text-[var(--text-muted)]">
-                <span>Time</span><span>Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
+                <span>Time</span><span>Service / Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
               </div>
               {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="grid w-full grid-cols-[72px_minmax(0,1fr)_100px_86px] items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-soft)]">
                 <span className="text-xs font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
-                <span className="min-w-0 truncate text-[14px] font-bold">{activity.particular}</span>
+                <span className="min-w-0"><strong className="block truncate text-[14px]">{activity.serviceType==="GPAY_TRANSFER"||activity.serviceType==="BANK_TRANSFER"?friendlyService(activity.serviceType):activity.particular}</strong>{activity.serviceType==="GPAY_TRANSFER"||activity.serviceType==="BANK_TRANSFER"?<span className="mt-0.5 block truncate text-[10px] font-semibold text-[var(--text-muted)]">{activity.particular}</span>:null}</span>
                 <strong className={"money text-right text-sm "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(amount)}</strong>
                 <span className="text-right">{activity.commissionAmount?<><strong className="money block text-sm text-[var(--accent)]">{money(activity.commissionAmount)}</strong>{commissionReceiptLabel(activity)?<span className="mt-0.5 block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{commissionReceiptLabel(activity)}</span>:null}</>:<strong className="money text-sm text-[var(--accent)]">—</strong>}</span>
               </button>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
@@ -827,11 +829,11 @@ export default function CashCounterPage(){
             const side=cashBookMobileDirection,rows=cashBookRows[side],totals=cashBookTotals[side];
             return <>
               <div className="grid grid-cols-[58px_minmax(0,1fr)_82px_68px] gap-2 border-b border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-[9px] font-black uppercase tracking-[.05em] text-[var(--text-muted)]">
-                <span>Time</span><span>Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
+                <span>Time</span><span>Service / Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
               </div>
               {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="grid w-full grid-cols-[58px_minmax(0,1fr)_82px_68px] items-center gap-2 px-3 py-3 text-left">
                 <span className="text-[11px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
-                <span className="min-w-0 truncate text-[13px] font-bold">{activity.particular}</span>
+                <span className="min-w-0"><strong className="block truncate text-[13px]">{activity.serviceType==="GPAY_TRANSFER"||activity.serviceType==="BANK_TRANSFER"?friendlyService(activity.serviceType):activity.particular}</strong>{activity.serviceType==="GPAY_TRANSFER"||activity.serviceType==="BANK_TRANSFER"?<span className="mt-0.5 block truncate text-[9px] font-semibold text-[var(--text-muted)]">{activity.particular}</span>:null}</span>
                 <strong className={"money text-right text-[13px] "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(amount)}</strong>
                 <span className="text-right">{activity.commissionAmount?<><strong className="money block text-[13px] text-[var(--accent)]">{money(activity.commissionAmount)}</strong>{commissionReceiptLabel(activity)?<span className="mt-0.5 block text-[8px] font-black uppercase text-[var(--text-muted)]">{commissionReceiptLabel(activity)}</span>:null}</>:<strong className="money text-[13px] text-[var(--accent)]">—</strong>}</span>
               </button>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
@@ -1110,7 +1112,11 @@ export default function CashCounterPage(){
           </div>:null}
 
           {quickPurpose==="TRANSFER"&&quickDirection==="IN"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
-            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary destination</span><div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>setQuickBeneficiaryMode("UPI")} className={"rounded-[8px] px-3 py-1.5 "+(quickBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>setQuickBeneficiaryMode("BANK")} className={"rounded-[8px] px-3 py-1.5 "+(quickBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div></div>
+            <div className="px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Service type <span className="text-rose-500">*</span></span></div>
+            <div className="mt-2 grid grid-cols-2 rounded-[12px] bg-[var(--surface)] p-1">
+              <button type="button" onClick={()=>setQuickBeneficiaryMode("UPI")} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)]")}>GPay / UPI transfer</button>
+              <button type="button" onClick={()=>setQuickBeneficiaryMode("BANK")} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)]")}>Bank transfer</button>
+            </div>
             {quickBeneficiaryMode==="UPI"
               ?<input className="mt-2 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-[15px] font-bold text-[var(--text)] outline-none" value={quickBeneficiaryUpi} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>setQuickBeneficiaryUpi(event.target.value)} placeholder="UPI ID / mobile"/>
               :<div className="mt-2 grid gap-2 sm:grid-cols-3">

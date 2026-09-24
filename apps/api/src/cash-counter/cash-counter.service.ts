@@ -364,6 +364,8 @@ export class CashCounterService {
             direction: true,
             purpose: true,
             cashOutType: true,
+            beneficiaryMode: true,
+            serviceName: true,
             commissionMode: true,
             commissionCashAmount: true,
             commissionAccount: {
@@ -462,7 +464,15 @@ export class CashCounterService {
             : quickCashDetail?.direction === 'OUT' &&
                 quickCashDetail?.cashOutType === 'MICRO_ATM'
               ? 'MICRO_ATM'
-              : origin.transactionType,
+              : quickCashDetail?.direction === 'IN' &&
+                  quickCashDetail?.purpose === 'TRANSFER' &&
+                  quickCashDetail?.beneficiaryMode === 'UPI'
+                ? 'GPAY_TRANSFER'
+                : quickCashDetail?.direction === 'IN' &&
+                    quickCashDetail?.purpose === 'TRANSFER' &&
+                    quickCashDetail?.beneficiaryMode === 'BANK'
+                  ? 'BANK_TRANSFER'
+                  : origin.transactionType,
         transactionAt: cashTransaction.transactionAt,
         particular,
         transactionAmount: Number(origin.grossAmount),

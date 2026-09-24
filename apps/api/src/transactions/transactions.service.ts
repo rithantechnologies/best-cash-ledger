@@ -1153,7 +1153,7 @@ export class TransactionsService {
           commissionCashAmount: new Prisma.Decimal(commissionCashAmount),
           commissionMode,
           beneficiaryMode:
-            dto.direction === 'IN' && dto.beneficiaryDetails?.trim()
+            dto.direction === 'IN'
               ? dto.beneficiaryMode ?? 'UPI'
               : null,
           beneficiaryDetails:
