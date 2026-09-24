@@ -50,6 +50,11 @@ export class CashCounterService {
       activities,
       serviceSummary,
       commissionEarned,
+      serviceIncomeEarned,
+      totalIncomeEarned,
+      incomeCashReceived,
+      incomeDigitalReceived,
+      incomeUnallocated,
     } = await this.expectedClosing(this.prisma, session);
     const users = await this.prisma.user.findMany({
       where: {
@@ -73,6 +78,11 @@ export class CashCounterService {
       activities,
       serviceSummary,
       commissionEarned,
+      serviceIncomeEarned,
+      totalIncomeEarned,
+      incomeCashReceived,
+      incomeDigitalReceived,
+      incomeUnallocated,
       transactionCount: activities.length,
       openedBy: byId.get(session.openedById) ?? null,
       closedBy: session.closedById
@@ -314,6 +324,21 @@ export class CashCounterService {
       orderBy: { createdAt: 'asc' },
     });
 
+    const commissionTransactions = await tx.transaction.findMany({
+      where: {
+        createdById: session.openedById,
+        transactionAt: {
+          gte: session.openedAt,
+          ...(session.closedAt ? { lte: session.closedAt } : {}),
+        },
+        status: { not: TransactionStatus.REVERSED },
+        commissions: { some: {} },
+      },
+      select: {
+        commissions: { select: { amount: true } },
+      },
+    });
+
     const transactionIds = [
       ...new Set(entries.map((entry) => entry.journal.transaction.id)),
     ];
@@ -356,24 +381,57 @@ export class CashCounterService {
         ...payoutLinks.map((link) => link.payable.sourceTransaction.id),
       ]),
     ];
-    const quickCashDetails = activityTransactionIds.length
-      ? await tx.quickCashTransferDetail.findMany({
-          where: { transactionId: { in: activityTransactionIds } },
-          select: {
-            transactionId: true,
-            direction: true,
-            purpose: true,
-            cashOutType: true,
-            beneficiaryMode: true,
-            serviceName: true,
-            commissionMode: true,
-            commissionCashAmount: true,
-            commissionAccount: {
-              select: { accountName: true, accountType: true },
+    const quickCashDetails = await tx.quickCashTransferDetail.findMany({
+      where: {
+        OR: [
+          ...(activityTransactionIds.length
+            ? [{ transactionId: { in: activityTransactionIds } }]
+            : []),
+          {
+            cashAccountId: session.cashAccountId,
+            purpose: 'SERVICE',
+            transaction: {
+              transactionAt: {
+                gte: session.openedAt,
+                ...(session.closedAt ? { lte: session.closedAt } : {}),
+              },
+              status: { not: TransactionStatus.REVERSED },
             },
           },
-        })
-      : [];
+        ],
+      },
+      select: {
+        transactionId: true,
+        direction: true,
+        purpose: true,
+        cashOutType: true,
+        beneficiaryMode: true,
+        serviceName: true,
+        amount: true,
+        commissionMode: true,
+        commissionCashAmount: true,
+        commissionAccount: {
+          select: { accountName: true, accountType: true },
+        },
+        servicePaymentMode: true,
+        servicePaymentAccount: {
+          select: { accountName: true, accountType: true },
+        },
+        transaction: {
+          select: {
+            id: true,
+            transactionNumber: true,
+            transactionType: true,
+            transactionAt: true,
+            status: true,
+            grossAmount: true,
+            netAmount: true,
+            notes: true,
+            customer: { select: { id: true, fullName: true } },
+          },
+        },
+      },
+    });
     const quickCashByTransactionId = new Map(
       quickCashDetails.map((detail) => [detail.transactionId, detail]),
     );
@@ -402,18 +460,24 @@ export class CashCounterService {
       const payoutChargeAmount = (origin.charges ?? [])
         .filter((charge) => charge.chargeType.startsWith('PAYOUT'))
         .reduce((sum, charge) => sum + Number(charge.amount), 0);
-      const profitAmount = commissionAmount - providerFeeAmount - payoutChargeAmount;
-      const commissionCashAmount =
-        quickCashDetail?.commissionCashAmount !== null &&
-        quickCashDetail?.commissionCashAmount !== undefined
+      const serviceIncomeAmount =
+        origin.transactionType === TransactionType.SERVICE_INCOME
+          ? Number(origin.grossAmount)
+          : 0;
+      const incomeAmount = commissionAmount + serviceIncomeAmount;
+      const profitAmount =
+        incomeAmount - providerFeeAmount - payoutChargeAmount;
+      const commissionCashAmount = quickCashDetail
+        ? quickCashDetail.commissionCashAmount !== null &&
+          quickCashDetail.commissionCashAmount !== undefined
           ? Number(quickCashDetail.commissionCashAmount)
-          : quickCashDetail?.commissionMode === 'CASH'
+          : quickCashDetail.commissionMode === 'CASH'
             ? commissionAmount
-            : 0;
-      const commissionDigitalAmount = Math.max(
-        0,
-        commissionAmount - commissionCashAmount,
-      );
+            : 0
+        : 0;
+      const commissionDigitalAmount = quickCashDetail
+        ? Math.max(0, commissionAmount - commissionCashAmount)
+        : 0;
       const direction =
         entry.entryType === EntryType.DEBIT ? 'IN' : 'OUT';
 
@@ -448,6 +512,8 @@ export class CashCounterService {
         grossAmount: Number(origin.grossAmount),
         netAmount: Number(origin.netAmount ?? origin.grossAmount),
         commissionAmount,
+        serviceIncomeAmount,
+        incomeAmount,
         providerFeeAmount,
         payoutChargeAmount,
         profitAmount,
@@ -476,7 +542,10 @@ export class CashCounterService {
                       quickCashDetail?.purpose === 'TRANSFER' &&
                       quickCashDetail?.beneficiaryMode === 'BANK'
                     ? 'BANK_TRANSFER'
-                    : origin.transactionType,
+                    : quickCashDetail?.purpose === 'SERVICE' &&
+                        quickCashDetail?.serviceName
+                      ? 'SERVICE_INCOME::' + quickCashDetail.serviceName
+                      : origin.transactionType,
         transactionAt: cashTransaction.transactionAt,
         particular,
         transactionAmount: Number(origin.grossAmount),
@@ -484,6 +553,8 @@ export class CashCounterService {
         cashIn: 0,
         cashOut: 0,
         commissionAmount,
+        serviceIncomeAmount,
+        incomeAmount,
         providerFeeAmount,
         payoutChargeAmount,
         profitAmount,
@@ -494,6 +565,9 @@ export class CashCounterService {
         commissionDigitalAmount,
         commissionAccountType: quickCashDetail?.commissionAccount?.accountType ?? null,
         commissionAccountName: quickCashDetail?.commissionAccount?.accountName ?? null,
+        servicePaymentMode: quickCashDetail?.servicePaymentMode ?? null,
+        servicePaymentAccountType: quickCashDetail?.servicePaymentAccount?.accountType ?? null,
+        servicePaymentAccountName: quickCashDetail?.servicePaymentAccount?.accountName ?? null,
         transactionStatus: origin.status,
         runningBalance,
         movementCount: 0,
@@ -544,24 +618,94 @@ export class CashCounterService {
         cashIn: 0,
         cashOut: 0,
         commissionAmount: 0,
+        serviceIncomeAmount: 0,
+        incomeAmount: 0,
         count: 0,
       };
       row.transactionAmount += activity.transactionAmount;
       row.cashIn += activity.cashIn;
       row.cashOut += activity.cashOut;
       row.commissionAmount += activity.commissionAmount;
+      row.serviceIncomeAmount += Number(activity.serviceIncomeAmount || 0);
+      row.incomeAmount += Number(activity.incomeAmount || 0);
       row.count += 1;
       serviceMap.set(activity.serviceType, row);
     }
+    for (const detail of quickCashDetails) {
+      if (
+        detail.purpose !== 'SERVICE' ||
+        detail.transaction.status === TransactionStatus.REVERSED ||
+        detail.servicePaymentMode !== 'UPI'
+      ) {
+        continue;
+      }
+      const serviceName = detail.serviceName?.trim() || 'Service';
+      const id = 'SERVICE_INCOME::' + serviceName;
+      const amount = Number(detail.amount);
+      const row = serviceMap.get(id) ?? {
+        id,
+        transactionAmount: 0,
+        cashIn: 0,
+        cashOut: 0,
+        commissionAmount: 0,
+        serviceIncomeAmount: 0,
+        incomeAmount: 0,
+        count: 0,
+      };
+      row.transactionAmount += amount;
+      row.serviceIncomeAmount += amount;
+      row.incomeAmount += amount;
+      row.count += 1;
+      serviceMap.set(id, row);
+    }
+
     const serviceSummary = [...serviceMap.values()].sort(
       (a, b) =>
         b.cashIn +
-        b.cashOut -
-        (a.cashIn + a.cashOut),
+        b.cashOut +
+        b.incomeAmount -
+        (a.cashIn + a.cashOut + a.incomeAmount),
     );
-    const commissionEarned = activeActivities.reduce(
-      (sum, activity) => sum + Number(activity.commissionAmount || 0),
+    const commissionEarned = commissionTransactions.reduce(
+      (sum, transaction) =>
+        sum +
+        transaction.commissions.reduce(
+          (commissionSum, commission) =>
+            commissionSum + Number(commission.amount || 0),
+          0,
+        ),
       0,
+    );
+    const serviceDetails = quickCashDetails.filter(
+      (detail) =>
+        detail.purpose === 'SERVICE' &&
+        detail.transaction.status !== TransactionStatus.REVERSED,
+    );
+    const serviceIncomeEarned = serviceDetails.reduce(
+      (sum, detail) => sum + Number(detail.amount || 0),
+      0,
+    );
+    const commissionCashReceived = activeActivities.reduce(
+      (sum, activity) =>
+        sum + Number(activity.commissionCashAmount || 0),
+      0,
+    );
+    const commissionDigitalReceived = activeActivities.reduce(
+      (sum, activity) =>
+        sum + Number(activity.commissionDigitalAmount || 0),
+      0,
+    );
+    const serviceIncomeCashReceived = serviceDetails
+      .filter((detail) => detail.servicePaymentMode !== 'UPI')
+      .reduce((sum, detail) => sum + Number(detail.amount || 0), 0);
+    const serviceIncomeDigitalReceived = serviceDetails
+      .filter((detail) => detail.servicePaymentMode === 'UPI')
+      .reduce((sum, detail) => sum + Number(detail.amount || 0), 0);
+    const incomeUnallocated = Math.max(
+      0,
+      commissionEarned -
+        commissionCashReceived -
+        commissionDigitalReceived,
     );
 
     return {
@@ -573,6 +717,12 @@ export class CashCounterService {
       activities,
       serviceSummary,
       commissionEarned,
+      serviceIncomeEarned,
+      totalIncomeEarned: commissionEarned + serviceIncomeEarned,
+      incomeCashReceived: commissionCashReceived + serviceIncomeCashReceived,
+      incomeDigitalReceived:
+        commissionDigitalReceived + serviceIncomeDigitalReceived,
+      incomeUnallocated,
     };
   }
 

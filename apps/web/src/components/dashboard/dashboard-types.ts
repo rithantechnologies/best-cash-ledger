@@ -70,6 +70,8 @@ export type DashboardToday = {
   receivableCreated: number;
   settlementsReceived: number;
   commission: number;
+  serviceIncome: number;
+  totalIncome: number;
   cardSwipeCommission: number;
   cashTransferCommission: number;
   aepsCommission: number;
@@ -201,6 +203,8 @@ export type DashboardAnalytics = {
   };
   income: {
     total: number;
+    commissionTotal: number;
+    serviceTotal: number;
     transactions: IncomeRecord[];
   };
   recent: RecentRecord[];

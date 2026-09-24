@@ -163,6 +163,13 @@ export class TransactionsService {
       payable: true,
       receivableSource: true,
       cardSwipe: { include: { customerCard: true } },
+      quickCashTransfer: {
+        include: {
+          cashAccount: true,
+          servicePaymentAccount: true,
+          commissionAccount: true,
+        },
+      },
       microAtm: true,
       aeps: true,
       providerSettlementReceipt: {
@@ -3073,6 +3080,14 @@ export class TransactionsService {
             customerUpiAccount: true,
             sourceAccount: true,
             cashAccount: true,
+          },
+        },
+        quickCashTransfer: {
+          include: {
+            cashAccount: true,
+            sourceAccount: true,
+            commissionAccount: true,
+            servicePaymentAccount: true,
           },
         },
         aeps: { include: { cashAccount: true, settlementAccount: true } },

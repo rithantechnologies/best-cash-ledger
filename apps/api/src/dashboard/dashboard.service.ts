@@ -316,6 +316,7 @@ export class DashboardService {
       customerPayout,
       customerReceipt,
       receivableCreated,
+      serviceIncome,
       businessExpense,
       personalExpense,
     ] = await Promise.all([
@@ -326,6 +327,7 @@ export class DashboardService {
       txSum(TransactionType.CUSTOMER_PAYOUT),
       txSum(TransactionType.CUSTOMER_RECEIPT),
       txSum(TransactionType.CUSTOMER_RECEIVABLE),
+      txSum(TransactionType.SERVICE_INCOME),
       txSum(TransactionType.BUSINESS_EXPENSE),
       txSum(TransactionType.PERSONAL_EXPENSE),
     ]);
@@ -409,6 +411,8 @@ export class DashboardService {
       receivableCreated,
       settlementsReceived: Number(settlementReceipts._sum.amount ?? 0),
       commission: Number(commissions._sum.amount ?? 0),
+      serviceIncome,
+      totalIncome: Number(commissions._sum.amount ?? 0) + serviceIncome,
       cardSwipeCommission,
       cashTransferCommission,
       aepsCommission,
@@ -1222,6 +1226,7 @@ export class DashboardService {
               entryType: true,
               amount: true,
               description: true,
+              ledgerAccount: { select: { ledgerCode: true } },
               journal: {
                 select: {
                   postingDate: true,
@@ -1384,6 +1389,34 @@ export class DashboardService {
       (sum, item) => sum + item.amount,
       0,
     );
+    const commissionIncomeTotal = incomeEntries.reduce((sum, entry) => {
+      const ledgerCode = entry.ledgerAccount?.ledgerCode;
+      const transactionType = entry.journal.transaction.transactionType;
+      const isCommission =
+        ledgerCode === 'SYS-COMMISSION' ||
+        (!ledgerCode && transactionType !== TransactionType.SERVICE_INCOME);
+      if (!isCommission) return sum;
+      return (
+        sum +
+        (entry.entryType === EntryType.CREDIT
+          ? Number(entry.amount)
+          : -Number(entry.amount))
+      );
+    }, 0);
+    const serviceIncomeTotal = incomeEntries.reduce((sum, entry) => {
+      const ledgerCode = entry.ledgerAccount?.ledgerCode;
+      const transactionType = entry.journal.transaction.transactionType;
+      const isServiceIncome =
+        ledgerCode === 'SYS-SERVICE-INCOME' ||
+        (!ledgerCode && transactionType === TransactionType.SERVICE_INCOME);
+      if (!isServiceIncome) return sum;
+      return (
+        sum +
+        (entry.entryType === EntryType.CREDIT
+          ? Number(entry.amount)
+          : -Number(entry.amount))
+      );
+    }, 0);
 
     return {
       range: { from: start, to: end, scope },
@@ -1403,6 +1436,8 @@ export class DashboardService {
       },
       income: {
         total: incomeTotal,
+        commissionTotal: commissionIncomeTotal,
+        serviceTotal: serviceIncomeTotal,
         transactions: incomeTransactions,
       },
       recent: recentRows.map((row) => ({

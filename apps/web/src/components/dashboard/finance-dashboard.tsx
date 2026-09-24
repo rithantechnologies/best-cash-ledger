@@ -612,7 +612,12 @@ export function FinanceDashboard() {
   const comparison = analytics?.expenses.previousTotal
     ? ((analytics.expenses.total - analytics.expenses.previousTotal) / analytics.expenses.previousTotal) * 100
     : null;
-  const incomeExpenseMax = Math.max(1, analytics?.income.total ?? 0, analytics?.expenses.total ?? 0);
+  const incomeBreakdownMax = Math.max(
+    1,
+    analytics?.income.total ?? 0,
+    analytics?.income.commissionTotal ?? 0,
+    analytics?.income.serviceTotal ?? 0,
+  );
 
   const attentionItems = [
     summary.receivableBreakdown.overdueAmount > 0
@@ -686,7 +691,9 @@ export function FinanceDashboard() {
     { label: "AePS / Aadhaar", value: today.aeps, icon: "user" as DashboardIconName, tone: "neutral", href: "/transactions?type=AEPS_WITHDRAWAL" },
     { label: "Micro ATM", value: today.microAtm, icon: "cash" as DashboardIconName, tone: "neutral", href: "/transactions?type=MICRO_ATM" },
     { label: "Settlements", value: today.settlementsReceived, icon: "wallet" as DashboardIconName, tone: "positive", href: "/provider-settlements" },
-    { label: "Commission", value: today.commission, icon: "spark" as DashboardIconName, tone: "positive", href: "/reports" },
+    { label: "Total income", value: today.totalIncome, icon: "spark" as DashboardIconName, tone: "positive", href: "/reports" },
+    { label: "Commission income", value: today.commission, icon: "spark" as DashboardIconName, tone: "positive", href: "/reports" },
+    { label: "Service income", value: today.serviceIncome, icon: "receive" as DashboardIconName, tone: "positive", href: "/reports" },
     { label: "Provider charges", value: today.providerCharges, icon: "expense" as DashboardIconName, tone: "negative", href: "/reports" },
     { label: "Expenses", value: today.businessExpense + today.personalExpense, icon: "expense" as DashboardIconName, tone: "negative", href: "/expenses" },
     { label: "Collections", value: today.customerReceipt, icon: "receive" as DashboardIconName, tone: "positive", href: "/receivables" },
@@ -916,6 +923,33 @@ export function FinanceDashboard() {
                 <CashFlowChart rows={analytics.cashFlow.series} onSelect={openFlow} />
               </div>
             </>
+          ) : <div className={styles.analyticsPlaceholder} />}
+        </section>
+
+        <section className={`${styles.incomeExpensePanel} ${analyticsLoading ? styles.analyticsRefreshing : ""}`} aria-busy={analyticsLoading}>
+          <SectionHeading
+            title="Income earned"
+            description={`${range.label} · Commission + service revenue only; transaction principal is excluded`}
+            action={<TextLink href="/reports">Open earnings</TextLink>}
+          />
+          {analytics ? (
+            <div className={styles.incomeExpenseBody}>
+              <button type="button" onClick={()=>setDrilldown({kind:"income",title:"Total income",records:analytics.income.transactions})}>
+                <div><span>Total income</span><strong className={styles.positiveText}>{money(analytics.income.total)}</strong></div>
+                <i><b style={{width:`${Math.max(2,(Math.max(0,analytics.income.total)/incomeBreakdownMax)*100)}%`}} /></i>
+                <small>Commission {money(analytics.income.commissionTotal)} · Services {money(analytics.income.serviceTotal)}</small>
+              </button>
+              <button type="button" onClick={()=>setDrilldown({kind:"income",title:"Commission income",records:analytics.income.transactions.filter(record=>record.transactionType!=="SERVICE_INCOME")})}>
+                <div><span>Commission income</span><strong className={styles.positiveText}>{money(analytics.income.commissionTotal)}</strong></div>
+                <i><b style={{width:`${Math.max(2,(Math.max(0,analytics.income.commissionTotal)/incomeBreakdownMax)*100)}%`}} /></i>
+                <small>Fees and commissions earned on transfers, withdrawals, card swipes and similar services.</small>
+              </button>
+              <button type="button" onClick={()=>setDrilldown({kind:"income",title:"Service income",records:analytics.income.transactions.filter(record=>record.transactionType==="SERVICE_INCOME")})}>
+                <div><span>Service income</span><strong className={styles.positiveText}>{money(analytics.income.serviceTotal)}</strong></div>
+                <i><b style={{width:`${Math.max(2,(Math.max(0,analytics.income.serviceTotal)/incomeBreakdownMax)*100)}%`}} /></i>
+                <small>Revenue from Xerox, printing, lamination and other direct services.</small>
+              </button>
+            </div>
           ) : <div className={styles.analyticsPlaceholder} />}
         </section>
 

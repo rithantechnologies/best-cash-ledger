@@ -98,6 +98,12 @@ export class ReportsService {
         commissions: true,
         cardSwipe: true,
         cashTransfer: true,
+        quickCashTransfer: {
+          include: {
+            servicePaymentAccount: true,
+            commissionAccount: true,
+          },
+        },
         aeps: true,
         internalTransfer: true,
         expense: true,
@@ -149,6 +155,13 @@ export class ReportsService {
       payable: true,
       receivableSource: true,
       cardSwipe: { include: { customerCard: true } },
+      quickCashTransfer: {
+        include: {
+          cashAccount: true,
+          servicePaymentAccount: true,
+          commissionAccount: true,
+        },
+      },
       expense: { include: { expenseCategory: true, paymentAccount: true } },
       cashTransfer: {
         include: {
@@ -440,7 +453,7 @@ export class ReportsService {
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
 
-    const [transactions, commissions, charges] = await Promise.all([
+    const [transactions, commissions, serviceIncome, charges] = await Promise.all([
       this.prisma.transaction.groupBy({
         by: ['transactionType'],
         where: { transactionAt: { gte: start, lt: end }, status: { not: 'REVERSED' } },
@@ -450,6 +463,14 @@ export class ReportsService {
       this.prisma.transactionCommission.aggregate({
         where: { transaction: { transactionAt: { gte: start, lt: end }, status: { not: 'REVERSED' } } },
         _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: {
+          transactionType: TransactionType.SERVICE_INCOME,
+          transactionAt: { gte: start, lt: end },
+          status: { not: 'REVERSED' },
+        },
+        _sum: { grossAmount: true },
       }),
       this.prisma.transactionCharge.aggregate({
         where: { transaction: { transactionAt: { gte: start, lt: end }, status: { not: 'REVERSED' } } },
@@ -461,6 +482,10 @@ export class ReportsService {
       date: start.toISOString().slice(0, 10),
       transactions,
       commission: Number(commissions._sum.amount ?? 0),
+      serviceIncome: Number(serviceIncome._sum.grossAmount ?? 0),
+      totalIncome:
+        Number(commissions._sum.amount ?? 0) +
+        Number(serviceIncome._sum.grossAmount ?? 0),
       charges: Number(charges._sum.amount ?? 0),
     };
   }

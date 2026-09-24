@@ -20,13 +20,14 @@ type Movement={
 type Activity={
   id:string;transactionId:string;transactionNumber:string;serviceType:string;transactionAt:string;
   particular:string;transactionAmount:number;netAmount:number;cashIn:number;cashOut:number;
-  commissionAmount:number;providerFeeAmount?:number;payoutChargeAmount?:number;profitAmount?:number;
+  commissionAmount:number;serviceIncomeAmount?:number;incomeAmount?:number;providerFeeAmount?:number;payoutChargeAmount?:number;profitAmount?:number;
   quickCashDirection?:"IN"|"OUT"|null;quickCashPurpose?:string|null;
   commissionMode?:"CASH"|"UPI"|"SPLIT"|null;commissionCashAmount?:number;commissionDigitalAmount?:number;commissionAccountType?:string|null;commissionAccountName?:string|null;
+  servicePaymentMode?:"CASH"|"UPI"|null;servicePaymentAccountType?:string|null;servicePaymentAccountName?:string|null;
   transactionStatus?:string;runningBalance:number;movementCount:number;
 };
 type ServiceSummary={
-  id:string;transactionAmount:number;cashIn:number;cashOut:number;commissionAmount:number;count:number;
+  id:string;transactionAmount:number;cashIn:number;cashOut:number;commissionAmount:number;serviceIncomeAmount?:number;incomeAmount?:number;count:number;
 };
 type UserRef={id:string;fullName:string}|null;
 type Operator={id:string;fullName:string;role:{name:string}};
@@ -35,7 +36,8 @@ type Session={
   expectedClosingTotal:string|null;liveExpectedClosingTotal?:number;liveCashIn?:number;liveCashOut?:number;
   actualClosingTotal:string|null;differenceAmount:string|null;status:string;closingNotes:string|null;
   cashAccount:{accountName:string};denominationCounts:Count[];movements?:Movement[];activities?:Activity[];
-  serviceSummary?:ServiceSummary[];commissionEarned?:number;transactionCount?:number;
+  serviceSummary?:ServiceSummary[];commissionEarned?:number;serviceIncomeEarned?:number;totalIncomeEarned?:number;
+  incomeCashReceived?:number;incomeDigitalReceived?:number;incomeUnallocated?:number;transactionCount?:number;
   openedBy?:UserRef;closedBy?:UserRef;closedAt?:string|null;
 };
 
@@ -84,7 +86,7 @@ const txColumnDefs:Array<{id:TxColumn;label:string;width:string}>=[
   {id:"TXN_AMOUNT",label:"Txn amount",width:"110px"},
   {id:"CASH_IN",label:"Cash in",width:"105px"},
   {id:"CASH_OUT",label:"Cash out",width:"105px"},
-  {id:"CUSTOMER_FEE",label:"Customer fee",width:"115px"},
+  {id:"CUSTOMER_FEE",label:"Income",width:"115px"},
   {id:"PROVIDER_FEE",label:"Provider fee",width:"115px"},
   {id:"PROFIT",label:"Profit",width:"105px"},
   {id:"DRAWER",label:"Drawer",width:"115px"},
@@ -124,8 +126,10 @@ const commissionReceiptLabel=(activity:Activity)=>{
   return commissionDigitalLabel(activity.commissionAccountType);
 };
 const isCashInTransferService=(value:string)=>value==="GPAY_TRANSFER"||value==="BANK_TRANSFER"||value.startsWith("CASH_IN_TRANSFER::");
+const isServiceIncome=(value:string)=>value==="SERVICE_INCOME"||value.startsWith("SERVICE_INCOME::");
 const friendlyService=(value:string)=>{
   if(value.startsWith("CASH_IN_TRANSFER::"))return value.slice("CASH_IN_TRANSFER::".length);
+  if(value.startsWith("SERVICE_INCOME::"))return value.slice("SERVICE_INCOME::".length);
   const labels:Record<string,string>={
     CARD_SWIPE:"Card Swipe",
     CASH_TRANSFER:"Cash Transfer / UPI",
@@ -377,7 +381,12 @@ export default function CashCounterPage(){
   const countedTotal=useMemo(()=>denominations.reduce((sum,note)=>sum+note*Number(qty[note]||0),0),[qty]);
   const expected=Number(today?.liveExpectedClosingTotal??today?.expectedClosingTotal??today?.openingTotal??0);
   const cashIn=Number(today?.liveCashIn??0),cashOut=Number(today?.liveCashOut??0);
-  const commission=Number(today?.commissionEarned??0);
+  const commissionIncome=Number(today?.commissionEarned??0);
+  const serviceIncome=Number(today?.serviceIncomeEarned??0);
+  const totalIncome=Number(today?.totalIncomeEarned??commissionIncome+serviceIncome);
+  const incomeCash=Number(today?.incomeCashReceived??0);
+  const incomeDigital=Number(today?.incomeDigitalReceived??0);
+  const incomeUnallocated=Number(today?.incomeUnallocated??0);
   const activeDrawerActivities=useMemo(
     ()=>[...(today?.activities??[])].filter((row)=>row.serviceType!=="REVERSAL"&&row.transactionStatus!=="REVERSED"),
     [today?.activities],
@@ -436,6 +445,8 @@ export default function CashCounterPage(){
     const summarize=(rows:typeof cashBookRows.IN)=>({
       amount:rows.reduce((sum,row)=>sum+row.amount,0),
       commission:rows.reduce((sum,row)=>sum+Number(row.activity.commissionAmount||0),0),
+      serviceIncome:rows.reduce((sum,row)=>sum+Number(row.activity.serviceIncomeAmount||0),0),
+      income:rows.reduce((sum,row)=>sum+Number(row.activity.incomeAmount??row.activity.commissionAmount??0),0),
       commissionCash:rows.reduce((sum,row)=>sum+commissionCashPart(Number(row.activity.commissionAmount||0),row.activity.commissionMode,row.activity.commissionCashAmount),0),
       commissionDigital:rows.reduce((sum,row)=>sum+commissionDigitalPart(Number(row.activity.commissionAmount||0),row.activity.commissionMode,row.activity.commissionCashAmount),0),
     });
@@ -447,7 +458,7 @@ export default function CashCounterPage(){
       const directionMatch=direction==="ALL"||
         (direction==="ADJUSTMENT"?activity.serviceType==="CASH_ADJUSTMENT":
           direction==="REVERSAL"?activity.serviceType==="REVERSAL":
-          direction==="COMMISSION"?activity.commissionAmount>0:
+          direction==="COMMISSION"?Number(activity.incomeAmount??activity.commissionAmount??0)>0:
           direction==="IN"?(activity.quickCashDirection?activity.quickCashDirection==="IN":activity.cashIn>0):
           (activity.quickCashDirection?activity.quickCashDirection==="OUT":activity.cashOut>0));
       const serviceMatch=!serviceFilter||activity.serviceType===serviceFilter;
@@ -722,8 +733,21 @@ export default function CashCounterPage(){
             <MetricCard label="Opening" value={money(today.openingTotal)}/>
             <MetricCard label="In" value={"+"+money(cashIn)} detail={activeDrawerActivities.filter((row)=>row.quickCashDirection?row.quickCashDirection==="IN":row.cashIn>0).length+" txns"} tone="in"/>
             <MetricCard label="Out" value={"−"+money(cashOut)} detail={activeDrawerActivities.filter((row)=>row.quickCashDirection?row.quickCashDirection==="OUT":row.cashOut>0).length+" txns"} tone="out"/>
-            <MetricCard label="Commission earned" value={money(commission)} detail="Cash book · Cash / UPI / Bank" tone="accent"/>
+            <MetricCard label="Total income" value={money(totalIncome)} detail={"Commission "+money(commissionIncome)+" · Services "+money(serviceIncome)} tone="accent"/>
           </div>
+        </div>
+      </Surface>
+
+      <Surface className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <div><h3 className="text-sm font-extrabold">Income earned</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Income only — transaction principal and cash movement are excluded.</p></div>
+          <strong className="money text-lg font-black text-[var(--accent)]">{money(totalIncome)}</strong>
+        </div>
+        <div className="grid grid-cols-2 gap-px bg-[var(--border)] lg:grid-cols-4">
+          <MetricCard label="Commission income" value={money(commissionIncome)} detail="Transfer / withdrawal / swipe fees" tone="accent"/>
+          <MetricCard label="Service income" value={money(serviceIncome)} detail="Xerox, printing, lamination & services" tone="in"/>
+          <MetricCard label="Received in cash" value={money(incomeCash)} detail="Included in physical cash" tone="in"/>
+          <MetricCard label="Bank / UPI income" value={money(incomeDigital)} detail={incomeUnallocated>0?money(incomeUnallocated)+" awaiting account allocation":"Does not change drawer cash"} tone="accent"/>
         </div>
       </Surface>
 
@@ -783,7 +807,8 @@ export default function CashCounterPage(){
                   <span>{row.count} txn{row.count===1?"":"s"}</span>
                   <span className="text-[var(--money-in)]">In {money(row.cashIn)}</span>
                   <span className="text-[var(--money-out)]">Out {money(row.cashOut)}</span>
-                  <span className="text-[var(--accent)]">Earned {money(row.commissionAmount)}</span>
+                  {Number(row.commissionAmount)>0?<span className="text-[var(--accent)]">Commission income {money(row.commissionAmount)}</span>:null}
+                  {Number(row.serviceIncomeAmount||0)>0?<span className="text-[var(--money-in)]">Service income {money(row.serviceIncomeAmount||0)}</span>:null}
                 </div>
               </div>
               <div className="shrink-0 text-right"><strong className="money block text-base font-black">{money(row.value)}</strong><span className="mt-0.5 block text-xs font-bold text-[var(--text-muted)]">{row.percentage.toFixed(0)}%</span></div>
@@ -798,7 +823,7 @@ export default function CashCounterPage(){
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-extrabold">Cash book</h3>
-              <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Simple daily view · time, particular, amount and commission</p>
+              <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Simple daily view · cash movement and the income earned from each entry</p>
             </div>
             <div className="grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1">
               <button type="button" className="min-h-8 rounded-lg bg-[var(--surface)] px-3 text-xs font-black text-[var(--text)] shadow-sm">Cash Book</button>
@@ -817,19 +842,19 @@ export default function CashCounterPage(){
             return <div key={side} className="min-w-0">
               <div className={"flex items-center justify-between border-b border-[var(--border)] px-4 py-3 "+(side==="IN"?"bg-emerald-50/55":"bg-rose-50/55")}>
                 <div><p className={"text-sm font-black "+(side==="IN"?"text-emerald-700":"text-rose-700")}>{side==="IN"?"Cash In":"Cash Out"}</p><p className="mt-0.5 text-xs font-semibold text-[var(--text-muted)]">{rows.length} entr{rows.length===1?"y":"ies"}</p></div>
-                <div className="text-right"><strong className="money block text-base font-black">{money(totals.amount)}</strong><span className="text-xs font-bold text-[var(--accent)]">Comm {money(totals.commission)}</span>{totals.commission>0?<span className="mt-0.5 block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{totals.commissionCash>0?"Cash "+money(totals.commissionCash):""}{totals.commissionCash>0&&totals.commissionDigital>0?" · ":""}{totals.commissionDigital>0?"Bank/UPI "+money(totals.commissionDigital):""}</span>:null}</div>
+                <div className="text-right"><strong className="money block text-base font-black">{money(totals.amount)}</strong><span className="text-xs font-bold text-[var(--accent)]">Income {money(totals.income)}</span>{totals.income>0?<span className="mt-0.5 block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{totals.commission>0?"Commission "+money(totals.commission):""}{totals.commission>0&&totals.serviceIncome>0?" · ":""}{totals.serviceIncome>0?"Service "+money(totals.serviceIncome):""}</span>:null}</div>
               </div>
               <div className="grid grid-cols-[72px_minmax(0,1fr)_100px_86px] gap-3 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 text-[10px] font-black uppercase tracking-[.06em] text-[var(--text-muted)]">
-                <span>Time</span><span>Service / Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
+                <span>Time</span><span>Service / Particular</span><span className="text-right">Amount</span><span className="text-right">Income</span>
               </div>
               {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="grid w-full grid-cols-[72px_minmax(0,1fr)_100px_86px] items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-soft)]">
                 <span className="text-xs font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
                 <span className="min-w-0"><strong className="block truncate text-[14px]">{isCashInTransferService(activity.serviceType)?friendlyService(activity.serviceType):activity.particular}</strong>{isCashInTransferService(activity.serviceType)?<span className="mt-0.5 block truncate text-[10px] font-semibold text-[var(--text-muted)]">{activity.particular}</span>:null}</span>
                 <strong className={"money text-right text-sm "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(amount)}</strong>
-                <span className="text-right">{activity.commissionAmount?<><strong className="money block text-sm text-[var(--accent)]">{money(activity.commissionAmount)}</strong>{commissionReceiptLabel(activity)?<span className="mt-0.5 block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{commissionReceiptLabel(activity)}</span>:null}</>:<strong className="money text-sm text-[var(--accent)]">—</strong>}</span>
+                <span className="text-right">{Number(activity.incomeAmount??activity.commissionAmount??0)>0?<><strong className="money block text-sm text-[var(--accent)]">{money(Number(activity.incomeAmount??activity.commissionAmount??0))}</strong><span className="mt-0.5 block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{Number(activity.serviceIncomeAmount||0)>0?"Service":commissionReceiptLabel(activity)||"Commission"}</span></>:<strong className="money text-sm text-[var(--accent)]">—</strong>}</span>
               </button>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
               <div className="grid grid-cols-[72px_minmax(0,1fr)_100px_86px] gap-3 border-t border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-sm">
-                <span/><strong>Total</strong><strong className="money text-right">{money(totals.amount)}</strong><strong className="money text-right text-[var(--accent)]">{money(totals.commission)}</strong>
+                <span/><strong>Total</strong><strong className="money text-right">{money(totals.amount)}</strong><strong className="money text-right text-[var(--accent)]">{money(totals.income)}</strong>
               </div>
             </div>;
           })}
@@ -840,16 +865,16 @@ export default function CashCounterPage(){
             const side=cashBookMobileDirection,rows=cashBookRows[side],totals=cashBookTotals[side];
             return <>
               <div className="grid grid-cols-[58px_minmax(0,1fr)_82px_68px] gap-2 border-b border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-[9px] font-black uppercase tracking-[.05em] text-[var(--text-muted)]">
-                <span>Time</span><span>Service / Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
+                <span>Time</span><span>Service / Particular</span><span className="text-right">Amount</span><span className="text-right">Income</span>
               </div>
               {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="grid w-full grid-cols-[58px_minmax(0,1fr)_82px_68px] items-center gap-2 px-3 py-3 text-left">
                 <span className="text-[11px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
                 <span className="min-w-0"><strong className="block truncate text-[13px]">{isCashInTransferService(activity.serviceType)?friendlyService(activity.serviceType):activity.particular}</strong>{isCashInTransferService(activity.serviceType)?<span className="mt-0.5 block truncate text-[9px] font-semibold text-[var(--text-muted)]">{activity.particular}</span>:null}</span>
                 <strong className={"money text-right text-[13px] "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(amount)}</strong>
-                <span className="text-right">{activity.commissionAmount?<><strong className="money block text-[13px] text-[var(--accent)]">{money(activity.commissionAmount)}</strong>{commissionReceiptLabel(activity)?<span className="mt-0.5 block text-[8px] font-black uppercase text-[var(--text-muted)]">{commissionReceiptLabel(activity)}</span>:null}</>:<strong className="money text-[13px] text-[var(--accent)]">—</strong>}</span>
+                <span className="text-right">{Number(activity.incomeAmount??activity.commissionAmount??0)>0?<><strong className="money block text-[13px] text-[var(--accent)]">{money(Number(activity.incomeAmount??activity.commissionAmount??0))}</strong><span className="mt-0.5 block text-[8px] font-black uppercase text-[var(--text-muted)]">{Number(activity.serviceIncomeAmount||0)>0?"Service":commissionReceiptLabel(activity)||"Commission"}</span></>:<strong className="money text-[13px] text-[var(--accent)]">—</strong>}</span>
               </button>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
               <div className="grid grid-cols-[58px_minmax(0,1fr)_82px_68px] gap-2 border-t border-[var(--border)] bg-[var(--surface-soft)] px-3 py-3 text-[13px]">
-                <span/><strong>Total</strong><strong className="money text-right">{money(totals.amount)}</strong><strong className="money text-right text-[var(--accent)]">{money(totals.commission)}</strong>
+                <span/><strong>Total</strong><strong className="money text-right">{money(totals.amount)}</strong><strong className="money text-right text-[var(--accent)]">{money(totals.income)}</strong>
               </div>
             </>;
           })()}
@@ -865,13 +890,13 @@ export default function CashCounterPage(){
                 <button type="button" onClick={()=>setLedgerView("CASHBOOK")} className="min-h-8 rounded-lg px-3 text-xs font-black text-[var(--text-muted)]">Cash Book</button>
                 <button type="button" className="min-h-8 rounded-lg bg-[var(--surface)] px-3 text-xs font-black text-[var(--text)] shadow-sm">Detailed</button>
               </div>
-              {([["ALL","All"],["IN","Cash In"],["OUT","Cash Out"],["COMMISSION","Commission"],["REVERSAL","Reversal"],["ADJUSTMENT","Adjust"]] as Array<[DirectionFilter,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>setDirection(id)} className={"min-h-9 rounded-xl border px-3 text-sm font-extrabold "+(direction===id?"border-[var(--accent)] bg-[var(--accent)] text-white":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{label}</button>)}
+              {([["ALL","All"],["IN","Cash In"],["OUT","Cash Out"],["COMMISSION","Income"],["REVERSAL","Reversal"],["ADJUSTMENT","Adjust"]] as Array<[DirectionFilter,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>setDirection(id)} className={"min-h-9 rounded-xl border px-3 text-sm font-extrabold "+(direction===id?"border-[var(--accent)] bg-[var(--accent)] text-white":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{label}</button>)}
               <SearchableSelect className="min-h-9 min-w-[150px] rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm font-bold text-[var(--text)]" value={serviceFilter??""} onChange={(event)=>setServiceFilter(event.target.value||null)}>
                 <option value="">All services</option>
                 {transactionServices.map((service)=><option key={service} value={service}>{friendlyService(service)}</option>)}
               </SearchableSelect>
               {direction==="COMMISSION"
-                ?<span className="inline-flex min-h-9 items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-extrabold text-[var(--accent)]">Commission only</span>
+                ?<span className="inline-flex min-h-9 items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-extrabold text-[var(--accent)]">Income only</span>
                 :<details className="relative">
                   <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-extrabold text-[var(--text-muted)] [&::-webkit-details-marker]:hidden">
                     Columns <span className="rounded-md bg-[var(--surface-soft)] px-1.5 py-0.5 text-[11px]">{txColumns.length}</span>
@@ -896,7 +921,7 @@ export default function CashCounterPage(){
             {displayedTxColumns.includes("TXN_AMOUNT")?<span className="text-right">Txn amount</span>:null}
             {displayedTxColumns.includes("CASH_IN")?<span className="text-right">Cash in</span>:null}
             {displayedTxColumns.includes("CASH_OUT")?<span className="text-right">Cash out</span>:null}
-            {displayedTxColumns.includes("CUSTOMER_FEE")?<span className="text-right">{direction==="COMMISSION"?"Commission":"Customer fee"}</span>:null}
+            {displayedTxColumns.includes("CUSTOMER_FEE")?<span className="text-right">Income</span>:null}
             {displayedTxColumns.includes("PROVIDER_FEE")?<span className="text-right">Provider fee</span>:null}
             {displayedTxColumns.includes("PROFIT")?<span className="text-right">Profit</span>:null}
             {displayedTxColumns.includes("DRAWER")?<span className="text-right">Drawer</span>:null}
@@ -912,7 +937,7 @@ export default function CashCounterPage(){
                 {displayedTxColumns.includes("TXN_AMOUNT")?<strong className="money text-right text-sm">{money(activity.transactionAmount)}</strong>:null}
                 {displayedTxColumns.includes("CASH_IN")?<strong className="money text-right text-sm text-[var(--money-in)]">{activity.cashIn?money(activity.cashIn):"—"}</strong>:null}
                 {displayedTxColumns.includes("CASH_OUT")?<strong className="money text-right text-sm text-[var(--money-out)]">{activity.cashOut?money(activity.cashOut):"—"}</strong>:null}
-                {displayedTxColumns.includes("CUSTOMER_FEE")?<strong className="money text-right text-sm text-[var(--accent)]">{activity.commissionAmount?money(activity.commissionAmount):"—"}</strong>:null}
+                {displayedTxColumns.includes("CUSTOMER_FEE")?<strong className="money text-right text-sm text-[var(--accent)]">{Number(activity.incomeAmount??activity.commissionAmount??0)>0?money(Number(activity.incomeAmount??activity.commissionAmount??0)):"—"}</strong>:null}
                 {displayedTxColumns.includes("PROVIDER_FEE")?<strong className="money text-right text-sm text-[var(--money-out)]">{activity.providerFeeAmount?"−"+money(activity.providerFeeAmount):"—"}</strong>:null}
                 {displayedTxColumns.includes("PROFIT")?<strong className={"money text-right text-sm "+((activity.profitAmount??0)>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{activity.profitAmount!==undefined?money(activity.profitAmount):"—"}</strong>:null}
                 {displayedTxColumns.includes("DRAWER")?<strong className="money text-right text-sm">{money(activity.runningBalance)}</strong>:null}
@@ -925,14 +950,14 @@ export default function CashCounterPage(){
                     <p className="mt-0.5 truncate text-[13px] text-[var(--text-muted)]">{friendlyService(activity.serviceType)} · {new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
                     <p className="mt-1 truncate text-xs text-[var(--text-muted)]">{activity.transactionNumber}</p>
                   </div>
-                  <div className="text-right"><strong className="money block text-[17px] font-black text-[var(--accent)]">{money(activity.commissionAmount)}</strong><span className="mt-0.5 block text-xs font-semibold text-[var(--text-muted)]">Commission</span></div>
+                  <div className="text-right"><strong className="money block text-[17px] font-black text-[var(--accent)]">{money(Number(activity.incomeAmount??activity.commissionAmount??0))}</strong><span className="mt-0.5 block text-xs font-semibold text-[var(--text-muted)]">{Number(activity.serviceIncomeAmount||0)>0?"Service income":"Commission income"}</span></div>
                 </div>
                 :<div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 xl:hidden">
                   <span className={"grid h-10 w-10 place-items-center rounded-xl text-sm font-black "+(!activity.cashIn&&!activity.cashOut&&activity.commissionAmount?"bg-[var(--accent-soft)] text-[var(--accent)]":activity.cashIn>=activity.cashOut?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-600")}>{!activity.cashIn&&!activity.cashOut&&activity.commissionAmount?"₹":activity.cashIn>=activity.cashOut?"↓":"↑"}</span>
                   <div className="min-w-0">
                     <p className="truncate text-[15px] font-bold">{activity.particular}</p>
                     <p className="mt-0.5 truncate text-[13px] text-[var(--text-muted)]">{friendlyService(activity.serviceType)} · {new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
-                    <p className="mt-1 text-xs text-[var(--text-muted)]">Txn {money(activity.transactionAmount)}{activity.commissionAmount?" · Fee "+money(activity.commissionAmount):""}{activity.providerFeeAmount?" · Provider −"+money(activity.providerFeeAmount):""}{activity.profitAmount!==undefined?" · Profit "+money(activity.profitAmount):""}</p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">Txn {money(activity.transactionAmount)}{Number(activity.incomeAmount??activity.commissionAmount??0)>0?" · Income "+money(Number(activity.incomeAmount??activity.commissionAmount??0)):""}{activity.providerFeeAmount?" · Provider −"+money(activity.providerFeeAmount):""}{activity.profitAmount!==undefined?" · Profit "+money(activity.profitAmount):""}</p>
                   </div>
                   <div className="text-right">
                     {activity.cashIn?<strong className="money block text-[15px] text-[var(--money-in)]">+{money(activity.cashIn)}</strong>:null}
@@ -943,7 +968,7 @@ export default function CashCounterPage(){
             </button>;
           })}
           </div>
-        </div>:<div className="p-5 sm:p-7"><EmptyState title="No transactions yet" description="Cash movements and commission earned during this session will appear here."/></div>}
+        </div>:<div className="p-5 sm:p-7"><EmptyState title="No transactions yet" description="Cash movements and income earned during this session will appear here."/></div>}
       </Surface>
       </>}
 

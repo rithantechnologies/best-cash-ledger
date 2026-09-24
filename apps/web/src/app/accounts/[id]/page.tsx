@@ -19,6 +19,7 @@ type MoneyRef={payable:{status:string;dueAt:string|null;remainingAmount:string}|
 type BusinessTx=MoneyRef&{
   id?:string;transactionNumber:string;transactionType:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;createdBy:{fullName:string}|null;
   cardSwipe:{swipeAmount:string;commissionAmount:string;customerCard:{bankName:string;lastFourDigits:string}}|null;
+  quickCashTransfer:{purpose:string;serviceName:string|null;servicePaymentMode:string;cashAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
   expense:{expenseType:string;amount:string;description:string;expenseCategory:{name:string};paymentAccount:{accountName:string}}|null;
   cashTransfer:{actualTransferAmount:string;beneficiary:{beneficiaryName:string}|null;beneficiaryAccount:{bankName:string|null;accountReference:string|null;upiId:string|null}|null;customerBankAccount:{bankName:string;accountHolderName:string}|null;customerUpiAccount:{accountName:string;upiId:string|null}|null;sourceAccount:{accountName:string};cashAccount:{accountName:string}}|null;
   aeps:{aadhaarLastFour:string;customerBankName:string;withdrawalAmount:string;cashGiven:string;settlementAmount:string;settlementAccount:{accountName:string}}|null;
@@ -44,6 +45,7 @@ type DrillTx={
   id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
   status:string;referenceNumber:string|null;notes:string|null;createdById:string;createdBy:{fullName:string}|null;customer:{fullName:string}|null;
   charges:Charge[];commissions:Commission[];
+  quickCashTransfer:{purpose:string;serviceName:string|null;servicePaymentMode:string;cashAccount:TxAccount|null;servicePaymentAccount:TxAccount|null;commissionAccount:TxAccount|null}|null;
   cardSwipe:{swipeAmount:string;providerChargeRate:string;providerChargeAmount:string;commissionRate:string;commissionAmount:string;customerPayableAmount:string;settlementAmount:string;settlementAccount:TxAccount}|null;
   payable:{payments:{status:string;transaction:{charges:Charge[]}}[]}|null;
   payablePayment:{amount:string;sourceAccount:TxAccount;payable:{sourceTransaction:SourceRef}}|null;
@@ -74,6 +76,15 @@ const total=(items:{amount:string}[])=>items.reduce((sum,item)=>sum+Number(item.
 const ledgerBusinessSource=(tx:RowTx):BusinessTx=>tx.providerSettlementReceipt?.settlement.sourceTransaction??tx.payablePayment?.payable.sourceTransaction??tx;
 const ledgerMoneySource=(tx:RowTx):MoneyRef=>ledgerBusinessSource(tx);
 function businessSummary(tx:BusinessTx,row:Row){
+  if(tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer){
+    const receivedIn=tx.quickCashTransfer.servicePaymentMode==="UPI"
+      ?tx.quickCashTransfer.servicePaymentAccount?.accountName??"Bank / UPI"
+      :tx.quickCashTransfer.cashAccount?.accountName??"Cash drawer";
+    return {
+      primary:tx.quickCashTransfer.serviceName??"Service income",
+      secondary:"Service income · "+tx.transactionNumber+" · received in "+receivedIn+(tx.createdBy?.fullName?" · By "+tx.createdBy.fullName:""),
+    };
+  }
   if(tx.cardSwipe){
     const card=tx.cardSwipe.customerCard;
     return {
@@ -178,7 +189,7 @@ function AccountMovementDetail({detail}:{detail:DrillDetail}){
       <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-xl border border-[var(--border)] px-3 py-2.5 text-xs text-[var(--text-muted)]">
         <span>Provider: <b className="text-[var(--text)]">{provider??"—"}</b></span><span>Gateway: <b className="text-[var(--text)]">{gateway??"—"}</b></span>{payoutFees>0?<span>Payout charges: <b className="money text-[var(--money-out)]">{money(payoutFees)}</b></span>:null}
       </div>
-    </>:<div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><DetailStat label="Processed" value={money(movement.grossAmount)}/><DetailStat label="Net value" value={money(movement.netAmount??movement.grossAmount)}/><DetailStat label="Charges" value={gatewayFees?"−"+money(gatewayFees):money(0)} tone={gatewayFees?"text-[var(--money-out)]":""}/><DetailStat label="Commission" value={customerFees?"+"+money(customerFees):money(0)} tone={customerFees?"text-[var(--money-in)]":""}/></div>}
+    </>:tx.transactionType==="SERVICE_INCOME"?<div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><DetailStat label="Service income" value={"+"+money(tx.grossAmount)} tone="text-[var(--money-in)]"/><DetailStat label="Service" value={tx.quickCashTransfer?.serviceName??"Service"}/><DetailStat label="Received in" value={tx.quickCashTransfer?.servicePaymentMode==="UPI"?(tx.quickCashTransfer.servicePaymentAccount?.accountName??"Bank / UPI"):(tx.quickCashTransfer?.cashAccount?.accountName??"Cash drawer")}/><DetailStat label="Charges" value={gatewayFees?"−"+money(gatewayFees):money(0)} tone={gatewayFees?"text-[var(--money-out)]":""}/></div>:<div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><DetailStat label="Processed" value={money(movement.grossAmount)}/><DetailStat label="Net value" value={money(movement.netAmount??movement.grossAmount)}/><DetailStat label="Charges" value={gatewayFees?"−"+money(gatewayFees):money(0)} tone={gatewayFees?"text-[var(--money-out)]":""}/><DetailStat label="Commission income" value={customerFees?"+"+money(customerFees):money(0)} tone={customerFees?"text-[var(--money-in)]":""}/></div>}
     {movement.payablePayment?<div className="rounded-xl border border-[var(--border)] p-3 text-xs text-[var(--text-muted)]">Paid from <b className="text-[var(--text)]">{movement.payablePayment.sourceAccount.accountName}</b> · payout {money(movement.payablePayment.amount)}</div>:null}
     {(tx.notes||movement.notes)?<div className="rounded-xl border border-[var(--border)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Notes</p><p className="mt-1 text-sm text-[var(--text-muted)]">{tx.notes??movement.notes}</p></div>:null}
     <Link href={"/transactions/"+tx.id} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--accent)]">Open full transaction →</Link>

@@ -16,6 +16,7 @@ type Tx={
  cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
  microAtm:{customerBankName:string|null;cardLastFour:string}|null;
  aeps:{customerBankName:string;aadhaarLastFour:string}|null;
+ quickCashTransfer:{purpose:string;serviceName:string|null;servicePaymentMode:string;cashAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
  providerSettlementReceipt:{settlement:{sourceTransaction:{
    transactionNumber:string;transactionType:string;customer:{fullName:string}|null;createdBy:{id:string;fullName:string}|null;
    cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
@@ -32,14 +33,15 @@ const money=(v:string|number|null)=>new Intl.NumberFormat("en-IN",{style:"curren
 const statusTone=(s:string)=>s==="COMPLETED"?"emerald":s==="PENDING"?"amber":s==="REVERSED"?"rose":"slate";
 const label=(t:string)=>t.replaceAll("_"," ").toLowerCase().replace(/w/g,c=>c.toUpperCase());
 const dailyActions=[["CS","Card Swipe","/transactions/card-swipe"],["DC","Due Clearing","/transactions/card-due-clearing"],["CT","Cash Transfer","/transactions/cash-transfer"],["AP","AePS","/transactions/aeps"],["MA","Micro ATM","/transactions/micro-atm"],["IT","Move Money","/transactions/internal-transfer"],["ATM","ATM Withdrawal","/transactions/atm-withdrawal"],["CC","Card Payment","/transactions/owner-credit-card-payment"],["EX","Expenses","/transactions/expense"]] as const;
-type DesktopColumnKey="transactionId"|"date"|"service"|"customer"|"source"|"user"|"processed"|"customerFee"|"providerFee"|"profit"|"net"|"payout"|"dueDate"|"status";
-const DEFAULT_DESKTOP_COLUMNS:DesktopColumnKey[]=["transactionId","date","service","customer","source","user","processed","customerFee","providerFee","profit","net","payout","dueDate","status"];
+type DesktopColumnKey="transactionId"|"date"|"service"|"customer"|"source"|"user"|"processed"|"customerFee"|"serviceIncome"|"totalIncome"|"providerFee"|"profit"|"net"|"payout"|"dueDate"|"status";
+const DEFAULT_DESKTOP_COLUMNS:DesktopColumnKey[]=["transactionId","date","service","customer","source","user","processed","customerFee","serviceIncome","totalIncome","providerFee","profit","net","payout","dueDate","status"];
 const LOCKED_DESKTOP_COLUMNS=new Set<DesktopColumnKey>(["transactionId","date","service","processed","status"]);
-const DESKTOP_COLUMN_STORAGE_KEY="cashledger.transactions.desktop-columns.v1";
+const DESKTOP_COLUMN_STORAGE_KEY="cashledger.transactions.desktop-columns.v2";
 const DESKTOP_COLUMN_META:Record<DesktopColumnKey,{label:string;width:number;right?:boolean}>={
  transactionId:{label:"Transaction ID",width:170},date:{label:"Date & time",width:165},service:{label:"Service",width:185},
  customer:{label:"Customer",width:155},source:{label:"Source / settlement",width:315},user:{label:"User",width:115},
- processed:{label:"Processed",width:135,right:true},customerFee:{label:"Customer fee",width:130,right:true},
+ processed:{label:"Processed",width:135,right:true},customerFee:{label:"Commission income",width:145,right:true},
+ serviceIncome:{label:"Service income",width:135,right:true},totalIncome:{label:"Total income",width:135,right:true},
  providerFee:{label:"Provider fee",width:130,right:true},profit:{label:"Profit",width:120,right:true},
  net:{label:"Customer gets / net",width:155,right:true},payout:{label:"Payout / Pay-in",width:150},
  dueDate:{label:"Due date",width:115},status:{label:"Status",width:150},
@@ -47,10 +49,13 @@ const DESKTOP_COLUMN_META:Record<DesktopColumnKey,{label:string;width:number;rig
 const SORTABLE_DESKTOP_COLUMNS:Partial<Record<DesktopColumnKey,string>>={transactionId:"transactionNumber",date:"transactionAt",service:"transactionType",processed:"grossAmount",net:"netAmount",status:"status"};
 const txHref=(tx:Tx)=>tx.transactionType==="CARD_DUE_CLEARING"?"/transactions/card-due-clearing?id="+tx.id:"/transactions/"+tx.id;
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
-const customerFee=(tx:Tx)=>tx.commissions.filter(c=>c.commissionType!=="MICRO_ATM_PROVIDER").reduce((a,x)=>a+Number(x.amount),0);
+const commissionIncome=(tx:Tx)=>sum(tx.commissions);
+const serviceIncome=(tx:Tx)=>tx.transactionType==="SERVICE_INCOME"?Number(tx.grossAmount):0;
+const totalIncome=(tx:Tx)=>commissionIncome(tx)+serviceIncome(tx);
 const providerCommission=(tx:Tx)=>tx.commissions.filter(c=>c.commissionType==="MICRO_ATM_PROVIDER").reduce((a,x)=>a+Number(x.amount),0);
+const displayService=(tx:Tx)=>tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
 function activityDirection(tx:Tx):"IN"|"OUT"|null{
- if(["PROVIDER_SETTLEMENT","CUSTOMER_RECEIPT","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION"].includes(tx.transactionType))return "IN";
+ if(["PROVIDER_SETTLEMENT","CUSTOMER_RECEIPT","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","SERVICE_INCOME"].includes(tx.transactionType))return "IN";
  if(["CUSTOMER_PAYOUT","BUSINESS_EXPENSE","PERSONAL_EXPENSE"].includes(tx.transactionType))return "OUT";
  return null;
 }
@@ -64,6 +69,11 @@ function displayUser(tx:Tx){
  return settlementSource(tx)?.createdBy?.fullName??tx.createdBy?.fullName??"—";
 }
 function sourceContext(tx:Tx){
+ if(tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer){
+  return tx.quickCashTransfer.servicePaymentMode==="UPI"
+   ?tx.quickCashTransfer.servicePaymentAccount?.accountName??"Bank / UPI"
+   :tx.quickCashTransfer.cashAccount?.accountName??"Cash drawer";
+ }
  const source=settlementSource(tx);
  if(!source)return "—";
  const card=source.cardSwipe?.customerCard;
@@ -92,7 +102,7 @@ function activityContext(tx:Tx){
   :tx.aeps?tx.aeps.customerBankName+" · Aadhaar •••• "+tx.aeps.aadhaarLastFour
   :null;
  return {
-  title:label(tx.transactionType)+(tx.customer?" · "+tx.customer.fullName:""),
+  title:displayService(tx)+(tx.customer?" · "+tx.customer.fullName:""),
   meta:[tx.transactionNumber,detail,tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null].filter(Boolean).join(" · "),
  };
 }
@@ -146,17 +156,17 @@ export default function TransactionsPage(){
  const desktopStickyLefts=desktopColumns.map((_,index)=>desktopColumns.slice(0,index).reduce((total,k)=>total+DESKTOP_COLUMN_META[k].width,0));
  const activeFilterCount=[range!=="today",type,status,moneyStatusFilter].filter(Boolean).length;
  const desktopSearchNeedle=q.trim().toLowerCase();
- const desktopSearchSuggestions=desktopSearchNeedle?items.filter(tx=>[tx.transactionNumber,tx.referenceNumber??"",displayCustomer(tx),label(tx.transactionType)].some(value=>value.toLowerCase().includes(desktopSearchNeedle))).slice(0,7):[];
+ const desktopSearchSuggestions=desktopSearchNeedle?items.filter(tx=>[tx.transactionNumber,tx.referenceNumber??"",displayCustomer(tx),displayService(tx)].some(value=>value.toLowerCase().includes(desktopSearchNeedle))).slice(0,7):[];
  const clearFilters=()=>{setQ("");setType("");setStatus("");setMoneyStatusFilter("");setRange("today");};
  const toggleDesktopColumn=(key:DesktopColumnKey)=>{if(LOCKED_DESKTOP_COLUMNS.has(key))return;setDesktopVisibleColumns(v=>v.includes(key)?v.filter(k=>k!==key):desktopColumnOrder.filter(k=>k===key||v.includes(k)));};
  const moveDesktopColumn=(source:DesktopColumnKey,target:DesktopColumnKey)=>{if(source===target)return;setDesktopColumnOrder(order=>{const next=order.filter(k=>k!==source);next.splice(next.indexOf(target),0,source);return next;});};
  const resetDesktopColumns=()=>{setDesktopColumnOrder(DEFAULT_DESKTOP_COLUMNS);setDesktopVisibleColumns(DEFAULT_DESKTOP_COLUMNS);};
  const changeSort=(key:DesktopColumnKey)=>{const next=SORTABLE_DESKTOP_COLUMNS[key];if(!next)return;if(sortBy===next)setSortDir(d=>d==="asc"?"desc":"asc");else{setSortBy(next);setSortDir("asc");}};
 
- const totals=useMemo(()=>items.reduce((a,t)=>({
-  gross:a.gross+Number(t.grossAmount),net:a.net+Number(t.netAmount??t.grossAmount),
-  fees:a.fees+sum(t.charges),earnings:a.earnings+sum(t.commissions)-sum(t.charges),
- }),{gross:0,net:0,fees:0,earnings:0}),[items]);
+ const totals=useMemo(()=>items.reduce((a,t)=>{
+  const commission=commissionIncome(t),service=serviceIncome(t),income=commission+service,fees=sum(t.charges);
+  return {gross:a.gross+Number(t.grossAmount),net:a.net+Number(t.netAmount??t.grossAmount),fees:a.fees+fees,commission:a.commission+commission,service:a.service+service,income:a.income+income,profit:a.profit+income-fees};
+ },{gross:0,net:0,fees:0,commission:0,service:0,income:0,profit:0}),[items]);
  const grouped=items.reduce((map,t)=>{const k=new Date(t.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});const row=map.get(k)??[];row.push(t);map.set(k,row);return map;},new Map<string,Tx[]>());
 
  return <AppShell><PageFrame className="ui-preview transactions-preview">
@@ -166,7 +176,7 @@ export default function TransactionsPage(){
   <Surface className="p-1.5 md:hidden"><div className="grid grid-cols-4 gap-1">{([["today","Today"],["yesterday","Yesterday"],["week","7 days"],["all","All"]] as [Range,string][]).map(([v,l])=><button key={v} onClick={()=>setRange(v)} className={"min-h-11 rounded-xl px-2 text-xs font-semibold transition "+(range===v?"bg-[var(--accent)] text-white":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}>{l}</button>)}</div></Surface>
   <Surface className="grid gap-2 p-3 sm:grid-cols-2 md:hidden">
    <input className="app-control sm:col-span-2" placeholder="Search name, transaction or reference" value={q} onChange={e=>setQ(e.target.value)}/>
-   <SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All types</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x}>{x}</option>)}</SearchableSelect>
+   <SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All types</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","SERVICE_INCOME","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x}>{x}</option>)}</SearchableSelect>
    <SearchableSelect className="app-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All transaction status</option>{["PENDING","PARTIALLY_PAID","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</SearchableSelect>
    <SearchableSelect className="app-control" value={moneyStatusFilter} onChange={e=>setMoneyStatusFilter(e.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</SearchableSelect>
   </Surface>
@@ -177,7 +187,7 @@ export default function TransactionsPage(){
      {desktopSearchOpen&&q.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-[90] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_18px_50px_rgba(15,23,42,.18)]">
       <div className="max-h-80 overflow-y-auto p-1.5">
        {loading?<div className="px-3 py-5 text-center text-xs font-semibold text-[var(--text-muted)]">Searching transactions…</div>:desktopSearchSuggestions.length?desktopSearchSuggestions.map(tx=><Link key={tx.id} href={txHref(tx)} onClick={()=>setDesktopSearchOpen(false)} className="flex items-center justify-between gap-4 rounded-xl px-3 py-2.5 hover:bg-[var(--surface-soft)]">
-        <div className="min-w-0"><p className="truncate text-sm font-black text-[var(--accent)]">{tx.transactionNumber}</p><p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{displayCustomer(tx)} · {label(tx.transactionType)} · {new Date(tx.transactionAt).toLocaleDateString("en-IN")}</p></div>
+        <div className="min-w-0"><p className="truncate text-sm font-black text-[var(--accent)]">{tx.transactionNumber}</p><p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{displayCustomer(tx)} · {displayService(tx)} · {new Date(tx.transactionAt).toLocaleDateString("en-IN")}</p></div>
         <span className="money shrink-0 text-xs font-bold">{money(tx.grossAmount)}</span>
        </Link>):<div className="px-3 py-5 text-center"><p className="text-xs font-bold">No matching transactions</p><p className="mt-1 text-[11px] text-[var(--text-muted)]">Try a customer, transaction ID or reference.</p></div>}
       </div>
@@ -191,7 +201,7 @@ export default function TransactionsPage(){
     <div className="mb-3 flex items-center justify-between"><div><p className="text-sm font-black">Filter transactions</p><p className="text-[11px] text-[var(--text-muted)]">Narrow the full transaction list.</p></div><button type="button" onClick={clearFilters} className="rounded-lg px-3 py-2 text-xs font-bold text-[var(--accent)] hover:bg-[var(--accent-soft)]">Clear filters</button></div>
     <div className="mb-3"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Date</p><div className="grid grid-cols-4 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">{([["today","Today"],["yesterday","Yesterday"],["week","7 days"],["all","All"]] as [Range,string][]).map(([v,l])=><button key={v} type="button" onClick={()=>setRange(v)} className={"min-h-9 rounded-lg px-2 text-xs font-bold "+(range===v?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)] hover:text-[var(--text)]")}>{l}</button>)}</div></div>
     <div className="grid gap-3 lg:grid-cols-3">
-     <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Service</p><SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All services</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect></div>
+     <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Service</p><SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All services</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","SERVICE_INCOME","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect></div>
      <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Transaction status</p><SearchableSelect className="app-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_PAID","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect></div>
      <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payout / Pay-in</p><SearchableSelect className="app-control" value={moneyStatusFilter} onChange={e=>setMoneyStatusFilter(e.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</SearchableSelect></div>
     </div>
@@ -204,9 +214,11 @@ export default function TransactionsPage(){
    </div>:null}
   </Surface>
 
-  <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+  <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-6">
    <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Processed</p><p className="money mt-1.5 truncate text-xl font-bold">{money(totals.gross)}</p></Surface>
-   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Business earnings</p><p className="money mt-1.5 truncate text-xl font-bold text-[var(--money-in)]">{money(totals.earnings)}</p></Surface>
+   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Total income</p><p className="money mt-1.5 truncate text-xl font-bold text-[var(--money-in)]">{money(totals.income)}</p></Surface>
+   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Commission income</p><p className="money mt-1.5 truncate text-xl font-bold text-[var(--money-in)]">{money(totals.commission)}</p></Surface>
+   <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Service income</p><p className="money mt-1.5 truncate text-xl font-bold text-[var(--money-in)]">{money(totals.service)}</p></Surface>
    <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Provider / bank fees</p><p className="money mt-1.5 truncate text-xl font-bold text-[var(--money-out)]">{money(totals.fees)}</p></Surface>
    <Surface className="p-3.5 sm:p-4"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Transactions</p><p className="money mt-1.5 text-xl font-bold">{pagination.total}</p></Surface>
   </div>
@@ -220,7 +232,7 @@ export default function TransactionsPage(){
           <p className="text-sm font-black leading-5">{context.title}</p>
           <div className="mt-1.5 space-y-1 text-[11px] leading-4 text-[var(--text-muted)]">
             <p className="break-all"><span className="font-bold text-[var(--text)]">Txn:</span> {tx.transactionNumber}</p>
-            {source?<p><span className="font-bold text-[var(--text)]">Source:</span> {sourceContext(tx)}</p>:null}
+            {source||tx.transactionType==="SERVICE_INCOME"?<p><span className="font-bold text-[var(--text)]">Received in:</span> {sourceContext(tx)}</p>:null}
             <p><span className="font-bold text-[var(--text)]">By:</span> {displayUser(tx)} · {new Date(tx.transactionAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</p>
           </div>
         </div>
@@ -239,18 +251,20 @@ export default function TransactionsPage(){
        {sortKey?<button type="button" onClick={()=>changeSort(key)} className={"inline-flex items-center gap-1 font-bold uppercase tracking-wide hover:text-[var(--text)] "+(meta.right?"ml-auto":"")}>{meta.label}{sortBy===sortKey?<span aria-hidden>{sortDir==="asc"?"↑":"↓"}</span>:null}</button>:meta.label}
       </th>;
     })}</tr></thead>
-    <tbody>{items.map(tx=>{const providerFees=sum(tx.charges),custFee=customerFee(tx),providerEarn=providerCommission(tx),profit=custFee+providerEarn-providerFees,direction=activityDirection(tx),source=settlementSource(tx),mStatus=moneyStatus(tx);
+    <tbody>{items.map(tx=>{const providerFees=sum(tx.charges),commission=commissionIncome(tx),service=serviceIncome(tx),income=commission+service,providerEarn=providerCommission(tx),profit=income-providerFees,direction=activityDirection(tx),source=settlementSource(tx),mStatus=moneyStatus(tx);
       const content=(key:DesktopColumnKey)=>{
        if(key==="transactionId")return <Link className="font-bold text-[var(--accent)] whitespace-nowrap" href={txHref(tx)}>{tx.transactionNumber}</Link>;
        if(key==="date")return <span className="text-xs whitespace-nowrap">{new Date(tx.transactionAt).toLocaleString("en-IN")}</span>;
-       if(key==="service")return <><span className="flex min-w-0 items-start gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span className="min-w-0 break-words font-medium leading-5">{label(tx.transactionType)}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold leading-4 text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</>;
+       if(key==="service")return <><span className="flex min-w-0 items-start gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span className="min-w-0 break-words font-medium leading-5">{displayService(tx)}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold leading-4 text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</>;
        if(key==="customer")return <span className="block break-words font-semibold">{displayCustomer(tx)}</span>;
-       if(key==="source")return source?<span className="block whitespace-normal break-words text-xs leading-5 text-[var(--text)]">{sourceContext(tx)}</span>:<span className="text-[var(--text-muted)]">—</span>;
+       if(key==="source")return source||tx.transactionType==="SERVICE_INCOME"?<span className="block whitespace-normal break-words text-xs leading-5 text-[var(--text)]">{sourceContext(tx)}</span>:<span className="text-[var(--text-muted)]">—</span>;
        if(key==="user")return <span className="text-xs font-semibold whitespace-nowrap">{displayUser(tx)}</span>;
        if(key==="processed")return <span className={"money font-semibold whitespace-nowrap "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</span>;
-       if(key==="customerFee")return <span className="money font-bold text-[var(--money-in)] whitespace-nowrap">{custFee?"+"+money(custFee):"—"}</span>;
+       if(key==="customerFee")return <span className="money font-bold text-[var(--money-in)] whitespace-nowrap">{commission?"+"+money(commission):"—"}</span>;
+       if(key==="serviceIncome")return <span className="money font-bold text-[var(--money-in)] whitespace-nowrap">{service?"+"+money(service):"—"}</span>;
+       if(key==="totalIncome")return <span className="money font-black text-[var(--money-in)] whitespace-nowrap">{income?"+"+money(income):"—"}</span>;
        if(key==="providerFee")return <span className="money text-[var(--money-out)] whitespace-nowrap">{providerFees?"−"+money(providerFees):"—"}</span>;
-       if(key==="profit")return <span className={"money font-bold whitespace-nowrap "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{custFee||providerEarn||providerFees?money(profit):"—"}</span>;
+       if(key==="profit")return <span className={"money font-bold whitespace-nowrap "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{income||providerFees?money(profit):"—"}</span>;
        if(key==="net")return <span className="money font-semibold whitespace-nowrap">{money(tx.netAmount??tx.grossAmount)}</span>;
        if(key==="payout")return mStatus?<StatusBadge tone={mStatus.tone}>{mStatus.label}</StatusBadge>:<span className="text-[var(--text-muted)]">—</span>;
        if(key==="dueDate")return <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{mStatus?.dueAt?new Date(mStatus.dueAt).toLocaleDateString("en-IN"):"—"}</span>;

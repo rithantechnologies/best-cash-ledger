@@ -31,6 +31,8 @@ export type ServiceCashGroup = {
   cashIn: number;
   cashOut: number;
   commissionAmount: number;
+  serviceIncomeAmount?: number;
+  incomeAmount?: number;
   count: number;
 };
 
@@ -231,7 +233,7 @@ export function ServiceCashBars({
         <div className="mt-3 grid grid-cols-3 gap-1.5">
           <div className="rounded-lg bg-[color-mix(in_srgb,var(--money-in)_7%,var(--surface-soft))] p-2"><p className="text-[8px] font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)]">In</p><p className="money mt-1 truncate text-[11px] font-black text-[var(--money-in)]">{money(row.cashIn)}</p></div>
           <div className="rounded-lg bg-[color-mix(in_srgb,var(--money-out)_7%,var(--surface-soft))] p-2"><p className="text-[8px] font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)]">Out</p><p className="money mt-1 truncate text-[11px] font-black text-[var(--money-out)]">{money(row.cashOut)}</p></div>
-          <div className="rounded-lg bg-[var(--accent-soft)] p-2"><p className="text-[8px] font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)]">Earned</p><p className="money mt-1 truncate text-[11px] font-black text-[var(--accent)]">{money(row.commissionAmount)}</p></div>
+          <div className="rounded-lg bg-[var(--accent-soft)] p-2"><p className="text-[8px] font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)]">Income</p><p className="money mt-1 truncate text-[11px] font-black text-[var(--accent)]">{money(row.incomeAmount??row.commissionAmount)}</p></div>
         </div>
       </button>;
     })}
