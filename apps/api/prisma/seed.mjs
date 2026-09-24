@@ -93,6 +93,22 @@ try {
     });
   }
 
+  const serviceCatalog = [
+    ['Printout', null],
+    ['Aadhaar Lamination', null],
+    ['Lamination', null],
+    ['Xerox', null],
+    ['Photo', null],
+  ];
+
+  for (const [name, defaultAmount] of serviceCatalog) {
+    await prisma.serviceCatalog.upsert({
+      where: { name },
+      update: {},
+      create: { name, defaultAmount },
+    });
+  }
+
   console.log('Base roles, owner, ledgers and settings seeded.');
 } finally {
   await prisma.$disconnect();

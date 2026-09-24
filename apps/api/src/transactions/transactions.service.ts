@@ -842,12 +842,16 @@ export class TransactionsService {
     const purpose = dto.purpose ?? 'TRANSFER';
     const commissionAmount = this.money(dto.commissionAmount ?? 0);
     const commissionMode = dto.commissionMode ?? 'CASH';
+    const servicePaymentMode = dto.servicePaymentMode ?? 'CASH';
     if (purpose === 'SERVICE') {
       if (dto.direction !== 'IN') {
         throw new BadRequestException('Service income can only be recorded as Cash In');
       }
       if (!dto.serviceName?.trim()) {
         throw new BadRequestException('Service name is required');
+      }
+      if (servicePaymentMode === 'UPI' && !dto.servicePaymentAccountId) {
+        throw new BadRequestException('Choose the bank / UPI account that received the service payment');
       }
     } else {
       if (commissionAmount <= 0) {
@@ -892,6 +896,26 @@ export class TransactionsService {
         if (!serviceIncomeLedger || !cashAccount.ledgerAccount) {
           throw new NotFoundException('Service income ledger is missing');
         }
+
+        let servicePaymentAccount = cashAccount;
+        if (servicePaymentMode === 'UPI') {
+          if (!dto.servicePaymentAccountId) {
+            throw new BadRequestException('Choose the bank / UPI account that received the service payment');
+          }
+          if (dto.servicePaymentAccountId !== cashAccount.id) {
+            await this.validation.lockAccount(tx, dto.servicePaymentAccountId);
+          }
+          servicePaymentAccount = await this.validation.account(
+            tx,
+            dto.servicePaymentAccountId,
+            {
+              label: 'Service payment account',
+              nature: AccountNature.ASSET,
+              types: [AccountType.BANK, AccountType.UPI],
+            },
+          );
+        }
+
         const serviceName = dto.serviceName!.trim();
         const transaction = await tx.transaction.create({
           data: {
@@ -917,12 +941,24 @@ export class TransactionsService {
             mobileNumber: dto.mobileNumber?.trim() || null,
             amount: new Prisma.Decimal(amount),
             commissionAmount: new Prisma.Decimal(0),
+            servicePaymentMode,
+            servicePaymentAccountId: servicePaymentMode === 'UPI' ? servicePaymentAccount.id : null,
             completedAt: new Date(),
           },
         });
         await this.ledger.post(tx,transaction.id,userId,'Service income · ' + serviceName,[
-          {ledgerAccountId: cashAccount.ledgerAccount.id,entryType: EntryType.DEBIT,amount,description: 'Cash received for ' + serviceName},
-          {ledgerAccountId: serviceIncomeLedger.id,entryType: EntryType.CREDIT,amount,description: 'Service income · ' + serviceName},
+          {
+            ledgerAccountId: servicePaymentAccount.ledgerAccount!.id,
+            entryType: EntryType.DEBIT,
+            amount,
+            description: (servicePaymentMode === 'UPI' ? 'Bank / UPI payment' : 'Cash received') + ' for ' + serviceName,
+          },
+          {
+            ledgerAccountId: serviceIncomeLedger.id,
+            entryType: EntryType.CREDIT,
+            amount,
+            description: 'Service income · ' + serviceName,
+          },
         ]);
         await this.auditCreated(tx, transaction, userId);
         return transaction;
@@ -989,6 +1025,12 @@ export class TransactionsService {
           amount: new Prisma.Decimal(amount),
           commissionAmount: new Prisma.Decimal(commissionAmount),
           commissionMode,
+          beneficiaryMode:
+            dto.direction === 'IN' && dto.beneficiaryDetails?.trim()
+              ? dto.beneficiaryMode ?? 'UPI'
+              : null,
+          beneficiaryDetails:
+            dto.direction === 'IN' ? dto.beneficiaryDetails?.trim() || null : null,
         },
       });
 
@@ -1238,6 +1280,12 @@ export class TransactionsService {
           ...(dto.mobileNumber !== undefined
             ? { mobileNumber: dto.mobileNumber.trim() || null }
             : {}),
+          ...(dto.beneficiaryMode !== undefined
+            ? { beneficiaryMode: dto.beneficiaryMode }
+            : {}),
+          ...(dto.beneficiaryDetails !== undefined
+            ? { beneficiaryDetails: dto.beneficiaryDetails.trim() || null }
+            : {}),
           completionTransactionId: completion.id,
           completedAt: new Date(),
         },
@@ -1262,6 +1310,8 @@ export class TransactionsService {
             sourceAccountId: null,
             customerName: detail.customerName,
             mobileNumber: detail.mobileNumber,
+            beneficiaryMode: detail.beneficiaryMode,
+            beneficiaryDetails: detail.beneficiaryDetails,
           },
           newValues: {
             status: TransactionStatus.COMPLETED,
@@ -1276,6 +1326,14 @@ export class TransactionsService {
               dto.mobileNumber !== undefined
                 ? dto.mobileNumber.trim() || null
                 : detail.mobileNumber,
+            beneficiaryMode:
+              dto.beneficiaryMode !== undefined
+                ? dto.beneficiaryMode
+                : detail.beneficiaryMode,
+            beneficiaryDetails:
+              dto.beneficiaryDetails !== undefined
+                ? dto.beneficiaryDetails.trim() || null
+                : detail.beneficiaryDetails,
             completionTransactionId: completion.id,
           },
         },

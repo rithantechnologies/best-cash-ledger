@@ -4,11 +4,13 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateExpenseCategoryDto } from './dto/create-expense-category.dto.js';
+import { CreateServiceCatalogDto } from './dto/create-service-catalog.dto.js';
 import { CreatePaymentTermDto } from './dto/create-payment-term.dto.js';
 import { CreateCommissionRuleDto } from './dto/create-commission-rule.dto.js';
 import { SetActiveDto } from './dto/set-active.dto.js';
 import { UpdateCommissionRuleDto } from './dto/update-commission-rule.dto.js';
 import { UpdateExpenseCategoryDto } from './dto/update-expense-category.dto.js';
+import { UpdateServiceCatalogDto } from './dto/update-service-catalog.dto.js';
 import { UpdatePaymentTermDto } from './dto/update-payment-term.dto.js';
 import { SettingsService } from './settings.service.js';
 
@@ -38,6 +40,29 @@ export class SettingsController {
   @Roles(RoleName.OWNER, RoleName.ADMIN)
   setPaymentTermActive(@Param('id') id: string, @Body() dto: SetActiveDto, @Req() req: any) {
     return this.settings.setPaymentTermActive(id, dto.isActive, req.user.userId);
+  }
+
+  @Get('services')
+  services(@Query('includeInactive') includeInactive?: string) {
+    return this.settings.services(includeInactive === 'true');
+  }
+
+  @Post('services')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  createService(@Body() dto: CreateServiceCatalogDto, @Req() req: any) {
+    return this.settings.createService(dto, req.user.userId);
+  }
+
+  @Patch('services/:id')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  updateService(@Param('id') id: string, @Body() dto: UpdateServiceCatalogDto, @Req() req: any) {
+    return this.settings.updateService(id, dto, req.user.userId);
+  }
+
+  @Patch('services/:id/active')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  setServiceActive(@Param('id') id: string, @Body() dto: SetActiveDto, @Req() req: any) {
+    return this.settings.setServiceActive(id, dto.isActive, req.user.userId);
   }
 
   @Get('expense-categories')

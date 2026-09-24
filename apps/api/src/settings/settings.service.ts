@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateExpenseCategoryDto } from './dto/create-expense-category.dto.js';
+import { CreateServiceCatalogDto } from './dto/create-service-catalog.dto.js';
 import { CreatePaymentTermDto } from './dto/create-payment-term.dto.js';
 import { CreateCommissionRuleDto } from './dto/create-commission-rule.dto.js';
 import { UpdatePaymentTermDto } from './dto/update-payment-term.dto.js';
 import { UpdateExpenseCategoryDto } from './dto/update-expense-category.dto.js';
+import { UpdateServiceCatalogDto } from './dto/update-service-catalog.dto.js';
 import { UpdateCommissionRuleDto } from './dto/update-commission-rule.dto.js';
 
 @Injectable()
@@ -84,6 +86,89 @@ export class SettingsService {
         data: {
           userId: actorId,
           entityType: 'PAYMENT_TERM',
+          entityId: id,
+          action: isActive ? 'REACTIVATE' : 'DEACTIVATE',
+          oldValues: { isActive: existing.isActive },
+          newValues: { isActive },
+        },
+      });
+      return updated;
+    });
+  }
+
+  services(includeInactive = false) {
+    return this.prisma.serviceCatalog.findMany({
+      where: includeInactive ? undefined : { isActive: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  createService(dto: CreateServiceCatalogDto, actorId: string) {
+    const name = dto.name.trim();
+    return this.prisma.$transaction(async (tx) => {
+      const service = await tx.serviceCatalog.create({
+        data: {
+          name,
+          defaultAmount: dto.defaultAmount === undefined ? null : dto.defaultAmount,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'SERVICE_CATALOG',
+          entityId: service.id,
+          action: 'CREATE',
+          newValues: {
+            name: service.name,
+            defaultAmount: service.defaultAmount?.toString() ?? null,
+            isActive: service.isActive,
+          },
+        },
+      });
+      return service;
+    });
+  }
+
+  async updateService(id: string, dto: UpdateServiceCatalogDto, actorId: string) {
+    const existing = await this.prisma.serviceCatalog.findUnique({ where: { id } });
+    if (!existing) throw new Error('Service not found');
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.serviceCatalog.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.defaultAmount !== undefined ? { defaultAmount: dto.defaultAmount } : {}),
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'SERVICE_CATALOG',
+          entityId: id,
+          action: 'UPDATE',
+          oldValues: {
+            name: existing.name,
+            defaultAmount: existing.defaultAmount?.toString() ?? null,
+          },
+          newValues: {
+            name: updated.name,
+            defaultAmount: updated.defaultAmount?.toString() ?? null,
+          },
+        },
+      });
+      return updated;
+    });
+  }
+
+  async setServiceActive(id: string, isActive: boolean, actorId: string) {
+    const existing = await this.prisma.serviceCatalog.findUnique({ where: { id } });
+    if (!existing) throw new Error('Service not found');
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.serviceCatalog.update({ where: { id }, data: { isActive } });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'SERVICE_CATALOG',
           entityId: id,
           action: isActive ? 'REACTIVATE' : 'DEACTIVATE',
           oldValues: { isActive: existing.isActive },

@@ -37,18 +37,13 @@ type Session={
 };
 
 type QuickCashDirection="IN"|"OUT";
-type QuickCashFieldErrors={amount?:string;commission?:string;serviceName?:string};
-type ServiceUsage={name:string;count:number};
-const defaultServiceUsage:ServiceUsage[]=[
-  {name:"Printout",count:5},
-  {name:"Aadhaar Lamination",count:4},
-  {name:"Lamination",count:3},
-  {name:"Xerox",count:2},
-  {name:"Photo",count:1},
-];
+type QuickCashFieldErrors={amount?:string;commission?:string;serviceName?:string;servicePaymentAccount?:string};
+type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
 type QuickCashPending={
   id:string;direction:QuickCashDirection;customerName:string|null;mobileNumber:string|null;
-  amount:string|number;commissionAmount:string|number;commissionMode?:"CASH"|"UPI";createdAt:string;
+  amount:string|number;commissionAmount:string|number;commissionMode?:"CASH"|"UPI";
+  beneficiaryMode?:"UPI"|"BANK"|null;beneficiaryDetails?:string|null;
+  createdAt:string;
   transaction:{id:string;transactionNumber:string;transactionAt:string;status:string;notes:string|null};
 };
 type Range="today"|"7d"|"30d";
@@ -192,16 +187,14 @@ export default function CashCounterPage(){
   const [quickServiceName,setQuickServiceName]=useState("");
   const [quickCommission,setQuickCommission]=useState("");
   const [quickCommissionMode,setQuickCommissionMode]=useState<"CASH"|"UPI">("CASH");
+  const [quickBeneficiaryMode,setQuickBeneficiaryMode]=useState<"UPI"|"BANK">("UPI");
+  const [quickBeneficiaryDetails,setQuickBeneficiaryDetails]=useState("");
+  const [quickServicePaymentMode,setQuickServicePaymentMode]=useState<"CASH"|"UPI">("CASH");
+  const [quickServicePaymentAccountId,setQuickServicePaymentAccountId]=useState("");
   const [quickCustomerName,setQuickCustomerName]=useState("");
   const [quickMobile,setQuickMobile]=useState("");
   const [quickRemarks,setQuickRemarks]=useState("");
-  const [serviceUsage,setServiceUsage]=useState<ServiceUsage[]>(()=>{
-    if(typeof window==="undefined")return defaultServiceUsage;
-    try{
-      const saved=JSON.parse(localStorage.getItem("cashledger_service_usage")||"[]") as ServiceUsage[];
-      return saved.length?saved:defaultServiceUsage;
-    }catch{return defaultServiceUsage;}
-  });
+  const [serviceCatalog,setServiceCatalog]=useState<ServiceConfig[]>([]);
   const [quickFieldErrors,setQuickFieldErrors]=useState<QuickCashFieldErrors>({});
   const [quickError,setQuickError]=useState("");
   const [quickSaving,setQuickSaving]=useState(false);
@@ -213,6 +206,8 @@ export default function CashCounterPage(){
   const [completePendingId,setCompletePendingId]=useState<string|null>(null);
   const [completeSourceAccountId,setCompleteSourceAccountId]=useState("");
   const [completeCommissionAccountId,setCompleteCommissionAccountId]=useState("");
+  const [completeBeneficiaryMode,setCompleteBeneficiaryMode]=useState<"UPI"|"BANK">("UPI");
+  const [completeBeneficiaryDetails,setCompleteBeneficiaryDetails]=useState("");
   const [completeCustomerName,setCompleteCustomerName]=useState("");
   const [completeMobile,setCompleteMobile]=useState("");
   const [completeReference,setCompleteReference]=useState("");
@@ -223,11 +218,12 @@ export default function CashCounterPage(){
   const completingQuickCash=useMemo(()=>pendingQuickCash.find((item)=>item.id===completePendingId)??null,[pendingQuickCash,completePendingId]);
 
   const load=async(preferredCashAccountId?:string)=>{
-    const [accountRows,balanceRows,historyRows,operatorRows]=await Promise.all([
+    const [accountRows,balanceRows,historyRows,operatorRows,serviceRows]=await Promise.all([
       apiFetch<Account[]>("/accounts"),
       apiFetch<Account[]>("/dashboard/accounts"),
       apiFetch<Session[]>("/cash-counter/history"),
       apiFetch<Operator[]>("/cash-counter/operators"),
+      apiFetch<ServiceConfig[]>("/settings/services"),
     ]);
     const balanceMap=new Map(balanceRows.map((account)=>[account.id,account]));
     const mergedAccounts=accountRows.map((account)=>({
@@ -242,7 +238,7 @@ export default function CashCounterPage(){
     const pending=targetId
       ?await apiFetch<QuickCashPending[]>("/transactions/quick-cash/pending?cashAccountId="+encodeURIComponent(targetId))
       :[];
-    setAccounts(mergedAccounts);setToday(session);setHistory(historyRows);setOperators(operatorRows);setPendingQuickCash(pending);
+    setAccounts(mergedAccounts);setToday(session);setHistory(historyRows);setOperators(operatorRows);setPendingQuickCash(pending);setServiceCatalog(serviceRows);
     if(targetId)setCashAccountId(targetId);
     const me=currentUser.id??currentUser.userId??"";
     if(!responsibleUserId)setResponsibleUserId(me||operatorRows[0]?.id||"");
@@ -329,21 +325,9 @@ export default function CashCounterPage(){
     const gaps=Math.max(0,txColumns.length-1)*16;
     return Math.max(760,visible+gaps+40);
   },[txColumns]);
-  const quickServiceOptions=useMemo(()=>[...serviceUsage].sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name)).slice(0,5),[serviceUsage]);
+  const quickServiceOptions=useMemo(()=>serviceCatalog.filter((item)=>item.isActive!==false).slice(0,5),[serviceCatalog]);
   function toggleTxColumn(id:TxColumn){
     setTxColumns((current)=>current.includes(id)?(current.length===1?current:current.filter((column)=>column!==id)):[...current,id]);
-  }
-  function rememberService(name:string){
-    const normalized=name.trim();
-    if(!normalized)return;
-    setServiceUsage((current)=>{
-      const match=current.find((item)=>item.name.toLowerCase()===normalized.toLowerCase());
-      const next=match
-        ? current.map((item)=>item===match?{...item,count:item.count+1}:item)
-        : [...current,{name:normalized,count:1}];
-      if(typeof window!=="undefined")localStorage.setItem("cashledger_service_usage",JSON.stringify(next));
-      return next;
-    });
   }
   function keepQuickFieldVisible(element:HTMLElement){
     window.setTimeout(()=>element.scrollIntoView({behavior:"smooth",block:"center"}),120);
@@ -397,7 +381,7 @@ export default function CashCounterPage(){
   }
 
   function resetQuickCash(){
-    setQuickDirection(null);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickCustomerName("");setQuickMobile("");setQuickRemarks("");setQuickFieldErrors({});setQuickError("");
+    setQuickDirection(null);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryDetails("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerName("");setQuickMobile("");setQuickRemarks("");setQuickFieldErrors({});setQuickError("");
   }
   function clearQuickFieldError(field:keyof QuickCashFieldErrors){
     setQuickFieldErrors((current)=>{
@@ -415,6 +399,7 @@ export default function CashCounterPage(){
     if(!quickAmount.trim()||!Number.isFinite(amount)||amount<=0)validation.amount="Amount must be greater than 0.";
     if(purpose==="TRANSFER"&&(quickCommission.trim()===""||!Number.isFinite(commissionAmount)||commissionAmount<=0))validation.commission="Commission must be greater than 0.";
     if(purpose==="SERVICE"&&!quickServiceName.trim())validation.serviceName="Service name is required.";
+    if(purpose==="SERVICE"&&quickServicePaymentMode==="UPI"&&!quickServicePaymentAccountId)validation.servicePaymentAccount="Choose the receiving bank / UPI account.";
     if(Object.keys(validation).length){
       setQuickFieldErrors(validation);setQuickError("");
       requestAnimationFrame(()=>{
@@ -434,11 +419,14 @@ export default function CashCounterPage(){
         serviceName:purpose==="SERVICE"?quickServiceName.trim():undefined,
         commissionAmount:purpose==="TRANSFER"?commissionAmount:0,
         commissionMode:purpose==="TRANSFER"?quickCommissionMode:undefined,
+        beneficiaryMode:purpose==="TRANSFER"&&quickDirection==="IN"&&quickBeneficiaryDetails.trim()?quickBeneficiaryMode:undefined,
+        beneficiaryDetails:purpose==="TRANSFER"&&quickDirection==="IN"?quickBeneficiaryDetails.trim()||undefined:undefined,
+        servicePaymentMode:purpose==="SERVICE"?quickServicePaymentMode:undefined,
+        servicePaymentAccountId:purpose==="SERVICE"&&quickServicePaymentMode==="UPI"?quickServicePaymentAccountId||undefined:undefined,
         customerName:quickCustomerName.trim()||undefined,
         mobileNumber:quickMobile.trim()||undefined,
         remarks:quickRemarks.trim()||undefined,
       })});
-      if(purpose==="SERVICE")rememberService(quickServiceName);
       resetQuickCash();
       await load(today.cashAccountId);
     }catch(err){setQuickError(err instanceof Error?err.message:"Failed to save cash entry");}
@@ -455,12 +443,14 @@ export default function CashCounterPage(){
       await apiFetch("/transactions/quick-cash/"+completePendingId+"/complete",{method:"POST",body:JSON.stringify({
         sourceAccountId:completeSourceAccountId,
         commissionAccountId:completingQuickCash?.commissionMode==="UPI"?completeCommissionAccountId||undefined:undefined,
+        beneficiaryMode:completingQuickCash?.direction==="IN"&&completeBeneficiaryDetails.trim()?completeBeneficiaryMode:undefined,
+        beneficiaryDetails:completingQuickCash?.direction==="IN"?completeBeneficiaryDetails.trim()||undefined:undefined,
         customerName:completeCustomerName.trim()||undefined,
         mobileNumber:completeMobile.trim()||undefined,
         referenceNumber:completeReference.trim()||undefined,
         notes:completeNotes.trim()||undefined,
       })});
-      setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteCommissionAccountId("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
+      setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteCommissionAccountId("");setCompleteBeneficiaryMode("UPI");setCompleteBeneficiaryDetails("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
       await load(cashAccountId);
     }catch(err){setCompleteError(err instanceof Error?err.message:"Failed to complete pending cash entry");}
     finally{setQuickSaving(false);}
@@ -564,7 +554,7 @@ export default function CashCounterPage(){
             <div><span className={"inline-flex rounded-full px-2.5 py-1 text-xs font-black "+(item.direction==="IN"?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700")}>{item.direction==="IN"?"Cash In":"Cash Out"}</span></div>
             <div className="min-w-0"><p className="truncate text-sm font-bold">{item.customerName||item.mobileNumber||"Walk-in customer"}</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">{item.transaction.transactionNumber} · {new Date(item.transaction.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></div>
             <div className="text-left sm:text-right"><strong className="money block text-sm">{money(item.amount)}</strong>{Number(item.commissionAmount)>0?<span className="text-xs font-semibold text-[var(--accent)]">Fee {money(item.commissionAmount)} · {item.commissionMode==="UPI"?"UPI":"Cash"}</span>:null}</div>
-            <button type="button" onClick={()=>{setCompletePendingId(item.id);setCompleteSourceAccountId("");setCompleteCommissionAccountId("");setCompleteCustomerName(item.customerName||"");setCompleteMobile(item.mobileNumber||"");setCompleteReference("");setCompleteNotes("");setCompleteError("");}} className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm font-black text-amber-800">Complete</button>
+            <button type="button" onClick={()=>{setCompletePendingId(item.id);setCompleteSourceAccountId("");setCompleteCommissionAccountId("");setCompleteBeneficiaryMode(item.beneficiaryMode==="BANK"?"BANK":"UPI");setCompleteBeneficiaryDetails(item.beneficiaryDetails||"");setCompleteCustomerName(item.customerName||"");setCompleteMobile(item.mobileNumber||"");setCompleteReference("");setCompleteNotes("");setCompleteError("");}} className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm font-black text-amber-800">Complete</button>
           </div>)}
         </div>
       </Surface>:null}
@@ -826,13 +816,29 @@ export default function CashCounterPage(){
             <label className="block">
               <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Service <span className="text-rose-500">*</span></span>
               <input ref={quickServiceRef} list="quick-service-options" aria-invalid={Boolean(quickFieldErrors.serviceName)} aria-describedby={quickFieldErrors.serviceName?"quick-service-error":undefined} className="mt-1 w-full appearance-none bg-transparent p-0 text-[20px] font-black tracking-[-.02em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Type or choose a service" value={quickServiceName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickServiceName(event.target.value);clearQuickFieldError("serviceName");setQuickError("");}}/>
-              <datalist id="quick-service-options">{serviceUsage.map((item)=><option key={item.name} value={item.name}/>)}</datalist>
+              <datalist id="quick-service-options">{serviceCatalog.filter((item)=>item.isActive!==false).map((item)=><option key={item.id} value={item.name}/>)}</datalist>
               {quickFieldErrors.serviceName?<p id="quick-service-error" className="mt-1.5 text-[12px] font-bold text-rose-600">{quickFieldErrors.serviceName}</p>:null}
             </label>
             <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {quickServiceOptions.map((item)=><button key={item.name} type="button" onClick={()=>{setQuickServiceName(item.name);clearQuickFieldError("serviceName");setQuickError("");quickServiceRef.current?.focus();}} className={"min-h-8 rounded-full border px-3 text-[12px] font-black transition active:scale-[.98] "+(quickServiceName.toLowerCase()===item.name.toLowerCase()?"border-emerald-300 bg-emerald-50 text-emerald-700":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{item.name}</button>)}
+              {quickServiceOptions.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickServiceName(item.name);if(item.defaultAmount!==null&&Number(item.defaultAmount)>0)setQuickAmount(String(Number(item.defaultAmount)));clearQuickFieldError("serviceName");clearQuickFieldError("amount");setQuickError("");quickServiceRef.current?.focus();}} className={"min-h-8 rounded-full border px-3 text-[12px] font-black transition active:scale-[.98] "+(quickServiceName.toLowerCase()===item.name.toLowerCase()?"border-emerald-300 bg-emerald-50 text-emerald-700":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{item.name}{item.defaultAmount!==null&&Number(item.defaultAmount)>0?" · ₹"+Number(item.defaultAmount).toLocaleString("en-IN"):""}</button>)}
             </div>
+            <fieldset className="mt-3 grid grid-cols-2 rounded-[12px] bg-[var(--surface)] p-1" aria-label="Service payment mode">
+              <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[12px] font-black transition "+(quickServicePaymentMode==="CASH"?"bg-emerald-50 text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="servicePaymentMode" value="CASH" checked={quickServicePaymentMode==="CASH"} onChange={()=>{setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");clearQuickFieldError("servicePaymentAccount");}} className="absolute h-px w-px opacity-0"/><span>Cash</span></label>
+              <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[12px] font-black transition "+(quickServicePaymentMode==="UPI"?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="servicePaymentMode" value="UPI" checked={quickServicePaymentMode==="UPI"} onChange={()=>setQuickServicePaymentMode("UPI")} className="absolute h-px w-px opacity-0"/><span>Bank / UPI</span></label>
+            </fieldset>
+            {quickServicePaymentMode==="UPI"?<div className="mt-2">
+              <SearchableSelect mobileSheet aria-label="Service payment received in" searchPlaceholder="Search bank / UPI account" className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[14px] font-black text-[var(--text)]" value={quickServicePaymentAccountId} onChange={(event)=>{setQuickServicePaymentAccountId(event.target.value);clearQuickFieldError("servicePaymentAccount");setQuickError("");}}>
+                <option value="">Received in…</option>
+                {accounts.filter((account)=>account.isActive!==false&&["BANK","UPI"].includes(account.accountType)).map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
+              </SearchableSelect>
+              {quickFieldErrors.servicePaymentAccount?<p className="mt-1.5 text-[12px] font-bold text-rose-600">{quickFieldErrors.servicePaymentAccount}</p>:null}
+            </div>:null}
           </div>}
+
+          {quickPurpose==="TRANSFER"&&quickDirection==="IN"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
+            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary destination</span><div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>setQuickBeneficiaryMode("UPI")} className={"rounded-[8px] px-3 py-1.5 "+(quickBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>setQuickBeneficiaryMode("BANK")} className={"rounded-[8px] px-3 py-1.5 "+(quickBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div></div>
+            <input className="mt-2 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-[15px] font-bold text-[var(--text)] outline-none" value={quickBeneficiaryDetails} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>setQuickBeneficiaryDetails(event.target.value)} placeholder={quickBeneficiaryMode==="UPI"?"UPI ID / mobile":"Account no. / IFSC / bank details"}/>
+          </div>:null}
 
           <div className="mt-3 overflow-hidden rounded-[17px] bg-[var(--surface-soft)] px-4">
             <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Customer</span><input className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Name" value={quickCustomerName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickCustomerName(event.target.value);setQuickError("");}}/></label>
@@ -906,6 +912,14 @@ export default function CashCounterPage(){
               </div>:null}
             </label>:null}
           </div>
+
+          {completingQuickCash?.direction==="IN"?<div className="mt-4 rounded-[18px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary destination</span>
+              <div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>setCompleteBeneficiaryMode("UPI")} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>setCompleteBeneficiaryMode("BANK")} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div>
+            </div>
+            <input className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-extrabold text-[var(--text)] outline-none" value={completeBeneficiaryDetails} onChange={(event)=>setCompleteBeneficiaryDetails(event.target.value)} placeholder={completeBeneficiaryMode==="UPI"?"UPI ID / mobile":"Account no. / IFSC / bank details"}/>
+          </div>:null}
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">

@@ -4,7 +4,7 @@
 import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { Modal, PageLoader } from "@/components/ui";
+import { Modal, PageLoader, Surface } from "@/components/ui";
 import { SettingsWorkspace } from "@/app/settings/settings-modern";
 import { apiFetch } from "@/lib/api";
 
@@ -12,6 +12,7 @@ type Gateway={id:string;gatewayName:string;defaultChargeRate:string;defaultCharg
 type Provider={id:string;name:string;providerType:string;supportsAeps:boolean;aepsCommissionRate:string;isActive:boolean;gateways:Gateway[]};
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionType:string;defaultCommissionRate:string;isActive:boolean};
 type Category={id:string;name:string;expenseUsage:string;isActive:boolean};
+type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
 type Customer={id:string;fullName:string};
 type Rule={id:string;customerId:string|null;providerId:string|null;gatewayId:string|null;paymentTermId:string|null;transactionType:string;commissionType:string;commissionRate:string;isActive:boolean;paymentTerm:Term|null};
 type EditState=
@@ -28,7 +29,7 @@ const input="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--
 const primary="app-primary-button min-h-11 px-4 text-sm font-bold";
 const secondary="app-secondary-button min-h-10 px-3 text-xs font-bold";
 export default function SettingsPage(){
- const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[categories,setCategories]=useState<Category[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[rules,setRules]=useState<Rule[]>([]);
+ const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[categories,setCategories]=useState<Category[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[rules,setRules]=useState<Rule[]>([]),[services,setServices]=useState<ServiceConfig[]>([]);
  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[message,setMessage]=useState("");
  const [create,setCreate]=useState<CreateKind>(null),[toggleState,setToggleState]=useState<ToggleState>(null);
  const [providerName,setProviderName]=useState(""),[providerType,setProviderType]=useState("MULTI_SERVICE"),[providerSupportsAeps,setProviderSupportsAeps]=useState(false),[providerAepsRate,setProviderAepsRate]=useState("0");
@@ -37,16 +38,19 @@ export default function SettingsPage(){
  const [categoryName,setCategoryName]=useState(""),[categoryUsage,setCategoryUsage]=useState("BUSINESS");
  const [ruleCustomer,setRuleCustomer]=useState(""),[ruleProvider,setRuleProvider]=useState(""),[ruleGateway,setRuleGateway]=useState(""),[ruleTerm,setRuleTerm]=useState(""),[ruleType,setRuleType]=useState("CARD_SWIPE"),[ruleCalc,setRuleCalc]=useState("PERCENTAGE"),[ruleRate,setRuleRate]=useState("");
  const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState("");
+ const [serviceName,setServiceName]=useState(""),[serviceDefaultAmount,setServiceDefaultAmount]=useState("");
+ const [serviceEdit,setServiceEdit]=useState<ServiceConfig|null>(null),[serviceEditName,setServiceEditName]=useState(""),[serviceEditAmount,setServiceEditAmount]=useState("");
 
  const load=useCallback(async()=>{
-  const [p,t,c,cu,r]=await Promise.all([
+  const [p,t,c,cu,r,s]=await Promise.all([
    apiFetch<Provider[]>("/providers?includeInactive=true"),
    apiFetch<Term[]>("/settings/payment-terms?includeInactive=true"),
    apiFetch<Category[]>("/settings/expense-categories?includeInactive=true"),
    apiFetch<Customer[]>("/customers"),
    apiFetch<Rule[]>("/settings/commission-rules?includeInactive=true"),
+   apiFetch<ServiceConfig[]>("/settings/services?includeInactive=true"),
   ]);
-  setProviders(p);setTerms(t);setCategories(c);setCustomers(cu);setRules(r);
+  setProviders(p);setTerms(t);setCategories(c);setCustomers(cu);setRules(r);setServices(s);
  },[]);
  useEffect(()=>{
   setLoading(true);
@@ -61,6 +65,19 @@ export default function SettingsPage(){
  async function addProvider(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers",{method:"POST",body:JSON.stringify({name:providerName,providerType,supportsAeps:providerSupportsAeps,aepsCommissionRate:Number(providerAepsRate||0)})}),()=>{setProviderName("");setProviderSupportsAeps(false);setProviderAepsRate("0");setCreate(null);},"Provider added.");}catch{}}
  async function addGateway(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers/"+gatewayProvider+"/gateways",{method:"POST",body:JSON.stringify({gatewayName,defaultChargeType:"PERCENTAGE",defaultChargeRate:Number(gatewayRate)})}),()=>{setGatewayName("");setGatewayRate("");setCreate(null);},"Gateway added.");}catch{}}
  async function addTerm(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/payment-terms",{method:"POST",body:JSON.stringify({name:termName,durationValue:Number(durationValue),durationUnit,defaultCommissionType:"PERCENTAGE",defaultCommissionRate:Number(termRate)})}),()=>{setTermName("");setDurationValue("0");setTermRate("0");setCreate(null);},"Payment term added.");}catch{}}
+ async function addService(e:FormEvent){
+  e.preventDefault();
+  const name=serviceName.trim();if(!name)return;
+  try{await run(()=>apiFetch("/settings/services",{method:"POST",body:JSON.stringify({name,defaultAmount:serviceDefaultAmount.trim()===""?undefined:Number(serviceDefaultAmount)})}),()=>{setServiceName("");setServiceDefaultAmount("");},"Service added.");}catch{}
+ }
+ function beginServiceEdit(item:ServiceConfig){setServiceEdit(item);setServiceEditName(item.name);setServiceEditAmount(item.defaultAmount===null||item.defaultAmount===undefined?"":String(Number(item.defaultAmount)));}
+ async function saveServiceEdit(e:FormEvent){
+  e.preventDefault();if(!serviceEdit)return;
+  try{await run(()=>apiFetch("/settings/services/"+serviceEdit.id,{method:"PATCH",body:JSON.stringify({name:serviceEditName.trim(),defaultAmount:serviceEditAmount.trim()===""?null:Number(serviceEditAmount)})}),()=>setServiceEdit(null),"Service updated.");}catch{}
+ }
+ async function toggleService(item:ServiceConfig){
+  try{await run(()=>apiFetch("/settings/services/"+item.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:!item.isActive})}),()=>{},item.isActive?"Service retired.":"Service activated.");}catch{}
+ }
  async function addCategory(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name:categoryName,expenseUsage:categoryUsage})}),()=>{setCategoryName("");setCreate(null);},"Expense category added.");}catch{}}
  async function quickAddCategory(name:string){try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name,expenseUsage:"BUSINESS"})}),()=>{},name+" added.");}catch{}}
  async function saveServiceDefault(transactionType:"CARD_SWIPE"|"CASH_TRANSFER"|"AEPS_WITHDRAWAL",rate:number,label:string){
@@ -111,6 +128,24 @@ export default function SettingsPage(){
  return <AppShell><div className="page-enter mx-auto max-w-[1320px] space-y-5">
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
+  <Surface className="overflow-hidden">
+    <div className="flex flex-col gap-3 border-b border-[var(--border)] p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
+      <div><p className="text-[10px] font-black uppercase tracking-[.12em] text-[var(--accent)]">Daily Cash</p><h2 className="mt-1 text-lg font-black">Service catalog</h2><p className="mt-1 text-xs text-[var(--text-muted)]">These services appear in Cash In → Service. Default amount is optional.</p></div>
+      <form onSubmit={addService} className="grid gap-2 sm:grid-cols-[minmax(180px,1fr)_140px_auto]">
+        <input className={input} value={serviceName} onChange={e=>setServiceName(e.target.value)} placeholder="Service name" required/>
+        <input className={input} value={serviceDefaultAmount} onChange={e=>setServiceDefaultAmount(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" placeholder="Default ₹"/>
+        <button className={primary}>+ Service</button>
+      </form>
+    </div>
+    <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3">
+      {services.map(item=><div key={item.id} className={"rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4 "+(!item.isActive?"opacity-55":"")}>
+        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-black">{item.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{item.defaultAmount!==null&&Number(item.defaultAmount)>0?"Default ₹"+Number(item.defaultAmount).toLocaleString("en-IN"):"Amount entered at sale"}</p></div><span className={"h-2.5 w-2.5 shrink-0 rounded-full "+(item.isActive?"bg-emerald-500":"bg-slate-300")}/></div>
+        <div className="mt-4 flex gap-2"><button type="button" onClick={()=>beginServiceEdit(item)} className={secondary}>Edit</button><button type="button" onClick={()=>toggleService(item)} className={secondary}>{item.isActive?"Retire":"Activate"}</button></div>
+      </div>)}
+      {!services.length?<p className="p-3 text-sm text-[var(--text-muted)]">No services configured yet.</p>:null}
+    </div>
+  </Surface>
+
   <SettingsWorkspace
    providers={providers}
    terms={terms}
@@ -128,6 +163,14 @@ export default function SettingsPage(){
    onSaveCardSwipeDefault={saveCardSwipeDefault}
    onSaveAepsDefault={saveAepsDefault}
   />
+
+  <Modal open={!!serviceEdit} title="Edit service" description="Changes apply to future service entries." onClose={()=>setServiceEdit(null)}>
+    <form onSubmit={saveServiceEdit} className="space-y-3">
+      <input className={input} value={serviceEditName} onChange={e=>setServiceEditName(e.target.value)} placeholder="Service name" required/>
+      <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default amount</span><input className={input} value={serviceEditAmount} onChange={e=>setServiceEditAmount(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" placeholder="Leave blank to enter each time"/></label>
+      <div className="flex justify-end gap-2"><button type="button" onClick={()=>setServiceEdit(null)} className={secondary}>Cancel</button><button className={primary}>Save service</button></div>
+    </form>
+  </Modal>
 
   <Modal open={create==="provider"} title="Add provider" description="Configure only the services this provider actually supports." onClose={()=>setCreate(null)}>
     <form onSubmit={addProvider} className="space-y-4">

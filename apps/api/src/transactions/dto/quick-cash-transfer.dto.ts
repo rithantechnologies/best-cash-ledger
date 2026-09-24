@@ -39,6 +39,22 @@ export class CreateQuickCashTransferDto {
   @IsOptional()
   @IsIn(['CASH', 'UPI'])
   commissionMode?: 'CASH' | 'UPI';
+
+  @IsOptional()
+  @IsIn(['UPI', 'BANK'])
+  beneficiaryMode?: 'UPI' | 'BANK';
+
+  @IsOptional()
+  @IsString()
+  beneficiaryDetails?: string;
+
+  @IsOptional()
+  @IsIn(['CASH', 'UPI'])
+  servicePaymentMode?: 'CASH' | 'UPI';
+
+  @IsOptional()
+  @IsString()
+  servicePaymentAccountId?: string;
 }
 
 export class CompleteQuickCashTransferDto {
@@ -64,4 +80,12 @@ export class CompleteQuickCashTransferDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsIn(['UPI', 'BANK'])
+  beneficiaryMode?: 'UPI' | 'BANK';
+
+  @IsOptional()
+  @IsString()
+  beneficiaryDetails?: string;
 }
