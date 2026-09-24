@@ -965,6 +965,14 @@ export function FinanceDashboard() {
           </section>
         </div>
       </div>
+      <div className="fixed right-3 z-[45] flex flex-col items-end gap-2 bottom-[calc(5.35rem+env(safe-area-inset-bottom))] lg:bottom-5 lg:right-5">
+        <Link href="/cash-counter?quick=IN" aria-label="Cash in" className="flex min-h-10 items-center gap-2 rounded-full bg-emerald-600 px-3.5 text-[13px] font-black text-white shadow-[0_6px_18px_rgba(5,150,105,.20)] transition hover:-translate-y-0.5 active:translate-y-0">
+          <span className="text-base">↓</span><span>Cash In</span>
+        </Link>
+        <Link href="/cash-counter?quick=OUT" aria-label="Cash out" className="flex min-h-10 items-center gap-2 rounded-full bg-rose-600 px-3.5 text-[13px] font-black text-white shadow-[0_6px_18px_rgba(225,29,72,.18)] transition hover:-translate-y-0.5 active:translate-y-0">
+          <span className="text-base">↑</span><span>Cash Out</span>
+        </Link>
+      </div>
       <DrilldownSheet detail={drilldown} onClose={closeDrilldown} />
       <PositionHistorySheet open={positionHistoryOpen} rows={core.positionTrend} onClose={()=>setPositionHistoryOpen(false)} />
     </AppShell>

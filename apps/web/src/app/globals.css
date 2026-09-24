@@ -3218,3 +3218,19 @@ a.app-metric:hover { border-color: var(--border-strong); }
 .app-state-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 50%; background: var(--tone-soft, var(--surface-soft)); color: var(--tone, var(--text-muted)); }
 .app-state strong { font-size: 15px; font-weight: 600; }
 .app-state p { max-width: 42ch; margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+
+/* Quick cash sheet uses surface-level focus instead of legacy input boxes. */
+.cash-quick-sheet input,
+.cash-quick-sheet textarea {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+.cash-quick-sheet input:focus,
+.cash-quick-sheet textarea:focus {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}

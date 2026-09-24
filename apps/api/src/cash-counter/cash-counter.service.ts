@@ -443,7 +443,11 @@ export class CashCounterService {
       activityMap.set(activityId, activity);
     }
 
-    const commissionOnlyTransactions = await tx.transaction.findMany({
+    // Keep the Daily Cash activity ledger strictly tied to physical cash
+    // movements. Commission-only transactions (for example, a card swipe
+    // paid out through bank/UPI/wallet) still contribute to the session
+    // commission metric, but must not appear as drawer activity.
+    const sessionCommissionTransactions = await tx.transaction.findMany({
       where: {
         transactionAt: {
           gte: session.openedAt,
@@ -460,56 +464,9 @@ export class CashCounterService {
         commissions: { some: {} },
       },
       select: {
-        id: true,
-        transactionNumber: true,
-        transactionType: true,
-        transactionAt: true,
-        grossAmount: true,
-        netAmount: true,
-        notes: true,
-        customer: { select: { fullName: true } },
         commissions: { select: { amount: true } },
-                charges: { select: { amount: true, chargeType: true } },
       },
-      orderBy: { transactionAt: 'asc' },
     });
-
-    for (const transaction of commissionOnlyTransactions) {
-      if (activityMap.has(transaction.id)) continue;
-      const commissionAmount = transaction.commissions.reduce(
-        (sum, commission) => sum + Number(commission.amount),
-        0,
-      );
-      const providerFeeAmount = (transaction.charges ?? [])
-        .filter((charge) => !charge.chargeType.startsWith('PAYOUT'))
-        .reduce((sum, charge) => sum + Number(charge.amount), 0);
-      const payoutChargeAmount = (transaction.charges ?? [])
-        .filter((charge) => charge.chargeType.startsWith('PAYOUT'))
-        .reduce((sum, charge) => sum + Number(charge.amount), 0);
-      const profitAmount = commissionAmount - providerFeeAmount - payoutChargeAmount;
-      if (commissionAmount <= 0) continue;
-      activityMap.set(transaction.id, {
-        id: transaction.id,
-        transactionId: transaction.id,
-        transactionNumber: transaction.transactionNumber,
-        serviceType: transaction.transactionType,
-        transactionAt: transaction.transactionAt,
-        particular:
-          transaction.customer?.fullName ??
-          transaction.notes ??
-          transaction.transactionNumber,
-        transactionAmount: Number(transaction.grossAmount),
-        netAmount: Number(transaction.netAmount ?? transaction.grossAmount),
-        cashIn: 0,
-        cashOut: 0,
-        commissionAmount,
-        providerFeeAmount,
-        payoutChargeAmount,
-        profitAmount,
-        runningBalance: 0,
-        movementCount: 0,
-      });
-    }
 
     const activities = [...activityMap.values()].sort(
       (a, b) =>
@@ -545,8 +502,14 @@ export class CashCounterService {
         b.cashOut -
         (a.cashIn + a.cashOut),
     );
-    const commissionEarned = activities.reduce(
-      (sum, activity) => sum + activity.commissionAmount,
+    const commissionEarned = sessionCommissionTransactions.reduce(
+      (sum, transaction) =>
+        sum +
+        transaction.commissions.reduce(
+          (transactionSum, commission) =>
+            transactionSum + Number(commission.amount),
+          0,
+        ),
       0,
     );
 

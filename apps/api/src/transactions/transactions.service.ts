@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountNature, AccountType, CommissionMethod, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
@@ -13,6 +13,7 @@ import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto
 import { CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
+import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto } from './dto/quick-cash-transfer.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 
@@ -133,8 +134,12 @@ export class TransactionsService {
           { customer: { fullName: { contains: options.q, mode: 'insensitive' } } },
         ],
       } : {}),
-      ...(options?.type ? { transactionType: options.type } : {}),
-      ...(options?.status ? { status: options.status } : {}),
+      ...(options?.type
+        ? { transactionType: options.type }
+        : { transactionType: { not: TransactionType.REVERSAL } }),
+      ...(options?.status
+        ? { status: options.status }
+        : { status: { not: TransactionStatus.REVERSED } }),
       ...moneyStatusWhere,
       ...(options?.from || options?.to
         ? {
@@ -797,6 +802,489 @@ export class TransactionsService {
         settlementReceipt,
         payoutTransactions,
         createdCustomer,
+      };
+    });
+  }
+
+  async listPendingQuickCash(
+    cashAccountId: string | undefined,
+    userId: string,
+    actorRole: RoleName,
+  ) {
+    return this.prisma.quickCashTransferDetail.findMany({
+      where: {
+        ...(cashAccountId ? { cashAccountId } : {}),
+        transaction: {
+          status: TransactionStatus.PENDING,
+          ...(actorRole === RoleName.STAFF ? { createdById: userId } : {}),
+        },
+      },
+      include: {
+        transaction: {
+          include: {
+            commissions: true,
+          },
+        },
+        cashAccount: true,
+        sourceAccount: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createQuickCash(
+    dto: CreateQuickCashTransferDto,
+    userId: string,
+    actorRole: RoleName,
+    providedIdempotencyKey?: string,
+  ) {
+    const amount = this.money(dto.amount);
+    const purpose = dto.purpose ?? 'TRANSFER';
+    const commissionAmount = this.money(dto.commissionAmount ?? 0);
+    const commissionMode = dto.commissionMode ?? 'CASH';
+    if (purpose === 'SERVICE') {
+      if (dto.direction !== 'IN') {
+        throw new BadRequestException('Service income can only be recorded as Cash In');
+      }
+      if (!dto.serviceName?.trim()) {
+        throw new BadRequestException('Service name is required');
+      }
+    } else {
+      if (commissionAmount <= 0) {
+        throw new BadRequestException('Commission amount is required');
+      }
+      if (dto.direction === 'IN' && commissionAmount >= amount) {
+        throw new BadRequestException('Commission must be less than the cash-in amount');
+      }
+    }
+
+    const idempotencyKey = await this.idempotency.key(
+      purpose === 'SERVICE' ? TransactionType.SERVICE_INCOME : TransactionType.CASH_TRANSFER,
+      userId,
+      { quickCash: true, ...dto },
+      providedIdempotencyKey,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.validation.lockAccount(tx, dto.cashAccountId);
+      const cashAccount = await this.validation.cashAccount(
+        tx,
+        dto.cashAccountId,
+        'Quick cash drawer',
+      );
+      if (
+        actorRole === RoleName.STAFF &&
+        cashAccount.accountName === 'Main Cash Reserve'
+      ) {
+        throw new ForbiddenException('Main Cash Reserve is owner-only');
+      }
+      await this.validation.requireOpenCashDesk(
+        tx,
+        cashAccount.id,
+        'Quick cash entry',
+        actorRole === RoleName.STAFF ? userId : undefined,
+      );
+
+      if (purpose === 'SERVICE') {
+        const serviceIncomeLedger = await tx.ledgerAccount.findUnique({
+          where: { ledgerCode: 'SYS-SERVICE-INCOME' },
+        });
+        if (!serviceIncomeLedger || !cashAccount.ledgerAccount) {
+          throw new NotFoundException('Service income ledger is missing');
+        }
+        const serviceName = dto.serviceName!.trim();
+        const transaction = await tx.transaction.create({
+          data: {
+            transactionNumber: 'SVC-' + Date.now().toString(36).toUpperCase(),
+            transactionType: TransactionType.SERVICE_INCOME,
+            transactionAt: new Date(),
+            grossAmount: new Prisma.Decimal(amount),
+            netAmount: new Prisma.Decimal(amount),
+            status: TransactionStatus.COMPLETED,
+            idempotencyKey,
+            notes: [serviceName, dto.remarks?.trim()].filter(Boolean).join(' · '),
+            createdById: userId,
+          },
+        });
+        await tx.quickCashTransferDetail.create({
+          data: {
+            transactionId: transaction.id,
+            direction: 'IN',
+            purpose: 'SERVICE',
+            serviceName,
+            cashAccountId: cashAccount.id,
+            customerName: dto.customerName?.trim() || null,
+            mobileNumber: dto.mobileNumber?.trim() || null,
+            amount: new Prisma.Decimal(amount),
+            commissionAmount: new Prisma.Decimal(0),
+            completedAt: new Date(),
+          },
+        });
+        await this.ledger.post(tx,transaction.id,userId,'Service income · ' + serviceName,[
+          {ledgerAccountId: cashAccount.ledgerAccount.id,entryType: EntryType.DEBIT,amount,description: 'Cash received for ' + serviceName},
+          {ledgerAccountId: serviceIncomeLedger.id,entryType: EntryType.CREDIT,amount,description: 'Service income · ' + serviceName},
+        ]);
+        await this.auditCreated(tx, transaction, userId);
+        return transaction;
+      }
+
+      const ledgerCodes = [
+        'SYS-CUST-PAYABLE',
+        'SYS-CUST-RECEIVABLE',
+        'SYS-COMMISSION',
+        'SYS-COMMISSION-RECEIVABLE',
+      ];
+      const ledgers = await tx.ledgerAccount.findMany({
+        where: { ledgerCode: { in: ledgerCodes } },
+      });
+      const byCode = new Map(ledgers.map((item) => [item.ledgerCode, item]));
+      const pendingLedger = byCode.get(
+        dto.direction === 'IN' ? 'SYS-CUST-PAYABLE' : 'SYS-CUST-RECEIVABLE',
+      );
+      const commissionLedger = byCode.get('SYS-COMMISSION');
+      const commissionReceivableLedger = byCode.get('SYS-COMMISSION-RECEIVABLE');
+      if (
+        !pendingLedger ||
+        !commissionLedger ||
+        !cashAccount.ledgerAccount ||
+        (commissionMode === 'UPI' && !commissionReceivableLedger)
+      ) {
+        throw new NotFoundException('Required ledger account is missing');
+      }
+
+      const transferAmount =
+        dto.direction === 'IN' && commissionMode === 'CASH'
+          ? this.money(amount - commissionAmount)
+          : amount;
+      const transaction = await tx.transaction.create({
+        data: {
+          transactionNumber: 'QCT-' + Date.now().toString(36).toUpperCase(),
+          transactionType: TransactionType.CASH_TRANSFER,
+          transactionAt: new Date(),
+          grossAmount: new Prisma.Decimal(
+            dto.direction === 'IN' && commissionMode === 'CASH'
+              ? amount
+              : amount + commissionAmount,
+          ),
+          netAmount: new Prisma.Decimal(
+            dto.direction === 'IN' ? transferAmount : amount,
+          ),
+          status: TransactionStatus.PENDING,
+          idempotencyKey,
+          notes:
+            dto.remarks?.trim() ||
+            (dto.direction === 'IN' ? 'Quick cash in' : 'Quick cash out'),
+          createdById: userId,
+        },
+      });
+
+      await tx.quickCashTransferDetail.create({
+        data: {
+          transactionId: transaction.id,
+          direction: dto.direction,
+          purpose: 'TRANSFER',
+          cashAccountId: cashAccount.id,
+          customerName: dto.customerName?.trim() || null,
+          mobileNumber: dto.mobileNumber?.trim() || null,
+          amount: new Prisma.Decimal(amount),
+          commissionAmount: new Prisma.Decimal(commissionAmount),
+          commissionMode,
+        },
+      });
+
+      if (commissionAmount > 0) {
+        await tx.transactionCommission.create({
+          data: {
+            transactionId: transaction.id,
+            commissionType: 'QUICK_CASH_TRANSFER',
+            calculationType: 'FIXED',
+            rate: new Prisma.Decimal(0),
+            amount: new Prisma.Decimal(commissionAmount),
+          },
+        });
+      }
+
+      const entries: JournalEntry[] =
+        dto.direction === 'IN'
+          ? [
+              {
+                ledgerAccountId: cashAccount.ledgerAccount.id,
+                entryType: EntryType.DEBIT,
+                amount,
+                description: 'Quick cash received',
+              },
+              {
+                ledgerAccountId: pendingLedger.id,
+                entryType: EntryType.CREDIT,
+                amount: transferAmount,
+                description: 'Pending transfer obligation',
+              },
+            ]
+          : [
+              {
+                ledgerAccountId: pendingLedger.id,
+                entryType: EntryType.DEBIT,
+                amount: transferAmount,
+                description: 'Pending incoming transfer',
+              },
+              {
+                ledgerAccountId: cashAccount.ledgerAccount.id,
+                entryType: EntryType.CREDIT,
+                amount,
+                description: 'Quick cash paid out',
+              },
+            ];
+      if (commissionAmount > 0) {
+        if (commissionMode === 'UPI') {
+          entries.push({
+            ledgerAccountId: commissionReceivableLedger!.id,
+            entryType: EntryType.DEBIT,
+            amount: commissionAmount,
+            description: 'UPI commission awaiting account allocation',
+          });
+        } else if (dto.direction === 'OUT') {
+          entries.push({
+            ledgerAccountId: cashAccount.ledgerAccount.id,
+            entryType: EntryType.DEBIT,
+            amount: commissionAmount,
+            description: 'Cash commission received',
+          });
+        }
+        entries.push({
+          ledgerAccountId: commissionLedger.id,
+          entryType: EntryType.CREDIT,
+          amount: commissionAmount,
+          description: 'Quick cash commission · ' + commissionMode,
+        });
+      }
+
+      await this.ledger.post(
+        tx,
+        transaction.id,
+        userId,
+        dto.direction === 'IN' ? 'Quick cash in' : 'Quick cash out',
+        entries,
+      );
+      await this.auditCreated(tx, transaction, userId);
+      return transaction;
+    });
+  }
+
+  async completeQuickCash(
+    id: string,
+    dto: CompleteQuickCashTransferDto,
+    userId: string,
+    actorRole: RoleName,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const detail = await tx.quickCashTransferDetail.findUnique({
+        where: { id },
+        include: { transaction: true, cashAccount: true },
+      });
+      if (!detail) throw new NotFoundException('Pending cash entry not found');
+      if (detail.transaction.status !== TransactionStatus.PENDING) {
+        throw new BadRequestException('This cash entry is already completed');
+      }
+      if (
+        actorRole === RoleName.STAFF &&
+        detail.transaction.createdById !== userId
+      ) {
+        throw new ForbiddenException('Staff can only complete their own pending cash entries');
+      }
+      if (dto.sourceAccountId === detail.cashAccountId) {
+        throw new BadRequestException('Choose a bank, UPI or wallet account');
+      }
+
+      await this.validation.lockAccount(tx, dto.sourceAccountId);
+      const sourceAccount = await this.validation.liquidAsset(
+        tx,
+        dto.sourceAccountId,
+        detail.direction === 'IN' ? 'Transfer source' : 'Incoming transfer account',
+      );
+      if (!sourceAccount.ledgerAccount) {
+        throw new NotFoundException('Source account ledger is unavailable');
+      }
+
+      let commissionAccount: any = null;
+      if ((detail.commissionMode ?? 'CASH') === 'UPI') {
+        if (!dto.commissionAccountId) {
+          throw new BadRequestException('Choose the account that received the UPI commission');
+        }
+        if (dto.commissionAccountId !== dto.sourceAccountId) {
+          await this.validation.lockAccount(tx, dto.commissionAccountId);
+        }
+        commissionAccount = await this.validation.transferSource(
+          tx,
+          dto.commissionAccountId,
+        );
+      }
+
+      const amount = Number(detail.amount);
+      const commissionAmount = Number(detail.commissionAmount);
+      const commissionMode = detail.commissionMode ?? 'CASH';
+      const settlementAmount =
+        detail.direction === 'IN' && commissionMode === 'CASH'
+          ? this.money(amount - commissionAmount)
+          : amount;
+      if (detail.direction === 'IN') {
+        await this.validation.ensureSufficientFunds(
+          tx,
+          sourceAccount,
+          settlementAmount,
+        );
+      }
+
+      const ledgerCode =
+        detail.direction === 'IN' ? 'SYS-CUST-PAYABLE' : 'SYS-CUST-RECEIVABLE';
+      const pendingLedger = await tx.ledgerAccount.findUnique({
+        where: { ledgerCode },
+      });
+      if (!pendingLedger) {
+        throw new NotFoundException('Pending transfer ledger is missing');
+      }
+      const commissionReceivableLedger =
+        commissionMode === 'UPI'
+          ? await tx.ledgerAccount.findUnique({
+              where: { ledgerCode: 'SYS-COMMISSION-RECEIVABLE' },
+            })
+          : null;
+      if (commissionMode === 'UPI' && !commissionReceivableLedger) {
+        throw new NotFoundException('Commission receivable ledger is missing');
+      }
+
+      const completion = await tx.transaction.create({
+        data: {
+          transactionNumber: 'QCC-' + Date.now().toString(36).toUpperCase(),
+          transactionType: TransactionType.CASH_TRANSFER,
+          transactionAt: new Date(),
+          grossAmount: new Prisma.Decimal(settlementAmount),
+          netAmount: new Prisma.Decimal(settlementAmount),
+          status: TransactionStatus.COMPLETED,
+          referenceNumber: dto.referenceNumber?.trim() || null,
+          notes:
+            dto.notes?.trim() ||
+            'Completion for ' + detail.transaction.transactionNumber,
+          createdById: userId,
+        },
+      });
+
+      const completionEntries: JournalEntry[] =
+        detail.direction === 'IN'
+          ? [
+              {
+                ledgerAccountId: pendingLedger.id,
+                entryType: EntryType.DEBIT,
+                amount: settlementAmount,
+                description: 'Clear pending transfer obligation',
+              },
+              {
+                ledgerAccountId: sourceAccount.ledgerAccount.id,
+                entryType: EntryType.CREDIT,
+                amount: settlementAmount,
+                description: 'Transfer source outflow',
+              },
+            ]
+          : [
+              {
+                ledgerAccountId: sourceAccount.ledgerAccount.id,
+                entryType: EntryType.DEBIT,
+                amount: settlementAmount,
+                description: 'Incoming customer transfer',
+              },
+              {
+                ledgerAccountId: pendingLedger.id,
+                entryType: EntryType.CREDIT,
+                amount: settlementAmount,
+                description: 'Clear pending incoming transfer',
+              },
+            ];
+      if (
+        commissionMode === 'UPI' &&
+        commissionAmount > 0 &&
+        commissionAccount?.ledgerAccount &&
+        commissionReceivableLedger
+      ) {
+        completionEntries.push(
+          {
+            ledgerAccountId: commissionAccount.ledgerAccount.id,
+            entryType: EntryType.DEBIT,
+            amount: commissionAmount,
+            description: 'UPI commission received',
+          },
+          {
+            ledgerAccountId: commissionReceivableLedger.id,
+            entryType: EntryType.CREDIT,
+            amount: commissionAmount,
+            description: 'Clear pending UPI commission allocation',
+          },
+        );
+      }
+      await this.ledger.post(
+        tx,
+        completion.id,
+        userId,
+        'Complete ' + detail.transaction.transactionNumber,
+        completionEntries,
+      );
+
+      await tx.quickCashTransferDetail.update({
+        where: { id },
+        data: {
+          sourceAccountId: sourceAccount.id,
+          commissionAccountId: commissionAccount?.id ?? null,
+          ...(dto.customerName !== undefined
+            ? { customerName: dto.customerName.trim() || null }
+            : {}),
+          ...(dto.mobileNumber !== undefined
+            ? { mobileNumber: dto.mobileNumber.trim() || null }
+            : {}),
+          completionTransactionId: completion.id,
+          completedAt: new Date(),
+        },
+      });
+      await tx.transaction.update({
+        where: { id: detail.transactionId },
+        data: {
+          status: TransactionStatus.COMPLETED,
+          updatedById: userId,
+          referenceNumber: dto.referenceNumber?.trim() || detail.transaction.referenceNumber,
+          notes: dto.notes?.trim() || detail.transaction.notes,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entityType: 'TRANSACTION',
+          entityId: detail.transactionId,
+          action: 'COMPLETE_PENDING_CASH',
+          oldValues: {
+            status: TransactionStatus.PENDING,
+            sourceAccountId: null,
+            customerName: detail.customerName,
+            mobileNumber: detail.mobileNumber,
+          },
+          newValues: {
+            status: TransactionStatus.COMPLETED,
+            sourceAccountId: sourceAccount.id,
+            commissionMode,
+            commissionAccountId: commissionAccount?.id ?? null,
+            customerName:
+              dto.customerName !== undefined
+                ? dto.customerName.trim() || null
+                : detail.customerName,
+            mobileNumber:
+              dto.mobileNumber !== undefined
+                ? dto.mobileNumber.trim() || null
+                : detail.mobileNumber,
+            completionTransactionId: completion.id,
+          },
+        },
+      });
+      await this.auditCreated(tx, completion, userId);
+      return {
+        transactionId: detail.transactionId,
+        completionTransactionId: completion.id,
+        status: TransactionStatus.COMPLETED,
       };
     });
   }

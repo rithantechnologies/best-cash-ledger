@@ -4,7 +4,7 @@
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Modal, PageFrame, PageLoader, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
@@ -107,10 +107,11 @@ function MoneyFlow({tx}:{tx:Tx}){
 }
 
 export default function TransactionDetailPage(){
- const {id}=useParams<{id:string}>();const [tx,setTx]=useState<Tx|null>(null),[reason,setReason]=useState(""),[error,setError]=useState(""),[role,setRole]=useState(""),[saving,setSaving]=useState(false),[reverseOpen,setReverseOpen]=useState(false),[dateTimeOpen,setDateTimeOpen]=useState(false),[editDateTime,setEditDateTime]=useState(""),[dateTimeReason,setDateTimeReason]=useState("");
+ const {id}=useParams<{id:string}>();const router=useRouter();const [tx,setTx]=useState<Tx|null>(null),[reason,setReason]=useState(""),[error,setError]=useState(""),[role,setRole]=useState(""),[saving,setSaving]=useState(false),[reverseOpen,setReverseOpen]=useState(false),[deleteOpen,setDeleteOpen]=useState(false),[dateTimeOpen,setDateTimeOpen]=useState(false),[editDateTime,setEditDateTime]=useState(""),[dateTimeReason,setDateTimeReason]=useState("");
  const load=()=>apiFetch<Tx>("/transactions/"+id).then(setTx);
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}load().catch(e=>setError(e instanceof Error?e.message:"Failed to load transaction"));},[id]);
  async function reverse(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/reverse",{method:"POST",body:JSON.stringify({reason})});setReason("");setReverseOpen(false);await load();}catch(err){setError(err instanceof Error?err.message:"Reversal failed");}finally{setSaving(false);}}
+ async function deleteTransaction(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/delete",{method:"POST",body:JSON.stringify({reason})});setReason("");setDeleteOpen(false);router.replace("/transactions");}catch(err){setError(err instanceof Error?err.message:"Delete failed");}finally{setSaving(false);}}
  function openDateTimeEditor(){
    if(!tx)return;
    const d=new Date(tx.transactionAt);
@@ -128,7 +129,8 @@ export default function TransactionDetailPage(){
 
  const cardDueType=["CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION"].includes(tx.transactionType);
  const canEditDateTime=role==="OWNER"||role==="ADMIN";
- const canReverse=canEditDateTime&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
+ const canDelete=role==="OWNER"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
+ const canReverse=role==="ADMIN"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const payoutState=tx.transactionType==="CARD_SWIPE"?payoutDisplay(tx.payable):null;
  const fees=sum(tx.charges),earnings=sum(tx.commissions),gross=Number(tx.grossAmount),net=Number(tx.netAmount??tx.grossAmount);
  const payoutFees=tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0;
@@ -138,7 +140,7 @@ export default function TransactionDetailPage(){
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">← Transactions</Link><p className="mt-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--text-muted)]">{label(tx.transactionType)}</p><h1 className="mt-1 text-2xl font-black tracking-[-.035em] sm:text-3xl">{tx.transactionNumber}</h1><p className="mt-1 text-xs text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleString("en-IN")} · {tx.createdBy?.fullName??tx.createdById}</p></div>
-   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{canEditDateTime?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
+   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{canEditDateTime?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canDelete?<button onClick={()=>{setReason("");setDeleteOpen(true)}} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">Delete</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
@@ -170,6 +172,10 @@ export default function TransactionDetailPage(){
     <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason for correction</span><textarea className="app-control min-h-24 w-full p-3" minLength={3} value={dateTimeReason} onChange={e=>setDateTimeReason(e.target.value)} placeholder="Example: Transaction entered with wrong time" required/></label>
     <p className="text-[11px] leading-5 text-[var(--text-muted)]">This updates the linked business dates too: ledger posting, applicable due dates, payout/collection dates and provider settlement dates. System creation and audit timestamps are never rewritten.</p>
    </form>
+  </Modal>
+
+  <Modal open={deleteOpen} title="Delete transaction?" description="It will disappear from normal transaction lists. The financial effect is safely reversed and a permanent audit record is retained." onClose={()=>setDeleteOpen(false)} footer={<div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setDeleteOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold">Keep</button><button form="delete-tx" disabled={saving||reason.trim().length<3} className="min-h-11 rounded-xl bg-rose-700 text-sm font-black text-white disabled:opacity-50">{saving?"Deleting…":"Delete transaction"}</button></div>}>
+   <form id="delete-tx" onSubmit={deleteTransaction} className="space-y-3"><div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">This is an accounting-safe delete: balances are reversed, linked open dues are updated, and the transaction is removed from normal operating views. Audit history is not erased.</div><label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason for deletion</span><textarea className="app-control min-h-28 w-full p-3" minLength={3} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Example: Duplicate transaction entered by mistake" required/></label></form>
   </Modal>
 
   <Modal open={reverseOpen} title="Reverse transaction?" description="The original stays in the audit trail and a balancing reversal is created." onClose={()=>setReverseOpen(false)} footer={<div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setReverseOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold">Keep</button><button form="reverse-tx" disabled={saving} className="min-h-11 rounded-xl bg-rose-700 text-sm font-bold text-white disabled:opacity-50">{saving?"Reversing…":"Confirm reversal"}</button></div>}>

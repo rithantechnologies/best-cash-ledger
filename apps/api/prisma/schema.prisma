@@ -40,6 +40,7 @@ enum UsageType {
 enum TransactionType {
   CARD_SWIPE
   CASH_TRANSFER
+  SERVICE_INCOME
   AEPS_WITHDRAWAL
   MICRO_ATM
   CUSTOMER_PAYOUT
@@ -196,16 +197,16 @@ model Customer {
 }
 
 model CustomerCard {
-  id               String            @id @default(uuid())
+  id               String                  @id @default(uuid())
   customerId       String
-  customer         Customer          @relation(fields: [customerId], references: [id])
+  customer         Customer                @relation(fields: [customerId], references: [id])
   bankName         String
   cardType         String?
   lastFourDigits   String
   nickname         String?
-  isActive         Boolean           @default(true)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  isActive         Boolean                 @default(true)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
   cardSwipeDetails CardSwipeDetail[]
   cardDueClearings CardDueClearingDetail[]
 }
@@ -335,47 +336,50 @@ model CommissionRule {
 }
 
 model FinancialAccount {
-  id                             String                      @id @default(uuid())
-  accountCode                    String                      @unique
+  id                             String                        @id @default(uuid())
+  accountCode                    String                        @unique
   accountName                    String
   accountType                    AccountType
   accountNature                  AccountNature
   providerId                     String?
-  provider                       Provider?                   @relation(fields: [providerId], references: [id])
+  provider                       Provider?                     @relation(fields: [providerId], references: [id])
   bankName                       String?
   accountReference               String?
   lastFourDigits                 String?
-  creditLimit                    Decimal?                    @db.Decimal(18, 2)
+  creditLimit                    Decimal?                      @db.Decimal(18, 2)
   usageType                      UsageType
-  openingBalance                 Decimal                     @default(0) @db.Decimal(18, 2)
-  isActive                       Boolean                     @default(true)
+  openingBalance                 Decimal                       @default(0) @db.Decimal(18, 2)
+  isActive                       Boolean                       @default(true)
   ledgerAccount                  LedgerAccount?
   dailyBalances                  DailyAccountBalance[]
   cardSwipeSettlements           CardSwipeDetail[]
   payablePayments                PayablePayment[]
-  receivableSources              CustomerReceivable[]        @relation("ReceivableSourceAccount")
-  receivableCollections          ReceivableCollection[]      @relation("ReceivableCollectionAccount")
-  cashTransfersOut               CashTransferDetail[]        @relation("CashTransferSource")
-  cashTransfersCash              CashTransferDetail[]        @relation("CashTransferCash")
-  aepsSettlements                AepsDetail[]                @relation("AepsSettlement")
-  aepsCash                       AepsDetail[]                @relation("AepsCash")
-  microAtmSettlements            MicroAtmDetail[]            @relation("MicroAtmSettlement")
-  microAtmCash                   MicroAtmDetail[]            @relation("MicroAtmCash")
-  internalTransfersOut           InternalTransferDetail[]    @relation("InternalTransferSource")
-  internalTransfersIn            InternalTransferDetail[]    @relation("InternalTransferDestination")
+  receivableSources              CustomerReceivable[]          @relation("ReceivableSourceAccount")
+  receivableCollections          ReceivableCollection[]        @relation("ReceivableCollectionAccount")
+  cashTransfersOut               CashTransferDetail[]          @relation("CashTransferSource")
+  cashTransfersCash              CashTransferDetail[]          @relation("CashTransferCash")
+  quickCashMovements             QuickCashTransferDetail[]     @relation("QuickCashMovementCash")
+  quickCashSources               QuickCashTransferDetail[]     @relation("QuickCashMovementSource")
+  quickCashCommissionAccounts    QuickCashTransferDetail[]     @relation("QuickCashCommissionAccount")
+  aepsSettlements                AepsDetail[]                  @relation("AepsSettlement")
+  aepsCash                       AepsDetail[]                  @relation("AepsCash")
+  microAtmSettlements            MicroAtmDetail[]              @relation("MicroAtmSettlement")
+  microAtmCash                   MicroAtmDetail[]              @relation("MicroAtmCash")
+  internalTransfersOut           InternalTransferDetail[]      @relation("InternalTransferSource")
+  internalTransfersIn            InternalTransferDetail[]      @relation("InternalTransferDestination")
   expensePayments                ExpenseDetail[]
-  atmWithdrawalsFromBank         AtmWithdrawalDetail[]       @relation("AtmBankAccount")
-  atmWithdrawalsToCash           AtmWithdrawalDetail[]       @relation("AtmCashAccount")
-  creditCardPaymentsAsCard       CreditCardPaymentDetail[]   @relation("CreditCardPaymentCard")
-  creditCardPaymentsAsSource     CreditCardPaymentDetail[]   @relation("CreditCardPaymentSource")
+  atmWithdrawalsFromBank         AtmWithdrawalDetail[]         @relation("AtmBankAccount")
+  atmWithdrawalsToCash           AtmWithdrawalDetail[]         @relation("AtmCashAccount")
+  creditCardPaymentsAsCard       CreditCardPaymentDetail[]     @relation("CreditCardPaymentCard")
+  creditCardPaymentsAsSource     CreditCardPaymentDetail[]     @relation("CreditCardPaymentSource")
   cardDueAdvanceSources          CardDueClearingDetail[]       @relation("CardDueAdvanceSource")
   cardDueRecoveryDestinations    CardDueRecovery[]             @relation("CardDueRecoveryDestination")
   cardDueCommissionDestinations  CardDueCommissionCollection[] @relation("CardDueCommissionDestination")
   cashSessions                   CashSession[]
-  providerSettlementDestinations ProviderSettlement[]        @relation("ProviderSettlementDestination")
-  providerSettlementReceipts     ProviderSettlementReceipt[] @relation("ProviderSettlementReceiptAccount")
-  createdAt                      DateTime                    @default(now())
-  updatedAt                      DateTime                    @updatedAt
+  providerSettlementDestinations ProviderSettlement[]          @relation("ProviderSettlementDestination")
+  providerSettlementReceipts     ProviderSettlementReceipt[]   @relation("ProviderSettlementReceiptAccount")
+  createdAt                      DateTime                      @default(now())
+  updatedAt                      DateTime                      @updatedAt
 
   @@unique([providerId, accountType])
 }
@@ -391,45 +395,46 @@ model ExpenseCategory {
 }
 
 model Transaction {
-  id                        String                     @id @default(uuid())
-  transactionNumber         String                     @unique
-  transactionType           TransactionType
-  transactionAt             DateTime
-  customerId                String?
-  customer                  Customer?                  @relation(fields: [customerId], references: [id])
-  grossAmount               Decimal                    @db.Decimal(18, 2)
-  netAmount                 Decimal?                   @db.Decimal(18, 2)
-  status                    TransactionStatus
-  referenceNumber           String?
-  notes                     String?
-  idempotencyKey            String?                    @unique
-  reversedTransactionId     String?
-  reversalReason            String?
-  createdById               String
-  updatedById               String?
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  charges                   TransactionCharge[]
-  commissions               TransactionCommission[]
-  cardSwipe                 CardSwipeDetail?
-  cashTransfer              CashTransferDetail?
-  aeps                      AepsDetail?
-  microAtm                  MicroAtmDetail?
-  internalTransfer          InternalTransferDetail?
-  expense                   ExpenseDetail?
-  atmWithdrawal             AtmWithdrawalDetail?
-  creditCardPayment         CreditCardPaymentDetail?
-  cardDueClearing           CardDueClearingDetail?
-  cardDueRecovery           CardDueRecovery?
+  id                          String                       @id @default(uuid())
+  transactionNumber           String                       @unique
+  transactionType             TransactionType
+  transactionAt               DateTime
+  customerId                  String?
+  customer                    Customer?                    @relation(fields: [customerId], references: [id])
+  grossAmount                 Decimal                      @db.Decimal(18, 2)
+  netAmount                   Decimal?                     @db.Decimal(18, 2)
+  status                      TransactionStatus
+  referenceNumber             String?
+  notes                       String?
+  idempotencyKey              String?                      @unique
+  reversedTransactionId       String?
+  reversalReason              String?
+  createdById                 String
+  updatedById                 String?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  charges                     TransactionCharge[]
+  commissions                 TransactionCommission[]
+  cardSwipe                   CardSwipeDetail?
+  cashTransfer                CashTransferDetail?
+  quickCashTransfer           QuickCashTransferDetail?
+  aeps                        AepsDetail?
+  microAtm                    MicroAtmDetail?
+  internalTransfer            InternalTransferDetail?
+  expense                     ExpenseDetail?
+  atmWithdrawal               AtmWithdrawalDetail?
+  creditCardPayment           CreditCardPaymentDetail?
+  cardDueClearing             CardDueClearingDetail?
+  cardDueRecovery             CardDueRecovery?
   cardDueCommissionCollection CardDueCommissionCollection?
-  payable                   CustomerPayable?
-  payablePayment            PayablePayment?
-  receivableSource          CustomerReceivable?        @relation("ReceivableSourceTransaction")
-  receivableCollection      ReceivableCollection?      @relation("ReceivableCollectionTransaction")
-  providerSettlementSource  ProviderSettlement?        @relation("ProviderSettlementSourceTransaction")
-  providerSettlementReceipt ProviderSettlementReceipt? @relation("ProviderSettlementReceiptTransaction")
-  cashAdjustmentSession     CashSession?               @relation("CashSessionAdjustment")
-  journal                   LedgerJournal?
+  payable                     CustomerPayable?
+  payablePayment              PayablePayment?
+  receivableSource            CustomerReceivable?          @relation("ReceivableSourceTransaction")
+  receivableCollection        ReceivableCollection?        @relation("ReceivableCollectionTransaction")
+  providerSettlementSource    ProviderSettlement?          @relation("ProviderSettlementSourceTransaction")
+  providerSettlementReceipt   ProviderSettlementReceipt?   @relation("ProviderSettlementReceiptTransaction")
+  cashAdjustmentSession       CashSession?                 @relation("CashSessionAdjustment")
+  journal                     LedgerJournal?
 
   @@index([transactionAt])
   @@index([transactionType, transactionAt])
@@ -495,26 +500,26 @@ model CardSwipeDetail {
 }
 
 model CardDueClearingDetail {
-  id                    String                         @id @default(uuid())
-  transactionId         String                         @unique
-  transaction           Transaction                    @relation(fields: [transactionId], references: [id])
-  customerCardId        String
-  customerCard          CustomerCard                   @relation(fields: [customerCardId], references: [id])
+  id                     String                        @id @default(uuid())
+  transactionId          String                        @unique
+  transaction            Transaction                   @relation(fields: [transactionId], references: [id])
+  customerCardId         String
+  customerCard           CustomerCard                  @relation(fields: [customerCardId], references: [id])
   advanceSourceAccountId String
-  advanceSourceAccount  FinancialAccount               @relation("CardDueAdvanceSource", fields: [advanceSourceAccountId], references: [id])
-  dueAmount             Decimal                        @db.Decimal(18, 2)
-  commissionRate        Decimal                        @db.Decimal(10, 4)
-  commissionAmount      Decimal                        @db.Decimal(18, 2)
-  principalRecovered    Decimal                        @default(0) @db.Decimal(18, 2)
-  principalRemaining    Decimal                        @db.Decimal(18, 2)
-  commissionCollected   Decimal                        @default(0) @db.Decimal(18, 2)
-  commissionRemaining   Decimal                        @db.Decimal(18, 2)
-  nextFollowUpAt        DateTime?
-  duePaymentReference   String?
-  recoveries            CardDueRecovery[]
-  commissionCollections CardDueCommissionCollection[]
-  createdAt             DateTime                       @default(now())
-  updatedAt             DateTime                       @updatedAt
+  advanceSourceAccount   FinancialAccount              @relation("CardDueAdvanceSource", fields: [advanceSourceAccountId], references: [id])
+  dueAmount              Decimal                       @db.Decimal(18, 2)
+  commissionRate         Decimal                       @db.Decimal(10, 4)
+  commissionAmount       Decimal                       @db.Decimal(18, 2)
+  principalRecovered     Decimal                       @default(0) @db.Decimal(18, 2)
+  principalRemaining     Decimal                       @db.Decimal(18, 2)
+  commissionCollected    Decimal                       @default(0) @db.Decimal(18, 2)
+  commissionRemaining    Decimal                       @db.Decimal(18, 2)
+  nextFollowUpAt         DateTime?
+  duePaymentReference    String?
+  recoveries             CardDueRecovery[]
+  commissionCollections  CardDueCommissionCollection[]
+  createdAt              DateTime                      @default(now())
+  updatedAt              DateTime                      @updatedAt
 
   @@index([nextFollowUpAt])
   @@index([principalRemaining])
@@ -589,14 +594,14 @@ model CustomerPayable {
 }
 
 model PayablePayment {
-  id              String           @id @default(uuid())
-  payableId       String
-  payable         CustomerPayable  @relation(fields: [payableId], references: [id])
-  transactionId   String           @unique
-  transaction     Transaction      @relation(fields: [transactionId], references: [id])
-  paymentDate     DateTime
-  sourceAccountId String
-  sourceAccount   FinancialAccount @relation(fields: [sourceAccountId], references: [id])
+  id                   String           @id @default(uuid())
+  payableId            String
+  payable              CustomerPayable  @relation(fields: [payableId], references: [id])
+  transactionId        String           @unique
+  transaction          Transaction      @relation(fields: [transactionId], references: [id])
+  paymentDate          DateTime
+  sourceAccountId      String
+  sourceAccount        FinancialAccount @relation(fields: [sourceAccountId], references: [id])
   amount               Decimal          @db.Decimal(18, 2)
   destinationType      String?
   destinationLabel     String?
@@ -605,8 +610,8 @@ model PayablePayment {
   referenceNumber      String?
   notes                String?
   status               PaymentStatus
-  createdById     String
-  createdAt       DateTime         @default(now())
+  createdById          String
+  createdAt            DateTime         @default(now())
 
   @@index([payableId])
 }
@@ -729,6 +734,34 @@ model CashTransferDetail {
   cashAccount           FinancialAccount     @relation("CashTransferCash", fields: [cashAccountId], references: [id])
   transferReference     String?
   createdAt             DateTime             @default(now())
+}
+
+model QuickCashTransferDetail {
+  id                      String            @id @default(uuid())
+  transactionId           String            @unique
+  transaction             Transaction       @relation(fields: [transactionId], references: [id])
+  direction               String
+  purpose                 String            @default("TRANSFER")
+  serviceName             String?
+  cashAccountId           String
+  cashAccount             FinancialAccount  @relation("QuickCashMovementCash", fields: [cashAccountId], references: [id])
+  sourceAccountId         String?
+  sourceAccount           FinancialAccount? @relation("QuickCashMovementSource", fields: [sourceAccountId], references: [id])
+  customerName            String?
+  mobileNumber            String?
+  amount                  Decimal           @db.Decimal(18, 2)
+  commissionAmount        Decimal           @default(0) @db.Decimal(18, 2)
+  commissionMode          String            @default("CASH")
+  commissionAccountId     String?
+  commissionAccount       FinancialAccount? @relation("QuickCashCommissionAccount", fields: [commissionAccountId], references: [id])
+  completionTransactionId String?           @unique
+  completedAt             DateTime?
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+
+  @@index([cashAccountId, direction])
+  @@index([sourceAccountId])
+  @@index([commissionAccountId])
 }
 
 model AepsDetail {

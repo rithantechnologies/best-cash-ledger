@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountType, EntryType, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountType, EntryType, PayableStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { LedgerService } from '../ledger/ledger.service.js';
@@ -104,7 +104,7 @@ export class CardDueClearingService {
       dto,
       providedIdempotencyKey,
     );
-    const commissionRate = dto.commissionRate ?? 3;
+    const commissionRate = dto.commissionRate ?? 0;
     const dueAmount = this.money(dto.dueAmount);
     const commissionAmount = this.money(dueAmount * commissionRate / 100);
     const totalReceivable = this.money(dueAmount + commissionAmount);
@@ -375,9 +375,11 @@ export class CardDueClearingService {
 
     const remaining = Number(clearing.principalRemaining);
     const amount = this.money(dto.amount);
-    if (amount <= 0 || amount > remaining + 0.001) {
-      throw new BadRequestException('Recovery exceeds remaining principal');
+    if (amount <= 0) {
+      throw new BadRequestException('Recovery amount must be greater than zero');
     }
+    const principalApplied = this.money(Math.min(Math.max(remaining, 0), amount));
+    const customerCredit = this.money(Math.max(0, amount - principalApplied));
 
     const { gateway } = await this.validation.providerGateway(
       tx,
@@ -416,13 +418,14 @@ export class CardDueClearingService {
 
     const systemLedgers = await tx.ledgerAccount.findMany({
       where: {
-        ledgerCode: { in: ['SYS-CUST-RECEIVABLE', 'SYS-PROVIDER-CHARGE'] },
+        ledgerCode: { in: ['SYS-CUST-RECEIVABLE', 'SYS-CUST-PAYABLE', 'SYS-PROVIDER-CHARGE'] },
       },
     });
     const byCode = new Map(systemLedgers.map((item) => [item.ledgerCode, item]));
     const receivableLedger = byCode.get('SYS-CUST-RECEIVABLE');
+    const payableLedger = byCode.get('SYS-CUST-PAYABLE');
     const providerChargeLedger = byCode.get('SYS-PROVIDER-CHARGE');
-    if (!receivableLedger || !providerChargeLedger) {
+    if (!receivableLedger || !payableLedger || !providerChargeLedger) {
       throw new Error('Required card recovery ledgers are missing');
     }
 
@@ -475,18 +478,32 @@ export class CardDueClearingService {
       });
     }
 
+    const customerPayable = customerCredit > 0 && clearing.transaction.customerId
+      ? await tx.customerPayable.create({
+          data: {
+            customerId: clearing.transaction.customerId,
+            sourceTransactionId: transaction.id,
+            originalAmount: new Prisma.Decimal(customerCredit),
+            paidAmount: new Prisma.Decimal(0),
+            remainingAmount: new Prisma.Decimal(customerCredit),
+            dueAt: recoveredAt,
+            status: PayableStatus.PENDING,
+          },
+        })
+      : null;
+
     await this.ledger.post(
       tx,
       transaction.id,
       userId,
-      'Card due principal recovered',
+      'Card due recovery received',
       [
         {
           ledgerAccountId: destinationAccount.ledgerAccount!.id,
           entryType: EntryType.DEBIT,
           amount: receivedAmount,
           customerId: clearing.transaction.customerId ?? undefined,
-          description: 'Card recovery received',
+          description: 'Card due recovery received',
         },
         ...(providerChargeAmount > 0
           ? [{
@@ -497,20 +514,32 @@ export class CardDueClearingService {
               description: 'Card recovery gateway charge',
             }]
           : []),
-        {
-          ledgerAccountId: receivableLedger.id,
-          entryType: EntryType.CREDIT,
-          amount,
-          customerId: clearing.transaction.customerId ?? undefined,
-          description: 'Reduce card due principal receivable',
-        },
+        ...(principalApplied > 0
+          ? [{
+              ledgerAccountId: receivableLedger.id,
+              entryType: EntryType.CREDIT,
+              amount: principalApplied,
+              customerId: clearing.transaction.customerId ?? undefined,
+              description: 'Reduce card due principal receivable',
+            }]
+          : []),
+        ...(customerCredit > 0 && customerPayable
+          ? [{
+              ledgerAccountId: payableLedger.id,
+              entryType: EntryType.CREDIT,
+              amount: customerCredit,
+              customerId: clearing.transaction.customerId ?? undefined,
+              payableId: customerPayable.id,
+              description: 'Excess card due recovery payable back to customer',
+            }]
+          : []),
       ],
     );
 
     const principalRecovered = this.money(
       Number(clearing.principalRecovered) + amount,
     );
-    const principalRemaining = this.money(Math.max(0, remaining - amount));
+    const principalRemaining = this.money(Math.max(0, remaining - principalApplied));
     await tx.cardDueClearingDetail.update({
       where: { id: clearingId },
       data: {
@@ -533,6 +562,9 @@ export class CardDueClearingService {
           principalRemaining,
           recoveryTransactionId: transaction.id,
           gatewayCharge: providerChargeAmount,
+          principalApplied,
+          customerCredit,
+          customerPayableId: customerPayable?.id ?? null,
           destinationAccountId: dto.destinationAccountId,
         },
       },
@@ -571,9 +603,11 @@ export class CardDueClearingService {
 
     const remaining = Number(clearing.commissionRemaining);
     const amount = this.money(dto.amount);
-    if (amount <= 0 || amount > remaining + 0.001) {
-      throw new BadRequestException('Collection exceeds remaining commission');
+    if (amount <= 0) {
+      throw new BadRequestException('Commission amount must be greater than zero');
     }
+    const accruedApplied = this.money(Math.min(Math.max(remaining, 0), amount));
+    const newCommissionIncome = this.money(Math.max(0, amount - accruedApplied));
 
     const destinationAccount = await this.validation.liquidAsset(
       tx,
@@ -594,10 +628,13 @@ export class CardDueClearingService {
       );
     }
 
-    const receivableLedger = await tx.ledgerAccount.findUnique({
-      where: { ledgerCode: 'SYS-CUST-RECEIVABLE' },
+    const commissionLedgers = await tx.ledgerAccount.findMany({
+      where: { ledgerCode: { in: ['SYS-CUST-RECEIVABLE', 'SYS-COMMISSION'] } },
     });
-    if (!receivableLedger) throw new Error('Customer receivable ledger missing');
+    const commissionLedgerByCode = new Map(commissionLedgers.map((item) => [item.ledgerCode, item]));
+    const receivableLedger = commissionLedgerByCode.get('SYS-CUST-RECEIVABLE');
+    const commissionLedger = commissionLedgerByCode.get('SYS-COMMISSION');
+    if (!receivableLedger || !commissionLedger) throw new Error('Customer receivable or commission ledger missing');
 
     const collectedAt = new Date();
     const transaction = await tx.transaction.create({
@@ -643,23 +680,36 @@ export class CardDueClearingService {
           customerId: clearing.transaction.customerId ?? undefined,
           description: 'Card due commission received',
         },
-        {
-          ledgerAccountId: receivableLedger.id,
-          entryType: EntryType.CREDIT,
-          amount,
-          customerId: clearing.transaction.customerId ?? undefined,
-          description: 'Reduce commission receivable',
-        },
+        ...(accruedApplied > 0
+          ? [{
+              ledgerAccountId: receivableLedger.id,
+              entryType: EntryType.CREDIT,
+              amount: accruedApplied,
+              customerId: clearing.transaction.customerId ?? undefined,
+              description: 'Reduce accrued commission receivable',
+            }]
+          : []),
+        ...(newCommissionIncome > 0
+          ? [{
+              ledgerAccountId: commissionLedger.id,
+              entryType: EntryType.CREDIT,
+              amount: newCommissionIncome,
+              customerId: clearing.transaction.customerId ?? undefined,
+              description: 'Card due commission income collected later',
+            }]
+          : []),
       ],
     );
 
     const commissionCollected = this.money(
       Number(clearing.commissionCollected) + amount,
     );
-    const commissionRemaining = this.money(Math.max(0, remaining - amount));
+    const commissionAmount = this.money(Number(clearing.commissionAmount) + newCommissionIncome);
+    const commissionRemaining = this.money(Math.max(0, remaining - accruedApplied));
     await tx.cardDueClearingDetail.update({
       where: { id: clearingId },
       data: {
+        commissionAmount: new Prisma.Decimal(commissionAmount),
         commissionCollected: new Prisma.Decimal(commissionCollected),
         commissionRemaining: new Prisma.Decimal(commissionRemaining),
       },
@@ -675,8 +725,11 @@ export class CardDueClearingService {
           commissionRemaining: clearing.commissionRemaining.toString(),
         },
         newValues: {
+          commissionAmount,
           commissionCollected,
           commissionRemaining,
+          accruedApplied,
+          newCommissionIncome,
           collectionTransactionId: transaction.id,
           paymentMode: dto.paymentMode,
           destinationAccountId: dto.destinationAccountId,

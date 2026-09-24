@@ -17,6 +17,7 @@ import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto
 import { CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
+import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto } from './dto/quick-cash-transfer.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 import { CardDueClearingService } from './card-due-clearing.service.js';
@@ -116,6 +117,46 @@ export class TransactionsController {
     return this.cardDueClearings.setFollowUp(id, dto, req.user.userId);
   }
 
+  @Get('quick-cash/pending')
+  listPendingQuickCash(
+    @Query('cashAccountId') cashAccountId: string | undefined,
+    @Req() req: any,
+  ) {
+    return this.transactions.listPendingQuickCash(
+      cashAccountId,
+      req.user.userId,
+      req.user.role,
+    );
+  }
+
+  @Post('quick-cash')
+  createQuickCash(
+    @Body() dto: CreateQuickCashTransferDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.transactions.createQuickCash(
+      dto,
+      req.user.userId,
+      req.user.role,
+      key,
+    );
+  }
+
+  @Post('quick-cash/:id/complete')
+  completeQuickCash(
+    @Param('id') id: string,
+    @Body() dto: CompleteQuickCashTransferDto,
+    @Req() req: any,
+  ) {
+    return this.transactions.completeQuickCash(
+      id,
+      dto,
+      req.user.userId,
+      req.user.role,
+    );
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.transactions.get(id);
@@ -165,6 +206,12 @@ export class TransactionsController {
   @Roles(RoleName.OWNER, RoleName.ADMIN)
   updateDateTime(@Param('id') id: string, @Body() dto: UpdateTransactionDateTimeDto, @Req() req: any) {
     return this.transactions.updateDateTime(id, dto, req.user.userId);
+  }
+
+  @Post(':id/delete')
+  @Roles(RoleName.OWNER)
+  deleteTransaction(@Param('id') id: string, @Body() dto: ReverseTransactionDto, @Req() req: any) {
+    return this.transactions.reverse(id, dto, req.user.userId);
   }
 
   @Post(':id/reverse')
