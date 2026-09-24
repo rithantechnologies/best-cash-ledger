@@ -20,7 +20,8 @@ type Movement={
 type Activity={
   id:string;transactionId:string;transactionNumber:string;serviceType:string;transactionAt:string;
   particular:string;transactionAmount:number;netAmount:number;cashIn:number;cashOut:number;
-  commissionAmount:number;providerFeeAmount?:number;payoutChargeAmount?:number;profitAmount?:number;runningBalance:number;movementCount:number;
+  commissionAmount:number;providerFeeAmount?:number;payoutChargeAmount?:number;profitAmount?:number;
+  quickCashDirection?:"IN"|"OUT"|null;quickCashPurpose?:string|null;runningBalance:number;movementCount:number;
 };
 type ServiceSummary={
   id:string;transactionAmount:number;cashIn:number;cashOut:number;commissionAmount:number;count:number;
@@ -333,7 +334,8 @@ export default function CashCounterPage(){
         (direction==="ADJUSTMENT"?activity.serviceType==="CASH_ADJUSTMENT":
           direction==="REVERSAL"?activity.serviceType==="REVERSAL":
           direction==="COMMISSION"?activity.commissionAmount>0:
-          direction==="IN"?activity.cashIn>0:activity.cashOut>0);
+          direction==="IN"?(activity.quickCashDirection?activity.quickCashDirection==="IN":activity.cashIn>0):
+          (activity.quickCashDirection?activity.quickCashDirection==="OUT":activity.cashOut>0));
       const serviceMatch=!serviceFilter||activity.serviceType===serviceFilter;
       return directionMatch&&serviceMatch;
     }).reverse();
@@ -341,16 +343,17 @@ export default function CashCounterPage(){
   const transactionServices=useMemo(()=>{
     return Array.from(new Set((today?.activities??[]).map((activity)=>activity.serviceType))).sort((a,b)=>friendlyService(a).localeCompare(friendlyService(b)));
   },[today?.activities]);
-  const txGridTemplate=useMemo(()=>txColumnDefs.filter((column)=>txColumns.includes(column.id)).map((column)=>column.width).join(" "),[txColumns]);
+  const displayedTxColumns=useMemo<TxColumn[]>(()=>direction==="COMMISSION"?["TIME","PARTICULAR","SERVICE","CUSTOMER_FEE"]:txColumns,[direction,txColumns]);
+  const txGridTemplate=useMemo(()=>txColumnDefs.filter((column)=>displayedTxColumns.includes(column.id)).map((column)=>column.width).join(" "),[displayedTxColumns]);
   const txTableMinWidth=useMemo(()=>{
     const minimums:Record<TxColumn,number>={
       TIME:72,PARTICULAR:240,SERVICE:140,TXN_AMOUNT:110,CASH_IN:105,CASH_OUT:105,
       CUSTOMER_FEE:115,PROVIDER_FEE:115,PROFIT:105,DRAWER:115,
     };
-    const visible=txColumns.reduce((sum,column)=>sum+minimums[column],0);
-    const gaps=Math.max(0,txColumns.length-1)*16;
-    return Math.max(760,visible+gaps+40);
-  },[txColumns]);
+    const visible=displayedTxColumns.reduce((sum,column)=>sum+minimums[column],0);
+    const gaps=Math.max(0,displayedTxColumns.length-1)*16;
+    return Math.max(direction==="COMMISSION"?640:760,visible+gaps+40);
+  },[displayedTxColumns,direction]);
   const quickServiceOptions=useMemo(()=>serviceCatalog.filter((item)=>item.isActive!==false).slice(0,5),[serviceCatalog]);
   function toggleTxColumn(id:TxColumn){
     setTxColumns((current)=>current.includes(id)?(current.length===1?current:current.filter((column)=>column!==id)):[...current,id]);
@@ -661,64 +664,76 @@ export default function CashCounterPage(){
                 <option value="">All services</option>
                 {transactionServices.map((service)=><option key={service} value={service}>{friendlyService(service)}</option>)}
               </SearchableSelect>
-              <details className="relative">
-                <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-extrabold text-[var(--text-muted)] [&::-webkit-details-marker]:hidden">
-                  Columns <span className="rounded-md bg-[var(--surface-soft)] px-1.5 py-0.5 text-[11px]">{txColumns.length}</span>
-                </summary>
-                <div className="absolute right-0 z-30 mt-2 w-56 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-2xl">
-                  <div className="flex items-center justify-between px-2 py-1.5"><span className="text-xs font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Show columns</span><button type="button" onClick={()=>setTxColumns(defaultTxColumns)} className="text-xs font-bold text-[var(--accent)]">Reset</button></div>
-                  {txColumnDefs.map((column)=><label key={column.id} className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 text-sm font-bold hover:bg-[var(--surface-soft)]">
-                    <input type="checkbox" checked={txColumns.includes(column.id)} onChange={()=>toggleTxColumn(column.id)} className="h-4 w-4 accent-[var(--accent)]"/>
-                    <span>{column.label}</span>
-                  </label>)}
-                </div>
-              </details>
+              {direction==="COMMISSION"
+                ?<span className="inline-flex min-h-9 items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-extrabold text-[var(--accent)]">Commission only</span>
+                :<details className="relative">
+                  <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-extrabold text-[var(--text-muted)] [&::-webkit-details-marker]:hidden">
+                    Columns <span className="rounded-md bg-[var(--surface-soft)] px-1.5 py-0.5 text-[11px]">{txColumns.length}</span>
+                  </summary>
+                  <div className="absolute right-0 z-30 mt-2 w-56 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-2xl">
+                    <div className="flex items-center justify-between px-2 py-1.5"><span className="text-xs font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Show columns</span><button type="button" onClick={()=>setTxColumns(defaultTxColumns)} className="text-xs font-bold text-[var(--accent)]">Reset</button></div>
+                    {txColumnDefs.map((column)=><label key={column.id} className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 text-sm font-bold hover:bg-[var(--surface-soft)]">
+                      <input type="checkbox" checked={txColumns.includes(column.id)} onChange={()=>toggleTxColumn(column.id)} className="h-4 w-4 accent-[var(--accent)]"/>
+                      <span>{column.label}</span>
+                    </label>)}
+                  </div>
+                </details>}
             </div>
           </div>
           {(direction!=="ALL"||serviceFilter)?<div className="mt-2 flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]"><span>Filtered view</span><button type="button" onClick={()=>{setDirection("ALL");setServiceFilter(null);}} className="font-black text-[var(--accent)]">Clear filters</button></div>:null}
         </div>
         {visibleActivities.length?<div className="overflow-x-auto overscroll-x-contain [scrollbar-gutter:stable]">
           <div className="cash-ledger-header hidden gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-3 text-xs font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)] xl:grid" style={{gridTemplateColumns:txGridTemplate,minWidth:txTableMinWidth}}>
-            {txColumns.includes("TIME")?<span>Time</span>:null}
-            {txColumns.includes("PARTICULAR")?<span>Particular</span>:null}
-            {txColumns.includes("SERVICE")?<span>Service</span>:null}
-            {txColumns.includes("TXN_AMOUNT")?<span className="text-right">Txn amount</span>:null}
-            {txColumns.includes("CASH_IN")?<span className="text-right">Cash in</span>:null}
-            {txColumns.includes("CASH_OUT")?<span className="text-right">Cash out</span>:null}
-            {txColumns.includes("CUSTOMER_FEE")?<span className="text-right">Customer fee</span>:null}
-            {txColumns.includes("PROVIDER_FEE")?<span className="text-right">Provider fee</span>:null}
-            {txColumns.includes("PROFIT")?<span className="text-right">Profit</span>:null}
-            {txColumns.includes("DRAWER")?<span className="text-right">Drawer</span>:null}
+            {displayedTxColumns.includes("TIME")?<span>Time</span>:null}
+            {displayedTxColumns.includes("PARTICULAR")?<span>Particular</span>:null}
+            {displayedTxColumns.includes("SERVICE")?<span>Service</span>:null}
+            {displayedTxColumns.includes("TXN_AMOUNT")?<span className="text-right">Txn amount</span>:null}
+            {displayedTxColumns.includes("CASH_IN")?<span className="text-right">Cash in</span>:null}
+            {displayedTxColumns.includes("CASH_OUT")?<span className="text-right">Cash out</span>:null}
+            {displayedTxColumns.includes("CUSTOMER_FEE")?<span className="text-right">{direction==="COMMISSION"?"Commission":"Customer fee"}</span>:null}
+            {displayedTxColumns.includes("PROVIDER_FEE")?<span className="text-right">Provider fee</span>:null}
+            {displayedTxColumns.includes("PROFIT")?<span className="text-right">Profit</span>:null}
+            {displayedTxColumns.includes("DRAWER")?<span className="text-right">Drawer</span>:null}
           </div>
           <div className="divide-y divide-[var(--border)]">
           {visibleActivities.map((activity)=>{
             const selected=activity.id===selectedActivityId;
             return <button id={"cash-activity-"+activity.id} key={activity.id} type="button" onClick={()=>{setSelectedActivityId(activity.id);router.push("/transactions/"+activity.transactionId);}} className={"cash-activity-row w-full px-4 py-4 text-left transition sm:px-5 "+(selected?"bg-[var(--accent-soft)]":"hover:bg-[var(--surface-soft)]")}>
               <div className="hidden items-center gap-4 xl:grid" style={{gridTemplateColumns:txGridTemplate,minWidth:txTableMinWidth-40}}>
-                {txColumns.includes("TIME")?<span className="text-[13px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>:null}
-                {txColumns.includes("PARTICULAR")?<div className="min-w-0"><p className="truncate text-[15px] font-bold">{activity.particular}</p><p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{activity.transactionNumber}</p></div>:null}
-                {txColumns.includes("SERVICE")?<span className="truncate text-[13px] font-semibold text-[var(--text-muted)]">{friendlyService(activity.serviceType)}</span>:null}
-                {txColumns.includes("TXN_AMOUNT")?<strong className="money text-right text-sm">{money(activity.transactionAmount)}</strong>:null}
-                {txColumns.includes("CASH_IN")?<strong className="money text-right text-sm text-[var(--money-in)]">{activity.cashIn?money(activity.cashIn):"—"}</strong>:null}
-                {txColumns.includes("CASH_OUT")?<strong className="money text-right text-sm text-[var(--money-out)]">{activity.cashOut?money(activity.cashOut):"—"}</strong>:null}
-                {txColumns.includes("CUSTOMER_FEE")?<strong className="money text-right text-sm text-[var(--accent)]">{activity.commissionAmount?money(activity.commissionAmount):"—"}</strong>:null}
-                {txColumns.includes("PROVIDER_FEE")?<strong className="money text-right text-sm text-[var(--money-out)]">{activity.providerFeeAmount?"−"+money(activity.providerFeeAmount):"—"}</strong>:null}
-                {txColumns.includes("PROFIT")?<strong className={"money text-right text-sm "+((activity.profitAmount??0)>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{activity.profitAmount!==undefined?money(activity.profitAmount):"—"}</strong>:null}
-                {txColumns.includes("DRAWER")?<strong className="money text-right text-sm">{money(activity.runningBalance)}</strong>:null}
+                {displayedTxColumns.includes("TIME")?<span className="text-[13px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>:null}
+                {displayedTxColumns.includes("PARTICULAR")?<div className="min-w-0"><p className="truncate text-[15px] font-bold">{activity.particular}</p><p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{activity.transactionNumber}</p></div>:null}
+                {displayedTxColumns.includes("SERVICE")?<span className="truncate text-[13px] font-semibold text-[var(--text-muted)]">{friendlyService(activity.serviceType)}</span>:null}
+                {displayedTxColumns.includes("TXN_AMOUNT")?<strong className="money text-right text-sm">{money(activity.transactionAmount)}</strong>:null}
+                {displayedTxColumns.includes("CASH_IN")?<strong className="money text-right text-sm text-[var(--money-in)]">{activity.cashIn?money(activity.cashIn):"—"}</strong>:null}
+                {displayedTxColumns.includes("CASH_OUT")?<strong className="money text-right text-sm text-[var(--money-out)]">{activity.cashOut?money(activity.cashOut):"—"}</strong>:null}
+                {displayedTxColumns.includes("CUSTOMER_FEE")?<strong className="money text-right text-sm text-[var(--accent)]">{activity.commissionAmount?money(activity.commissionAmount):"—"}</strong>:null}
+                {displayedTxColumns.includes("PROVIDER_FEE")?<strong className="money text-right text-sm text-[var(--money-out)]">{activity.providerFeeAmount?"−"+money(activity.providerFeeAmount):"—"}</strong>:null}
+                {displayedTxColumns.includes("PROFIT")?<strong className={"money text-right text-sm "+((activity.profitAmount??0)>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{activity.profitAmount!==undefined?money(activity.profitAmount):"—"}</strong>:null}
+                {displayedTxColumns.includes("DRAWER")?<strong className="money text-right text-sm">{money(activity.runningBalance)}</strong>:null}
               </div>
-              <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 xl:hidden">
-                <span className={"grid h-10 w-10 place-items-center rounded-xl text-sm font-black "+(!activity.cashIn&&!activity.cashOut&&activity.commissionAmount?"bg-[var(--accent-soft)] text-[var(--accent)]":activity.cashIn>=activity.cashOut?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-600")}>{!activity.cashIn&&!activity.cashOut&&activity.commissionAmount?"₹":activity.cashIn>=activity.cashOut?"↓":"↑"}</span>
-                <div className="min-w-0">
-                  <p className="truncate text-[15px] font-bold">{activity.particular}</p>
-                  <p className="mt-0.5 truncate text-[13px] text-[var(--text-muted)]">{friendlyService(activity.serviceType)} · {new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
-                  <p className="mt-1 text-xs text-[var(--text-muted)]">Txn {money(activity.transactionAmount)}{activity.commissionAmount?" · Fee "+money(activity.commissionAmount):""}{activity.providerFeeAmount?" · Provider −"+money(activity.providerFeeAmount):""}{activity.profitAmount!==undefined?" · Profit "+money(activity.profitAmount):""}</p>
+              {direction==="COMMISSION"
+                ?<div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 xl:hidden">
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-[var(--accent-soft)] text-sm font-black text-[var(--accent)]">₹</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[15px] font-bold">{activity.particular}</p>
+                    <p className="mt-0.5 truncate text-[13px] text-[var(--text-muted)]">{friendlyService(activity.serviceType)} · {new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+                    <p className="mt-1 truncate text-xs text-[var(--text-muted)]">{activity.transactionNumber}</p>
+                  </div>
+                  <div className="text-right"><strong className="money block text-[17px] font-black text-[var(--accent)]">{money(activity.commissionAmount)}</strong><span className="mt-0.5 block text-xs font-semibold text-[var(--text-muted)]">Commission</span></div>
                 </div>
-                <div className="text-right">
-                  {activity.cashIn?<strong className="money block text-[15px] text-[var(--money-in)]">+{money(activity.cashIn)}</strong>:null}
-                  {activity.cashOut?<strong className="money block text-[15px] text-[var(--money-out)]">−{money(activity.cashOut)}</strong>:null}
-                  <span className="money mt-0.5 block text-xs font-semibold text-[var(--text-muted)]">Drawer {money(activity.runningBalance)}</span>
-                </div>
-              </div>
+                :<div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 xl:hidden">
+                  <span className={"grid h-10 w-10 place-items-center rounded-xl text-sm font-black "+(!activity.cashIn&&!activity.cashOut&&activity.commissionAmount?"bg-[var(--accent-soft)] text-[var(--accent)]":activity.cashIn>=activity.cashOut?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-600")}>{!activity.cashIn&&!activity.cashOut&&activity.commissionAmount?"₹":activity.cashIn>=activity.cashOut?"↓":"↑"}</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[15px] font-bold">{activity.particular}</p>
+                    <p className="mt-0.5 truncate text-[13px] text-[var(--text-muted)]">{friendlyService(activity.serviceType)} · {new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">Txn {money(activity.transactionAmount)}{activity.commissionAmount?" · Fee "+money(activity.commissionAmount):""}{activity.providerFeeAmount?" · Provider −"+money(activity.providerFeeAmount):""}{activity.profitAmount!==undefined?" · Profit "+money(activity.profitAmount):""}</p>
+                  </div>
+                  <div className="text-right">
+                    {activity.cashIn?<strong className="money block text-[15px] text-[var(--money-in)]">+{money(activity.cashIn)}</strong>:null}
+                    {activity.cashOut?<strong className="money block text-[15px] text-[var(--money-out)]">−{money(activity.cashOut)}</strong>:null}
+                    <span className="money mt-0.5 block text-xs font-semibold text-[var(--text-muted)]">Drawer {money(activity.runningBalance)}</span>
+                  </div>
+                </div>}
             </button>;
           })}
           </div>

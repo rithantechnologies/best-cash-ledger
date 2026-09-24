@@ -16,6 +16,7 @@ describe('CashCounterService cash activity', () => {
     entries?: any[];
     payoutLinks?: any[];
     commissionTransactions?: any[];
+    quickCashDetails?: any[];
   } = {}) {
     const prisma = {
       financialAccount: {
@@ -32,6 +33,9 @@ describe('CashCounterService cash activity', () => {
       },
       transaction: {
         findMany: vi.fn().mockResolvedValue(options.commissionTransactions ?? []),
+      },
+      quickCashTransferDetail: {
+        findMany: vi.fn().mockResolvedValue(options.quickCashDetails ?? []),
       },
     } as unknown as PrismaService;
 
@@ -125,4 +129,54 @@ describe('CashCounterService cash activity', () => {
     });
     expect(result.commissionEarned).toBe(880);
   });
+
+  it('preserves the original quick-cash direction when cash commission creates an opposite drawer movement', async () => {
+    const quickCashTransaction = {
+      id: 'quick-out-1',
+      transactionNumber: 'QCT-OUT-001',
+      transactionType: TransactionType.CASH_TRANSFER,
+      transactionAt: new Date('2026-09-23T05:00:00.000Z'),
+      grossAmount: 1010,
+      netAmount: 1000,
+      notes: 'Gpay',
+      customer: null,
+      commissions: [{ amount: 10 }],
+      charges: [],
+    };
+    const { prisma, service } = createService({
+      entries: [
+        {
+          id: 'entry-out',
+          amount: 1000,
+          entryType: EntryType.CREDIT,
+          description: 'Quick cash paid out',
+          journal: { transaction: quickCashTransaction },
+        },
+        {
+          id: 'entry-commission',
+          amount: 10,
+          entryType: EntryType.DEBIT,
+          description: 'Cash commission received',
+          journal: { transaction: quickCashTransaction },
+        },
+      ],
+      quickCashDetails: [
+        { transactionId: 'quick-out-1', direction: 'OUT', purpose: 'TRANSFER' },
+      ],
+      commissionTransactions: [{ commissions: [{ amount: 10 }] }],
+    });
+
+    const result = await (service as any).expectedClosing(prisma, session);
+
+    expect(result.activities).toHaveLength(1);
+    expect(result.activities[0]).toMatchObject({
+      transactionNumber: 'QCT-OUT-001',
+      cashIn: 10,
+      cashOut: 1000,
+      commissionAmount: 10,
+      quickCashDirection: 'OUT',
+      quickCashPurpose: 'TRANSFER',
+    });
+  });
+
 });

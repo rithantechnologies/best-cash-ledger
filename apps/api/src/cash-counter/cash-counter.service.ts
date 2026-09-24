@@ -348,6 +348,21 @@ export class CashCounterService {
         link.payable.sourceTransaction,
       ]),
     );
+    const activityTransactionIds = [
+      ...new Set([
+        ...transactionIds,
+        ...payoutLinks.map((link) => link.payable.sourceTransaction.id),
+      ]),
+    ];
+    const quickCashDetails = activityTransactionIds.length
+      ? await tx.quickCashTransferDetail.findMany({
+          where: { transactionId: { in: activityTransactionIds } },
+          select: { transactionId: true, direction: true, purpose: true },
+        })
+      : [];
+    const quickCashByTransactionId = new Map(
+      quickCashDetails.map((detail) => [detail.transactionId, detail]),
+    );
 
     let expected = Number(session.openingTotal);
     let totalIn = 0;
@@ -362,6 +377,7 @@ export class CashCounterService {
       const origin =
         payoutOriginByTransactionId.get(cashTransaction.id) ??
         cashTransaction;
+      const quickCashDetail = quickCashByTransactionId.get(origin.id);
       const commissionAmount = origin.commissions.reduce(
         (sum, commission) => sum + Number(commission.amount),
         0,
@@ -427,6 +443,8 @@ export class CashCounterService {
         providerFeeAmount,
         payoutChargeAmount,
         profitAmount,
+        quickCashDirection: quickCashDetail?.direction ?? null,
+        quickCashPurpose: quickCashDetail?.purpose ?? null,
         runningBalance,
         movementCount: 0,
       };
