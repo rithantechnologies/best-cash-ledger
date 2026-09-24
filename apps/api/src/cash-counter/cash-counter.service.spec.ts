@@ -60,7 +60,7 @@ describe('CashCounterService cash activity', () => {
     expect(result.movements).toEqual([]);
     expect(result.activities).toEqual([]);
     expect(result.serviceSummary).toEqual([]);
-    expect(result.commissionEarned).toBe(880);
+    expect(result.commissionEarned).toBe(0);
   });
 
   it('keeps a card swipe in Daily Cash when its customer payout used the drawer', async () => {
@@ -123,11 +123,12 @@ describe('CashCounterService cash activity', () => {
       cashIn: 0,
       cashOut: 39120,
       commissionAmount: 880,
+      incomeAmount: 0,
       providerFeeAmount: 720,
       profitAmount: 160,
       runningBalance: -2570,
     });
-    expect(result.commissionEarned).toBe(880);
+    expect(result.commissionEarned).toBe(0);
   });
 
   it('preserves the original quick-cash direction when cash commission creates an opposite drawer movement', async () => {

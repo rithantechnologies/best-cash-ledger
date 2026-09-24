@@ -324,21 +324,6 @@ export class CashCounterService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const commissionTransactions = await tx.transaction.findMany({
-      where: {
-        createdById: session.openedById,
-        transactionAt: {
-          gte: session.openedAt,
-          ...(session.closedAt ? { lte: session.closedAt } : {}),
-        },
-        status: { not: TransactionStatus.REVERSED },
-        commissions: { some: {} },
-      },
-      select: {
-        commissions: { select: { amount: true } },
-      },
-    });
-
     const transactionIds = [
       ...new Set(entries.map((entry) => entry.journal.transaction.id)),
     ];
@@ -464,9 +449,16 @@ export class CashCounterService {
         origin.transactionType === TransactionType.SERVICE_INCOME
           ? Number(origin.grossAmount)
           : 0;
-      const incomeAmount = commissionAmount + serviceIncomeAmount;
+      const commissionIncomeAmount =
+        origin.transactionType === TransactionType.CARD_SWIPE
+          ? 0
+          : commissionAmount;
+      const incomeAmount = commissionIncomeAmount + serviceIncomeAmount;
       const profitAmount =
-        incomeAmount - providerFeeAmount - payoutChargeAmount;
+        commissionAmount +
+        serviceIncomeAmount -
+        providerFeeAmount -
+        payoutChargeAmount;
       const commissionCashAmount = quickCashDetail
         ? quickCashDetail.commissionCashAmount !== null &&
           quickCashDetail.commissionCashAmount !== undefined
@@ -625,7 +617,10 @@ export class CashCounterService {
       row.transactionAmount += activity.transactionAmount;
       row.cashIn += activity.cashIn;
       row.cashOut += activity.cashOut;
-      row.commissionAmount += activity.commissionAmount;
+      row.commissionAmount +=
+        activity.serviceType === TransactionType.CARD_SWIPE
+          ? 0
+          : activity.commissionAmount;
       row.serviceIncomeAmount += Number(activity.serviceIncomeAmount || 0);
       row.incomeAmount += Number(activity.incomeAmount || 0);
       row.count += 1;
@@ -666,14 +661,11 @@ export class CashCounterService {
         b.incomeAmount -
         (a.cashIn + a.cashOut + a.incomeAmount),
     );
-    const commissionEarned = commissionTransactions.reduce(
-      (sum, transaction) =>
-        sum +
-        transaction.commissions.reduce(
-          (commissionSum, commission) =>
-            commissionSum + Number(commission.amount || 0),
-          0,
-        ),
+    const dailyCashIncomeActivities = activeActivities.filter(
+      (activity) => activity.serviceType !== TransactionType.CARD_SWIPE,
+    );
+    const commissionEarned = dailyCashIncomeActivities.reduce(
+      (sum, activity) => sum + Number(activity.commissionAmount || 0),
       0,
     );
     const serviceDetails = quickCashDetails.filter(
@@ -685,12 +677,12 @@ export class CashCounterService {
       (sum, detail) => sum + Number(detail.amount || 0),
       0,
     );
-    const commissionCashReceived = activeActivities.reduce(
+    const commissionCashReceived = dailyCashIncomeActivities.reduce(
       (sum, activity) =>
         sum + Number(activity.commissionCashAmount || 0),
       0,
     );
-    const commissionDigitalReceived = activeActivities.reduce(
+    const commissionDigitalReceived = dailyCashIncomeActivities.reduce(
       (sum, activity) =>
         sum + Number(activity.commissionDigitalAmount || 0),
       0,
