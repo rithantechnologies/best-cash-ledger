@@ -3238,16 +3238,16 @@ a.app-metric:hover { border-color: var(--border-strong); }
 
 /* High-frequency quick cash: numeric value must dominate the currency symbol. */
 .cash-quick-sheet .quick-cash-amount-currency {
-  font-size: 46px !important;
+  font-size: 38px !important;
   font-weight: 900 !important;
   letter-spacing: -0.045em;
 }
 .cash-quick-sheet input.quick-cash-amount-input {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif !important;
-  font-size: clamp(72px, 9vw, 92px) !important;
+  font-size: clamp(60px, 7vw, 72px) !important;
   font-weight: 900 !important;
-  line-height: .88 !important;
-  letter-spacing: -0.075em !important;
+  line-height: .92 !important;
+  letter-spacing: -0.065em !important;
   font-variant-numeric: tabular-nums !important;
   color: var(--text) !important;
   opacity: 1 !important;
@@ -3255,7 +3255,7 @@ a.app-metric:hover { border-color: var(--border-strong); }
 }
 .cash-quick-sheet input.quick-cash-commission-input {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif !important;
-  font-size: clamp(38px, 4vw, 46px) !important;
+  font-size: clamp(32px, 3.4vw, 38px) !important;
   font-weight: 900 !important;
   line-height: 1 !important;
   letter-spacing: -0.055em !important;
@@ -3265,6 +3265,6 @@ a.app-metric:hover { border-color: var(--border-strong); }
   -webkit-text-fill-color: var(--text) !important;
 }
 @media (max-width: 767px) {
-  .cash-quick-sheet input.quick-cash-amount-input { font-size: 72px !important; }
-  .cash-quick-sheet input.quick-cash-commission-input { font-size: 40px !important; }
+  .cash-quick-sheet input.quick-cash-amount-input { font-size: 60px !important; }
+  .cash-quick-sheet input.quick-cash-commission-input { font-size: 34px !important; }
 }
