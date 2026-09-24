@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-const apiOrigin = process.env.API_ORIGIN ?? "http://127.0.0.1:4001";
+const apiOrigin = process.env.API_ORIGIN ?? "http://127.0.0.1:4101";
 const distDir = process.env.NEXT_DIST_DIR ?? ".next";
 const devProxyOrigin = process.env.DEV_PROXY_ORIGIN?.replace(/\/$/, "");
 const devProxyBasePath = process.env.DEV_PROXY_BASE_PATH ?? "/cashledger/dev";
