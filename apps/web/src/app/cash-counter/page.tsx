@@ -107,6 +107,10 @@ const commissionDigitalLabel=(accountType?:string|null)=>{
   if(accountType==="UPI")return "UPI";
   return "Bank/UPI";
 };
+const mirrorsCompletionCommissionAccount=(item?:QuickCashPending|null)=>Boolean(
+  item&&item.direction==="OUT"&&(item.cashOutType??"UPI_QR")==="UPI_QR"&&
+  commissionDigitalPart(Number(item.commissionAmount||0),item.commissionMode,item.commissionCashAmount)>0,
+);
 const commissionBreakdownLabel=(total:number,mode?:string|null,cash?:number|string|null)=>{
   const cashAmount=commissionCashPart(total,mode,cash);
   const digitalAmount=commissionDigitalPart(total,mode,cash);
@@ -292,6 +296,7 @@ export default function CashCounterPage(){
   const [completePendingId,setCompletePendingId]=useState<string|null>(null);
   const [completeSourceAccountId,setCompleteSourceAccountId]=useState("");
   const [completeCommissionAccountId,setCompleteCommissionAccountId]=useState("");
+  const [completeCommissionAccountOverridden,setCompleteCommissionAccountOverridden]=useState(false);
   const [completeBeneficiaryMode,setCompleteBeneficiaryMode]=useState<"UPI"|"BANK">("UPI");
   const [completeBeneficiaryUpi,setCompleteBeneficiaryUpi]=useState("");
   const [completeBankAccountHolder,setCompleteBankAccountHolder]=useState("");
@@ -306,6 +311,16 @@ export default function CashCounterPage(){
   const role=currentUser.role??"";
   const completingQuickCash=useMemo(()=>pendingQuickCash.find((item)=>item.id===completePendingId)??null,[pendingQuickCash,completePendingId]);
   const selectedQuickTransferType=useMemo(()=>cashInTransferTypes.find((item)=>item.id===quickTransferTypeId)??null,[cashInTransferTypes,quickTransferTypeId]);
+  const completionAccounts=useMemo(()=>accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)),[accounts]);
+  const paySwitchCompletionAccountId=useMemo(()=>completionAccounts.find((account)=>account.accountName.toUpperCase().includes("PAYSWITCH"))?.id??"",[completionAccounts]);
+  const roinetCompletionAccountId=useMemo(()=>{
+    const roinetAccounts=completionAccounts.filter((account)=>account.accountName.toUpperCase().includes("ROINET"));
+    if(roinetAccounts.length<=1)return roinetAccounts[0]?.id??"";
+    const me=currentUser.id??currentUser.userId??"";
+    const operatorName=operators.find((operator)=>operator.id===me)?.fullName.toUpperCase()??"";
+    const operatorParts=operatorName.split(/\s+/).filter((part)=>part.length>=3);
+    return roinetAccounts.find((account)=>operatorParts.some((part)=>account.accountName.toUpperCase().includes(part)))?.id??roinetAccounts[0]?.id??"";
+  },[completionAccounts,currentUser.id,currentUser.userId,operators]);
 
   const load=async(preferredCashAccountId?:string)=>{
     const [accountRows,balanceRows,historyRows,operatorRows,serviceRows,transferTypeRows]=await Promise.all([
@@ -634,7 +649,7 @@ export default function CashCounterPage(){
         referenceNumber:completeReference.trim()||undefined,
         notes:completeNotes.trim()||undefined,
       })});
-      setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteCommissionAccountId("");setCompleteBeneficiaryMode("UPI");setCompleteBeneficiaryUpi("");setCompleteBankAccountHolder("");setCompleteBankAccountNumber("");setCompleteBankIfsc("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
+      setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteCommissionAccountId("");setCompleteCommissionAccountOverridden(false);setCompleteBeneficiaryMode("UPI");setCompleteBeneficiaryUpi("");setCompleteBankAccountHolder("");setCompleteBankAccountNumber("");setCompleteBankIfsc("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
       await load(cashAccountId);
     }catch(err){setCompleteError(err instanceof Error?err.message:"Failed to complete pending cash entry");}
     finally{setQuickSaving(false);}
@@ -643,7 +658,10 @@ export default function CashCounterPage(){
   function openPendingCompletion(item:QuickCashPending){
     const mode=item.beneficiaryMode==="BANK"?"BANK":"UPI";
     const bank=mode==="BANK"?parseBankBeneficiary(item.beneficiaryDetails):emptyBankBeneficiary();
-    setCompletePendingId(item.id);setCompleteSourceAccountId("");setCompleteCommissionAccountId("");
+    const defaultSourceAccountId=item.direction==="IN"
+      ?paySwitchCompletionAccountId
+      :item.cashOutType==="MICRO_ATM"?roinetCompletionAccountId:"";
+    setCompletePendingId(item.id);setCompleteSourceAccountId(defaultSourceAccountId);setCompleteCommissionAccountId(mirrorsCompletionCommissionAccount(item)?defaultSourceAccountId:"");setCompleteCommissionAccountOverridden(false);
     setCompleteBeneficiaryMode(mode);
     setCompleteBeneficiaryUpi(mode==="UPI"?(item.beneficiaryDetails||""):"");
     setCompleteBankAccountHolder(bank.accountHolder);setCompleteBankAccountNumber(bank.accountNumber);setCompleteBankIfsc(bank.ifsc);
@@ -1214,7 +1232,7 @@ export default function CashCounterPage(){
                 </div>
                 {completeSourceAccountId?<strong className="money shrink-0 text-sm font-black">{money(accounts.find((account)=>account.id===completeSourceAccountId)?.currentBalance??0)}</strong>:null}
               </div>
-              <SearchableSelect mobileSheet aria-label={completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI or bank received in"):"Money transferred from"} searchPlaceholder="Search bank / UPI / wallet" className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeSourceAccountId} onChange={(event)=>{setCompleteSourceAccountId(event.target.value);setCompleteError("");}}>
+              <SearchableSelect mobileSheet aria-label={completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI or bank received in"):"Money transferred from"} searchPlaceholder="Search bank / UPI / wallet" className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeSourceAccountId} onChange={(event)=>{const value=event.target.value;setCompleteSourceAccountId(value);if(mirrorsCompletionCommissionAccount(completingQuickCash)&&!completeCommissionAccountOverridden)setCompleteCommissionAccountId(value);setCompleteError("");}}>
                 <option value="">Select Bank / UPI / Wallet</option>
                 {accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)).map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
               </SearchableSelect>
@@ -1231,7 +1249,7 @@ export default function CashCounterPage(){
                 </div>
                 {completeCommissionAccountId?<strong className="money shrink-0 text-sm font-black">{money(accounts.find((account)=>account.id===completeCommissionAccountId)?.currentBalance??0)}</strong>:null}
               </div>
-              <SearchableSelect mobileSheet aria-label="Commission received in" searchPlaceholder="Search bank / UPI account" className="mt-3 min-h-12 w-full rounded-xl border border-blue-200 bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeCommissionAccountId} onChange={(event)=>{setCompleteCommissionAccountId(event.target.value);setCompleteError("");}}>
+              <SearchableSelect mobileSheet aria-label="Commission received in" searchPlaceholder="Search bank / UPI account" className="mt-3 min-h-12 w-full rounded-xl border border-blue-200 bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeCommissionAccountId} onChange={(event)=>{const value=event.target.value;setCompleteCommissionAccountId(value);setCompleteCommissionAccountOverridden(Boolean(value&&value!==completeSourceAccountId));setCompleteError("");}}>
                 <option value="">Select Bank / UPI account</option>
                 {accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)).map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
               </SearchableSelect>
