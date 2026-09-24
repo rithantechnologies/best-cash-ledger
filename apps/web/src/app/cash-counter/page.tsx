@@ -575,10 +575,7 @@ export default function CashCounterPage(){
     if(!quickAmount.trim()||!Number.isFinite(amount)||amount<=0)validation.amount="Amount must be greater than 0.";
     if(purpose==="TRANSFER"&&(!Number.isFinite(commissionAmount)||commissionAmount<0))validation.commission="Commission cannot be negative.";
     if(purpose==="TRANSFER"&&quickCashOutType==="UPI_QR"&&quickCommissionMode==="SPLIT"&&(!Number.isFinite(commissionCashAmount)||commissionCashAmount<=0||commissionCashAmount>=commissionAmount))validation.commission="For split commission, enter a cash part greater than 0 and less than the total commission.";
-    if(quickDirection==="OUT"&&quickCashOutType==="AEPS"){
-      if(!/^\d{4}$/.test(quickAadhaarLastFour))validation.aadhaarLastFour="Enter the last 4 Aadhaar digits.";
-      if(!quickCustomerBank.trim())validation.customerBank="Aadhaar-linked bank is required.";
-    }
+    if(quickDirection==="OUT"&&quickCashOutType==="AEPS"&&!/^\d{4}$/.test(quickAadhaarLastFour))validation.aadhaarLastFour="Enter the last 4 Aadhaar digits.";
     if(quickDirection==="OUT"&&quickCashOutType==="MICRO_ATM"&&!/^\d{4}$/.test(quickCardLastFour))validation.cardLastFour="Enter the last 4 card digits.";
     if(quickDirection==="IN"&&purpose==="TRANSFER"&&!selectedQuickTransferType)validation.transferType="Choose a Cash In transfer type.";
     if(purpose==="SERVICE"&&!quickServiceName.trim())validation.serviceName="Service name is required.";
@@ -607,7 +604,7 @@ export default function CashCounterPage(){
         successful:quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?quickSuccessful:undefined,
         customerId:quickCustomerId||undefined,
         aadhaarLastFour:quickDirection==="OUT"&&quickCashOutType==="AEPS"?quickAadhaarLastFour:undefined,
-        customerBankName:quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?quickCustomerBank.trim()||undefined:undefined,
+        customerBankName:quickDirection==="OUT"&&quickCashOutType==="MICRO_ATM"?quickCustomerBank.trim()||undefined:undefined,
         cardLastFour:quickDirection==="OUT"&&quickCashOutType==="MICRO_ATM"?quickCardLastFour:undefined,
         commissionAmount:purpose==="TRANSFER"?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful?0:commissionAmount):0,
         commissionCashAmount:purpose==="TRANSFER"&&commissionAmount>0&&!(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful)?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?0:commissionCashAmount):undefined,
@@ -1157,9 +1154,8 @@ export default function CashCounterPage(){
               </div>:null}
               {quickCustomerId?<button type="button" onClick={()=>{setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerName("");setQuickMobile("");}} className="mt-1.5 text-[11px] font-black text-[var(--accent)]">Change customer</button>:null}
             </div>
-            {quickCashOutType==="AEPS"?<div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Aadhaar last 4 <span className="text-rose-500">*</span></span><input inputMode="numeric" maxLength={4} className="mt-1 w-full bg-transparent p-0 text-[17px] font-black tracking-[.12em] outline-none" value={quickAadhaarLastFour} onChange={(event)=>{setQuickAadhaarLastFour(event.target.value.replace(/\D/g,"").slice(0,4));clearQuickFieldError("aadhaarLastFour");}} placeholder="1234"/>{quickFieldErrors.aadhaarLastFour?<span className="mt-1 block text-[10px] font-bold text-rose-600">{quickFieldErrors.aadhaarLastFour}</span>:null}</label>
-              <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Aadhaar-linked bank <span className="text-rose-500">*</span></span><input className="mt-1 w-full bg-transparent p-0 text-[15px] font-bold outline-none" value={quickCustomerBank} onChange={(event)=>{setQuickCustomerBank(event.target.value);clearQuickFieldError("customerBank");}} placeholder="Bank name"/>{quickFieldErrors.customerBank?<span className="mt-1 block text-[10px] font-bold text-rose-600">{quickFieldErrors.customerBank}</span>:null}</label>
+            {quickCashOutType==="AEPS"?<div className="mt-3">
+              <label className="block rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Aadhaar last 4 <span className="text-rose-500">*</span></span><input inputMode="numeric" maxLength={4} className="mt-1 w-full bg-transparent p-0 text-[17px] font-black tracking-[.12em] outline-none" value={quickAadhaarLastFour} onChange={(event)=>{setQuickAadhaarLastFour(event.target.value.replace(/\D/g,"").slice(0,4));clearQuickFieldError("aadhaarLastFour");}} placeholder="1234"/>{quickFieldErrors.aadhaarLastFour?<span className="mt-1 block text-[10px] font-bold text-rose-600">{quickFieldErrors.aadhaarLastFour}</span>:null}</label>
             </div>:<div className="mt-3 grid gap-2 sm:grid-cols-2">
               <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Card last 4 <span className="text-rose-500">*</span></span><input inputMode="numeric" maxLength={4} className="mt-1 w-full bg-transparent p-0 text-[17px] font-black tracking-[.12em] outline-none" value={quickCardLastFour} onChange={(event)=>{setQuickCardLastFour(event.target.value.replace(/\D/g,"").slice(0,4));clearQuickFieldError("cardLastFour");}} placeholder="1234"/>{quickFieldErrors.cardLastFour?<span className="mt-1 block text-[10px] font-bold text-rose-600">{quickFieldErrors.cardLastFour}</span>:null}</label>
               <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Customer bank <span className="normal-case font-semibold">(optional)</span></span><input className="mt-1 w-full bg-transparent p-0 text-[15px] font-bold outline-none" value={quickCustomerBank} onChange={(event)=>setQuickCustomerBank(event.target.value)} placeholder="Bank name"/></label>

@@ -882,9 +882,6 @@ export class TransactionsService {
       if (!dto.aadhaarLastFour || !/^\d{4}$/.test(dto.aadhaarLastFour)) {
         throw new BadRequestException('Aadhaar last four digits are required');
       }
-      if (!dto.customerBankName?.trim()) {
-        throw new BadRequestException('Aadhaar-linked bank is required');
-      }
     }
     if (dto.direction === 'OUT' && cashOutType === 'MICRO_ATM') {
       if (!dto.cardLastFour || !/^\d{4}$/.test(dto.cardLastFour)) {
