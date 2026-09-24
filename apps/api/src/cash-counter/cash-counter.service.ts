@@ -489,31 +489,6 @@ export class CashCounterService {
       activityMap.set(activityId, activity);
     }
 
-    // Keep the Daily Cash activity ledger strictly tied to physical cash
-    // movements. Commission-only transactions (for example, a card swipe
-    // paid out through bank/UPI/wallet) still contribute to the session
-    // commission metric, but must not appear as drawer activity.
-    const sessionCommissionTransactions = await tx.transaction.findMany({
-      where: {
-        transactionAt: {
-          gte: session.openedAt,
-          ...(session.closedAt ? { lte: session.closedAt } : {}),
-        },
-        createdById: session.openedById,
-        status: {
-          notIn: [
-            TransactionStatus.FAILED,
-            TransactionStatus.CANCELLED,
-            TransactionStatus.REVERSED,
-          ],
-        },
-        commissions: { some: {} },
-      },
-      select: {
-        commissions: { select: { amount: true } },
-      },
-    });
-
     const activities = [...activityMap.values()].sort(
       (a, b) =>
         new Date(a.transactionAt).getTime() -
@@ -525,8 +500,22 @@ export class CashCounterService {
       activity.runningBalance = activityRunningBalance;
     }
 
+    const activeActivities = activities.filter(
+      (activity) =>
+        activity.serviceType !== TransactionType.REVERSAL &&
+        activity.transactionStatus !== TransactionStatus.REVERSED,
+    );
+    const visibleTotalIn = activeActivities.reduce(
+      (sum, activity) => sum + Number(activity.cashIn || 0),
+      0,
+    );
+    const visibleTotalOut = activeActivities.reduce(
+      (sum, activity) => sum + Number(activity.cashOut || 0),
+      0,
+    );
+
     const serviceMap = new Map<string, any>();
-    for (const activity of activities) {
+    for (const activity of activeActivities) {
       const row = serviceMap.get(activity.serviceType) ?? {
         id: activity.serviceType,
         transactionAmount: 0,
@@ -548,22 +537,16 @@ export class CashCounterService {
         b.cashOut -
         (a.cashIn + a.cashOut),
     );
-    const commissionEarned = sessionCommissionTransactions.reduce(
-      (sum, transaction) =>
-        sum +
-        transaction.commissions.reduce(
-          (transactionSum, commission) =>
-            transactionSum + Number(commission.amount),
-          0,
-        ),
+    const commissionEarned = activeActivities.reduce(
+      (sum, activity) => sum + Number(activity.commissionAmount || 0),
       0,
     );
 
     return {
       expected,
       account,
-      totalIn,
-      totalOut,
+      totalIn: visibleTotalIn,
+      totalOut: visibleTotalOut,
       movements,
       activities,
       serviceSummary,

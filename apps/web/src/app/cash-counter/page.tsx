@@ -327,6 +327,10 @@ export default function CashCounterPage(){
   const expected=Number(today?.liveExpectedClosingTotal??today?.expectedClosingTotal??today?.openingTotal??0);
   const cashIn=Number(today?.liveCashIn??0),cashOut=Number(today?.liveCashOut??0);
   const commission=Number(today?.commissionEarned??0);
+  const activeDrawerActivities=useMemo(
+    ()=>[...(today?.activities??[])].filter((row)=>row.serviceType!=="REVERSAL"&&row.transactionStatus!=="REVERSED"),
+    [today?.activities],
+  );
   const previewDifference=countedTotal-expected;
   const closedDifference=Number(today?.differenceAmount??0);
   const isClosed=today?.status==="CLOSED";
@@ -650,9 +654,9 @@ export default function CashCounterPage(){
           </div>
           <div className="grid grid-cols-2 gap-px border-t border-[var(--border)] bg-[var(--border)] lg:border-l lg:border-t-0">
             <MetricCard label="Opening" value={money(today.openingTotal)}/>
-            <MetricCard label="In" value={"+"+money(cashIn)} detail={(today.activities??[]).filter((row)=>row.cashIn>0).length+" txns"} tone="in"/>
-            <MetricCard label="Out" value={"−"+money(cashOut)} detail={(today.activities??[]).filter((row)=>row.cashOut>0).length+" txns"} tone="out"/>
-            <MetricCard label="Commission earned" value={money(commission)} detail="All modes · Cash / UPI / Bank" tone="accent"/>
+            <MetricCard label="In" value={"+"+money(cashIn)} detail={activeDrawerActivities.filter((row)=>row.quickCashDirection?row.quickCashDirection==="IN":row.cashIn>0).length+" txns"} tone="in"/>
+            <MetricCard label="Out" value={"−"+money(cashOut)} detail={activeDrawerActivities.filter((row)=>row.quickCashDirection?row.quickCashDirection==="OUT":row.cashOut>0).length+" txns"} tone="out"/>
+            <MetricCard label="Commission earned" value={money(commission)} detail="Cash book · Cash / UPI / Bank" tone="accent"/>
           </div>
         </div>
       </Surface>
