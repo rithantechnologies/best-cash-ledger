@@ -8,6 +8,8 @@ CREATE TABLE "QuickCashTransferDetail" (
     "mobileNumber" TEXT,
     "amount" DECIMAL(18,2) NOT NULL,
     "commissionAmount" DECIMAL(18,2) NOT NULL DEFAULT 0,
+    "purpose" TEXT NOT NULL DEFAULT 'TRANSFER',
+    "serviceName" TEXT,
     "completionTransactionId" TEXT,
     "completedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
