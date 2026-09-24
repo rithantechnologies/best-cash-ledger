@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Length, Matches, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsString, Length, Matches, Min } from 'class-validator';
 
 export class CreateQuickCashTransferDto {
   @IsIn(['IN', 'OUT'])
@@ -32,6 +32,10 @@ export class CreateQuickCashTransferDto {
   @IsOptional()
   @IsIn(['UPI_QR', 'AEPS', 'MICRO_ATM'])
   cashOutType?: 'UPI_QR' | 'AEPS' | 'MICRO_ATM';
+
+  @IsOptional()
+  @IsBoolean()
+  successful?: boolean;
 
   @IsOptional()
   @IsString()

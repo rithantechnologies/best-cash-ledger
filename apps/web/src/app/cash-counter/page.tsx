@@ -236,6 +236,7 @@ export default function CashCounterPage(){
   const [selectedHistoryId,setSelectedHistoryId]=useState<string|null>(null);
   const [quickDirection,setQuickDirection]=useState<QuickCashDirection|null>(null);
   const [quickCashOutType,setQuickCashOutType]=useState<QuickCashOutType>("UPI_QR");
+  const [quickSuccessful,setQuickSuccessful]=useState(true);
   const [quickAmount,setQuickAmount]=useState("");
   const [quickPurpose,setQuickPurpose]=useState<"TRANSFER"|"SERVICE">("TRANSFER");
   const [quickServiceName,setQuickServiceName]=useState("");
@@ -503,7 +504,7 @@ export default function CashCounterPage(){
   }
 
   function resetQuickCash(){
-    setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
+    setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
   }
   function selectQuickCustomer(customer:CustomerSuggestion){
     setQuickCustomerId(customer.id);
@@ -558,13 +559,14 @@ export default function CashCounterPage(){
         purpose,
         serviceName:purpose==="SERVICE"?quickServiceName.trim():undefined,
         cashOutType:quickDirection==="OUT"?quickCashOutType:undefined,
+        successful:quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?quickSuccessful:undefined,
         customerId:quickCustomerId||undefined,
         aadhaarLastFour:quickDirection==="OUT"&&quickCashOutType==="AEPS"?quickAadhaarLastFour:undefined,
         customerBankName:quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?quickCustomerBank.trim()||undefined:undefined,
         cardLastFour:quickDirection==="OUT"&&quickCashOutType==="MICRO_ATM"?quickCardLastFour:undefined,
-        commissionAmount:purpose==="TRANSFER"?commissionAmount:0,
-        commissionCashAmount:purpose==="TRANSFER"&&commissionAmount>0?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?0:commissionCashAmount):undefined,
-        commissionMode:purpose==="TRANSFER"&&commissionAmount>0?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?"UPI":quickCommissionMode):undefined,
+        commissionAmount:purpose==="TRANSFER"?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful?0:commissionAmount):0,
+        commissionCashAmount:purpose==="TRANSFER"&&commissionAmount>0&&!(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful)?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?0:commissionCashAmount):undefined,
+        commissionMode:purpose==="TRANSFER"&&commissionAmount>0&&!(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful)?(quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?"UPI":quickCommissionMode):undefined,
         beneficiaryMode:purpose==="TRANSFER"&&quickDirection==="IN"&&beneficiaryDetails?quickBeneficiaryMode:undefined,
         beneficiaryDetails:purpose==="TRANSFER"&&quickDirection==="IN"?beneficiaryDetails||undefined:undefined,
         servicePaymentMode:purpose==="SERVICE"?quickServicePaymentMode:undefined,
@@ -1023,7 +1025,7 @@ export default function CashCounterPage(){
           <button type="button" onClick={()=>{setQuickPurpose("TRANSFER");setQuickError("");clearQuickFieldError("serviceName");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="TRANSFER"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Transfer</button>
           <button type="button" onClick={()=>{setQuickPurpose("SERVICE");setQuickCommission("");setQuickError("");clearQuickFieldError("commission");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="SERVICE"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Service</button>
         </div>:<div className="mx-5 mt-2 grid grid-cols-3 rounded-[14px] bg-[var(--surface-soft)] p-1">
-          {(["UPI_QR","AEPS","MICRO_ATM"] as QuickCashOutType[]).map((kind)=><button key={kind} type="button" onClick={()=>{setQuickCashOutType(kind);setQuickError("");setQuickFieldErrors({});}} className={"min-h-10 rounded-[10px] px-2 text-[12px] font-black transition "+(quickCashOutType===kind?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]")}>{cashOutTypeLabel(kind)}</button>)}
+          {(["UPI_QR","AEPS","MICRO_ATM"] as QuickCashOutType[]).map((kind)=><button key={kind} type="button" onClick={()=>{setQuickCashOutType(kind);setQuickSuccessful(true);setQuickError("");setQuickFieldErrors({});}} className={"min-h-10 rounded-[10px] px-2 text-[12px] font-black transition "+(quickCashOutType===kind?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]")}>{cashOutTypeLabel(kind)}</button>)}
         </div>}
 
         <div className="px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
@@ -1041,7 +1043,7 @@ export default function CashCounterPage(){
               <p className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Commission <span className="normal-case font-semibold">(₹0 allowed)</span></p>
               <div className="flex min-w-[150px] items-center justify-end gap-1.5">
                 <span className="text-xl font-black">₹</span>
-                <input ref={quickCommissionRef} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.commission)} aria-describedby={quickFieldErrors.commission?"quick-commission-error":undefined} className="quick-cash-commission-input w-[150px] appearance-none bg-transparent p-0 text-right tabular-nums text-[var(--text)]" placeholder="0" value={quickCommission} onChange={(event)=>{setQuickCommission(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("commission");setQuickError("");}}/>
+                <input ref={quickCommissionRef} disabled={quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.commission)} aria-describedby={quickFieldErrors.commission?"quick-commission-error":undefined} className="quick-cash-commission-input w-[150px] appearance-none bg-transparent p-0 text-right tabular-nums text-[var(--text)] disabled:opacity-40" placeholder="0" value={quickCommission} onChange={(event)=>{setQuickCommission(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("commission");setQuickError("");}}/>
               </div>
             </div>
             {quickFieldErrors.commission?<p id="quick-commission-error" className="px-1 pt-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.commission}</p>:null}
@@ -1077,7 +1079,12 @@ export default function CashCounterPage(){
           </div>}
 
           {quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
-            <div className="relative">
+            <div className="grid grid-cols-2 rounded-xl bg-[var(--surface)] p-1">
+              <button type="button" onClick={()=>{setQuickSuccessful(true);setQuickError("");}} className={"min-h-9 rounded-lg text-[12px] font-black "+(quickSuccessful?"bg-emerald-50 text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Successful</button>
+              <button type="button" onClick={()=>{setQuickSuccessful(false);setQuickCommission("");setQuickCommissionCash("");setQuickError("");clearQuickFieldError("commission");}} className={"min-h-9 rounded-lg text-[12px] font-black "+(!quickSuccessful?"bg-rose-50 text-rose-700 shadow-sm":"text-[var(--text-muted)]")}>Failed attempt</button>
+            </div>
+            <p className="mt-2 px-1 text-[10px] font-semibold text-[var(--text-muted)]">{quickSuccessful?"Cash is paid now; provider settlement stays Pending until completed later.":"Failed attempt records the attempt only. No cash or commission is posted."}</p>
+            <div className="relative mt-3">
               <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Existing customer <span className="normal-case font-semibold">(optional)</span></span>
               <input inputMode="search" autoComplete="off" className="mt-1.5 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[14px] font-bold outline-none" placeholder="Search name or mobile" value={quickCustomerLookup} onChange={(event)=>{setQuickCustomerLookup(event.target.value);setQuickCustomerId("");setQuickCustomerSuggestions([]);}}/>
               {!quickCustomerId&&quickCustomerLookup.trim().length>=2?<div className="absolute inset-x-0 top-[calc(100%+.35rem)] z-30 max-h-52 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
@@ -1122,7 +1129,7 @@ export default function CashCounterPage(){
         </div>
         </div>
         <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
-          <button disabled={quickSaving} className={"min-h-[52px] w-full rounded-[16px] px-5 text-base font-black text-white shadow-[0_10px_22px_rgba(15,23,42,.12)] transition active:scale-[.99] disabled:opacity-50 "+(quickDirection==="IN"?"bg-emerald-600":"bg-rose-600")}>{quickSaving?"Saving…":quickPurpose==="SERVICE"?"Record service":quickDirection==="OUT"?"Save cash out":"Save transfer"}</button>
+          <button disabled={quickSaving} className={"min-h-[52px] w-full rounded-[16px] px-5 text-base font-black text-white shadow-[0_10px_22px_rgba(15,23,42,.12)] transition active:scale-[.99] disabled:opacity-50 "+(quickDirection==="IN"?"bg-emerald-600":"bg-rose-600")}>{quickSaving?"Saving…":quickPurpose==="SERVICE"?"Record service":quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful?"Record failed attempt":quickDirection==="OUT"?"Save cash out":"Save transfer"}</button>
         </footer>
       </form>
     </div>,document.body):null}

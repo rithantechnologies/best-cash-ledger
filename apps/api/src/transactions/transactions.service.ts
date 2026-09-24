@@ -857,6 +857,16 @@ export class TransactionsService {
     const servicePaymentMode = dto.servicePaymentMode ?? 'CASH';
     const cashOutType =
       dto.direction === 'OUT' ? dto.cashOutType ?? 'UPI_QR' : 'UPI_QR';
+    const successful =
+      dto.direction !== 'OUT' || cashOutType === 'UPI_QR'
+        ? true
+        : dto.successful ?? true;
+    const cashOutLabel =
+      cashOutType === 'AEPS'
+        ? 'AEPS / Aadhaar withdrawal'
+        : cashOutType === 'MICRO_ATM'
+          ? 'Micro ATM withdrawal'
+          : 'UPI / QR cash out';
     const transactionAt = dto.transactionAt
       ? new Date(dto.transactionAt)
       : new Date();
@@ -873,6 +883,10 @@ export class TransactionsService {
       if (!dto.cardLastFour || !/^\d{4}$/.test(dto.cardLastFour)) {
         throw new BadRequestException('Card last four digits are required');
       }
+    }
+
+    if (!successful && commissionAmount > 0) {
+      throw new BadRequestException('Failed attempts cannot include commission');
     }
 
     if (purpose === 'SERVICE') {
@@ -1019,6 +1033,49 @@ export class TransactionsService {
         return transaction;
       }
 
+      if (!successful) {
+        const transaction = await tx.transaction.create({
+          data: {
+            transactionNumber: 'QCT-' + Date.now().toString(36).toUpperCase(),
+            transactionType: TransactionType.CASH_TRANSFER,
+            transactionAt,
+            customerId: linkedCustomer?.id ?? null,
+            grossAmount: new Prisma.Decimal(amount),
+            netAmount: new Prisma.Decimal(amount),
+            status: TransactionStatus.FAILED,
+            idempotencyKey,
+            notes: dto.remarks?.trim() || 'Failed ' + cashOutLabel,
+            createdById: userId,
+          },
+        });
+        await tx.quickCashTransferDetail.create({
+          data: {
+            transactionId: transaction.id,
+            direction: 'OUT',
+            purpose: 'TRANSFER',
+            cashOutType,
+            aadhaarLastFour:
+              cashOutType === 'AEPS' ? dto.aadhaarLastFour : null,
+            customerBankName:
+              ['AEPS', 'MICRO_ATM'].includes(cashOutType)
+                ? dto.customerBankName?.trim() || null
+                : null,
+            cardLastFour:
+              cashOutType === 'MICRO_ATM' ? dto.cardLastFour : null,
+            cashAccountId: cashAccount.id,
+            customerName: resolvedCustomerName,
+            mobileNumber: resolvedMobile,
+            amount: new Prisma.Decimal(amount),
+            commissionAmount: new Prisma.Decimal(0),
+            commissionCashAmount: new Prisma.Decimal(0),
+            commissionMode: 'CASH',
+            completedAt: new Date(),
+          },
+        });
+        await this.auditCreated(tx, transaction, userId);
+        return transaction;
+      }
+
       const ledgerCodes = [
         'SYS-CUST-PAYABLE',
         'SYS-CUST-RECEIVABLE',
@@ -1047,12 +1104,6 @@ export class TransactionsService {
         dto.direction === 'IN'
           ? this.money(amount - commissionCashAmount)
           : amount;
-      const cashOutLabel =
-        cashOutType === 'AEPS'
-          ? 'AEPS / Aadhaar withdrawal'
-          : cashOutType === 'MICRO_ATM'
-            ? 'Micro ATM withdrawal'
-            : 'UPI / QR cash out';
       const transaction = await tx.transaction.create({
         data: {
           transactionNumber: 'QCT-' + Date.now().toString(36).toUpperCase(),
