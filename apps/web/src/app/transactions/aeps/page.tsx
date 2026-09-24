@@ -167,6 +167,7 @@ export default function AepsPage(){
   const [settledNow,setSettledNow]=useState(false);
   const [settlementDueAt,setSettlementDueAt]=useState("");
   const [reference,setReference]=useState("");
+  const [transactionAt,setTransactionAt]=useState("");
   const [notes,setNotes]=useState("");
   const [showOptional,setShowOptional]=useState(false);
 
@@ -384,6 +385,7 @@ export default function AepsPage(){
         settledNow:successful?settledNow:false,
         settlementDueAt:successful&&!settledNow&&settlementDueAt?new Date(settlementDueAt).toISOString():undefined,
         providerReference:reference.trim()||undefined,
+        transactionAt:transactionAt?new Date(transactionAt).toISOString():undefined,
         notes:notes.trim()||undefined,
       })});
       router.push("/transactions/"+result.transaction.id);
@@ -528,6 +530,7 @@ export default function AepsPage(){
               <Field label="Terminal / platform ID"><input className={control} value={platformId} onChange={e=>setPlatformId(e.target.value)} placeholder="Optional"/></Field>
               {successful&&!settledNow?<Field label="Expected settlement"><input className={control} type="datetime-local" value={settlementDueAt} onChange={e=>setSettlementDueAt(e.target.value)}/></Field>:null}
               <Field label="Provider reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="RRN / transaction ID"/></Field>
+              <Field label="Transaction date & time (optional)"><input className={control} type="datetime-local" value={transactionAt} onChange={e=>setTransactionAt(e.target.value)}/><span className="mt-1 block text-[10px] text-[var(--text-muted)]">Leave blank to use the current date and time.</span></Field>
               <Field label="Notes" className={!settledNow?"":"sm:col-span-1"}><input className={control} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></Field>
             </div>:null}
           </section>

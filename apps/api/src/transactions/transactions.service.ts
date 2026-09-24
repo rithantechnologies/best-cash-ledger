@@ -844,6 +844,9 @@ export class TransactionsService {
     const commissionMode =
       commissionAmount > 0 ? dto.commissionMode ?? 'CASH' : 'CASH';
     const servicePaymentMode = dto.servicePaymentMode ?? 'CASH';
+    const transactionAt = dto.transactionAt
+      ? new Date(dto.transactionAt)
+      : new Date();
     if (purpose === 'SERVICE') {
       if (dto.direction !== 'IN') {
         throw new BadRequestException('Service income can only be recorded as Cash In');
@@ -922,7 +925,7 @@ export class TransactionsService {
           data: {
             transactionNumber: 'SVC-' + Date.now().toString(36).toUpperCase(),
             transactionType: TransactionType.SERVICE_INCOME,
-            transactionAt: new Date(),
+            transactionAt,
             grossAmount: new Prisma.Decimal(amount),
             netAmount: new Prisma.Decimal(amount),
             status: TransactionStatus.COMPLETED,
@@ -997,7 +1000,7 @@ export class TransactionsService {
         data: {
           transactionNumber: 'QCT-' + Date.now().toString(36).toUpperCase(),
           transactionType: TransactionType.CASH_TRANSFER,
-          transactionAt: new Date(),
+          transactionAt,
           grossAmount: new Prisma.Decimal(
             dto.direction === 'IN' && commissionMode === 'CASH'
               ? amount
@@ -1696,6 +1699,9 @@ export class TransactionsService {
     const successful = dto.successful ?? true;
     const cashPayoutNow = dto.cashPayoutNow ?? true;
     const commissionMethod = dto.commissionMethod ?? CommissionMethod.DEDUCT;
+    const transactionAt = dto.transactionAt
+      ? new Date(dto.transactionAt)
+      : new Date();
     const baseAmount = this.money(dto.withdrawalAmount);
     const calculatedCommission = this.money(
       baseAmount * dto.commissionRate / 100,
@@ -1806,7 +1812,7 @@ export class TransactionsService {
           data: {
             transactionNumber: 'AEPS-' + Date.now().toString(36).toUpperCase(),
             transactionType: TransactionType.AEPS_WITHDRAWAL,
-            transactionAt: new Date(),
+            transactionAt,
             customerId,
             grossAmount: new Prisma.Decimal(baseAmount),
             netAmount: new Prisma.Decimal(0),
@@ -1906,7 +1912,7 @@ export class TransactionsService {
         data: {
           transactionNumber: 'AEPS-' + Date.now().toString(36).toUpperCase(),
           transactionType: TransactionType.AEPS_WITHDRAWAL,
-          transactionAt: new Date(),
+          transactionAt,
           customerId,
           grossAmount: new Prisma.Decimal(withdrawalAmount),
           netAmount: new Prisma.Decimal(calculatedCashGiven),
@@ -2134,6 +2140,9 @@ export class TransactionsService {
       providedIdempotencyKey,
     );
     const withdrawalAmount = this.money(dto.withdrawalAmount);
+    const transactionAt = dto.transactionAt
+      ? new Date(dto.transactionAt)
+      : new Date();
     const providerCommissionAmount = this.money(
       withdrawalAmount * dto.providerCommissionRate / 100,
     );
@@ -2189,7 +2198,7 @@ export class TransactionsService {
         data: {
           transactionNumber: 'MAT-' + Date.now().toString(36).toUpperCase(),
           transactionType: TransactionType.MICRO_ATM,
-          transactionAt: new Date(),
+          transactionAt,
           customerId: dto.customerId,
           grossAmount: new Prisma.Decimal(withdrawalAmount),
           netAmount: new Prisma.Decimal(withdrawalAmount),

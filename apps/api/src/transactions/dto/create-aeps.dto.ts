@@ -49,5 +49,6 @@ export class CreateAepsDto {
   @IsOptional() @IsBoolean() settledNow?: boolean;
   @IsOptional() @IsDateString() settlementDueAt?: string;
   @IsOptional() @IsString() providerReference?: string;
+  @IsOptional() @IsDateString() transactionAt?: string;
   @IsOptional() @IsString() notes?: string;
 }

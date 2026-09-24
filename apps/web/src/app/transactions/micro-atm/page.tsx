@@ -35,6 +35,7 @@ export default function MicroAtmPage(){
  const [settledNow,setSettledNow]=useState(false);
  const [settlementDueAt,setSettlementDueAt]=useState("");
  const [reference,setReference]=useState("");
+ const [transactionAt,setTransactionAt]=useState("");
  const [notes,setNotes]=useState("");
  const [error,setError]=useState("");
  const [saving,setSaving]=useState(false);
@@ -104,7 +105,9 @@ export default function MicroAtmPage(){
     providerId,gatewayId,providerCommissionRate:Number(commissionRate),
     cashAccountId,settlementAccountId,settledNow,
     settlementDueAt:settlementDueAt?new Date(settlementDueAt).toISOString():undefined,
-    providerReference:reference||undefined,notes:notes||undefined,
+    providerReference:reference||undefined,
+    transactionAt:transactionAt?new Date(transactionAt).toISOString():undefined,
+    notes:notes||undefined,
    })});
    router.push("/transactions");
   }catch(err){setError(err instanceof Error?err.message:"Failed to save Micro ATM withdrawal");}
@@ -160,7 +163,7 @@ export default function MicroAtmPage(){
     </div>
    </FormSection>
 
-   <details className="group rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer list-none px-4 py-3.5 text-sm font-bold">More details <span className="float-right text-[var(--text-muted)] group-open:rotate-45">+</span></summary><div className="grid gap-3 border-t border-[var(--border)] p-4 sm:grid-cols-2"><Field label="Provider reference / RRN"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="RRN / transaction reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></details>
+   <details className="group rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer list-none px-4 py-3.5 text-sm font-bold">More details <span className="float-right text-[var(--text-muted)] group-open:rotate-45">+</span></summary><div className="grid gap-3 border-t border-[var(--border)] p-4 sm:grid-cols-2"><Field label="Provider reference / RRN"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="RRN / transaction reference"/></Field><Field label="Transaction date & time (optional)"><input className={control} type="datetime-local" value={transactionAt} onChange={e=>setTransactionAt(e.target.value)}/><span className="mt-1 block text-[10px] text-[var(--text-muted)]">Leave blank to use the current date and time.</span></Field><Field label="Notes" className="sm:col-span-2"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></details>
   </TransactionFrame>
  </form></AppShell>;
 }

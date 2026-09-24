@@ -240,6 +240,7 @@ export default function CashCounterPage(){
   const [quickCustomerName,setQuickCustomerName]=useState("");
   const [quickMobile,setQuickMobile]=useState("");
   const [quickRemarks,setQuickRemarks]=useState("");
+  const [quickTransactionAt,setQuickTransactionAt]=useState("");
   const [serviceCatalog,setServiceCatalog]=useState<ServiceConfig[]>([]);
   const [quickFieldErrors,setQuickFieldErrors]=useState<QuickCashFieldErrors>({});
   const [quickError,setQuickError]=useState("");
@@ -474,7 +475,7 @@ export default function CashCounterPage(){
   }
 
   function resetQuickCash(){
-    setQuickDirection(null);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerName("");setQuickMobile("");setQuickRemarks("");setQuickFieldErrors({});setQuickError("");
+    setQuickDirection(null);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerName("");setQuickMobile("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
   }
   function openCashOutFlow(path:string){
     const drawerId=today?.cashAccountId||cashAccountId;
@@ -528,6 +529,7 @@ export default function CashCounterPage(){
         customerName:quickCustomerName.trim()||undefined,
         mobileNumber:quickMobile.trim()||undefined,
         remarks:quickRemarks.trim()||undefined,
+        transactionAt:quickDirection==="OUT"&&quickTransactionAt?new Date(quickTransactionAt).toISOString():undefined,
       })});
       resetQuickCash();
       await load(today.cashAccountId);
@@ -1054,6 +1056,10 @@ export default function CashCounterPage(){
           <div className="mt-3 overflow-hidden rounded-[17px] bg-[var(--surface-soft)] px-4">
             <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Customer</span><input className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Name" value={quickCustomerName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickCustomerName(event.target.value);setQuickError("");}}/></label>
             <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Mobile</span><input inputMode="tel" className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Mobile number" value={quickMobile} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickMobile(event.target.value);setQuickError("");}}/></label>
+            {quickDirection==="OUT"?<label className="flex min-h-[58px] items-center gap-3 border-b border-[var(--border)] py-2.5">
+              <span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Date & time</span>
+              <div className="min-w-0 flex-1 text-right"><input type="datetime-local" className="min-h-10 max-w-full bg-transparent p-0 text-right text-[14px] font-bold text-[var(--text)] outline-none" value={quickTransactionAt} onChange={(event)=>setQuickTransactionAt(event.target.value)}/><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Optional · blank uses current time</p></div>
+            </label>:null}
             <label className="flex min-h-[58px] items-start gap-3 py-3">
               <span className="w-[76px] shrink-0 pt-1 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Note</span>
               <textarea rows={2} className="min-h-[42px] min-w-0 flex-1 resize-none appearance-none bg-transparent p-0 text-right text-[17px] font-extrabold leading-5 text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Add note" value={quickRemarks} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickRemarks(event.target.value);setQuickError("");}}/>

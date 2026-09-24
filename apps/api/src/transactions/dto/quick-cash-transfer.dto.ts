@@ -1,4 +1,4 @@
-import { IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateQuickCashTransferDto {
   @IsIn(['IN', 'OUT'])
@@ -35,6 +35,10 @@ export class CreateQuickCashTransferDto {
   @IsOptional()
   @IsString()
   remarks?: string;
+
+  @IsOptional()
+  @IsDateString()
+  transactionAt?: string;
 
   @IsOptional()
   @IsIn(['CASH', 'UPI'])
