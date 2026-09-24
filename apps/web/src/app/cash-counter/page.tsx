@@ -401,11 +401,6 @@ export default function CashCounterPage(){
   const totalIncome=Number(today?.totalIncomeEarned??commissionIncome+serviceIncome);
   const incomeCash=Number(today?.incomeCashReceived??0);
   const incomeDigital=Number(today?.incomeDigitalReceived??0);
-  const incomeUnallocated=Number(today?.incomeUnallocated??0);
-  const activeDrawerActivities=useMemo(
-    ()=>[...(today?.activities??[])].filter((row)=>row.serviceType!=="REVERSAL"&&row.transactionStatus!=="REVERSED"),
-    [today?.activities],
-  );
   const previewDifference=countedTotal-expected;
   const closedDifference=Number(today?.differenceAmount??0);
   const isClosed=today?.status==="CLOSED";
@@ -734,45 +729,35 @@ export default function CashCounterPage(){
       <Surface className="cash-desk-hero overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5">
           <p className="truncate text-sm font-bold">{today.cashAccount.accountName}{today.openedBy?.fullName?" · "+today.openedBy.fullName:""}</p>
-          <p className="shrink-0 text-[13px] font-semibold text-[var(--text-muted)]">{new Date(today.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(today.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
-        </div>
-        <div className="grid lg:grid-cols-[minmax(0,1.05fr)_minmax(380px,.95fr)]">
-          <div className="cash-desk-now p-4 sm:p-5 lg:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-black uppercase tracking-[.12em] text-[var(--text-muted)]">{isClosed?"Closed cash":"Cash in hand"}</span>
-              {!isClosed?<span className="dashboard-live-badge"><i/>Live</span>:<span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-extrabold text-emerald-700">Closed</span>}
-            </div>
-            <strong className="money cash-desk-now-money mt-3 block text-[var(--text)]">{money(isClosed?today.actualClosingTotal||expected:expected)}</strong>
-            <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-semibold text-[var(--text-muted)]">
-              <span>Opening {money(today.openingTotal)}</span><span>+</span><span className="text-[var(--money-in)]">In {money(cashIn)}</span><span>−</span><span className="text-[var(--money-out)]">Out {money(cashOut)}</span><span>=</span><strong className="money text-[var(--text)]">{money(expected)}</strong>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-px border-t border-[var(--border)] bg-[var(--border)] lg:border-l lg:border-t-0">
-            <MetricCard label="Opening" value={money(today.openingTotal)}/>
-            <MetricCard label="In" value={"+"+money(cashIn)} detail={activeDrawerActivities.filter((row)=>row.quickCashDirection?row.quickCashDirection==="IN":row.cashIn>0).length+" txns"} tone="in"/>
-            <MetricCard label="Out" value={"−"+money(cashOut)} detail={activeDrawerActivities.filter((row)=>row.quickCashDirection?row.quickCashDirection==="OUT":row.cashOut>0).length+" txns"} tone="out"/>
-            <MetricCard label="Total income" value={money(totalIncome)} detail={"Commission "+money(commissionIncome)+" · Services "+money(serviceIncome)} tone="accent"/>
+          <div className="flex shrink-0 items-center gap-2">
+            <p className="text-[13px] font-semibold text-[var(--text-muted)]">{new Date(today.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(today.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+            {!isClosed?<span className="dashboard-live-badge"><i/>Live</span>:<span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-extrabold text-emerald-200">Closed</span>}
           </div>
         </div>
-      </Surface>
-
-      <Surface className="overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <div><h3 className="text-sm font-extrabold">Income earned</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Income only — transaction principal and cash movement are excluded.</p></div>
-          <strong className="money text-lg font-black text-[var(--accent)]">{money(totalIncome)}</strong>
-        </div>
-        <div className="grid grid-cols-2 gap-px bg-[var(--border)] lg:grid-cols-4">
-          <MetricCard label="Commission income" value={money(commissionIncome)} detail="Transfer / withdrawal / swipe fees" tone="accent"/>
-          <MetricCard label="Service income" value={money(serviceIncome)} detail="Xerox, printing, lamination & services" tone="in"/>
-          <MetricCard label="Received in cash" value={money(incomeCash)} detail="Included in physical cash" tone="in"/>
-          <MetricCard label="Bank / UPI income" value={money(incomeDigital)} detail={incomeUnallocated>0?money(incomeUnallocated)+" awaiting account allocation":"Does not change drawer cash"} tone="accent"/>
+        <div className="cash-desk-now p-4 sm:p-5 lg:p-6">
+          <span className="text-xs font-black uppercase tracking-[.12em] text-[var(--text-muted)]">{isClosed?"Closed cash":"Cash in hand"}</span>
+          <strong className="money cash-desk-now-money mt-3 block text-[var(--text)]">{money(isClosed?today.actualClosingTotal||expected:expected)}</strong>
+          <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-semibold text-[#9fb5cc]">
+            <span>Opening <strong className="money text-[#f8fbff]">{money(today.openingTotal)}</strong></span>
+            <span>+</span>
+            <span className="text-[var(--money-in)]">In <strong className="money">{money(cashIn)}</strong></span>
+            <span>−</span>
+            <span className="text-[var(--money-out)]">Out <strong className="money">{money(cashOut)}</strong></span>
+            <span>·</span>
+            <span className="text-[#bed6ff]">Income <strong className="money">{money(totalIncome)}</strong></span>
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <div className="rounded-2xl border border-white/10 bg-white/[.04] px-4 py-3"><span className="text-[10px] font-black uppercase tracking-[.08em] text-[#a9bfd5]">Opening</span><strong className="money mt-1 block text-lg font-black text-white">{money(today.openingTotal)}</strong></div>
+            <div className="rounded-2xl border border-white/10 bg-white/[.04] px-4 py-3"><span className="text-[10px] font-black uppercase tracking-[.08em] text-[#a9bfd5]">In</span><strong className="money mt-1 block text-lg font-black text-[var(--money-in)]">{money(cashIn)}</strong></div>
+            <div className="rounded-2xl border border-white/10 bg-white/[.04] px-4 py-3"><span className="text-[10px] font-black uppercase tracking-[.08em] text-[#a9bfd5]">Out</span><strong className="money mt-1 block text-lg font-black text-[var(--money-out)]">{money(cashOut)}</strong></div>
+            <div className="rounded-2xl border border-white/10 bg-white/[.04] px-4 py-3"><span className="text-[10px] font-black uppercase tracking-[.08em] text-[#a9bfd5]">Income</span><strong className="money mt-1 block text-lg font-black text-[#bed6ff]">{money(totalIncome)}</strong></div>
+          </div>
         </div>
       </Surface>
 
       {pendingQuickCash.length?<Surface className="scroll-mt-24 overflow-hidden">
         <div id="pending-cash" className="scroll-mt-24 flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <div><h3 className="text-sm font-extrabold">Pending completion</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Cash given. Add transfer and commission account details before end of day.</p></div>
-          <span className="rounded-full bg-amber-100 px-3 py-1.5 text-sm font-black text-amber-800">{pendingQuickCash.length}</span>
+          <div className="flex items-center gap-2"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
         </div>
         <div className="divide-y divide-[var(--border)]">
           {pendingQuickCash.map((item)=><div key={item.id} className="grid gap-3 px-4 py-3.5 sm:grid-cols-[110px_minmax(0,1fr)_auto_auto] sm:items-center sm:px-5">
@@ -783,6 +768,18 @@ export default function CashCounterPage(){
           </div>)}
         </div>
       </Surface>:null}
+
+      <Surface className="overflow-hidden">
+        <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <h3 className="text-sm font-extrabold">Income breakdown</h3>
+        </div>
+        <div className="grid grid-cols-2 gap-px bg-[var(--border)] lg:grid-cols-4">
+          <MetricCard label="Commission" value={money(commissionIncome)} tone="accent"/>
+          <MetricCard label="Services" value={money(serviceIncome)} tone="in"/>
+          <MetricCard label="Received in cash" value={money(incomeCash)} tone="in"/>
+          <MetricCard label="Bank / UPI" value={money(incomeDigital)} tone="accent"/>
+        </div>
+      </Surface>
 
       <Surface className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
