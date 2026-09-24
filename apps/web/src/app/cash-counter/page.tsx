@@ -796,7 +796,7 @@ export default function CashCounterPage(){
         <div className="px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
           <label className="block">
             <span className="block text-center text-[10px] font-black uppercase tracking-[.16em] text-[var(--text-muted)]">Amount <span className="text-rose-500">*</span></span>
-            <div className="mt-1 flex items-center justify-center gap-2 border-b border-[var(--border)] pb-2 pt-0.5">
+            <div className="mt-1 flex items-center justify-center gap-2 border-b border-[var(--border)] pb-2">
               <span className="quick-cash-amount-currency font-black leading-none text-[var(--text)]">₹</span>
               <input ref={quickAmountRef} autoFocus inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.amount)} aria-describedby={quickFieldErrors.amount?"quick-amount-error":undefined} className="quick-cash-amount-input min-w-0 max-w-[280px] flex-1 appearance-none bg-transparent p-0 text-center tabular-nums text-[var(--text)] placeholder:text-[color-mix(in_srgb,var(--text-muted)_20%,transparent)]" placeholder="0" value={quickAmount} onChange={(event)=>{setQuickAmount(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("amount");setQuickError("");}}/>
             </div>
