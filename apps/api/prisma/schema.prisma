@@ -761,6 +761,7 @@ model QuickCashTransferDetail {
   mobileNumber            String?
   amount                  Decimal           @db.Decimal(18, 2)
   commissionAmount        Decimal           @default(0) @db.Decimal(18, 2)
+  commissionCashAmount    Decimal?          @db.Decimal(18, 2)
   commissionMode          String            @default("CASH")
   commissionAccountId     String?
   commissionAccount       FinancialAccount? @relation("QuickCashCommissionAccount", fields: [commissionAccountId], references: [id])

@@ -17,6 +17,11 @@ export class CreateQuickCashTransferDto {
   commissionAmount?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  commissionCashAmount?: number;
+
+  @IsOptional()
   @IsIn(['TRANSFER', 'SERVICE'])
   purpose?: 'TRANSFER' | 'SERVICE';
 
@@ -41,8 +46,8 @@ export class CreateQuickCashTransferDto {
   transactionAt?: string;
 
   @IsOptional()
-  @IsIn(['CASH', 'UPI'])
-  commissionMode?: 'CASH' | 'UPI';
+  @IsIn(['CASH', 'UPI', 'SPLIT'])
+  commissionMode?: 'CASH' | 'UPI' | 'SPLIT';
 
   @IsOptional()
   @IsIn(['UPI', 'BANK'])

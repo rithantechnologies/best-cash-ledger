@@ -843,6 +843,17 @@ export class TransactionsService {
     const commissionAmount = this.money(dto.commissionAmount ?? 0);
     const commissionMode =
       commissionAmount > 0 ? dto.commissionMode ?? 'CASH' : 'CASH';
+    const commissionCashAmount =
+      commissionAmount <= 0
+        ? 0
+        : commissionMode === 'CASH'
+          ? commissionAmount
+          : commissionMode === 'UPI'
+            ? 0
+            : this.money(dto.commissionCashAmount ?? 0);
+    const commissionDigitalAmount = this.money(
+      Math.max(0, commissionAmount - commissionCashAmount),
+    );
     const servicePaymentMode = dto.servicePaymentMode ?? 'CASH';
     const transactionAt = dto.transactionAt
       ? new Date(dto.transactionAt)
@@ -860,6 +871,20 @@ export class TransactionsService {
     } else {
       if (commissionAmount < 0) {
         throw new BadRequestException('Commission cannot be negative');
+      }
+      if (
+        commissionCashAmount < 0 ||
+        commissionCashAmount > commissionAmount
+      ) {
+        throw new BadRequestException('Cash commission split is invalid');
+      }
+      if (
+        commissionMode === 'SPLIT' &&
+        (commissionCashAmount <= 0 || commissionDigitalAmount <= 0)
+      ) {
+        throw new BadRequestException(
+          'Split commission must include both cash and bank / UPI amounts',
+        );
       }
       if (dto.direction === 'IN' && commissionAmount >= amount) {
         throw new BadRequestException('Commission must be less than the cash-in amount');
@@ -987,14 +1012,14 @@ export class TransactionsService {
         !pendingLedger ||
         !commissionLedger ||
         !cashAccount.ledgerAccount ||
-        (commissionMode === 'UPI' && !commissionReceivableLedger)
+        (commissionDigitalAmount > 0 && !commissionReceivableLedger)
       ) {
         throw new NotFoundException('Required ledger account is missing');
       }
 
       const transferAmount =
-        dto.direction === 'IN' && commissionMode === 'CASH'
-          ? this.money(amount - commissionAmount)
+        dto.direction === 'IN'
+          ? this.money(amount - commissionCashAmount)
           : amount;
       const transaction = await tx.transaction.create({
         data: {
@@ -1002,9 +1027,9 @@ export class TransactionsService {
           transactionType: TransactionType.CASH_TRANSFER,
           transactionAt,
           grossAmount: new Prisma.Decimal(
-            dto.direction === 'IN' && commissionMode === 'CASH'
-              ? amount
-              : amount + commissionAmount,
+            dto.direction === 'IN'
+              ? this.money(amount + commissionDigitalAmount)
+              : this.money(amount + commissionAmount),
           ),
           netAmount: new Prisma.Decimal(
             dto.direction === 'IN' ? transferAmount : amount,
@@ -1028,6 +1053,7 @@ export class TransactionsService {
           mobileNumber: dto.mobileNumber?.trim() || null,
           amount: new Prisma.Decimal(amount),
           commissionAmount: new Prisma.Decimal(commissionAmount),
+          commissionCashAmount: new Prisma.Decimal(commissionCashAmount),
           commissionMode,
           beneficiaryMode:
             dto.direction === 'IN' && dto.beneficiaryDetails?.trim()
@@ -1081,18 +1107,19 @@ export class TransactionsService {
               },
             ];
       if (commissionAmount > 0) {
-        if (commissionMode === 'UPI') {
+        if (commissionDigitalAmount > 0) {
           entries.push({
             ledgerAccountId: commissionReceivableLedger!.id,
             entryType: EntryType.DEBIT,
-            amount: commissionAmount,
-            description: 'UPI commission awaiting account allocation',
+            amount: commissionDigitalAmount,
+            description: 'Bank / UPI commission awaiting account allocation',
           });
-        } else if (dto.direction === 'OUT') {
+        }
+        if (dto.direction === 'OUT' && commissionCashAmount > 0) {
           entries.push({
             ledgerAccountId: cashAccount.ledgerAccount.id,
             entryType: EntryType.DEBIT,
-            amount: commissionAmount,
+            amount: commissionCashAmount,
             description: 'Cash commission received',
           });
         }
@@ -1154,11 +1181,20 @@ export class TransactionsService {
       const amount = Number(detail.amount);
       const commissionAmount = Number(detail.commissionAmount);
       const commissionMode = detail.commissionMode ?? 'CASH';
+      const commissionCashAmount =
+        detail.commissionCashAmount !== null
+          ? Number(detail.commissionCashAmount)
+          : commissionMode === 'CASH'
+            ? commissionAmount
+            : 0;
+      const commissionDigitalAmount = this.money(
+        Math.max(0, commissionAmount - commissionCashAmount),
+      );
 
       let commissionAccount: any = null;
-      if (commissionAmount > 0 && commissionMode === 'UPI') {
+      if (commissionDigitalAmount > 0) {
         if (!dto.commissionAccountId) {
-          throw new BadRequestException('Choose the account that received the UPI commission');
+          throw new BadRequestException('Choose the account that received the bank / UPI commission');
         }
         if (dto.commissionAccountId !== dto.sourceAccountId) {
           await this.validation.lockAccount(tx, dto.commissionAccountId);
@@ -1170,8 +1206,8 @@ export class TransactionsService {
       }
 
       const settlementAmount =
-        detail.direction === 'IN' && commissionMode === 'CASH'
-          ? this.money(amount - commissionAmount)
+        detail.direction === 'IN'
+          ? this.money(amount - commissionCashAmount)
           : amount;
       if (detail.direction === 'IN') {
         await this.validation.ensureSufficientFunds(
@@ -1190,14 +1226,13 @@ export class TransactionsService {
         throw new NotFoundException('Pending transfer ledger is missing');
       }
       const commissionReceivableLedger =
-        commissionAmount > 0 && commissionMode === 'UPI'
+        commissionDigitalAmount > 0
           ? await tx.ledgerAccount.findUnique({
               where: { ledgerCode: 'SYS-COMMISSION-RECEIVABLE' },
             })
           : null;
       if (
-        commissionAmount > 0 &&
-        commissionMode === 'UPI' &&
+        commissionDigitalAmount > 0 &&
         !commissionReceivableLedger
       ) {
         throw new NotFoundException('Commission receivable ledger is missing');
@@ -1250,8 +1285,7 @@ export class TransactionsService {
               },
             ];
       if (
-        commissionMode === 'UPI' &&
-        commissionAmount > 0 &&
+        commissionDigitalAmount > 0 &&
         commissionAccount?.ledgerAccount &&
         commissionReceivableLedger
       ) {
@@ -1259,14 +1293,14 @@ export class TransactionsService {
           {
             ledgerAccountId: commissionAccount.ledgerAccount.id,
             entryType: EntryType.DEBIT,
-            amount: commissionAmount,
-            description: 'UPI commission received',
+            amount: commissionDigitalAmount,
+            description: 'Bank / UPI commission received',
           },
           {
             ledgerAccountId: commissionReceivableLedger.id,
             entryType: EntryType.CREDIT,
-            amount: commissionAmount,
-            description: 'Clear pending UPI commission allocation',
+            amount: commissionDigitalAmount,
+            description: 'Clear pending bank / UPI commission allocation',
           },
         );
       }

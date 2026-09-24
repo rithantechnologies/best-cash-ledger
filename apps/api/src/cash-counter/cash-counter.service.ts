@@ -364,6 +364,7 @@ export class CashCounterService {
             direction: true,
             purpose: true,
             commissionMode: true,
+            commissionCashAmount: true,
             commissionAccount: {
               select: { accountName: true, accountType: true },
             },
@@ -399,6 +400,17 @@ export class CashCounterService {
         .filter((charge) => charge.chargeType.startsWith('PAYOUT'))
         .reduce((sum, charge) => sum + Number(charge.amount), 0);
       const profitAmount = commissionAmount - providerFeeAmount - payoutChargeAmount;
+      const commissionCashAmount =
+        quickCashDetail?.commissionCashAmount !== null &&
+        quickCashDetail?.commissionCashAmount !== undefined
+          ? Number(quickCashDetail.commissionCashAmount)
+          : quickCashDetail?.commissionMode === 'CASH'
+            ? commissionAmount
+            : 0;
+      const commissionDigitalAmount = Math.max(
+        0,
+        commissionAmount - commissionCashAmount,
+      );
       const direction =
         entry.entryType === EntryType.DEBIT ? 'IN' : 'OUT';
 
@@ -456,6 +468,8 @@ export class CashCounterService {
         quickCashDirection: quickCashDetail?.direction ?? null,
         quickCashPurpose: quickCashDetail?.purpose ?? null,
         commissionMode: quickCashDetail?.commissionMode ?? null,
+        commissionCashAmount,
+        commissionDigitalAmount,
         commissionAccountType: quickCashDetail?.commissionAccount?.accountType ?? null,
         commissionAccountName: quickCashDetail?.commissionAccount?.accountName ?? null,
         transactionStatus: origin.status,
