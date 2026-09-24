@@ -28,7 +28,7 @@ type CashTransfer={requestedAmount:string;commissionMethod:string;commissionRate
 type Aeps={withdrawalAmount:string;platformChargeRate:string|null;platformChargeAmount:string;commissionRate:string|null;commissionMethod:string;commissionAmount:string;cashGiven:string;settlementAmount:string;cashAccount:Account|null;settlementAccount:Account;customerBankName:string;aadhaarLastFour:string};
 type MicroAtm={withdrawalAmount:string;providerCommissionRate:string;providerCommissionAmount:string;cashGiven:string;settlementAmount:string;cashAccount:Account;settlementAccount:Account;customerBankName:string|null;cardLastFour:string};
 type Expense={expenseCategoryId:string;amount:string;description:string|null;paymentAccountId:string|null;expenseCategory:{name:string};paymentAccount:Account|null};
-type QuickCash={purpose:string;serviceName:string|null;servicePaymentMode:string;amount:string;commissionAmount:string;cashAccount:Account;sourceAccount:Account|null;commissionAccount:Account|null;servicePaymentAccount:Account|null};
+type QuickCash={direction:"IN"|"OUT";purpose:string;serviceName:string|null;servicePaymentMode:string;amount:string;commissionAmount:string;commissionCashAmount:string|null;commissionMode:"CASH"|"UPI"|"SPLIT"|null;cashAccount:Account;sourceAccount:Account|null;commissionAccount:Account|null;servicePaymentAccount:Account|null};
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
  status:string;referenceNumber:string|null;notes:string|null;reversalReason:string|null;createdById:string;createdBy:{id:string;fullName:string}|null;
@@ -73,6 +73,27 @@ function MoneyFlow({tx}:{tx:Tx}){
    ?d.servicePaymentAccount?.accountName??"Bank / UPI"
    :d?.cashAccount?.accountName??"Cash drawer";
   return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><h3 className="text-sm font-black">Service income</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Direct service revenue. No customer principal is included in this income.</p></div></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3 sm:p-4"><FlowCard label="Service" value={d?.serviceName??"Service"}/><FlowCard label="Service income" value={"+"+money(gross)} tone="positive" meta="Business revenue"/><FlowCard label="Received in" value={receivedIn} tone="accent" meta={d?.servicePaymentMode==="UPI"?"Bank / UPI":"Physical cash"}/></div></Surface>;
+ }
+ if(tx.transactionType==="CASH_TRANSFER"&&tx.quickCashTransfer){
+  const d=tx.quickCashTransfer;
+  const principal=Number(d.amount);
+  const commission=Number(d.commissionAmount||0);
+  const cashCommission=d.commissionCashAmount!==null&&d.commissionCashAmount!==undefined
+    ?Number(d.commissionCashAmount)
+    :d.commissionMode==="CASH"?commission:0;
+  const digitalCommission=Math.max(0,commission-cashCommission);
+  if(d.direction==="IN"){
+   const cashReceived=principal+cashCommission;
+   const commissionMeta=cashCommission>0&&digitalCommission>0
+    ?money(cashCommission)+" cash + "+money(digitalCommission)+" bank / UPI"
+    :cashCommission>0?"Cash":digitalCommission>0?"Bank / UPI":"No commission";
+   return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Money movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Transfer principal and commission are tracked separately.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Transfer amount" value={principal} meta="Beneficiary principal"/><FlowCard label="Cash received" value={cashReceived} meta={d.cashAccount.accountName}/><FlowCard label="Business earns" value={"+"+money(commission)} tone="positive" meta={commissionMeta}/><FlowCard label="Transfer source" value={d.sourceAccount?.accountName??(tx.status==="PENDING"?"Pending":"—")} tone="accent" meta={tx.status==="PENDING"?"Complete source later":"Principal sent from this account"}/></div></Surface>;
+  }
+  const cashPaid=Math.max(0,principal-cashCommission);
+  const commissionMeta=cashCommission>0&&digitalCommission>0
+   ?money(cashCommission)+" cash + "+money(digitalCommission)+" bank / UPI"
+   :cashCommission>0?"Cash":digitalCommission>0?"Bank / UPI":"No commission";
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Money movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Cash-out principal and commission are tracked separately.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Cash-out amount" value={principal}/><FlowCard label="Net drawer out" value={cashPaid} meta={d.cashAccount.accountName}/><FlowCard label="Business earns" value={"+"+money(commission)} tone="positive" meta={commissionMeta}/><FlowCard label="Incoming source" value={d.sourceAccount?.accountName??(tx.status==="PENDING"?"Pending":"—")} tone="accent"/></div></Surface>;
  }
  if(tx.transactionType==="CARD_SWIPE"){
   const customer=Number(tx.payable?.originalAmount??tx.cardSwipe?.customerPayableAmount??net);

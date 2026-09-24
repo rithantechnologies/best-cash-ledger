@@ -451,7 +451,12 @@ export default function CashCounterPage(){
         :target==="IN"?activity.cashIn>0:activity.cashOut>0)
       .map((activity)=>({
         activity,
-        amount:target==="IN"?activity.cashIn:activity.cashOut,
+        // Quick transfer rows show the principal in Amount; commission stays
+        // in the Income column. cashIn/cashOut still drive the real drawer
+        // balance and therefore include any cash-paid commission.
+        amount:activity.quickCashPurpose==="TRANSFER"
+          ?activity.transactionAmount
+          :(target==="IN"?activity.cashIn:activity.cashOut),
       }))
       .filter((row)=>row.amount>0);
     return {IN:rowsFor("IN"),OUT:rowsFor("OUT")};

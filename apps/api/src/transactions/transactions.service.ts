@@ -1104,9 +1104,13 @@ export class TransactionsService {
         throw new NotFoundException('Required ledger account is missing');
       }
 
-      const transferAmount =
+      // The quick-cash amount is always the transaction principal.
+      // Commission is tracked separately and must never reduce the beneficiary
+      // transfer / customer principal.
+      const transferAmount = amount;
+      const cashPrincipalMovement =
         dto.direction === 'IN'
-          ? this.money(amount - commissionCashAmount)
+          ? this.money(amount + commissionCashAmount)
           : amount;
       const transaction = await tx.transaction.create({
         data: {
@@ -1114,14 +1118,10 @@ export class TransactionsService {
           transactionType: TransactionType.CASH_TRANSFER,
           transactionAt,
           customerId: linkedCustomer?.id ?? null,
-          grossAmount: new Prisma.Decimal(
-            dto.direction === 'IN'
-              ? this.money(amount + commissionDigitalAmount)
-              : this.money(amount + commissionAmount),
-          ),
-          netAmount: new Prisma.Decimal(
-            dto.direction === 'IN' ? transferAmount : amount,
-          ),
+          // gross/net represent principal only. Commission remains auditable
+          // through TransactionCommission and the quick-cash detail.
+          grossAmount: new Prisma.Decimal(amount),
+          netAmount: new Prisma.Decimal(amount),
           status: TransactionStatus.PENDING,
           idempotencyKey,
           notes:
@@ -1185,8 +1185,11 @@ export class TransactionsService {
               {
                 ledgerAccountId: cashAccount.ledgerAccount.id,
                 entryType: EntryType.DEBIT,
-                amount,
-                description: 'Quick cash received',
+                amount: cashPrincipalMovement,
+                description:
+                  commissionCashAmount > 0
+                    ? 'Quick cash received · principal + cash commission'
+                    : 'Quick cash received',
               },
               {
                 ledgerAccountId: pendingLedger.id,
@@ -1316,10 +1319,9 @@ export class TransactionsService {
         );
       }
 
-      const settlementAmount =
-        detail.direction === 'IN'
-          ? this.money(amount - commissionCashAmount)
-          : amount;
+      // detail.amount is the principal. Commission was posted separately when
+      // the quick entry was created, so completion settles the full principal.
+      const settlementAmount = amount;
       if (detail.direction === 'IN') {
         await this.validation.ensureSufficientFunds(
           tx,
