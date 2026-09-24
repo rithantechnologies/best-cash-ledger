@@ -1,0 +1,5 @@
+ALTER TABLE "QuickCashTransferDetail"
+  ADD COLUMN IF NOT EXISTS "cashOutType" TEXT NOT NULL DEFAULT 'UPI_QR',
+  ADD COLUMN IF NOT EXISTS "aadhaarLastFour" TEXT,
+  ADD COLUMN IF NOT EXISTS "customerBankName" TEXT,
+  ADD COLUMN IF NOT EXISTS "cardLastFour" TEXT;

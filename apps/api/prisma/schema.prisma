@@ -753,6 +753,10 @@ model QuickCashTransferDetail {
   direction               String
   purpose                 String            @default("TRANSFER")
   serviceName             String?
+  cashOutType             String            @default("UPI_QR")
+  aadhaarLastFour         String?
+  customerBankName        String?
+  cardLastFour            String?
   cashAccountId           String
   cashAccount             FinancialAccount  @relation("QuickCashMovementCash", fields: [cashAccountId], references: [id])
   sourceAccountId         String?

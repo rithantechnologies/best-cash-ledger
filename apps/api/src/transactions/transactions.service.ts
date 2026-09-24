@@ -855,9 +855,26 @@ export class TransactionsService {
       Math.max(0, commissionAmount - commissionCashAmount),
     );
     const servicePaymentMode = dto.servicePaymentMode ?? 'CASH';
+    const cashOutType =
+      dto.direction === 'OUT' ? dto.cashOutType ?? 'UPI_QR' : 'UPI_QR';
     const transactionAt = dto.transactionAt
       ? new Date(dto.transactionAt)
       : new Date();
+
+    if (dto.direction === 'OUT' && cashOutType === 'AEPS') {
+      if (!dto.aadhaarLastFour || !/^\d{4}$/.test(dto.aadhaarLastFour)) {
+        throw new BadRequestException('Aadhaar last four digits are required');
+      }
+      if (!dto.customerBankName?.trim()) {
+        throw new BadRequestException('Aadhaar-linked bank is required');
+      }
+    }
+    if (dto.direction === 'OUT' && cashOutType === 'MICRO_ATM') {
+      if (!dto.cardLastFour || !/^\d{4}$/.test(dto.cardLastFour)) {
+        throw new BadRequestException('Card last four digits are required');
+      }
+    }
+
     if (purpose === 'SERVICE') {
       if (dto.direction !== 'IN') {
         throw new BadRequestException('Service income can only be recorded as Cash In');
@@ -918,6 +935,14 @@ export class TransactionsService {
         actorRole === RoleName.STAFF ? userId : undefined,
       );
 
+      const linkedCustomer = dto.customerId
+        ? await this.validation.activeCustomer(tx, dto.customerId)
+        : null;
+      const resolvedCustomerName =
+        dto.customerName?.trim() || linkedCustomer?.fullName || null;
+      const resolvedMobile =
+        dto.mobileNumber?.trim() || linkedCustomer?.mobile || null;
+
       if (purpose === 'SERVICE') {
         const serviceIncomeLedger = await tx.ledgerAccount.findUnique({
           where: { ledgerCode: 'SYS-SERVICE-INCOME' },
@@ -955,6 +980,7 @@ export class TransactionsService {
             netAmount: new Prisma.Decimal(amount),
             status: TransactionStatus.COMPLETED,
             idempotencyKey,
+            customerId: linkedCustomer?.id ?? null,
             notes: [serviceName, dto.remarks?.trim()].filter(Boolean).join(' · '),
             createdById: userId,
           },
@@ -966,8 +992,8 @@ export class TransactionsService {
             purpose: 'SERVICE',
             serviceName,
             cashAccountId: cashAccount.id,
-            customerName: dto.customerName?.trim() || null,
-            mobileNumber: dto.mobileNumber?.trim() || null,
+            customerName: resolvedCustomerName,
+            mobileNumber: resolvedMobile,
             amount: new Prisma.Decimal(amount),
             commissionAmount: new Prisma.Decimal(0),
             servicePaymentMode,
@@ -1021,11 +1047,18 @@ export class TransactionsService {
         dto.direction === 'IN'
           ? this.money(amount - commissionCashAmount)
           : amount;
+      const cashOutLabel =
+        cashOutType === 'AEPS'
+          ? 'AEPS / Aadhaar withdrawal'
+          : cashOutType === 'MICRO_ATM'
+            ? 'Micro ATM withdrawal'
+            : 'UPI / QR cash out';
       const transaction = await tx.transaction.create({
         data: {
           transactionNumber: 'QCT-' + Date.now().toString(36).toUpperCase(),
           transactionType: TransactionType.CASH_TRANSFER,
           transactionAt,
+          customerId: linkedCustomer?.id ?? null,
           grossAmount: new Prisma.Decimal(
             dto.direction === 'IN'
               ? this.money(amount + commissionDigitalAmount)
@@ -1038,7 +1071,7 @@ export class TransactionsService {
           idempotencyKey,
           notes:
             dto.remarks?.trim() ||
-            (dto.direction === 'IN' ? 'Quick cash in' : 'Quick cash out'),
+            (dto.direction === 'IN' ? 'Quick cash in' : cashOutLabel),
           createdById: userId,
         },
       });
@@ -1048,9 +1081,22 @@ export class TransactionsService {
           transactionId: transaction.id,
           direction: dto.direction,
           purpose: 'TRANSFER',
+          cashOutType,
+          aadhaarLastFour:
+            dto.direction === 'OUT' && cashOutType === 'AEPS'
+              ? dto.aadhaarLastFour
+              : null,
+          customerBankName:
+            dto.direction === 'OUT' && ['AEPS', 'MICRO_ATM'].includes(cashOutType)
+              ? dto.customerBankName?.trim() || null
+              : null,
+          cardLastFour:
+            dto.direction === 'OUT' && cashOutType === 'MICRO_ATM'
+              ? dto.cardLastFour
+              : null,
           cashAccountId: cashAccount.id,
-          customerName: dto.customerName?.trim() || null,
-          mobileNumber: dto.mobileNumber?.trim() || null,
+          customerName: resolvedCustomerName,
+          mobileNumber: resolvedMobile,
           amount: new Prisma.Decimal(amount),
           commissionAmount: new Prisma.Decimal(commissionAmount),
           commissionCashAmount: new Prisma.Decimal(commissionCashAmount),
@@ -1135,7 +1181,7 @@ export class TransactionsService {
         tx,
         transaction.id,
         userId,
-        dto.direction === 'IN' ? 'Quick cash in' : 'Quick cash out',
+        dto.direction === 'IN' ? 'Quick cash in' : cashOutLabel,
         entries,
       );
       await this.auditCreated(tx, transaction, userId);

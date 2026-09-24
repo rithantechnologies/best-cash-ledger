@@ -363,6 +363,7 @@ export class CashCounterService {
             transactionId: true,
             direction: true,
             purpose: true,
+            cashOutType: true,
             commissionMode: true,
             commissionCashAmount: true,
             commissionAccount: {
@@ -454,7 +455,14 @@ export class CashCounterService {
         id: activityId,
         transactionId: origin.id,
         transactionNumber: origin.transactionNumber,
-        serviceType: origin.transactionType,
+        serviceType:
+          quickCashDetail?.direction === 'OUT' &&
+          quickCashDetail?.cashOutType === 'AEPS'
+            ? 'AEPS_WITHDRAWAL'
+            : quickCashDetail?.direction === 'OUT' &&
+                quickCashDetail?.cashOutType === 'MICRO_ATM'
+              ? 'MICRO_ATM'
+              : origin.transactionType,
         transactionAt: cashTransaction.transactionAt,
         particular,
         transactionAmount: Number(origin.grossAmount),

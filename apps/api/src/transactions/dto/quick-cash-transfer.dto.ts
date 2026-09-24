@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Length, Matches, Min } from 'class-validator';
 
 export class CreateQuickCashTransferDto {
   @IsIn(['IN', 'OUT'])
@@ -28,6 +28,30 @@ export class CreateQuickCashTransferDto {
   @IsOptional()
   @IsString()
   serviceName?: string;
+
+  @IsOptional()
+  @IsIn(['UPI_QR', 'AEPS', 'MICRO_ATM'])
+  cashOutType?: 'UPI_QR' | 'AEPS' | 'MICRO_ATM';
+
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(4, 4)
+  @Matches(/^\d{4}$/)
+  aadhaarLastFour?: string;
+
+  @IsOptional()
+  @IsString()
+  customerBankName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(4, 4)
+  @Matches(/^\d{4}$/)
+  cardLastFour?: string;
 
   @IsOptional()
   @IsString()
