@@ -182,6 +182,7 @@ export class SettingsService {
   expenseCategories(includeInactive = false) {
     return this.prisma.expenseCategory.findMany({
       where: includeInactive ? undefined : { isActive: true },
+      include: { _count: { select: { expenses: true } } },
       orderBy: { name: 'asc' },
     });
   }

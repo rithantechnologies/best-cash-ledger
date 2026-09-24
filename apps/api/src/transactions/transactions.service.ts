@@ -10,7 +10,7 @@ import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
 import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
-import { CreateExpenseDto } from './dto/create-expense.dto.js';
+import { CompleteExpenseDto, CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto } from './dto/quick-cash-transfer.dto.js';
@@ -2444,15 +2444,9 @@ export class TransactionsService {
     userId: string,
     providedIdempotencyKey?: string,
   ) {
-    if (dto.expenseType === 'MIXED') {
-      throw new BadRequestException(
-        'Expense type must be BUSINESS or PERSONAL',
-      );
-    }
-    const transactionType =
-      dto.expenseType === 'PERSONAL'
-        ? TransactionType.PERSONAL_EXPENSE
-        : TransactionType.BUSINESS_EXPENSE;
+    const transactionType = TransactionType.BUSINESS_EXPENSE;
+    const expenseType = 'BUSINESS' as const;
+    const description = dto.description?.trim() || 'Expense';
     const idempotencyKey = await this.idempotency.key(
       transactionType,
       userId,
@@ -2461,10 +2455,46 @@ export class TransactionsService {
     );
 
     return this.prisma.$transaction(async (tx) => {
-      await this.validation.lockAccount(tx, dto.paymentAccountId);
+      await this.validation.expenseCategory(
+        tx,
+        dto.expenseCategoryId,
+        expenseType,
+      );
+
+      if (!dto.paymentAccountId) {
+        const transaction = await tx.transaction.create({
+          data: {
+            transactionNumber: 'EXP-' + Date.now().toString(36).toUpperCase(),
+            transactionType,
+            transactionAt: new Date(),
+            grossAmount: new Prisma.Decimal(dto.amount),
+            netAmount: new Prisma.Decimal(dto.amount),
+            status: TransactionStatus.PENDING,
+            idempotencyKey,
+            referenceNumber: dto.referenceNumber,
+            notes: dto.notes,
+            createdById: userId,
+          },
+        });
+        await tx.expenseDetail.create({
+          data: {
+            transactionId: transaction.id,
+            expenseCategoryId: dto.expenseCategoryId,
+            expenseType,
+            paymentAccountId: null,
+            amount: new Prisma.Decimal(dto.amount),
+            description,
+          },
+        });
+        await this.auditCreated(tx, transaction, userId);
+        return transaction;
+      }
+
+      const paymentAccountId = dto.paymentAccountId;
+      await this.validation.lockAccount(tx, paymentAccountId);
       const paymentAccount = await this.validation.account(
         tx,
-        dto.paymentAccountId,
+        paymentAccountId,
         {
           label: 'Expense payment account',
           types: [
@@ -2476,11 +2506,6 @@ export class TransactionsService {
           ],
         },
       );
-      await this.validation.expenseCategory(
-        tx,
-        dto.expenseCategoryId,
-        dto.expenseType,
-      );
       if (paymentAccount.accountType === AccountType.CASH) {
         await this.validation.requireOpenCashDesk(
           tx,
@@ -2488,46 +2513,22 @@ export class TransactionsService {
           'Cash expense',
         );
       }
-
-      if (
-        paymentAccount.usageType !== 'MIXED' &&
-        paymentAccount.usageType !== dto.expenseType
-      ) {
-        throw new BadRequestException(
-          'Expense type is incompatible with the selected account usage',
-        );
-      }
-
       if (paymentAccount.accountType === AccountType.OWNER_CREDIT_CARD) {
         if (paymentAccount.accountNature !== AccountNature.LIABILITY) {
           throw new BadRequestException(
             'Owner credit-card account must be a liability',
           );
         }
-        await this.validation.ensureCreditCapacity(
-          tx,
-          paymentAccount,
-          dto.amount,
-        );
+        await this.validation.ensureCreditCapacity(tx, paymentAccount, dto.amount);
       } else {
         if (paymentAccount.accountNature !== AccountNature.ASSET) {
-          throw new BadRequestException(
-            'Expense payment account must be an asset',
-          );
+          throw new BadRequestException('Expense payment account must be an asset');
         }
-        await this.validation.ensureSufficientFunds(
-          tx,
-          paymentAccount,
-          dto.amount,
-        );
+        await this.validation.ensureSufficientFunds(tx, paymentAccount, dto.amount);
       }
 
-      const expenseLedgerCode =
-        dto.expenseType === 'PERSONAL'
-          ? 'SYS-PERSONAL-EXPENSE'
-          : 'SYS-BUSINESS-EXPENSE';
       const expenseLedger = await tx.ledgerAccount.findUnique({
-        where: { ledgerCode: expenseLedgerCode },
+        where: { ledgerCode: 'SYS-BUSINESS-EXPENSE' },
       });
       if (!expenseLedger) throw new Error('Expense ledger missing');
 
@@ -2545,24 +2546,22 @@ export class TransactionsService {
           createdById: userId,
         },
       });
-
       await tx.expenseDetail.create({
         data: {
           transactionId: transaction.id,
           expenseCategoryId: dto.expenseCategoryId,
-          expenseType: dto.expenseType,
-          paymentAccountId: dto.paymentAccountId,
+          expenseType,
+          paymentAccountId,
           amount: new Prisma.Decimal(dto.amount),
-          description: dto.description,
+          description,
         },
       });
-
-      await this.ledger.post(tx, transaction.id, userId, dto.description, [
+      await this.ledger.post(tx, transaction.id, userId, description, [
         {
           ledgerAccountId: expenseLedger.id,
           entryType: EntryType.DEBIT,
           amount: dto.amount,
-          description: dto.description,
+          description,
         },
         {
           ledgerAccountId: paymentAccount.ledgerAccount!.id,
@@ -2574,9 +2573,115 @@ export class TransactionsService {
               : 'Expense payment',
         },
       ]);
-
       await this.auditCreated(tx, transaction, userId);
       return transaction;
+    });
+  }
+
+  async completeExpense(
+    transactionId: string,
+    dto: CompleteExpenseDto,
+    userId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+        include: { expense: { include: { expenseCategory: true } } },
+      });
+      if (!transaction?.expense) {
+        throw new NotFoundException('Expense transaction not found');
+      }
+      if (transaction.status !== TransactionStatus.PENDING) {
+        throw new BadRequestException('Only pending expenses can be completed');
+      }
+
+      await this.validation.lockAccount(tx, dto.paymentAccountId);
+      const paymentAccount = await this.validation.account(
+        tx,
+        dto.paymentAccountId,
+        {
+          label: 'Expense payment account',
+          types: [
+            AccountType.CASH,
+            AccountType.BANK,
+            AccountType.UPI,
+            AccountType.PROVIDER_WALLET,
+            AccountType.OWNER_CREDIT_CARD,
+          ],
+        },
+      );
+      if (paymentAccount.accountType === AccountType.CASH) {
+        await this.validation.requireOpenCashDesk(
+          tx,
+          paymentAccount.id,
+          'Cash expense',
+        );
+      }
+
+      const amount = Number(transaction.expense.amount);
+      if (paymentAccount.accountType === AccountType.OWNER_CREDIT_CARD) {
+        if (paymentAccount.accountNature !== AccountNature.LIABILITY) {
+          throw new BadRequestException(
+            'Owner credit-card account must be a liability',
+          );
+        }
+        await this.validation.ensureCreditCapacity(tx, paymentAccount, amount);
+      } else {
+        if (paymentAccount.accountNature !== AccountNature.ASSET) {
+          throw new BadRequestException('Expense payment account must be an asset');
+        }
+        await this.validation.ensureSufficientFunds(tx, paymentAccount, amount);
+      }
+
+      const expenseLedger = await tx.ledgerAccount.findUnique({
+        where: { ledgerCode: 'SYS-BUSINESS-EXPENSE' },
+      });
+      if (!expenseLedger) throw new Error('Expense ledger missing');
+
+      const description =
+        transaction.expense.description || transaction.expense.expenseCategory.name;
+      await tx.expenseDetail.update({
+        where: { transactionId },
+        data: { paymentAccountId: paymentAccount.id },
+      });
+      await this.ledger.post(tx, transaction.id, userId, description, [
+        {
+          ledgerAccountId: expenseLedger.id,
+          entryType: EntryType.DEBIT,
+          amount,
+          description,
+        },
+        {
+          ledgerAccountId: paymentAccount.ledgerAccount!.id,
+          entryType: EntryType.CREDIT,
+          amount,
+          description:
+            paymentAccount.accountType === AccountType.OWNER_CREDIT_CARD
+              ? 'Credit-card liability increased'
+              : 'Expense payment',
+        },
+      ]);
+      const updated = await tx.transaction.update({
+        where: { id: transactionId },
+        data: {
+          status: TransactionStatus.COMPLETED,
+          ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entityType: 'TRANSACTION',
+          entityId: transactionId,
+          action: 'COMPLETE_EXPENSE',
+          oldValues: { status: TransactionStatus.PENDING, paymentAccountId: null },
+          newValues: {
+            status: TransactionStatus.COMPLETED,
+            paymentAccountId: paymentAccount.id,
+          },
+        },
+      });
+      return updated;
     });
   }
 

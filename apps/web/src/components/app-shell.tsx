@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BrandMark } from "@/components/brand-mark";
+import { QuickExpenseEntry } from "@/components/quick-expense-entry";
 import { apiFetch } from "@/lib/api";
 
 const navItems = [
@@ -281,6 +282,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     {newOpen?<div className="fixed inset-0 z-[60] hidden lg:block"><button className="absolute inset-0 bg-slate-950/10" onClick={()=>setNewOpen(false)} aria-label="Close new transaction"/><div className="absolute right-6 top-[68px] w-[520px] rounded-[24px] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_70px_rgba(15,23,42,.18)]"><div className="mb-2 flex items-center justify-between px-1.5 py-1"><strong className="text-sm">New transaction</strong><Link href="/transactions/new" className="text-xs font-semibold text-[var(--accent)]">All types</Link></div><div className="grid grid-cols-2 gap-2">{quickActions.map(([label,href,short])=><Link key={href} href={href} className="app-quick-action flex min-h-14 items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-3.5"><span className="text-sm font-bold">{label}</span><span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{short}</span></Link>)}</div></div></div>:null}
 
     {newOpen?<div className="fixed inset-0 z-[60] lg:hidden"><button className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={()=>setNewOpen(false)} aria-label="Close new transaction"/><div className="absolute inset-x-0 bottom-0 rounded-t-[28px] border-t border-[var(--border)] bg-[var(--surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl"><div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border)]"/><div className="mb-3 flex items-center justify-between"><strong>New transaction</strong><Link href="/transactions/new" className="text-xs font-semibold text-[var(--accent)]">All types</Link></div><div className="grid grid-cols-2 gap-2">{quickActions.map(([label,href,short])=><Link key={href} href={href} className="app-quick-action flex min-h-16 items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-4"><span className="font-bold">{label}</span><span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{short}</span></Link>)}</div></div></div>:null}
+
+    {!menuOpen&&!newOpen?<div className={"fixed right-3 z-[45] lg:right-5 "+((pathname==="/"||pathname==="/cash-counter")?"bottom-[calc(11.2rem+env(safe-area-inset-bottom))] lg:bottom-[116px]":isTaskFlow?"bottom-4 lg:bottom-5":"bottom-[calc(5.35rem+env(safe-area-inset-bottom))] lg:bottom-5")}>
+      <QuickExpenseEntry onSaved={()=>router.refresh()}/>
+    </div>:null}
 
     {!isTaskFlow?<nav className="app-mobile-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_94%,transparent)] px-1.5 pb-[max(.4rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-12px_30px_rgba(15,23,42,.08)] backdrop-blur-xl lg:hidden">
       <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/")?"bg-[var(--accent-soft)]":"")}><Icon name="home" className="h-[19px] w-[19px]"/></span><span>Home</span></Link>

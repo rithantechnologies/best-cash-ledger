@@ -1,54 +1,63 @@
 "use client";
 
-import { SearchableSelect } from "@/components/searchable-select";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Field, FormSection, PageLoader, SummaryRow, TransactionFrame } from "@/components/ui";
-import { SearchSelect } from "@/components/search-select";
+import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
 
-type Account={id:string;accountName:string;accountType:string;bankName?:string|null;accountReference?:string|null;lastFourDigits?:string|null};
-type Category={id:string;name:string;expenseUsage:string};
+type Account={id:string;accountName:string;accountType:string;bankName?:string|null;accountReference?:string|null;lastFourDigits?:string|null;currentBalance?:string|number;isActive?:boolean};
+type Category={id:string;name:string;isActive?:boolean;_count?:{expenses:number}};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(v);
 
 export default function ExpensePage(){
  const router=useRouter();
  const [accounts,setAccounts]=useState<Account[]>([]),[categories,setCategories]=useState<Category[]>([]);
- const [expenseType,setExpenseType]=useState("BUSINESS"),[categoryId,setCategoryId]=useState(""),[amount,setAmount]=useState(""),[accountId,setAccountId]=useState(""),[description,setDescription]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState("");
+ const [categoryId,setCategoryId]=useState(""),[amount,setAmount]=useState(""),[accountId,setAccountId]=useState(""),[notes,setNotes]=useState("");
  const [error,setError]=useState(""),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
 
- useEffect(()=>{Promise.all([apiFetch<Account[]>("/dashboard/accounts"),apiFetch<Category[]>("/settings/expense-categories")]).then(([a,c])=>{setAccounts(a);setCategories(c);}).catch(()=>setError("Failed to load form")).finally(()=>setLoading(false));},[]);
- const visible=categories.filter(c=>c.expenseUsage==="MIXED"||c.expenseUsage===expenseType);
- const value=Number(amount||0),category=categories.find(c=>c.id===categoryId),account=accounts.find(a=>a.id===accountId);
- const accountOptions=accounts.map(a=>({
-  value:a.id,
-  label:a.accountName,
-  description:[a.accountType.replaceAll("_"," "),a.bankName,a.lastFourDigits?"•••• "+a.lastFourDigits:a.accountReference].filter(Boolean).join(" · "),
-  searchText:[a.accountName,a.accountType,a.bankName,a.accountReference,a.lastFourDigits].filter(Boolean).join(" "),
- }));
+ useEffect(()=>{Promise.all([apiFetch<Account[]>("/dashboard/accounts"),apiFetch<Category[]>("/settings/expense-categories")])
+  .then(([a,c])=>{setAccounts(a);setCategories(c);}).catch(()=>setError("Failed to load expense form")).finally(()=>setLoading(false));},[]);
 
- async function submit(e:FormEvent){
+ const popular=useMemo(()=>categories.slice().sort((a,b)=>Number(b._count?.expenses||0)-Number(a._count?.expenses||0)||a.name.localeCompare(b.name)),[categories]);
+ const value=Number(amount||0),category=categories.find(c=>c.id===categoryId),account=accounts.find(a=>a.id===accountId);
+ const eligibleAccounts=accounts.filter(a=>a.isActive!==false&&["CASH","BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(a.accountType)); async function submit(e:FormEvent){
   e.preventDefault();setSaving(true);setError("");
-  try{await apiFetch("/transactions/expense",{method:"POST",body:JSON.stringify({expenseType,expenseCategoryId:categoryId,amount:value,paymentAccountId:accountId,description,referenceNumber:reference||undefined,notes:notes||undefined})});router.push("/expenses");}
-  catch(err){setError(err instanceof Error?err.message:"Expense failed");}finally{setSaving(false);}
+  try{
+   await apiFetch("/transactions/expense",{method:"POST",body:JSON.stringify({
+    expenseType:"BUSINESS",expenseCategoryId:categoryId,amount:value,
+    paymentAccountId:accountId||undefined,description:category?.name||"Expense",notes:notes.trim()||undefined,
+   })});
+   router.push("/expenses");
+  }catch(err){setError(err instanceof Error?err.message:"Expense failed");}finally{setSaving(false);}
  }
 
  if(loading)return <AppShell><PageLoader label="Preparing expense entry…"/></AppShell>;
  const control="app-control";
- return <AppShell><form onSubmit={submit}><TransactionFrame eyebrow="Spending" title="Expense" description="Record business and personal spending cleanly, even when the same account is used for both."
-  summary={<><SummaryRow label="Expense amount" value={money(value)} tone="rose"/><SummaryRow label="Usage" value={expenseType==="BUSINESS"?"Business":"Personal"}/>{category?<SummaryRow label="Category" value={category.name}/>:null}{account?<SummaryRow label="Paid from" value={account.accountName}/>:null}</>}
-  footer={<button disabled={saving||value<=0} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving transaction…":"Save expense"}</button>}>
+ return <AppShell><form onSubmit={submit}><TransactionFrame eyebrow="Spending" title="Expense"
+  description="Record an expense quickly. Category and amount are required; payment source can be added later."
+  summary={<><SummaryRow label="Expense amount" value={money(value)} tone="rose"/>{category?<SummaryRow label="Category" value={category.name}/>:null}<SummaryRow label="Paid from" value={account?.accountName||"Complete later"}/></>}
+  footer={<button disabled={saving||value<=0||!categoryId} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving…":accountId?"Save expense":"Save now · choose source later"}</button>}>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
-  <FormSection step="1" title="Expense details" description="Choose the usage, category and source account.">
-   <div className="grid gap-3 sm:grid-cols-2">
-    <Field label="Expense type"><SearchableSelect className={control} value={expenseType} onChange={e=>{setExpenseType(e.target.value);setCategoryId("");}} required><option value="BUSINESS">Business expense</option><option value="PERSONAL">Personal expense</option></SearchableSelect></Field>
-    <Field label="Category"><SearchSelect value={categoryId} onChange={setCategoryId} options={visible.map(c=>({value:c.id,label:c.name,searchText:c.name}))} placeholder="Select category" searchPlaceholder="Search category…"/></Field>
-    <Field label="Amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
-    <Field label="Paid from"><SearchSelect value={accountId} onChange={setAccountId} options={accountOptions} placeholder="Select account" searchPlaceholder="Search bank, cash, wallet or account…"/></Field>
-    <Field label="Description" className="sm:col-span-2"><input className={control} placeholder="What was this expense for?" value={description} onChange={e=>setDescription(e.target.value)} required/></Field>
+  <FormSection step="1" title="Expense details" description="Choose a category and enter the amount.">
+   <div className="space-y-4">
+    <Field label="Category">
+     <div className="flex flex-wrap gap-2">
+      {popular.slice(0,6).map(c=><button type="button" key={c.id} onClick={()=>setCategoryId(c.id)} className={"min-h-9 rounded-full border px-3 text-xs font-bold "+(categoryId===c.id?"border-[var(--accent)] bg-[var(--accent)] text-white":"border-[var(--border)] bg-[var(--surface)]")}>{c.name}</button>)}
+     </div>
+     <SearchableSelect mobileSheet className={control+" mt-2"} value={categoryId} onChange={e=>setCategoryId(e.target.value)} required>
+      <option value="">Select category</option>{popular.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+     </SearchableSelect>
+    </Field>
+    <Field label="Amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>    <Field label="Paid from (optional)">
+     <SearchableSelect mobileSheet className={control} value={accountId} onChange={e=>setAccountId(e.target.value)}>
+      <option value="">Not selected yet — complete later</option>
+      {eligibleAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}
+     </SearchableSelect>
+    </Field>
+    <Field label="Note (optional)"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Add a note"/></Field>
    </div>
   </FormSection>
-  <details className="group rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer list-none px-4 py-3.5 text-sm font-bold">More details <span className="float-right text-[var(--text-muted)] group-open:rotate-45">+</span></summary><div className="grid gap-3 border-t border-[var(--border)] p-4 sm:grid-cols-2"><Field label="Reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Receipt / invoice / reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></details>
  </TransactionFrame></form></AppShell>;
 }

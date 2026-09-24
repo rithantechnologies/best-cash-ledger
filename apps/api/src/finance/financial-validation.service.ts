@@ -253,13 +253,9 @@ export class FinancialValidationService {
     const category = await db.expenseCategory.findUnique({
       where: { id: categoryId },
     });
-    if (
-      !category?.isActive ||
-      (category.expenseUsage !== UsageType.MIXED &&
-        category.expenseUsage !== expenseType)
-    ) {
+    if (!category?.isActive) {
       throw new BadRequestException(
-        'Selected expense category is inactive or incompatible with expense type',
+        'Selected expense category is inactive or missing',
       );
     }
     return category;

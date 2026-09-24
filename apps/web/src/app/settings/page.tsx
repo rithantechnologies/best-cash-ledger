@@ -35,7 +35,7 @@ export default function SettingsPage(){
  const [providerName,setProviderName]=useState(""),[providerType,setProviderType]=useState("MULTI_SERVICE"),[providerSupportsAeps,setProviderSupportsAeps]=useState(false),[providerAepsRate,setProviderAepsRate]=useState("0");
  const [gatewayProvider,setGatewayProvider]=useState(""),[gatewayName,setGatewayName]=useState(""),[gatewayRate,setGatewayRate]=useState("");
  const [termName,setTermName]=useState(""),[durationValue,setDurationValue]=useState("0"),[durationUnit,setDurationUnit]=useState("DAYS"),[termRate,setTermRate]=useState("0");
- const [categoryName,setCategoryName]=useState(""),[categoryUsage,setCategoryUsage]=useState("BUSINESS");
+ const [categoryName,setCategoryName]=useState("");
  const [ruleCustomer,setRuleCustomer]=useState(""),[ruleProvider,setRuleProvider]=useState(""),[ruleGateway,setRuleGateway]=useState(""),[ruleTerm,setRuleTerm]=useState(""),[ruleType,setRuleType]=useState("CARD_SWIPE"),[ruleCalc,setRuleCalc]=useState("PERCENTAGE"),[ruleRate,setRuleRate]=useState("");
  const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState("");
  const [serviceName,setServiceName]=useState(""),[serviceDefaultAmount,setServiceDefaultAmount]=useState("");
@@ -78,8 +78,8 @@ export default function SettingsPage(){
  async function toggleService(item:ServiceConfig){
   try{await run(()=>apiFetch("/settings/services/"+item.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:!item.isActive})}),()=>{},item.isActive?"Service retired.":"Service activated.");}catch{}
  }
- async function addCategory(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name:categoryName,expenseUsage:categoryUsage})}),()=>{setCategoryName("");setCreate(null);},"Expense category added.");}catch{}}
- async function quickAddCategory(name:string){try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name,expenseUsage:"BUSINESS"})}),()=>{},name+" added.");}catch{}}
+ async function addCategory(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name:categoryName,expenseUsage:"MIXED"})}),()=>{setCategoryName("");setCreate(null);},"Expense category added.");}catch{}}
+ async function quickAddCategory(name:string){try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name,expenseUsage:"MIXED"})}),()=>{},name+" added.");}catch{}}
  async function saveServiceDefault(transactionType:"CARD_SWIPE"|"CASH_TRANSFER"|"AEPS_WITHDRAWAL",rate:number,label:string){
   const existing=rules.find(r=>r.transactionType===transactionType&&!r.customerId&&!r.providerId&&!r.gatewayId&&!r.paymentTermId);
   await run(async()=>{
@@ -101,7 +101,7 @@ export default function SettingsPage(){
   if(next.kind==="provider"){setE1(next.item.name);setE2(next.item.providerType);setE3(next.item.supportsAeps?"true":"false");setE4(String(Number(next.item.aepsCommissionRate||0)));}
   if(next.kind==="gateway"){setE1(next.item.gatewayName);setE2(String(Number(next.item.defaultChargeRate)));setE3(next.item.defaultChargeType);setE4("");}
   if(next.kind==="term"){setE1(next.item.name);setE2(String(next.item.durationValue));setE3(next.item.durationUnit);setE4(String(Number(next.item.defaultCommissionRate)));}
-  if(next.kind==="category"){setE1(next.item.name);setE2(next.item.expenseUsage);setE3("");setE4("");}
+  if(next.kind==="category"){setE1(next.item.name);setE2("MIXED");setE3("");setE4("");}
   if(next.kind==="rule"){setE1(String(Number(next.item.commissionRate)));setE2(next.item.commissionType);setE3("");setE4("");}
  }
  async function saveEdit(e:FormEvent){
@@ -110,7 +110,7 @@ export default function SettingsPage(){
    if(edit.kind==="provider")await run(()=>apiFetch("/providers/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),providerType:e2,supportsAeps:e3==="true",aepsCommissionRate:Number(e4||0)})}),()=>{},"Provider updated.");
    if(edit.kind==="gateway")await run(()=>apiFetch("/providers/gateways/"+edit.item.id,{method:"PATCH",body:JSON.stringify({gatewayName:e1.trim(),defaultChargeRate:Number(e2),defaultChargeType:e3})}),()=>{},"Gateway updated.");
    if(edit.kind==="term")await run(()=>apiFetch("/settings/payment-terms/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),durationValue:Number(e2),durationUnit:e3,defaultCommissionType:edit.item.defaultCommissionType,defaultCommissionRate:Number(e4)})}),()=>{},"Payment term updated.");
-   if(edit.kind==="category")await run(()=>apiFetch("/settings/expense-categories/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),expenseUsage:e2})}),()=>{},"Expense category updated.");
+   if(edit.kind==="category")await run(()=>apiFetch("/settings/expense-categories/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),expenseUsage:"MIXED"})}),()=>{},"Expense category updated.");
    if(edit.kind==="rule")await run(()=>apiFetch("/settings/commission-rules/"+edit.item.id,{method:"PATCH",body:JSON.stringify({commissionRate:Number(e1),commissionType:e2})}),()=>{},"Commission rule updated.");
    setEdit(null);
   }catch{}
@@ -191,8 +191,8 @@ export default function SettingsPage(){
     <form onSubmit={addTerm} className="grid gap-3 sm:grid-cols-2"><input className={input} placeholder="Term name" value={termName} onChange={e=>setTermName(e.target.value)} required/><input className={input} type="number" min="0" placeholder="Duration" value={durationValue} onChange={e=>setDurationValue(e.target.value)} required/><SearchableSelect className={input} value={durationUnit} onChange={e=>setDurationUnit(e.target.value)}><option value="HOURS">Hours</option><option value="DAYS">Days</option></SearchableSelect><input className={input} type="number" step="0.0001" min="0" placeholder="Default commission %" value={termRate} onChange={e=>setTermRate(e.target.value)} required/><button className={primary+" sm:col-span-2"}>Add Payment Term</button></form>
   </Modal>
 
-  <Modal open={create==="category"} title="Add expense category" description="Categories keep business and personal spending easy to scan." onClose={()=>setCreate(null)}>
-    <form onSubmit={addCategory} className="space-y-4"><input className={input} placeholder="Category name" value={categoryName} onChange={e=>setCategoryName(e.target.value)} required/><SearchableSelect className={input} value={categoryUsage} onChange={e=>setCategoryUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Both</option></SearchableSelect><button className={primary+" w-full"}>Add Category</button></form>
+  <Modal open={create==="category"} title="Add expense category" description="Categories keep expenses quick to enter and easy to scan." onClose={()=>setCreate(null)}>
+    <form onSubmit={addCategory} className="space-y-4"><input className={input} placeholder="Category name" value={categoryName} onChange={e=>setCategoryName(e.target.value)} required/><button className={primary+" w-full"}>Add Category</button></form>
   </Modal>
   <Modal open={create==="rule"} title="Add commission override" description="Use an override only when the default term or gateway rate should not apply." onClose={()=>setCreate(null)}>
     <form onSubmit={addRule} className="grid gap-3 sm:grid-cols-2">
@@ -218,7 +218,7 @@ export default function SettingsPage(){
       </>:null}
       {edit?.kind==="gateway"?<><input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Gateway name" required/><input className={input} type="number" min="0" step="0.0001" value={e2} onChange={e=>setE2(e.target.value)} placeholder="Charge rate" required/><SearchableSelect className={input} value={e3} onChange={e=>setE3(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed</option></SearchableSelect></>:null}
       {edit?.kind==="term"?<div className="grid gap-3 sm:grid-cols-2"><input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Term name" required/><input className={input} type="number" min="0" value={e2} onChange={e=>setE2(e.target.value)} placeholder="Duration"/><SearchableSelect className={input} value={e3} onChange={e=>setE3(e.target.value)}><option value="HOURS">Hours</option><option value="DAYS">Days</option></SearchableSelect><input className={input} type="number" min="0" step="0.0001" value={e4} onChange={e=>setE4(e.target.value)} placeholder="Commission rate"/></div>:null}
-      {edit?.kind==="category"?<><input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Category name" required/><SearchableSelect className={input} value={e2} onChange={e=>setE2(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Both</option></SearchableSelect></>:null}
+      {edit?.kind==="category"?<input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Category name" required/>:null}
       {edit?.kind==="rule"?<><input className={input} type="number" min="0" step="0.0001" value={e1} onChange={e=>setE1(e.target.value)} placeholder="Rate / amount"/><SearchableSelect className={input} value={e2} onChange={e=>setE2(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed</option></SearchableSelect></>:null}
       <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={()=>setEdit(null)} className={secondary}>Cancel</button><button className={primary}>Save changes</button></div>
     </form>

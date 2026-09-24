@@ -45,11 +45,9 @@ function MonthlyChart({rows}:{rows:{label:string;amount:number}[]}){
 
 export default function ExpensesPage(){
  const [transactions,setTransactions]=useState<Tx[]>([]),[categories,setCategories]=useState<Category[]>([]);
- const [scope,setScope]=useState<Scope>("COMBINED"),[period,setPeriod]=useState<Period>("90D");
+ const [scope]=useState<Scope>("COMBINED"),[period,setPeriod]=useState<Period>("90D");
  const [loading,setLoading]=useState(true),[error,setError]=useState("");
  useEffect(()=>{
-  const initial=new URLSearchParams(window.location.search).get("scope");
-  if(initial==="BUSINESS"||initial==="PERSONAL")setScope(initial);
   Promise.all([
    apiFetch<Tx[]>("/reports/transactions?type=BUSINESS_EXPENSE"),
    apiFetch<Tx[]>("/reports/transactions?type=PERSONAL_EXPENSE"),
@@ -97,14 +95,14 @@ export default function ExpensesPage(){
  if(loading)return <AppShell><PageLoader label="Loading expenses…"/></AppShell>;
  return <AppShell><div className="page-enter mx-auto max-w-[1450px] space-y-4">
   <div className="flex flex-wrap items-end justify-between gap-4">
-   <div><p className="dashboard-kicker">Spending intelligence</p><h1 className="mt-1 text-[1.7rem] font-black tracking-[-.04em] sm:text-[2rem]">Expenses</h1><p className="mt-1 text-xs text-[var(--text-muted)]">Business and personal spending, category mix, trend and underlying transactions.</p></div>
+   <div><p className="dashboard-kicker">Spending intelligence</p><h1 className="mt-1 text-[1.7rem] font-black tracking-[-.04em] sm:text-[2rem]">Expenses</h1><p className="mt-1 text-xs text-[var(--text-muted)]">All expenses, category mix, trend and underlying transactions.</p></div>
    <Link href="/transactions/expense" className="app-primary-button px-4 py-2.5 text-xs font-bold">+ Add expense</Link>
   </div>
 
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
   <Surface className="flex flex-wrap items-center justify-between gap-3 p-3">
-   <div className="flex rounded-xl bg-[var(--surface-soft)] p-1">{(["COMBINED","BUSINESS","PERSONAL"] as Scope[]).map(v=><button key={v} onClick={()=>setScope(v)} className={"min-h-9 rounded-lg px-3 text-xs font-bold transition "+(scope===v?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>{v==="COMBINED"?"Combined":v==="BUSINESS"?"Business":"Personal"}</button>)}</div>
+   <div className="px-2 text-xs font-bold text-[var(--text-muted)]">All expenses</div>
    <div className="flex gap-1 overflow-x-auto">{(["30D","90D","6M","ALL"] as Period[]).map(v=><button key={v} onClick={()=>setPeriod(v)} className={"min-h-9 shrink-0 rounded-full border px-3 text-xs font-semibold "+(period===v?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] text-[var(--text-muted)]")}>{v==="30D"?"30 days":v==="90D"?"90 days":v==="6M"?"6 months":"All"}</button>)}</div>
   </Surface>
 
@@ -123,12 +121,12 @@ export default function ExpensesPage(){
   <div className="grid gap-4 xl:grid-cols-[.72fr_1.28fr]">
    <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header border-b border-[var(--border)] px-4 py-3.5"><p className="dashboard-kicker">Simple view</p><h2 className="mt-1 text-base font-bold">Category table</h2></div>
     {byCategory.length?<div className="divide-y divide-[var(--border)]">{byCategory.map((row,i)=><div key={row.name} className="flex items-center justify-between gap-3 px-4 py-3"><div className="flex min-w-0 items-center gap-3"><i className="h-3 w-3 shrink-0 rounded-full" style={{background:palette[i%palette.length]}}/><span className="truncate text-sm font-semibold">{row.name}</span></div><div className="text-right"><strong className="money text-sm">{money(row.amount)}</strong><p className="text-[10px] text-[var(--text-muted)]">{totals.total?((row.amount/totals.total)*100).toFixed(0):0}%</p></div></div>)}</div>:<div className="p-4"><EmptyState title="No categories to show"/></div>}
-    {scope==="COMBINED"?<div className="grid grid-cols-2 gap-px border-t border-[var(--border)] bg-[var(--border)]"><div className="bg-[var(--surface)] p-4"><p className="text-[10px] text-[var(--text-muted)]">Business</p><strong className="money mt-1 block">{money(totals.business)}</strong></div><div className="bg-[var(--surface)] p-4"><p className="text-[10px] text-[var(--text-muted)]">Personal</p><strong className="money mt-1 block">{money(totals.personal)}</strong></div></div>:null}
+
    </Surface>
 
-   <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5"><div><p className="dashboard-kicker">Transactions</p><h2 className="mt-1 text-base font-bold">Expense ledger</h2></div><Link href={scope==="BUSINESS"?"/transactions?type=BUSINESS_EXPENSE":scope==="PERSONAL"?"/transactions?type=PERSONAL_EXPENSE":"/transactions"} className="text-xs font-bold text-[var(--accent)]">All activity</Link></div>
+   <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5"><div><p className="dashboard-kicker">Transactions</p><h2 className="mt-1 text-base font-bold">Expense ledger</h2></div><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">All activity</Link></div>
     {filtered.length?<><div className="md:hidden divide-y divide-[var(--border)]">{filtered.slice(0,20).map(tx=><Link key={tx.id} href={"/transactions/"+tx.id} className="block px-4 py-3.5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold">{tx.expense?.description??"Expense"}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{categoryById.get(tx.expense?.expenseCategoryId??"")??"Other"} · {new Date(tx.transactionAt).toLocaleDateString("en-IN")}</p></div><strong className="money shrink-0 text-sm text-[var(--money-out)]">{money(tx.expense?.amount??tx.grossAmount)}</strong></div></Link>)}</div>
-     <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[760px] text-xs"><thead className="bg-[var(--surface-soft)] text-left text-[10px] uppercase tracking-[.06em] text-[var(--text-muted)]"><tr><th className="px-4 py-3">Date</th><th>Particulars</th><th>Category</th><th>Scope</th><th>Reference</th><th className="pr-4 text-right">Amount</th></tr></thead><tbody>{filtered.slice(0,100).map(tx=><tr key={tx.id} className="border-t border-[var(--border)]"><td className="px-4 py-3 text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleDateString("en-IN")}</td><td><Link href={"/transactions/"+tx.id} className="font-bold text-[var(--accent)]">{tx.expense?.description??tx.transactionNumber}</Link></td><td>{categoryById.get(tx.expense?.expenseCategoryId??"")??"Other"}</td><td><span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-bold">{tx.expense?.expenseType??"—"}</span></td><td className="text-[var(--text-muted)]">{tx.referenceNumber??"—"}</td><td className="money pr-4 text-right font-bold text-[var(--money-out)]">{money(tx.expense?.amount??tx.grossAmount)}</td></tr>)}</tbody></table></div>
+     <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[760px] text-xs"><thead className="bg-[var(--surface-soft)] text-left text-[10px] uppercase tracking-[.06em] text-[var(--text-muted)]"><tr><th className="px-4 py-3">Date</th><th>Particulars</th><th>Category</th><th>Reference</th><th className="pr-4 text-right">Amount</th></tr></thead><tbody>{filtered.slice(0,100).map(tx=><tr key={tx.id} className="border-t border-[var(--border)]"><td className="px-4 py-3 text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleDateString("en-IN")}</td><td><Link href={"/transactions/"+tx.id} className="font-bold text-[var(--accent)]">{tx.expense?.description??tx.transactionNumber}</Link></td><td>{categoryById.get(tx.expense?.expenseCategoryId??"")??"Other"}</td><td className="text-[var(--text-muted)]">{tx.referenceNumber??"—"}</td><td className="money pr-4 text-right font-bold text-[var(--money-out)]">{money(tx.expense?.amount??tx.grossAmount)}</td></tr>)}</tbody></table></div>
     </>:<div className="p-4"><EmptyState title="No expenses in this range" description="Change the filter or record a new expense."/></div>}
    </Surface>
   </div>

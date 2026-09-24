@@ -14,7 +14,7 @@ import {
 } from './dto/create-card-due-clearing.dto.js';
 import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
-import { CreateExpenseDto } from './dto/create-expense.dto.js';
+import { CompleteExpenseDto, CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto } from './dto/quick-cash-transfer.dto.js';
@@ -190,6 +190,11 @@ export class TransactionsController {
   @Post('expense')
   createExpense(@Body() dto: CreateExpenseDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
     return this.transactions.createExpense(dto, req.user.userId, key);
+  }
+
+  @Post('expense/:id/complete')
+  completeExpense(@Param('id') id: string, @Body() dto: CompleteExpenseDto, @Req() req: any) {
+    return this.transactions.completeExpense(id, dto, req.user.userId);
   }
 
   @Post('atm-withdrawal')

@@ -847,10 +847,10 @@ model ExpenseDetail {
   expenseCategoryId String
   expenseCategory   ExpenseCategory  @relation(fields: [expenseCategoryId], references: [id])
   expenseType       UsageType
-  paymentAccountId  String
-  paymentAccount    FinancialAccount @relation(fields: [paymentAccountId], references: [id])
-  amount            Decimal          @db.Decimal(18, 2)
-  description       String
+  paymentAccountId  String?
+  paymentAccount    FinancialAccount? @relation(fields: [paymentAccountId], references: [id])
+  amount            Decimal           @db.Decimal(18, 2)
+  description       String?
   createdAt         DateTime         @default(now())
 }
 
