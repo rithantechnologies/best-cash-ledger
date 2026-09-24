@@ -68,6 +68,7 @@ type QuickCashPending={
   transaction:{id:string;transactionNumber:string;transactionAt:string;status:string;notes:string|null};
 };
 type Range="today"|"7d"|"30d";
+type LedgerView="CASHBOOK"|"DETAILED";
 type DirectionFilter="ALL"|"IN"|"OUT"|"COMMISSION"|"REVERSAL"|"ADJUSTMENT";
 type TxColumn="TIME"|"PARTICULAR"|"SERVICE"|"TXN_AMOUNT"|"CASH_IN"|"CASH_OUT"|"CUSTOMER_FEE"|"PROVIDER_FEE"|"PROFIT"|"DRAWER";
 const txColumnDefs:Array<{id:TxColumn;label:string;width:string}>=[
@@ -191,6 +192,11 @@ export default function CashCounterPage(){
   const [saving,setSaving]=useState(false);
   const [loading,setLoading]=useState(true);
   const [range,setRange]=useState<Range>("today");
+  const [ledgerView,setLedgerView]=useState<LedgerView>(()=>{
+    if(typeof window==="undefined")return "CASHBOOK";
+    return localStorage.getItem("cashledger_daily_cash_view")==="DETAILED"?"DETAILED":"CASHBOOK";
+  });
+  const [cashBookMobileDirection,setCashBookMobileDirection]=useState<QuickCashDirection>("IN");
   const [direction,setDirection]=useState<DirectionFilter>("ALL");
   const [serviceFilter,setServiceFilter]=useState<string|null>(null);
   const [txColumns,setTxColumns]=useState<TxColumn[]>(()=>{
@@ -327,6 +333,31 @@ export default function CashCounterPage(){
     }));
   },[today?.serviceSummary]);
   const serviceMovementTotal=useMemo(()=>serviceGroups.reduce((sum,row)=>sum+row.value,0),[serviceGroups]);
+
+  useEffect(()=>{
+    if(typeof window!=="undefined")localStorage.setItem("cashledger_daily_cash_view",ledgerView);
+  },[ledgerView]);
+
+  const cashBookRows=useMemo(()=>{
+    const activities=[...(today?.activities??[])].reverse();
+    const rowsFor=(target:QuickCashDirection)=>activities
+      .filter((activity)=>activity.quickCashDirection
+        ?activity.quickCashDirection===target
+        :target==="IN"?activity.cashIn>0:activity.cashOut>0)
+      .map((activity)=>({
+        activity,
+        amount:target==="IN"?activity.cashIn:activity.cashOut,
+      }))
+      .filter((row)=>row.amount>0);
+    return {IN:rowsFor("IN"),OUT:rowsFor("OUT")};
+  },[today?.activities]);
+  const cashBookTotals=useMemo(()=>{
+    const summarize=(rows:typeof cashBookRows.IN)=>({
+      amount:rows.reduce((sum,row)=>sum+row.amount,0),
+      commission:rows.reduce((sum,row)=>sum+Number(row.activity.commissionAmount||0),0),
+    });
+    return {IN:summarize(cashBookRows.IN),OUT:summarize(cashBookRows.OUT)};
+  },[cashBookRows]);
 
   const visibleActivities=useMemo(()=>{
     return [...(today?.activities??[])].filter((activity)=>{
@@ -654,11 +685,79 @@ export default function CashCounterPage(){
         </div>
       </Surface>:null}
 
+{ledgerView==="CASHBOOK"?<>
+      <Surface className="overflow-hidden">
+        <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-extrabold">Cash book</h3>
+              <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Simple daily view · time, particular, amount and commission</p>
+            </div>
+            <div className="grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1">
+              <button type="button" className="min-h-8 rounded-lg bg-[var(--surface)] px-3 text-xs font-black text-[var(--text)] shadow-sm">Cash Book</button>
+              <button type="button" onClick={()=>setLedgerView("DETAILED")} className="min-h-8 rounded-lg px-3 text-xs font-black text-[var(--text-muted)]">Detailed</button>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1 lg:hidden">
+            <button type="button" onClick={()=>setCashBookMobileDirection("IN")} className={"min-h-9 rounded-lg text-sm font-black "+(cashBookMobileDirection==="IN"?"bg-[var(--surface)] text-[var(--money-in)] shadow-sm":"text-[var(--text-muted)]")}>Cash In</button>
+            <button type="button" onClick={()=>setCashBookMobileDirection("OUT")} className={"min-h-9 rounded-lg text-sm font-black "+(cashBookMobileDirection==="OUT"?"bg-[var(--surface)] text-[var(--money-out)] shadow-sm":"text-[var(--text-muted)]")}>Cash Out</button>
+          </div>
+        </div>
+
+        <div className="hidden lg:grid lg:grid-cols-2 lg:divide-x lg:divide-[var(--border)]">
+          {(["IN","OUT"] as QuickCashDirection[]).map((side)=>{
+            const rows=cashBookRows[side],totals=cashBookTotals[side];
+            return <div key={side} className="min-w-0">
+              <div className={"flex items-center justify-between border-b border-[var(--border)] px-4 py-3 "+(side==="IN"?"bg-emerald-50/55":"bg-rose-50/55")}>
+                <div><p className={"text-sm font-black "+(side==="IN"?"text-emerald-700":"text-rose-700")}>{side==="IN"?"Cash In":"Cash Out"}</p><p className="mt-0.5 text-xs font-semibold text-[var(--text-muted)]">{rows.length} entr{rows.length===1?"y":"ies"}</p></div>
+                <div className="text-right"><strong className="money block text-base font-black">{money(totals.amount)}</strong><span className="text-xs font-bold text-[var(--accent)]">Comm {money(totals.commission)}</span></div>
+              </div>
+              <div className="grid grid-cols-[72px_minmax(0,1fr)_100px_86px] gap-3 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 text-[10px] font-black uppercase tracking-[.06em] text-[var(--text-muted)]">
+                <span>Time</span><span>Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
+              </div>
+              {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="grid w-full grid-cols-[72px_minmax(0,1fr)_100px_86px] items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-soft)]">
+                <span className="text-xs font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
+                <span className="min-w-0 truncate text-[14px] font-bold">{activity.particular}</span>
+                <strong className={"money text-right text-sm "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(amount)}</strong>
+                <strong className="money text-right text-sm text-[var(--accent)]">{activity.commissionAmount?money(activity.commissionAmount):"—"}</strong>
+              </button>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
+              <div className="grid grid-cols-[72px_minmax(0,1fr)_100px_86px] gap-3 border-t border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-sm">
+                <span/><strong>Total</strong><strong className="money text-right">{money(totals.amount)}</strong><strong className="money text-right text-[var(--accent)]">{money(totals.commission)}</strong>
+              </div>
+            </div>;
+          })}
+        </div>
+
+        <div className="lg:hidden">
+          {(()=>{
+            const side=cashBookMobileDirection,rows=cashBookRows[side],totals=cashBookTotals[side];
+            return <>
+              <div className="grid grid-cols-[58px_minmax(0,1fr)_82px_68px] gap-2 border-b border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-[9px] font-black uppercase tracking-[.05em] text-[var(--text-muted)]">
+                <span>Time</span><span>Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
+              </div>
+              {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="grid w-full grid-cols-[58px_minmax(0,1fr)_82px_68px] items-center gap-2 px-3 py-3 text-left">
+                <span className="text-[11px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
+                <span className="min-w-0 truncate text-[13px] font-bold">{activity.particular}</span>
+                <strong className={"money text-right text-[13px] "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(amount)}</strong>
+                <strong className="money text-right text-[13px] text-[var(--accent)]">{activity.commissionAmount?money(activity.commissionAmount):"—"}</strong>
+              </button>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
+              <div className="grid grid-cols-[58px_minmax(0,1fr)_82px_68px] gap-2 border-t border-[var(--border)] bg-[var(--surface-soft)] px-3 py-3 text-[13px]">
+                <span/><strong>Total</strong><strong className="money text-right">{money(totals.amount)}</strong><strong className="money text-right text-[var(--accent)]">{money(totals.commission)}</strong>
+              </div>
+            </>;
+          })()}
+        </div>
+      </Surface>
+      </>:<>
       <Surface className="overflow-hidden">
         <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><h3 className="text-sm font-extrabold">Transactions</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{visibleActivities.length} of {today.activities?.length??0}</p></div>
             <div className="flex flex-wrap items-center gap-1.5">
+              <div className="mr-1 grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1">
+                <button type="button" onClick={()=>setLedgerView("CASHBOOK")} className="min-h-8 rounded-lg px-3 text-xs font-black text-[var(--text-muted)]">Cash Book</button>
+                <button type="button" className="min-h-8 rounded-lg bg-[var(--surface)] px-3 text-xs font-black text-[var(--text)] shadow-sm">Detailed</button>
+              </div>
               {([["ALL","All"],["IN","Cash In"],["OUT","Cash Out"],["COMMISSION","Commission"],["REVERSAL","Reversal"],["ADJUSTMENT","Adjust"]] as Array<[DirectionFilter,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>setDirection(id)} className={"min-h-9 rounded-xl border px-3 text-sm font-extrabold "+(direction===id?"border-[var(--accent)] bg-[var(--accent)] text-white":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{label}</button>)}
               <SearchableSelect className="min-h-9 min-w-[150px] rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm font-bold text-[var(--text)]" value={serviceFilter??""} onChange={(event)=>setServiceFilter(event.target.value||null)}>
                 <option value="">All services</option>
@@ -739,6 +838,7 @@ export default function CashCounterPage(){
           </div>
         </div>:<div className="p-5 sm:p-7"><EmptyState title="No transactions yet" description="Cash movements and commission earned during this session will appear here."/></div>}
       </Surface>
+      </>}
 
       <div id="cash-close-panel" className="scroll-mt-20">
         <Surface className="counter-surface overflow-hidden">
