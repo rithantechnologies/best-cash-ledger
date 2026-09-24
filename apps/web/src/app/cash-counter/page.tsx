@@ -313,6 +313,7 @@ export default function CashCounterPage(){
   const selectedQuickTransferType=useMemo(()=>cashInTransferTypes.find((item)=>item.id===quickTransferTypeId)??null,[cashInTransferTypes,quickTransferTypeId]);
   const completionAccounts=useMemo(()=>accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)),[accounts]);
   const paySwitchCompletionAccountId=useMemo(()=>completionAccounts.find((account)=>account.accountName.toUpperCase().includes("PAYSWITCH"))?.id??"",[completionAccounts]);
+  const digiSevaCompletionAccountId=useMemo(()=>completionAccounts.find((account)=>account.accountName.toUpperCase().includes("DIGISEVA"))?.id??"",[completionAccounts]);
   const cashInUpiCompletion=Boolean(completingQuickCash?.direction==="IN"&&completeBeneficiaryMode==="UPI");
   const completionSourceAccounts=useMemo(()=>cashInUpiCompletion?completionAccounts.filter((account)=>account.accountType==="BANK"):completionAccounts,[cashInUpiCompletion,completionAccounts]);
   const roinetCompletionAccountId=useMemo(()=>{
@@ -657,7 +658,8 @@ export default function CashCounterPage(){
     const bank=mode==="BANK"?parseBankBeneficiary(item.beneficiaryDetails):emptyBankBeneficiary();
     const defaultSourceAccountId=item.direction==="IN"
       ?(mode==="BANK"?paySwitchCompletionAccountId:"")
-      :item.cashOutType==="MICRO_ATM"?roinetCompletionAccountId:"";
+      :item.cashOutType==="MICRO_ATM"?roinetCompletionAccountId
+        :item.cashOutType==="AEPS"?digiSevaCompletionAccountId:"";
     setCompletePendingId(item.id);setCompleteSourceAccountId(defaultSourceAccountId);setCompleteCommissionAccountId(mirrorsCompletionCommissionAccount(item)?defaultSourceAccountId:"");setCompleteCommissionAccountOverridden(false);
     setCompleteBeneficiaryMode(mode);
     setCompleteBeneficiaryUpi(mode==="UPI"?(item.beneficiaryDetails||""):"");
