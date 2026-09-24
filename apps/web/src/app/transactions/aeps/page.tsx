@@ -200,7 +200,9 @@ export default function AepsPage(){
       setCommissionRate(base);setDefaultCommissionRate(base);
 
       const cash=a.filter(x=>x.accountType==="CASH"&&x.isActive!==false);
-      const preferredCash=cash.find(x=>/staff cash drawer/i.test(x.accountName))??cash.find(x=>/shop cash drawer/i.test(x.accountName))??cash[0];
+      const params=new URLSearchParams(window.location.search);
+      const presetCash=params.get("cashAccountId");
+      const preferredCash=cash.find(x=>x.id===presetCash)??cash.find(x=>/staff cash drawer/i.test(x.accountName))??cash.find(x=>/shop cash drawer/i.test(x.accountName))??cash[0];
       if(preferredCash)setCashAccountId(preferredCash.id);
 
       const supported=p.filter(x=>x.supportsAeps);
@@ -208,7 +210,7 @@ export default function AepsPage(){
       const first=supported.find(x=>x.id===remembered)?.id??supported[0]?.id??"";
       if(first)setProviderId(first);
 
-      const preset=new URLSearchParams(window.location.search).get("customerId");
+      const preset=params.get("customerId");
       const presetCustomer=c.find(x=>x.id===preset);
       if(presetCustomer)selectCustomerState(presetCustomer);
     }).catch(err=>setError(err instanceof Error?err.message:"Failed to load Aadhaar withdrawal form"))

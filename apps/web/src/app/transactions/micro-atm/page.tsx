@@ -46,9 +46,13 @@ export default function MicroAtmPage(){
   apiFetch<Provider[]>("/providers"),
  ]).then(([c,a,p])=>{
    setCustomers(c);setAccounts(a);setProviders(p);
-   const cash=a.filter(x=>x.accountType==="CASH");if(cash.length===1)setCashAccountId(cash[0].id);
+   const params=new URLSearchParams(window.location.search);
+   const cash=a.filter(x=>x.accountType==="CASH");
+   const presetCash=params.get("cashAccountId");
+   if(presetCash&&cash.some(x=>x.id===presetCash))setCashAccountId(presetCash);
+   else if(cash.length===1)setCashAccountId(cash[0].id);
    const remembered=localStorage.getItem("cashledger_micro_provider");const first=p.find(x=>x.id===remembered)?.id??p[0]?.id??"";if(first)setProviderId(first);
-   const params=new URLSearchParams(window.location.search);const preset=params.get("customerId");if(preset&&c.some(x=>x.id===preset))setCustomerId(preset);
+   const preset=params.get("customerId");if(preset&&c.some(x=>x.id===preset))setCustomerId(preset);
    const lastFour=params.get("cardLastFour");if(lastFour&&/^\d{4}$/.test(lastFour))setCardLastFour(lastFour);
   })
    .catch(e=>setError(e instanceof Error?e.message:"Failed to load form"))

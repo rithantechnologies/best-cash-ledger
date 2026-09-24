@@ -841,7 +841,8 @@ export class TransactionsService {
     const amount = this.money(dto.amount);
     const purpose = dto.purpose ?? 'TRANSFER';
     const commissionAmount = this.money(dto.commissionAmount ?? 0);
-    const commissionMode = dto.commissionMode ?? 'CASH';
+    const commissionMode =
+      commissionAmount > 0 ? dto.commissionMode ?? 'CASH' : 'CASH';
     const servicePaymentMode = dto.servicePaymentMode ?? 'CASH';
     if (purpose === 'SERVICE') {
       if (dto.direction !== 'IN') {
@@ -854,8 +855,8 @@ export class TransactionsService {
         throw new BadRequestException('Choose the bank / UPI account that received the service payment');
       }
     } else {
-      if (commissionAmount <= 0) {
-        throw new BadRequestException('Commission amount is required');
+      if (commissionAmount < 0) {
+        throw new BadRequestException('Commission cannot be negative');
       }
       if (dto.direction === 'IN' && commissionAmount >= amount) {
         throw new BadRequestException('Commission must be less than the cash-in amount');
@@ -1147,8 +1148,12 @@ export class TransactionsService {
         throw new NotFoundException('Source account ledger is unavailable');
       }
 
+      const amount = Number(detail.amount);
+      const commissionAmount = Number(detail.commissionAmount);
+      const commissionMode = detail.commissionMode ?? 'CASH';
+
       let commissionAccount: any = null;
-      if ((detail.commissionMode ?? 'CASH') === 'UPI') {
+      if (commissionAmount > 0 && commissionMode === 'UPI') {
         if (!dto.commissionAccountId) {
           throw new BadRequestException('Choose the account that received the UPI commission');
         }
@@ -1161,9 +1166,6 @@ export class TransactionsService {
         );
       }
 
-      const amount = Number(detail.amount);
-      const commissionAmount = Number(detail.commissionAmount);
-      const commissionMode = detail.commissionMode ?? 'CASH';
       const settlementAmount =
         detail.direction === 'IN' && commissionMode === 'CASH'
           ? this.money(amount - commissionAmount)
@@ -1185,12 +1187,16 @@ export class TransactionsService {
         throw new NotFoundException('Pending transfer ledger is missing');
       }
       const commissionReceivableLedger =
-        commissionMode === 'UPI'
+        commissionAmount > 0 && commissionMode === 'UPI'
           ? await tx.ledgerAccount.findUnique({
               where: { ledgerCode: 'SYS-COMMISSION-RECEIVABLE' },
             })
           : null;
-      if (commissionMode === 'UPI' && !commissionReceivableLedger) {
+      if (
+        commissionAmount > 0 &&
+        commissionMode === 'UPI' &&
+        !commissionReceivableLedger
+      ) {
         throw new NotFoundException('Commission receivable ledger is missing');
       }
 

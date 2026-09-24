@@ -443,6 +443,12 @@ export default function CashCounterPage(){
   function resetQuickCash(){
     setQuickDirection(null);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerName("");setQuickMobile("");setQuickRemarks("");setQuickFieldErrors({});setQuickError("");
   }
+  function openCashOutFlow(path:string){
+    const drawerId=today?.cashAccountId||cashAccountId;
+    resetQuickCash();
+    router.push(path+(drawerId?"?cashAccountId="+encodeURIComponent(drawerId):""));
+  }
+
   function clearQuickFieldError(field:keyof QuickCashFieldErrors){
     setQuickFieldErrors((current)=>{
       if(!current[field])return current;
@@ -457,7 +463,7 @@ export default function CashCounterPage(){
     const purpose=quickDirection==="IN"?quickPurpose:"TRANSFER";
     const validation:QuickCashFieldErrors={};
     if(!quickAmount.trim()||!Number.isFinite(amount)||amount<=0)validation.amount="Amount must be greater than 0.";
-    if(purpose==="TRANSFER"&&(quickCommission.trim()===""||!Number.isFinite(commissionAmount)||commissionAmount<=0))validation.commission="Commission must be greater than 0.";
+    if(purpose==="TRANSFER"&&(!Number.isFinite(commissionAmount)||commissionAmount<0))validation.commission="Commission cannot be negative.";
     if(purpose==="SERVICE"&&!quickServiceName.trim())validation.serviceName="Service name is required.";
     if(purpose==="SERVICE"&&quickServicePaymentMode==="UPI"&&!quickServicePaymentAccountId)validation.servicePaymentAccount="Choose the receiving bank / UPI account.";
     if(Object.keys(validation).length){
@@ -481,7 +487,7 @@ export default function CashCounterPage(){
         purpose,
         serviceName:purpose==="SERVICE"?quickServiceName.trim():undefined,
         commissionAmount:purpose==="TRANSFER"?commissionAmount:0,
-        commissionMode:purpose==="TRANSFER"?quickCommissionMode:undefined,
+        commissionMode:purpose==="TRANSFER"&&commissionAmount>0?quickCommissionMode:undefined,
         beneficiaryMode:purpose==="TRANSFER"&&quickDirection==="IN"&&beneficiaryDetails?quickBeneficiaryMode:undefined,
         beneficiaryDetails:purpose==="TRANSFER"&&quickDirection==="IN"?beneficiaryDetails||undefined:undefined,
         servicePaymentMode:purpose==="SERVICE"?quickServicePaymentMode:undefined,
@@ -499,8 +505,8 @@ export default function CashCounterPage(){
   async function completeQuickCash(event:FormEvent){
     event.preventDefault();
     if(!completePendingId)return;
-    if(!completeSourceAccountId){setCompleteError("Select the transfer account.");return;}
-    if(completingQuickCash?.commissionMode==="UPI"&&!completeCommissionAccountId){setCompleteError("Select the account that received the commission.");return;}
+    if(!completeSourceAccountId){setCompleteError(completingQuickCash?.direction==="OUT"?"Select the bank / UPI account that received the customer payment.":"Select the transfer account.");return;}
+    if(Number(completingQuickCash?.commissionAmount||0)>0&&completingQuickCash?.commissionMode==="UPI"&&!completeCommissionAccountId){setCompleteError("Select the account that received the commission.");return;}
     setQuickSaving(true);setCompleteError("");setError("");
     try{
       const beneficiaryDetails=completeBeneficiaryMode==="BANK"
@@ -508,7 +514,7 @@ export default function CashCounterPage(){
         :completeBeneficiaryUpi.trim();
       await apiFetch("/transactions/quick-cash/"+completePendingId+"/complete",{method:"POST",body:JSON.stringify({
         sourceAccountId:completeSourceAccountId,
-        commissionAccountId:completingQuickCash?.commissionMode==="UPI"?completeCommissionAccountId||undefined:undefined,
+        commissionAccountId:Number(completingQuickCash?.commissionAmount||0)>0&&completingQuickCash?.commissionMode==="UPI"?completeCommissionAccountId||undefined:undefined,
         beneficiaryMode:completingQuickCash?.direction==="IN"&&beneficiaryDetails?completeBeneficiaryMode:undefined,
         beneficiaryDetails:completingQuickCash?.direction==="IN"?beneficiaryDetails||undefined:undefined,
         customerName:completeCustomerName.trim()||undefined,
@@ -928,7 +934,7 @@ export default function CashCounterPage(){
             <span className={"grid h-10 w-10 place-items-center rounded-full text-xl font-black "+(quickDirection==="IN"?"bg-emerald-100 text-emerald-700":"bg-rose-100 text-rose-700")}>{quickDirection==="IN"?"↓":"↑"}</span>
             <div>
               <h3 className="text-[22px] font-black tracking-[-.04em]">{quickDirection==="IN"?"Cash In":"Cash Out"}</h3>
-              <p className="text-[12px] font-bold text-[var(--text-muted)]">{quickDirection==="IN"&&quickPurpose==="SERVICE"?"Service income · completes now":"Transfer · complete source later"}</p>
+              <p className="text-[12px] font-bold text-[var(--text-muted)]">{quickDirection==="IN"&&quickPurpose==="SERVICE"?"Service income · completes now":quickDirection==="OUT"?"UPI / QR received · cash paid to customer":"Transfer · complete source later"}</p>
             </div>
           </div>
           <button type="button" onClick={resetQuickCash} className="grid h-10 w-10 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)]" aria-label="Close">×</button>
@@ -938,7 +944,11 @@ export default function CashCounterPage(){
         {quickDirection==="IN"?<div className="mx-5 mt-2 grid grid-cols-2 rounded-[14px] bg-[var(--surface-soft)] p-1">
           <button type="button" onClick={()=>{setQuickPurpose("TRANSFER");setQuickError("");clearQuickFieldError("serviceName");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="TRANSFER"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Transfer</button>
           <button type="button" onClick={()=>{setQuickPurpose("SERVICE");setQuickCommission("");setQuickError("");clearQuickFieldError("commission");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="SERVICE"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Service</button>
-        </div>:null}
+        </div>:<div className="mx-5 mt-2 grid grid-cols-3 rounded-[14px] bg-[var(--surface-soft)] p-1">
+          <button type="button" className="min-h-10 rounded-[10px] bg-[var(--surface)] px-2 text-[12px] font-black text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]">UPI / QR</button>
+          <button type="button" onClick={()=>openCashOutFlow("/transactions/aeps")} className="min-h-10 rounded-[10px] px-2 text-[12px] font-black text-[var(--text-muted)] transition hover:bg-[var(--surface)] hover:text-[var(--text)]">AEPS</button>
+          <button type="button" onClick={()=>openCashOutFlow("/transactions/micro-atm")} className="min-h-10 rounded-[10px] px-2 text-[12px] font-black text-[var(--text-muted)] transition hover:bg-[var(--surface)] hover:text-[var(--text)]">Micro ATM</button>
+        </div>}
 
         <div className="px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
           <label className="block">
@@ -952,14 +962,14 @@ export default function CashCounterPage(){
 
           {quickPurpose==="TRANSFER"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
             <div className="flex items-center justify-between gap-4 px-1">
-              <p className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Commission <span className="text-rose-500">*</span></p>
+              <p className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Commission <span className="normal-case font-semibold">(₹0 allowed)</span></p>
               <div className="flex min-w-[150px] items-center justify-end gap-1.5">
                 <span className="text-xl font-black">₹</span>
                 <input ref={quickCommissionRef} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.commission)} aria-describedby={quickFieldErrors.commission?"quick-commission-error":undefined} className="quick-cash-commission-input w-[150px] appearance-none bg-transparent p-0 text-right tabular-nums text-[var(--text)]" placeholder="0" value={quickCommission} onChange={(event)=>{setQuickCommission(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("commission");setQuickError("");}}/>
               </div>
             </div>
             {quickFieldErrors.commission?<p id="quick-commission-error" className="px-1 pt-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.commission}</p>:null}
-            <fieldset className="mt-2.5 grid grid-cols-2 rounded-[12px] bg-[var(--surface)] p-1" aria-label="Commission payment mode">
+            {Number(quickCommission||0)>0?<fieldset className="mt-2.5 grid grid-cols-2 rounded-[12px] bg-[var(--surface)] p-1" aria-label="Commission payment mode">
               <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[12px] font-black transition "+(quickCommissionMode==="CASH"?"bg-emerald-50 text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>
                 <input type="radio" name="commissionMode" value="CASH" checked={quickCommissionMode==="CASH"} onChange={()=>setQuickCommissionMode("CASH")} className="absolute h-px w-px opacity-0"/>
                 <span>Cash</span>
@@ -968,7 +978,7 @@ export default function CashCounterPage(){
                 <input type="radio" name="commissionMode" value="UPI" checked={quickCommissionMode==="UPI"} onChange={()=>setQuickCommissionMode("UPI")} className="absolute h-px w-px opacity-0"/>
                 <span>UPI / GPay</span>
               </label>
-            </fieldset>
+            </fieldset>:<p className="mt-2.5 px-1 text-[11px] font-semibold text-[var(--text-muted)]">No commission · payment mode is not required.</p>}
           </div>:<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] px-4 py-3">
             <label className="block">
               <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Service <span className="text-rose-500">*</span></span>
@@ -1016,7 +1026,7 @@ export default function CashCounterPage(){
         </div>
         </div>
         <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
-          <button disabled={quickSaving} className={"min-h-[52px] w-full rounded-[16px] px-5 text-base font-black text-white shadow-[0_10px_22px_rgba(15,23,42,.12)] transition active:scale-[.99] disabled:opacity-50 "+(quickDirection==="IN"?"bg-emerald-600":"bg-rose-600")}>{quickSaving?"Saving…":quickPurpose==="SERVICE"?"Record service":"Save transfer"}</button>
+          <button disabled={quickSaving} className={"min-h-[52px] w-full rounded-[16px] px-5 text-base font-black text-white shadow-[0_10px_22px_rgba(15,23,42,.12)] transition active:scale-[.99] disabled:opacity-50 "+(quickDirection==="IN"?"bg-emerald-600":"bg-rose-600")}>{quickSaving?"Saving…":quickPurpose==="SERVICE"?"Record service":quickDirection==="OUT"?"Save cash out":"Save transfer"}</button>
         </footer>
       </form>
     </div>,document.body):null}
@@ -1029,7 +1039,7 @@ export default function CashCounterPage(){
             <h3 className="mt-1 text-[23px] font-black tracking-[-.04em] sm:text-[26px]">Complete transaction</h3>
             {completingQuickCash?<div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
               <span className="rounded-full bg-[var(--surface-soft)] px-2.5 py-1">Amount {money(completingQuickCash.amount)}</span>
-              <span className="rounded-full bg-[var(--surface-soft)] px-2.5 py-1">Commission {money(completingQuickCash.commissionAmount)} · {completingQuickCash.commissionMode==="UPI"?"UPI / GPay":"Cash"}</span>
+              <span className="rounded-full bg-[var(--surface-soft)] px-2.5 py-1">{Number(completingQuickCash.commissionAmount)>0?"Commission "+money(completingQuickCash.commissionAmount)+" · "+(completingQuickCash.commissionMode==="UPI"?"UPI / GPay":"Cash"):"No commission"}</span>
             </div>:null}
           </div>
           <button type="button" onClick={()=>{setCompletePendingId(null);setCompleteError("");}} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)] transition hover:bg-[var(--border)] active:scale-95" aria-label="Close">×</button>
@@ -1040,15 +1050,15 @@ export default function CashCounterPage(){
             <span className="mr-2">!</span>{completeError}
           </div>:null}
 
-          <div className={"grid gap-3 "+(completingQuickCash?.commissionMode==="UPI"?"lg:grid-cols-2":"")}>
+          <div className={"grid gap-3 "+(Number(completingQuickCash?.commissionAmount||0)>0&&completingQuickCash?.commissionMode==="UPI"?"lg:grid-cols-2":"")}>
             <label className="block rounded-[20px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 transition focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <span className="block text-[10px] font-black uppercase tracking-[.11em] text-[var(--text-muted)]">Money transferred from <span className="text-rose-500">*</span></span>
+                  <span className="block text-[10px] font-black uppercase tracking-[.11em] text-[var(--text-muted)]">{completingQuickCash?.direction==="OUT"?"UPI / bank received in":"Money transferred from"} <span className="text-rose-500">*</span></span>
                 </div>
                 {completeSourceAccountId?<strong className="money shrink-0 text-sm font-black">{money(accounts.find((account)=>account.id===completeSourceAccountId)?.currentBalance??0)}</strong>:null}
               </div>
-              <SearchableSelect mobileSheet aria-label="Money transferred from" searchPlaceholder="Search bank / UPI / wallet" className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeSourceAccountId} onChange={(event)=>{setCompleteSourceAccountId(event.target.value);setCompleteError("");}}>
+              <SearchableSelect mobileSheet aria-label={completingQuickCash?.direction==="OUT"?"UPI or bank received in":"Money transferred from"} searchPlaceholder="Search bank / UPI / wallet" className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeSourceAccountId} onChange={(event)=>{setCompleteSourceAccountId(event.target.value);setCompleteError("");}}>
                 <option value="">Select Bank / UPI / Wallet</option>
                 {accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)).map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
               </SearchableSelect>
@@ -1058,7 +1068,7 @@ export default function CashCounterPage(){
               </div>:null}
             </label>
 
-            {completingQuickCash?.commissionMode==="UPI"?<label className="block rounded-[20px] border border-blue-200 bg-blue-50/55 p-4 transition focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+            {Number(completingQuickCash?.commissionAmount||0)>0&&completingQuickCash?.commissionMode==="UPI"?<label className="block rounded-[20px] border border-blue-200 bg-blue-50/55 p-4 transition focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <span className="block text-[10px] font-black uppercase tracking-[.11em] text-blue-700">Commission received in <span className="text-rose-500">*</span></span>
@@ -1112,7 +1122,7 @@ export default function CashCounterPage(){
 
         <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 sm:flex sm:items-center sm:justify-end sm:gap-3 sm:px-6">
           <button type="button" onClick={()=>{setCompletePendingId(null);setCompleteError("");}} className="hidden min-h-11 rounded-xl px-4 text-sm font-black text-[var(--text-muted)] sm:inline-flex sm:items-center">Cancel</button>
-          <button disabled={quickSaving||!completeSourceAccountId||(completingQuickCash?.commissionMode==="UPI"&&!completeCommissionAccountId)} className="min-h-[52px] w-full rounded-[16px] bg-[var(--accent)] px-6 text-base font-black text-white shadow-lg shadow-blue-600/15 transition active:scale-[.99] disabled:opacity-40 sm:w-auto sm:min-w-[190px]">{quickSaving?"Completing…":"Complete transaction"}</button>
+          <button disabled={quickSaving||!completeSourceAccountId||(Number(completingQuickCash?.commissionAmount||0)>0&&completingQuickCash?.commissionMode==="UPI"&&!completeCommissionAccountId)} className="min-h-[52px] w-full rounded-[16px] bg-[var(--accent)] px-6 text-base font-black text-white shadow-lg shadow-blue-600/15 transition active:scale-[.99] disabled:opacity-40 sm:w-auto sm:min-w-[190px]">{quickSaving?"Completing…":"Complete transaction"}</button>
         </footer>
       </form>
     </div>,document.body):null}
