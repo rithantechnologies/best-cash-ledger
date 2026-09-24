@@ -320,6 +320,15 @@ export default function CashCounterPage(){
     return Array.from(new Set((today?.activities??[]).map((activity)=>activity.serviceType))).sort((a,b)=>friendlyService(a).localeCompare(friendlyService(b)));
   },[today?.activities]);
   const txGridTemplate=useMemo(()=>txColumnDefs.filter((column)=>txColumns.includes(column.id)).map((column)=>column.width).join(" "),[txColumns]);
+  const txTableMinWidth=useMemo(()=>{
+    const minimums:Record<TxColumn,number>={
+      TIME:72,PARTICULAR:240,SERVICE:140,TXN_AMOUNT:110,CASH_IN:105,CASH_OUT:105,
+      CUSTOMER_FEE:115,PROVIDER_FEE:115,PROFIT:105,DRAWER:115,
+    };
+    const visible=txColumns.reduce((sum,column)=>sum+minimums[column],0);
+    const gaps=Math.max(0,txColumns.length-1)*16;
+    return Math.max(760,visible+gaps+40);
+  },[txColumns]);
   const quickServiceOptions=useMemo(()=>[...serviceUsage].sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name)).slice(0,5),[serviceUsage]);
   function toggleTxColumn(id:TxColumn){
     setTxColumns((current)=>current.includes(id)?(current.length===1?current:current.filter((column)=>column!==id)):[...current,id]);
@@ -636,8 +645,8 @@ export default function CashCounterPage(){
           </div>
           {(direction!=="ALL"||serviceFilter)?<div className="mt-2 flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]"><span>Filtered view</span><button type="button" onClick={()=>{setDirection("ALL");setServiceFilter(null);}} className="font-black text-[var(--accent)]">Clear filters</button></div>:null}
         </div>
-        {visibleActivities.length?<div>
-          <div className="cash-ledger-header hidden gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-3 text-xs font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)] xl:grid" style={{gridTemplateColumns:txGridTemplate}}>
+        {visibleActivities.length?<div className="overflow-x-auto overscroll-x-contain [scrollbar-gutter:stable]">
+          <div className="cash-ledger-header hidden gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-3 text-xs font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)] xl:grid" style={{gridTemplateColumns:txGridTemplate,minWidth:txTableMinWidth}}>
             {txColumns.includes("TIME")?<span>Time</span>:null}
             {txColumns.includes("PARTICULAR")?<span>Particular</span>:null}
             {txColumns.includes("SERVICE")?<span>Service</span>:null}
@@ -653,7 +662,7 @@ export default function CashCounterPage(){
           {visibleActivities.map((activity)=>{
             const selected=activity.id===selectedActivityId;
             return <button id={"cash-activity-"+activity.id} key={activity.id} type="button" onClick={()=>{setSelectedActivityId(activity.id);router.push("/transactions/"+activity.transactionId);}} className={"cash-activity-row w-full px-4 py-4 text-left transition sm:px-5 "+(selected?"bg-[var(--accent-soft)]":"hover:bg-[var(--surface-soft)]")}>
-              <div className="hidden items-center gap-4 xl:grid" style={{gridTemplateColumns:txGridTemplate}}>
+              <div className="hidden items-center gap-4 xl:grid" style={{gridTemplateColumns:txGridTemplate,minWidth:txTableMinWidth-40}}>
                 {txColumns.includes("TIME")?<span className="text-[13px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>:null}
                 {txColumns.includes("PARTICULAR")?<div className="min-w-0"><p className="truncate text-[15px] font-bold">{activity.particular}</p><p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">{activity.transactionNumber}</p></div>:null}
                 {txColumns.includes("SERVICE")?<span className="truncate text-[13px] font-semibold text-[var(--text-muted)]">{friendlyService(activity.serviceType)}</span>:null}
