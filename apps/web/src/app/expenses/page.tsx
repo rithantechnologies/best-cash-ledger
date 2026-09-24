@@ -11,7 +11,7 @@ type ExpenseDetail={expenseCategoryId:string;expenseType:string;amount:string;de
 type Tx={id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;expense:ExpenseDetail|null};
 type Category={id:string;name:string;expenseUsage:string;isActive?:boolean};
 type Scope="COMBINED"|"BUSINESS"|"PERSONAL";
-type Period="30D"|"90D"|"6M"|"ALL";
+type Period="30D"|"90D"|"6M"|"ALL"|"CUSTOM";
 
 const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(v||0));
 const palette=["#2563eb","#7c3aed","#0f766e","#d97706","#db2777","#64748b","#0891b2","#65a30d"];
@@ -46,6 +46,7 @@ function MonthlyChart({rows}:{rows:{label:string;amount:number}[]}){
 export default function ExpensesPage(){
  const [transactions,setTransactions]=useState<Tx[]>([]),[categories,setCategories]=useState<Category[]>([]);
  const [scope]=useState<Scope>("COMBINED"),[period,setPeriod]=useState<Period>("90D");
+ const [categoryId,setCategoryId]=useState("ALL"),[dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState("");
  const [loading,setLoading]=useState(true),[error,setError]=useState("");
  useEffect(()=>{
   Promise.all([
@@ -59,22 +60,27 @@ export default function ExpensesPage(){
  const categoryById=useMemo(()=>new Map(categories.map(x=>[x.id,x.name])),[categories]);
  const filtered=useMemo(()=>{
   const now=new Date();
-  const cutoff=period==="ALL"?0:period==="30D"?now.getTime()-30*86400000:period==="90D"?now.getTime()-90*86400000:new Date(now.getFullYear(),now.getMonth()-5,1).getTime();
+  const cutoff=period==="ALL"||period==="CUSTOM"?0:period==="30D"?now.getTime()-30*86400000:period==="90D"?now.getTime()-90*86400000:new Date(now.getFullYear(),now.getMonth()-5,1).getTime();
+  const customFrom=dateFrom?new Date(dateFrom+"T00:00:00").getTime():0;
+  const customTo=dateTo?new Date(dateTo+"T23:59:59.999").getTime():Number.POSITIVE_INFINITY;
   return transactions.filter(tx=>{
    const expense=tx.expense;if(!expense)return false;
    if(scope!=="COMBINED"&&expense.expenseType!==scope)return false;
-   return new Date(tx.transactionAt).getTime()>=cutoff;
+   if(categoryId!=="ALL"&&expense.expenseCategoryId!==categoryId)return false;
+   const when=new Date(tx.transactionAt).getTime();
+   if(period==="CUSTOM")return when>=customFrom&&when<=customTo;
+   return when>=cutoff;
   });
- },[transactions,scope,period]);
+ },[transactions,scope,period,categoryId,dateFrom,dateTo]);
 
  const totals=useMemo(()=>{
   const now=new Date(),monthStart=new Date(now.getFullYear(),now.getMonth(),1).getTime();
   const total=filtered.reduce((s,t)=>s+Number(t.expense?.amount??t.grossAmount),0);
-  const month=transactions.filter(t=>t.expense&&(scope==="COMBINED"||t.expense.expenseType===scope)&&new Date(t.transactionAt).getTime()>=monthStart).reduce((s,t)=>s+Number(t.expense?.amount??0),0);
+  const month=transactions.filter(t=>t.expense&&(scope==="COMBINED"||t.expense.expenseType===scope)&&(categoryId==="ALL"||t.expense.expenseCategoryId===categoryId)&&new Date(t.transactionAt).getTime()>=monthStart).reduce((s,t)=>s+Number(t.expense?.amount??0),0);
   const business=filtered.filter(t=>t.expense?.expenseType==="BUSINESS").reduce((s,t)=>s+Number(t.expense?.amount??0),0);
   const personal=filtered.filter(t=>t.expense?.expenseType==="PERSONAL").reduce((s,t)=>s+Number(t.expense?.amount??0),0);
   return {total,month,business,personal};
- },[filtered,transactions,scope]);
+ },[filtered,transactions,scope,categoryId]);
 
  const byCategory=useMemo(()=>{
   const map=new Map<string,number>();
@@ -83,27 +89,34 @@ export default function ExpensesPage(){
  },[filtered,categoryById]);
 
  const monthly=useMemo(()=>{
-  const now=new Date(),rows:{key:string;label:string;amount:number}[]=[];
-  for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);rows.push({key:d.getFullYear()+"-"+d.getMonth(),label:d.toLocaleDateString("en-IN",{month:"short"}),amount:0});}
-  for(const tx of transactions){const e=tx.expense;if(!e||(scope!=="COMBINED"&&e.expenseType!==scope))continue;const d=new Date(tx.transactionAt),key=d.getFullYear()+"-"+d.getMonth();const row=rows.find(x=>x.key===key);if(row)row.amount+=Number(e.amount);}
+  const latest=filtered.length?new Date(Math.max(...filtered.map(tx=>new Date(tx.transactionAt).getTime()))):new Date();
+  const rows:{key:string;label:string;amount:number}[]=[];
+  for(let i=5;i>=0;i--){const d=new Date(latest.getFullYear(),latest.getMonth()-i,1);rows.push({key:d.getFullYear()+"-"+d.getMonth(),label:d.toLocaleDateString("en-IN",{month:"short"}),amount:0});}
+  for(const tx of filtered){const e=tx.expense;if(!e)continue;const d=new Date(tx.transactionAt),key=d.getFullYear()+"-"+d.getMonth();const row=rows.find(x=>x.key===key);if(row)row.amount+=Number(e.amount);}
   return rows.map(({label,amount})=>({label,amount}));
- },[transactions,scope]);
+ },[filtered]);
 
  const monthCount=Math.max(1,new Set(filtered.map(t=>{const d=new Date(t.transactionAt);return d.getFullYear()+"-"+d.getMonth();})).size);
  const topCategory=byCategory[0];
 
  if(loading)return <AppShell><PageLoader label="Loading expenses…"/></AppShell>;
- return <AppShell><div className="page-enter mx-auto max-w-[1450px] space-y-4">
-  <div className="flex flex-wrap items-end justify-between gap-4">
-   <div><p className="dashboard-kicker">Spending intelligence</p><h1 className="mt-1 text-[1.7rem] font-black tracking-[-.04em] sm:text-[2rem]">Expenses</h1><p className="mt-1 text-xs text-[var(--text-muted)]">All expenses, category mix, trend and underlying transactions.</p></div>
+ return <AppShell><div className="page-enter mx-auto -mt-2 max-w-[1450px] space-y-3 sm:-mt-3 lg:-mt-4">
+  <div className="flex flex-wrap items-center justify-between gap-3">
+   <div><h1 className="text-[1.7rem] font-black tracking-[-.04em] sm:text-[2rem]">Expenses</h1><p className="mt-0.5 text-xs text-[var(--text-muted)]">All expenses, category mix, trend and underlying transactions.</p></div>
    <Link href="/transactions/expense" className="app-primary-button px-4 py-2.5 text-xs font-bold">+ Add expense</Link>
   </div>
 
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
-  <Surface className="flex flex-wrap items-center justify-between gap-3 p-3">
-   <div className="px-2 text-xs font-bold text-[var(--text-muted)]">All expenses</div>
-   <div className="flex gap-1 overflow-x-auto">{(["30D","90D","6M","ALL"] as Period[]).map(v=><button key={v} onClick={()=>setPeriod(v)} className={"min-h-9 shrink-0 rounded-full border px-3 text-xs font-semibold "+(period===v?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] text-[var(--text-muted)]")}>{v==="30D"?"30 days":v==="90D"?"90 days":v==="6M"?"6 months":"All"}</button>)}</div>
+  <Surface className="p-3">
+   <div className="grid gap-3 lg:grid-cols-[minmax(180px,.8fr)_minmax(330px,1.1fr)_auto] lg:items-end">
+    <label className="grid gap-1"><span className="px-1 text-[10px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">Category</span><select value={categoryId} onChange={e=>setCategoryId(e.target.value)} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-semibold text-[var(--text)] outline-none focus:border-[var(--accent)]"><option value="ALL">All categories</option>{categories.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+    <div className="grid grid-cols-2 gap-2">
+     <label className="grid gap-1"><span className="px-1 text-[10px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">From date</span><input type="date" value={dateFrom} max={dateTo||undefined} onChange={e=>{setDateFrom(e.target.value);setPeriod("CUSTOM");}} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-semibold text-[var(--text)] outline-none focus:border-[var(--accent)]"/></label>
+     <label className="grid gap-1"><span className="px-1 text-[10px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">To date</span><input type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>{setDateTo(e.target.value);setPeriod("CUSTOM");}} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-semibold text-[var(--text)] outline-none focus:border-[var(--accent)]"/></label>
+    </div>
+    <div className="flex flex-wrap items-center gap-1">{(["30D","90D","6M","ALL"] as Exclude<Period,"CUSTOM">[]).map(v=><button key={v} onClick={()=>{setPeriod(v);setDateFrom("");setDateTo("");}} className={"min-h-10 shrink-0 rounded-full border px-3 text-xs font-semibold "+(period===v?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] text-[var(--text-muted)]")}>{v==="30D"?"30 days":v==="90D"?"90 days":v==="6M"?"6 months":"All"}</button>)}{period==="CUSTOM"||categoryId!=="ALL"?<button onClick={()=>{setCategoryId("ALL");setPeriod("90D");setDateFrom("");setDateTo("");}} className="min-h-10 rounded-full px-3 text-xs font-bold text-[var(--accent)]">Reset</button>:null}</div>
+   </div>
   </Surface>
 
   <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
