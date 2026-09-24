@@ -299,6 +299,7 @@ export class CashCounterService {
                 transactionNumber: true,
                 transactionType: true,
                 transactionAt: true,
+                status: true,
                 grossAmount: true,
                 netAmount: true,
                 notes: true,
@@ -329,6 +330,7 @@ export class CashCounterService {
                     transactionNumber: true,
                     transactionType: true,
                     transactionAt: true,
+                    status: true,
                     grossAmount: true,
                     netAmount: true,
                     notes: true,
@@ -357,7 +359,15 @@ export class CashCounterService {
     const quickCashDetails = activityTransactionIds.length
       ? await tx.quickCashTransferDetail.findMany({
           where: { transactionId: { in: activityTransactionIds } },
-          select: { transactionId: true, direction: true, purpose: true },
+          select: {
+            transactionId: true,
+            direction: true,
+            purpose: true,
+            commissionMode: true,
+            commissionAccount: {
+              select: { accountName: true, accountType: true },
+            },
+          },
         })
       : [];
     const quickCashByTransactionId = new Map(
@@ -445,6 +455,10 @@ export class CashCounterService {
         profitAmount,
         quickCashDirection: quickCashDetail?.direction ?? null,
         quickCashPurpose: quickCashDetail?.purpose ?? null,
+        commissionMode: quickCashDetail?.commissionMode ?? null,
+        commissionAccountType: quickCashDetail?.commissionAccount?.accountType ?? null,
+        commissionAccountName: quickCashDetail?.commissionAccount?.accountName ?? null,
+        transactionStatus: origin.status,
         runningBalance,
         movementCount: 0,
       };

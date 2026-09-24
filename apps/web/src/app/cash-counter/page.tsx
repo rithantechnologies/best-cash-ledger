@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { CashHistoryChart, CashMovementChart } from "@/components/cash-desk/cash-desk-charts";
 import { FundsAllocationDonut } from "@/components/dashboard/dashboard-charts";
-import { EmptyState, PageLoader, SectionHeading, Surface } from "@/components/ui";
+import { EmptyState, Modal, PageLoader, SectionHeading, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type Account={id:string;accountName:string;accountType:string;isActive?:boolean;currentBalance?:string|number};
@@ -21,7 +21,9 @@ type Activity={
   id:string;transactionId:string;transactionNumber:string;serviceType:string;transactionAt:string;
   particular:string;transactionAmount:number;netAmount:number;cashIn:number;cashOut:number;
   commissionAmount:number;providerFeeAmount?:number;payoutChargeAmount?:number;profitAmount?:number;
-  quickCashDirection?:"IN"|"OUT"|null;quickCashPurpose?:string|null;runningBalance:number;movementCount:number;
+  quickCashDirection?:"IN"|"OUT"|null;quickCashPurpose?:string|null;
+  commissionMode?:"CASH"|"UPI"|null;commissionAccountType?:string|null;commissionAccountName?:string|null;
+  transactionStatus?:string;runningBalance:number;movementCount:number;
 };
 type ServiceSummary={
   id:string;transactionAmount:number;cashIn:number;cashOut:number;commissionAmount:number;count:number;
@@ -88,6 +90,16 @@ const defaultTxColumns:TxColumn[]=txColumnDefs.map((column)=>column.id);
 const denominations=[500,200,100,50,20,10,5,2,1];
 const money=(value:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(value||0));
 const words=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(letter)=>letter.toUpperCase());
+const commissionReceiptLabel=(activity:Activity)=>{
+  if(!activity.commissionAmount)return "";
+  if(activity.commissionMode==="CASH")return "Cash";
+  if(activity.commissionMode==="UPI"){
+    if(activity.commissionAccountType==="BANK")return "Bank";
+    if(activity.commissionAccountType==="UPI")return "UPI";
+    return "Bank/UPI";
+  }
+  return "";
+};
 const friendlyService=(value:string)=>{
   const labels:Record<string,string>={
     CARD_SWIPE:"Card Swipe",
@@ -208,6 +220,10 @@ export default function CashCounterPage(){
   });
   const [selectedActivityId,setSelectedActivityId]=useState<string|null>(null);
   const [selectedHistoryId,setSelectedHistoryId]=useState<string|null>(null);
+  const [reverseActivity,setReverseActivity]=useState<Activity|null>(null);
+  const [reverseReason,setReverseReason]=useState("");
+  const [reverseSaving,setReverseSaving]=useState(false);
+  const [reverseError,setReverseError]=useState("");
   const [quickDirection,setQuickDirection]=useState<QuickCashDirection|null>(null);
   const [quickAmount,setQuickAmount]=useState("");
   const [quickPurpose,setQuickPurpose]=useState<"TRANSFER"|"SERVICE">("TRANSFER");
@@ -394,6 +410,23 @@ export default function CashCounterPage(){
   }
 
   function denominationPayload(){return denominations.map((denomination)=>({denomination,quantity:Number(qty[denomination]||0)}));}
+
+  function openCashBookReverse(activity:Activity){
+    setReverseActivity(activity);setReverseReason("");setReverseError("");
+  }
+  async function reverseCashBookTransaction(event:FormEvent){
+    event.preventDefault();
+    if(!reverseActivity||reverseReason.trim().length<3)return;
+    setReverseSaving(true);setReverseError("");
+    try{
+      await apiFetch("/transactions/"+reverseActivity.transactionId+"/reverse",{
+        method:"POST",body:JSON.stringify({reason:reverseReason.trim()}),
+      });
+      setReverseActivity(null);setReverseReason("");
+      await load(cashAccountId||undefined);
+    }catch(err){setReverseError(err instanceof Error?err.message:"Reversal failed");}
+    finally{setReverseSaving(false);}
+  }
 
   async function openCounter(event:FormEvent){
     event.preventDefault();setSaving(true);setError("");
@@ -721,12 +754,17 @@ export default function CashCounterPage(){
               <div className="grid grid-cols-[72px_minmax(0,1fr)_100px_86px] gap-3 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 text-[10px] font-black uppercase tracking-[.06em] text-[var(--text-muted)]">
                 <span>Time</span><span>Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
               </div>
-              {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="grid w-full grid-cols-[72px_minmax(0,1fr)_100px_86px] items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-soft)]">
+              {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><div key={activity.id} role="button" tabIndex={0} onClick={()=>router.push("/transactions/"+activity.transactionId)} onKeyDown={(event)=>{if(event.key==="Enter"||event.key===" ")router.push("/transactions/"+activity.transactionId);}} className="grid w-full cursor-pointer grid-cols-[72px_minmax(0,1fr)_100px_86px] items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--surface-soft)]">
                 <span className="text-xs font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
-                <span className="min-w-0 truncate text-[14px] font-bold">{activity.particular}</span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[14px] font-bold">{activity.particular}</span>
+                  {(role==="OWNER"||role==="ADMIN")&&activity.serviceType!=="REVERSAL"?<span className="mt-0.5 flex items-center gap-2 text-[10px] font-black">
+                    {activity.transactionStatus==="REVERSED"?<span className="text-rose-500">Reversed</span>:<button type="button" onClick={(event)=>{event.stopPropagation();openCashBookReverse(activity);}} className="text-rose-600 hover:underline">↩ Reverse</button>}
+                  </span>:null}
+                </span>
                 <strong className={"money text-right text-sm "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(amount)}</strong>
-                <strong className="money text-right text-sm text-[var(--accent)]">{activity.commissionAmount?money(activity.commissionAmount):"—"}</strong>
-              </button>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
+                <span className="text-right">{activity.commissionAmount?<><strong className="money block text-sm text-[var(--accent)]">{money(activity.commissionAmount)}</strong>{commissionReceiptLabel(activity)?<span className="mt-0.5 block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{commissionReceiptLabel(activity)}</span>:null}</>:<strong className="money text-sm text-[var(--accent)]">—</strong>}</span>
+              </div>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
               <div className="grid grid-cols-[72px_minmax(0,1fr)_100px_86px] gap-3 border-t border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-sm">
                 <span/><strong>Total</strong><strong className="money text-right">{money(totals.amount)}</strong><strong className="money text-right text-[var(--accent)]">{money(totals.commission)}</strong>
               </div>
@@ -741,12 +779,12 @@ export default function CashCounterPage(){
               <div className="grid grid-cols-[58px_minmax(0,1fr)_82px_68px] gap-2 border-b border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-[9px] font-black uppercase tracking-[.05em] text-[var(--text-muted)]">
                 <span>Time</span><span>Particular</span><span className="text-right">Amount</span><span className="text-right">Comm.</span>
               </div>
-              {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="grid w-full grid-cols-[58px_minmax(0,1fr)_82px_68px] items-center gap-2 px-3 py-3 text-left">
+              {rows.length?<div className="divide-y divide-[var(--border)]">{rows.map(({activity,amount})=><div key={activity.id} role="button" tabIndex={0} onClick={()=>router.push("/transactions/"+activity.transactionId)} onKeyDown={(event)=>{if(event.key==="Enter"||event.key===" ")router.push("/transactions/"+activity.transactionId);}} className="grid w-full cursor-pointer grid-cols-[58px_minmax(0,1fr)_82px_68px] items-center gap-2 px-3 py-3 text-left">
                 <span className="text-[11px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
-                <span className="min-w-0 truncate text-[13px] font-bold">{activity.particular}</span>
+                <span className="min-w-0"><span className="block truncate text-[13px] font-bold">{activity.particular}</span>{(role==="OWNER"||role==="ADMIN")&&activity.serviceType!=="REVERSAL"?<span className="mt-0.5 block text-[9px] font-black">{activity.transactionStatus==="REVERSED"?<span className="text-rose-500">Reversed</span>:<button type="button" onClick={(event)=>{event.stopPropagation();openCashBookReverse(activity);}} className="text-rose-600">↩ Reverse</button>}</span>:null}</span>
                 <strong className={"money text-right text-[13px] "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(amount)}</strong>
-                <strong className="money text-right text-[13px] text-[var(--accent)]">{activity.commissionAmount?money(activity.commissionAmount):"—"}</strong>
-              </button>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
+                <span className="text-right">{activity.commissionAmount?<><strong className="money block text-[13px] text-[var(--accent)]">{money(activity.commissionAmount)}</strong>{commissionReceiptLabel(activity)?<span className="mt-0.5 block text-[8px] font-black uppercase text-[var(--text-muted)]">{commissionReceiptLabel(activity)}</span>:null}</>:<strong className="money text-[13px] text-[var(--accent)]">—</strong>}</span>
+              </div>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
               <div className="grid grid-cols-[58px_minmax(0,1fr)_82px_68px] gap-2 border-t border-[var(--border)] bg-[var(--surface-soft)] px-3 py-3 text-[13px]">
                 <span/><strong>Total</strong><strong className="money text-right">{money(totals.amount)}</strong><strong className="money text-right text-[var(--accent)]">{money(totals.commission)}</strong>
               </div>
@@ -1126,6 +1164,14 @@ export default function CashCounterPage(){
         </footer>
       </form>
     </div>,document.body):null}
+
+    <Modal open={Boolean(reverseActivity)} title="Reverse transaction?" description={reverseActivity?reverseActivity.particular+" · "+money(reverseActivity.transactionAmount):undefined} onClose={()=>{if(!reverseSaving){setReverseActivity(null);setReverseReason("");setReverseError("");}}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={reverseSaving} onClick={()=>{setReverseActivity(null);setReverseReason("");setReverseError("");}} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold">Keep</button><button form="cashbook-reverse" disabled={reverseSaving||reverseReason.trim().length<3} className="min-h-11 rounded-xl bg-rose-700 text-sm font-black text-white disabled:opacity-40">{reverseSaving?"Reversing…":"Confirm reversal"}</button></div>}>
+      <form id="cashbook-reverse" onSubmit={reverseCashBookTransaction} className="space-y-3">
+        {reverseError?<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700">{reverseError}</div>:null}
+        <p className="text-xs leading-5 text-[var(--text-muted)]">The original remains in the audit trail and the balancing reversal will appear on the opposite Cash In / Cash Out side.</p>
+        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason <span className="text-rose-500">*</span></span><textarea autoFocus minLength={3} required value={reverseReason} onChange={(event)=>setReverseReason(event.target.value)} className="app-control min-h-24 w-full p-3" placeholder="Why is this being reversed?"/></label>
+      </form>
+    </Modal>
 
     {previousHistory.length?<details className="cash-history-collapsible app-surface overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 sm:px-5">
