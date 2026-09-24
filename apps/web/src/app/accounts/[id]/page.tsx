@@ -19,7 +19,7 @@ type MoneyRef={payable:{status:string;dueAt:string|null;remainingAmount:string}|
 type BusinessTx=MoneyRef&{
   id?:string;transactionNumber:string;transactionType:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;createdBy:{fullName:string}|null;
   cardSwipe:{swipeAmount:string;commissionAmount:string;customerCard:{bankName:string;lastFourDigits:string}}|null;
-  quickCashTransfer:{purpose:string;serviceName:string|null;servicePaymentMode:string;cashAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
+  quickCashTransfer:{direction:string;purpose:string;serviceName:string|null;cashOutType:string;aadhaarLastFour:string|null;customerBankName:string|null;cardLastFour:string|null;customerName:string|null;mobileNumber:string|null;beneficiaryMode:string|null;beneficiaryDetails:string|null;servicePaymentMode:string;cashAccount:{accountName:string}|null;sourceAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
   expense:{expenseType:string;amount:string;description:string;expenseCategory:{name:string};paymentAccount:{accountName:string}}|null;
   cashTransfer:{actualTransferAmount:string;beneficiary:{beneficiaryName:string}|null;beneficiaryAccount:{bankName:string|null;accountReference:string|null;upiId:string|null}|null;customerBankAccount:{bankName:string;accountHolderName:string}|null;customerUpiAccount:{accountName:string;upiId:string|null}|null;sourceAccount:{accountName:string};cashAccount:{accountName:string}}|null;
   aeps:{aadhaarLastFour:string;customerBankName:string;withdrawalAmount:string;cashGiven:string;settlementAmount:string;settlementAccount:{accountName:string}}|null;
@@ -29,6 +29,7 @@ type BusinessTx=MoneyRef&{
   creditCardPayment:{paymentAmount:string;creditCardAccount:{accountName:string};sourceAccount:{accountName:string}}|null;
 };
 type RowTx=BusinessTx&{
+  quickCashCompletionSource:BusinessTx|null;
   providerSettlementReceipt:{settlement:{sourceTransaction:BusinessTx}}|null;
   payablePayment:{amount:string;sourceAccount:{accountName:string};payable:{sourceTransaction:BusinessTx}}|null;
 };
@@ -73,7 +74,7 @@ function increases(account:Account,row:Row){
 }
 const nice=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(c)=>c.toUpperCase());
 const total=(items:{amount:string}[])=>items.reduce((sum,item)=>sum+Number(item.amount),0);
-const ledgerBusinessSource=(tx:RowTx):BusinessTx=>tx.providerSettlementReceipt?.settlement.sourceTransaction??tx.payablePayment?.payable.sourceTransaction??tx;
+const ledgerBusinessSource=(tx:RowTx):BusinessTx=>tx.quickCashCompletionSource??tx.providerSettlementReceipt?.settlement.sourceTransaction??tx.payablePayment?.payable.sourceTransaction??tx;
 const ledgerMoneySource=(tx:RowTx):MoneyRef=>ledgerBusinessSource(tx);
 function businessSummary(tx:BusinessTx,row:Row){
   if(tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer){
@@ -85,6 +86,44 @@ function businessSummary(tx:BusinessTx,row:Row){
       secondary:"Service income · "+tx.transactionNumber+" · received in "+receivedIn+(tx.createdBy?.fullName?" · By "+tx.createdBy.fullName:""),
     };
   }
+  if(tx.quickCashTransfer){
+    const quick=tx.quickCashTransfer;
+    const customer=quick.customerName??tx.customer?.fullName??null;
+    if(quick.purpose==="TRANSFER"&&quick.direction==="OUT"){
+      const label=quick.cashOutType==="AEPS"?"AEPS / Aadhaar withdrawal":quick.cashOutType==="MICRO_ATM"?"Micro ATM withdrawal":"UPI / QR cash out";
+      const identity=quick.cashOutType==="AEPS"&&quick.aadhaarLastFour
+        ?"Aadhaar ••••"+quick.aadhaarLastFour
+        :quick.cashOutType==="MICRO_ATM"&&quick.cardLastFour
+          ?"Card ••••"+quick.cardLastFour
+          :null;
+      const isCommission=row.description==="Bank / UPI commission received";
+      return {
+        primary:label+(isCommission?" · Commission":""),
+        secondary:[
+          customer,
+          identity,
+          quick.customerBankName,
+          isCommission?"Commission received":null,
+          tx.transactionNumber,
+          tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null,
+        ].filter(Boolean).join(" · "),
+      };
+    }
+    if(quick.purpose==="TRANSFER"&&quick.direction==="IN"){
+      const label=quick.serviceName??(quick.beneficiaryMode==="BANK"?"Cash In · Bank transfer":"Cash In · UPI transfer");
+      const isCommission=row.description==="Bank / UPI commission received";
+      return {
+        primary:label+(isCommission?" · Commission":""),
+        secondary:[
+          customer,
+          isCommission?"Commission received":quick.beneficiaryMode==="BANK"?"Bank transfer":"UPI transfer",
+          tx.transactionNumber,
+          quick.sourceAccount?.accountName?"via "+quick.sourceAccount.accountName:null,
+          tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null,
+        ].filter(Boolean).join(" · "),
+      };
+    }
+  }
   if(tx.cardSwipe){
     const card=tx.cardSwipe.customerCard;
     return {
@@ -94,14 +133,26 @@ function businessSummary(tx:BusinessTx,row:Row){
   }
   if(tx.microAtm){
     return {
-      primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+(tx.microAtm.customerBankName??"Bank")+" •••• "+tx.microAtm.cardLastFour,
-      secondary:"Micro ATM · "+tx.transactionNumber+" · "+money(tx.microAtm.withdrawalAmount)+(tx.createdBy?.fullName?" · By "+tx.createdBy.fullName:""),
+      primary:"Micro ATM withdrawal",
+      secondary:[
+        tx.customer?.fullName,
+        (tx.microAtm.customerBankName??"Bank")+" · Card ••••"+tx.microAtm.cardLastFour,
+        tx.transactionNumber,
+        money(tx.microAtm.withdrawalAmount),
+        tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null,
+      ].filter(Boolean).join(" · "),
     };
   }
   if(tx.aeps){
     return {
-      primary:(tx.customer?.fullName?tx.customer.fullName+" · ":"")+tx.aeps.customerBankName+" · Aadhaar •••• "+tx.aeps.aadhaarLastFour,
-      secondary:"AEPS · "+tx.transactionNumber+" · "+money(tx.aeps.withdrawalAmount)+(tx.createdBy?.fullName?" · By "+tx.createdBy.fullName:""),
+      primary:"AEPS / Aadhaar withdrawal",
+      secondary:[
+        tx.customer?.fullName,
+        tx.aeps.customerBankName+" · Aadhaar ••••"+tx.aeps.aadhaarLastFour,
+        tx.transactionNumber,
+        money(tx.aeps.withdrawalAmount),
+        tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null,
+      ].filter(Boolean).join(" · "),
     };
   }
   if(tx.expense){
@@ -156,6 +207,7 @@ function DetailStat({label,value,tone=""}:{label:string;value:string;tone?:strin
 function AccountMovementDetail({detail}:{detail:DrillDetail}){
   const {movement,source,row,isIn}=detail;
   const tx=source??movement;
+  const summary=movementSummary(row.journal.transaction,row);
   const card=tx.cardSwipe;
   const gatewayFees=total(tx.charges);
   const customerFees=total(tx.commissions);
@@ -166,7 +218,7 @@ function AccountMovementDetail({detail}:{detail:DrillDetail}){
   return <div className="space-y-4">
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
       <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[var(--text-muted)]">{isIn?"Money in":"Money out"}</p><p className={"money mt-1 text-2xl font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Balance after</p><p className="money mt-1 text-sm font-black">{money(row.runningBalance)}</p></div></div>
-      <p className="mt-2 text-xs text-[var(--text-muted)]">{row.description??nice(movement.transactionType)} · {new Date(movement.transactionAt).toLocaleString("en-IN")}</p>
+      <p className="mt-2 text-xs font-semibold text-[var(--text)]">{summary.primary}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{summary.secondary} · {new Date(movement.transactionAt).toLocaleString("en-IN")}</p>
     </div>
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       <DetailStat label="Customer" value={tx.customer?.fullName??"—"}/>
@@ -245,7 +297,7 @@ export default function AccountLedgerPage(){
     setDetailOpen(true);setDetailLoading(true);setDetailError("");setDetail(null);
     try{
       const movement=await apiFetch<DrillTx>("/transactions/"+txId);
-      const sourceId=movement.providerSettlementReceipt?.settlement.sourceTransaction?.id??movement.payablePayment?.payable.sourceTransaction?.id??null;
+      const sourceId=row.journal.transaction.quickCashCompletionSource?.id??movement.providerSettlementReceipt?.settlement.sourceTransaction?.id??movement.payablePayment?.payable.sourceTransaction?.id??null;
       const source=sourceId&&sourceId!==movement.id?await apiFetch<DrillTx>("/transactions/"+sourceId):null;
       setDetail({movement,source,row,isIn});
     }catch(err){setDetailError(err instanceof Error?err.message:"Failed to load transaction details");}

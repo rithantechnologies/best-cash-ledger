@@ -158,6 +158,7 @@ export class ReportsService {
       quickCashTransfer: {
         include: {
           cashAccount: true,
+          sourceAccount: true,
           servicePaymentAccount: true,
           commissionAccount: true,
         },
@@ -236,12 +237,30 @@ export class ReportsService {
         : Promise.resolve([]),
     ]);
 
+    const completionTransactionIds = [...new Set(entries.map((entry) => entry.journal.transaction.id))];
+    const quickCashCompletionRows = completionTransactionIds.length
+      ? await this.prisma.quickCashTransferDetail.findMany({
+          where: { completionTransactionId: { in: completionTransactionIds } },
+          include: {
+            transaction: {
+              include: accountMovementSourceInclude,
+            },
+          },
+        })
+      : [];
+    const quickCashCompletionById = new Map(
+      quickCashCompletionRows
+        .filter((row) => Boolean(row.completionTransactionId))
+        .map((row) => [row.completionTransactionId!, row.transaction]),
+    );
+
     const accountUserIds = [...new Set(entries.flatMap((entry) => {
       const tx = entry.journal.transaction;
       return [
         tx.createdById,
         tx.providerSettlementReceipt?.settlement.sourceTransaction.createdById,
         tx.payablePayment?.payable.sourceTransaction.createdById,
+        quickCashCompletionById.get(tx.id)?.createdById,
       ].filter((id): id is string => Boolean(id));
     }))];
     const accountUsers = accountUserIds.length
@@ -291,6 +310,7 @@ export class ReportsService {
         const transaction = entry.journal.transaction;
         const settlementSource = transaction.providerSettlementReceipt?.settlement.sourceTransaction;
         const payoutSource = transaction.payablePayment?.payable.sourceTransaction;
+        const quickCashSource = quickCashCompletionById.get(transaction.id);
         return {
           ...entry,
           journal: {
@@ -298,6 +318,9 @@ export class ReportsService {
             transaction: {
               ...transaction,
               createdBy: accountUserById.get(transaction.createdById) ?? null,
+              quickCashCompletionSource: quickCashSource
+                ? { ...quickCashSource, createdBy: accountUserById.get(quickCashSource.createdById) ?? null }
+                : null,
               providerSettlementReceipt: transaction.providerSettlementReceipt
                 ? {
                     ...transaction.providerSettlementReceipt,
