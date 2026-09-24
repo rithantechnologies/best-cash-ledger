@@ -1283,6 +1283,14 @@ export class TransactionsService {
       if (!sourceAccount.ledgerAccount) {
         throw new NotFoundException('Source account ledger is unavailable');
       }
+      const beneficiaryMode = dto.beneficiaryMode ?? detail.beneficiaryMode;
+      if (
+        detail.direction === 'IN' &&
+        beneficiaryMode === 'UPI' &&
+        sourceAccount.accountType !== AccountType.BANK
+      ) {
+        throw new BadRequestException('UPI cash-in transfers must be sent from a bank account');
+      }
 
       const amount = Number(detail.amount);
       const commissionAmount = Number(detail.commissionAmount);

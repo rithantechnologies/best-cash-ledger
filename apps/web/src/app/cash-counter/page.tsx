@@ -313,6 +313,8 @@ export default function CashCounterPage(){
   const selectedQuickTransferType=useMemo(()=>cashInTransferTypes.find((item)=>item.id===quickTransferTypeId)??null,[cashInTransferTypes,quickTransferTypeId]);
   const completionAccounts=useMemo(()=>accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)),[accounts]);
   const paySwitchCompletionAccountId=useMemo(()=>completionAccounts.find((account)=>account.accountName.toUpperCase().includes("PAYSWITCH"))?.id??"",[completionAccounts]);
+  const cashInUpiCompletion=Boolean(completingQuickCash?.direction==="IN"&&completeBeneficiaryMode==="UPI");
+  const completionSourceAccounts=useMemo(()=>cashInUpiCompletion?completionAccounts.filter((account)=>account.accountType==="BANK"):completionAccounts,[cashInUpiCompletion,completionAccounts]);
   const roinetCompletionAccountId=useMemo(()=>{
     const roinetAccounts=completionAccounts.filter((account)=>account.accountName.toUpperCase().includes("ROINET"));
     if(roinetAccounts.length<=1)return roinetAccounts[0]?.id??"";
@@ -627,7 +629,7 @@ export default function CashCounterPage(){
   async function completeQuickCash(event:FormEvent){
     event.preventDefault();
     if(!completePendingId)return;
-    if(!completeSourceAccountId){setCompleteError(completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Select the provider / settlement account.":"Select the bank / UPI account that received the customer payment."):"Select the transfer account.");return;}
+    if(!completeSourceAccountId){setCompleteError(completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Select the provider / settlement account.":"Select the bank / UPI account that received the customer payment."):(completeBeneficiaryMode==="UPI"?"Select the bank account to send the UPI transfer from.":"Select the transfer account."));return;}
     if(commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0&&!completeCommissionAccountId){setCompleteError("Select the account that received the bank / UPI commission.");return;}
     setQuickSaving(true);setCompleteError("");setError("");
     try{
@@ -654,7 +656,7 @@ export default function CashCounterPage(){
     const mode=item.beneficiaryMode==="BANK"?"BANK":"UPI";
     const bank=mode==="BANK"?parseBankBeneficiary(item.beneficiaryDetails):emptyBankBeneficiary();
     const defaultSourceAccountId=item.direction==="IN"
-      ?paySwitchCompletionAccountId
+      ?(mode==="BANK"?paySwitchCompletionAccountId:"")
       :item.cashOutType==="MICRO_ATM"?roinetCompletionAccountId:"";
     setCompletePendingId(item.id);setCompleteSourceAccountId(defaultSourceAccountId);setCompleteCommissionAccountId(mirrorsCompletionCommissionAccount(item)?defaultSourceAccountId:"");setCompleteCommissionAccountOverridden(false);
     setCompleteBeneficiaryMode(mode);
@@ -1229,9 +1231,9 @@ export default function CashCounterPage(){
                 </div>
                 {completeSourceAccountId?<strong className="money shrink-0 text-sm font-black">{money(accounts.find((account)=>account.id===completeSourceAccountId)?.currentBalance??0)}</strong>:null}
               </div>
-              <SearchableSelect mobileSheet aria-label={completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI or bank received in"):"Money transferred from"} searchPlaceholder="Search bank / UPI / wallet" className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeSourceAccountId} onChange={(event)=>{const value=event.target.value;setCompleteSourceAccountId(value);if(mirrorsCompletionCommissionAccount(completingQuickCash)&&!completeCommissionAccountOverridden)setCompleteCommissionAccountId(value);setCompleteError("");}}>
-                <option value="">Select Bank / UPI / Wallet</option>
-                {accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)).map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
+              <SearchableSelect mobileSheet aria-label={completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI or bank received in"):"Money transferred from"} searchPlaceholder={cashInUpiCompletion?"Search bank account":"Search bank / UPI / wallet"} className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeSourceAccountId} onChange={(event)=>{const value=event.target.value;setCompleteSourceAccountId(value);if(mirrorsCompletionCommissionAccount(completingQuickCash)&&!completeCommissionAccountOverridden)setCompleteCommissionAccountId(value);setCompleteError("");}}>
+                <option value="">{cashInUpiCompletion?"Select bank account":"Select Bank / UPI / Wallet"}</option>
+                {completionSourceAccounts.map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
               </SearchableSelect>
               {completeSourceAccountId?<div className="mt-3 flex items-center justify-between rounded-xl bg-[var(--surface)] px-3 py-2.5 text-[13px] font-bold">
                 <span className="text-[var(--text-muted)]">Current balance</span>
@@ -1260,7 +1262,7 @@ export default function CashCounterPage(){
           {completingQuickCash?.direction==="IN"?<div className="mt-4 rounded-[18px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary destination</span>
-              <div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>setCompleteBeneficiaryMode("UPI")} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>setCompleteBeneficiaryMode("BANK")} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div>
+              <div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>{setCompleteBeneficiaryMode("UPI");if(completingQuickCash?.direction==="IN"&&accounts.find((account)=>account.id===completeSourceAccountId)?.accountType!=="BANK")setCompleteSourceAccountId("");setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>{setCompleteBeneficiaryMode("BANK");if(completingQuickCash?.direction==="IN")setCompleteSourceAccountId(paySwitchCompletionAccountId);setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div>
             </div>
             {completeBeneficiaryMode==="UPI"
               ?<input className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-extrabold text-[var(--text)] outline-none" value={completeBeneficiaryUpi} onChange={(event)=>setCompleteBeneficiaryUpi(event.target.value)} placeholder="UPI ID / mobile"/>
