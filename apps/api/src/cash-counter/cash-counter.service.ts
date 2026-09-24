@@ -466,13 +466,17 @@ export class CashCounterService {
               ? 'MICRO_ATM'
               : quickCashDetail?.direction === 'IN' &&
                   quickCashDetail?.purpose === 'TRANSFER' &&
-                  quickCashDetail?.beneficiaryMode === 'UPI'
-                ? 'GPAY_TRANSFER'
+                  quickCashDetail?.serviceName
+                ? 'CASH_IN_TRANSFER::' + quickCashDetail.serviceName
                 : quickCashDetail?.direction === 'IN' &&
                     quickCashDetail?.purpose === 'TRANSFER' &&
-                    quickCashDetail?.beneficiaryMode === 'BANK'
-                  ? 'BANK_TRANSFER'
-                  : origin.transactionType,
+                    quickCashDetail?.beneficiaryMode === 'UPI'
+                  ? 'GPAY_TRANSFER'
+                  : quickCashDetail?.direction === 'IN' &&
+                      quickCashDetail?.purpose === 'TRANSFER' &&
+                      quickCashDetail?.beneficiaryMode === 'BANK'
+                    ? 'BANK_TRANSFER'
+                    : origin.transactionType,
         transactionAt: cashTransaction.transactionAt,
         particular,
         transactionAmount: Number(origin.grossAmount),

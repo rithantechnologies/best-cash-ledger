@@ -1132,6 +1132,8 @@ export class TransactionsService {
           transactionId: transaction.id,
           direction: dto.direction,
           purpose: 'TRANSFER',
+          serviceName:
+            dto.direction === 'IN' ? dto.serviceName?.trim() || null : null,
           cashOutType,
           aadhaarLastFour:
             dto.direction === 'OUT' && cashOutType === 'AEPS'

@@ -13,6 +13,7 @@ type Provider={id:string;name:string;providerType:string;supportsAeps:boolean;ae
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionType:string;defaultCommissionRate:string;isActive:boolean};
 type Category={id:string;name:string;expenseUsage:string;isActive:boolean};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
+type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";isActive:boolean};
 type Customer={id:string;fullName:string};
 type Rule={id:string;customerId:string|null;providerId:string|null;gatewayId:string|null;paymentTermId:string|null;transactionType:string;commissionType:string;commissionRate:string;isActive:boolean;paymentTerm:Term|null};
 type EditState=
@@ -29,7 +30,7 @@ const input="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--
 const primary="app-primary-button min-h-11 px-4 text-sm font-bold";
 const secondary="app-secondary-button min-h-10 px-3 text-xs font-bold";
 export default function SettingsPage(){
- const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[categories,setCategories]=useState<Category[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[rules,setRules]=useState<Rule[]>([]),[services,setServices]=useState<ServiceConfig[]>([]);
+ const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[categories,setCategories]=useState<Category[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[rules,setRules]=useState<Rule[]>([]),[services,setServices]=useState<ServiceConfig[]>([]),[cashInTransferTypes,setCashInTransferTypes]=useState<CashInTransferTypeConfig[]>([]);
  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[message,setMessage]=useState("");
  const [create,setCreate]=useState<CreateKind>(null),[toggleState,setToggleState]=useState<ToggleState>(null);
  const [providerName,setProviderName]=useState(""),[providerType,setProviderType]=useState("MULTI_SERVICE"),[providerSupportsAeps,setProviderSupportsAeps]=useState(false),[providerAepsRate,setProviderAepsRate]=useState("0");
@@ -40,17 +41,20 @@ export default function SettingsPage(){
  const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState("");
  const [serviceName,setServiceName]=useState(""),[serviceDefaultAmount,setServiceDefaultAmount]=useState("");
  const [serviceEdit,setServiceEdit]=useState<ServiceConfig|null>(null),[serviceEditName,setServiceEditName]=useState(""),[serviceEditAmount,setServiceEditAmount]=useState("");
+ const [transferTypeName,setTransferTypeName]=useState(""),[transferTypeMode,setTransferTypeMode]=useState<"UPI"|"BANK">("UPI");
+ const [transferTypeEdit,setTransferTypeEdit]=useState<CashInTransferTypeConfig|null>(null),[transferTypeEditName,setTransferTypeEditName]=useState(""),[transferTypeEditMode,setTransferTypeEditMode]=useState<"UPI"|"BANK">("UPI");
 
  const load=useCallback(async()=>{
-  const [p,t,c,cu,r,s]=await Promise.all([
+  const [p,t,c,cu,r,s,ct]=await Promise.all([
    apiFetch<Provider[]>("/providers?includeInactive=true"),
    apiFetch<Term[]>("/settings/payment-terms?includeInactive=true"),
    apiFetch<Category[]>("/settings/expense-categories?includeInactive=true"),
    apiFetch<Customer[]>("/customers"),
    apiFetch<Rule[]>("/settings/commission-rules?includeInactive=true"),
    apiFetch<ServiceConfig[]>("/settings/services?includeInactive=true"),
+   apiFetch<CashInTransferTypeConfig[]>("/settings/cash-in-transfer-types?includeInactive=true"),
   ]);
-  setProviders(p);setTerms(t);setCategories(c);setCustomers(cu);setRules(r);setServices(s);
+  setProviders(p);setTerms(t);setCategories(c);setCustomers(cu);setRules(r);setServices(s);setCashInTransferTypes(ct);
  },[]);
  useEffect(()=>{
   setLoading(true);
@@ -77,6 +81,18 @@ export default function SettingsPage(){
  }
  async function toggleService(item:ServiceConfig){
   try{await run(()=>apiFetch("/settings/services/"+item.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:!item.isActive})}),()=>{},item.isActive?"Service retired.":"Service activated.");}catch{}
+ }
+ async function addTransferType(e:FormEvent){
+  e.preventDefault();const name=transferTypeName.trim();if(!name)return;
+  try{await run(()=>apiFetch("/settings/cash-in-transfer-types",{method:"POST",body:JSON.stringify({name,transferMode:transferTypeMode})}),()=>{setTransferTypeName("");setTransferTypeMode("UPI");},"Cash In transfer type added.");}catch{}
+ }
+ function beginTransferTypeEdit(item:CashInTransferTypeConfig){setTransferTypeEdit(item);setTransferTypeEditName(item.name);setTransferTypeEditMode(item.transferMode);}
+ async function saveTransferTypeEdit(e:FormEvent){
+  e.preventDefault();if(!transferTypeEdit)return;
+  try{await run(()=>apiFetch("/settings/cash-in-transfer-types/"+transferTypeEdit.id,{method:"PATCH",body:JSON.stringify({name:transferTypeEditName.trim(),transferMode:transferTypeEditMode})}),()=>setTransferTypeEdit(null),"Cash In transfer type updated.");}catch{}
+ }
+ async function toggleTransferType(item:CashInTransferTypeConfig){
+  try{await run(()=>apiFetch("/settings/cash-in-transfer-types/"+item.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:!item.isActive})}),()=>{},item.isActive?"Cash In transfer type retired.":"Cash In transfer type activated.");}catch{}
  }
  async function addCategory(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name:categoryName,expenseUsage:"MIXED"})}),()=>{setCategoryName("");setCreate(null);},"Expense category added.");}catch{}}
  async function quickAddCategory(name:string){try{await run(()=>apiFetch("/settings/expense-categories",{method:"POST",body:JSON.stringify({name,expenseUsage:"MIXED"})}),()=>{},name+" added.");}catch{}}
@@ -146,6 +162,24 @@ export default function SettingsPage(){
     </div>
   </Surface>
 
+  <Surface className="overflow-hidden">
+    <div className="flex flex-col gap-3 border-b border-[var(--border)] p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
+      <div><p className="text-[10px] font-black uppercase tracking-[.12em] text-[var(--accent)]">Daily Cash</p><h2 className="mt-1 text-lg font-black">Cash In transfer types</h2><p className="mt-1 text-xs text-[var(--text-muted)]">Configure the choices shown in Cash In → Transfer. Each choice uses either UPI/GPay fields or bank-transfer fields.</p></div>
+      <form onSubmit={addTransferType} className="grid gap-2 sm:grid-cols-[minmax(180px,1fr)_130px_auto]">
+        <input className={input} value={transferTypeName} onChange={e=>setTransferTypeName(e.target.value)} placeholder="Transfer type name" required/>
+        <SearchableSelect className={input} value={transferTypeMode} onChange={e=>setTransferTypeMode(e.target.value as "UPI"|"BANK")}><option value="UPI">UPI / GPay</option><option value="BANK">Bank</option></SearchableSelect>
+        <button className={primary}>+ Type</button>
+      </form>
+    </div>
+    <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3">
+      {cashInTransferTypes.map(item=><div key={item.id} className={"rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4 "+(!item.isActive?"opacity-55":"")}>
+        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-black">{item.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{item.transferMode==="UPI"?"UPI / GPay beneficiary":"Bank beneficiary details"}</p></div><span className={"h-2.5 w-2.5 shrink-0 rounded-full "+(item.isActive?"bg-emerald-500":"bg-slate-300")}/></div>
+        <div className="mt-4 flex gap-2"><button type="button" onClick={()=>beginTransferTypeEdit(item)} className={secondary}>Edit</button><button type="button" onClick={()=>toggleTransferType(item)} className={secondary}>{item.isActive?"Retire":"Activate"}</button></div>
+      </div>)}
+      {!cashInTransferTypes.length?<p className="p-3 text-sm text-[var(--text-muted)]">No Cash In transfer types configured yet.</p>:null}
+    </div>
+  </Surface>
+
   <SettingsWorkspace
    providers={providers}
    terms={terms}
@@ -169,6 +203,14 @@ export default function SettingsPage(){
       <input className={input} value={serviceEditName} onChange={e=>setServiceEditName(e.target.value)} placeholder="Service name" required/>
       <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default amount</span><input className={input} value={serviceEditAmount} onChange={e=>setServiceEditAmount(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" placeholder="Leave blank to enter each time"/></label>
       <div className="flex justify-end gap-2"><button type="button" onClick={()=>setServiceEdit(null)} className={secondary}>Cancel</button><button className={primary}>Save service</button></div>
+    </form>
+  </Modal>
+
+  <Modal open={!!transferTypeEdit} title="Edit Cash In transfer type" description="Changes apply to future Cash In entries; existing cashbook history keeps its saved label." onClose={()=>setTransferTypeEdit(null)}>
+    <form onSubmit={saveTransferTypeEdit} className="space-y-3">
+      <input className={input} value={transferTypeEditName} onChange={e=>setTransferTypeEditName(e.target.value)} placeholder="Transfer type name" required/>
+      <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Transfer mode</span><SearchableSelect className={input} value={transferTypeEditMode} onChange={e=>setTransferTypeEditMode(e.target.value as "UPI"|"BANK")}><option value="UPI">UPI / GPay</option><option value="BANK">Bank</option></SearchableSelect></label>
+      <div className="flex justify-end gap-2"><button type="button" onClick={()=>setTransferTypeEdit(null)} className={secondary}>Cancel</button><button className={primary}>Save type</button></div>
     </form>
   </Modal>
 

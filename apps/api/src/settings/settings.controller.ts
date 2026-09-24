@@ -4,12 +4,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateExpenseCategoryDto } from './dto/create-expense-category.dto.js';
+import { CreateCashInTransferTypeDto } from './dto/create-cash-in-transfer-type.dto.js';
 import { CreateServiceCatalogDto } from './dto/create-service-catalog.dto.js';
 import { CreatePaymentTermDto } from './dto/create-payment-term.dto.js';
 import { CreateCommissionRuleDto } from './dto/create-commission-rule.dto.js';
 import { SetActiveDto } from './dto/set-active.dto.js';
 import { UpdateCommissionRuleDto } from './dto/update-commission-rule.dto.js';
 import { UpdateExpenseCategoryDto } from './dto/update-expense-category.dto.js';
+import { UpdateCashInTransferTypeDto } from './dto/update-cash-in-transfer-type.dto.js';
 import { UpdateServiceCatalogDto } from './dto/update-service-catalog.dto.js';
 import { UpdatePaymentTermDto } from './dto/update-payment-term.dto.js';
 import { SettingsService } from './settings.service.js';
@@ -63,6 +65,41 @@ export class SettingsController {
   @Roles(RoleName.OWNER, RoleName.ADMIN)
   setServiceActive(@Param('id') id: string, @Body() dto: SetActiveDto, @Req() req: any) {
     return this.settings.setServiceActive(id, dto.isActive, req.user.userId);
+  }
+
+  @Get('cash-in-transfer-types')
+  cashInTransferTypes(@Query('includeInactive') includeInactive?: string) {
+    return this.settings.cashInTransferTypes(includeInactive === 'true');
+  }
+
+  @Post('cash-in-transfer-types')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  createCashInTransferType(@Body() dto: CreateCashInTransferTypeDto, @Req() req: any) {
+    return this.settings.createCashInTransferType(dto, req.user.userId);
+  }
+
+  @Patch('cash-in-transfer-types/:id')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  updateCashInTransferType(
+    @Param('id') id: string,
+    @Body() dto: UpdateCashInTransferTypeDto,
+    @Req() req: any,
+  ) {
+    return this.settings.updateCashInTransferType(id, dto, req.user.userId);
+  }
+
+  @Patch('cash-in-transfer-types/:id/active')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  setCashInTransferTypeActive(
+    @Param('id') id: string,
+    @Body() dto: SetActiveDto,
+    @Req() req: any,
+  ) {
+    return this.settings.setCashInTransferTypeActive(
+      id,
+      dto.isActive,
+      req.user.userId,
+    );
   }
 
   @Get('expense-categories')

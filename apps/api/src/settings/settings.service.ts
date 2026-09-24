@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateExpenseCategoryDto } from './dto/create-expense-category.dto.js';
+import { CreateCashInTransferTypeDto } from './dto/create-cash-in-transfer-type.dto.js';
 import { CreateServiceCatalogDto } from './dto/create-service-catalog.dto.js';
 import { CreatePaymentTermDto } from './dto/create-payment-term.dto.js';
 import { CreateCommissionRuleDto } from './dto/create-commission-rule.dto.js';
 import { UpdatePaymentTermDto } from './dto/update-payment-term.dto.js';
 import { UpdateExpenseCategoryDto } from './dto/update-expense-category.dto.js';
+import { UpdateCashInTransferTypeDto } from './dto/update-cash-in-transfer-type.dto.js';
 import { UpdateServiceCatalogDto } from './dto/update-service-catalog.dto.js';
 import { UpdateCommissionRuleDto } from './dto/update-commission-rule.dto.js';
 
@@ -169,6 +171,93 @@ export class SettingsService {
         data: {
           userId: actorId,
           entityType: 'SERVICE_CATALOG',
+          entityId: id,
+          action: isActive ? 'REACTIVATE' : 'DEACTIVATE',
+          oldValues: { isActive: existing.isActive },
+          newValues: { isActive },
+        },
+      });
+      return updated;
+    });
+  }
+
+  cashInTransferTypes(includeInactive = false) {
+    return this.prisma.cashInTransferType.findMany({
+      where: includeInactive ? undefined : { isActive: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  createCashInTransferType(dto: CreateCashInTransferTypeDto, actorId: string) {
+    const name = dto.name.trim();
+    return this.prisma.$transaction(async (tx) => {
+      const item = await tx.cashInTransferType.create({
+        data: { name, transferMode: dto.transferMode },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'CASH_IN_TRANSFER_TYPE',
+          entityId: item.id,
+          action: 'CREATE',
+          newValues: {
+            name: item.name,
+            transferMode: item.transferMode,
+            isActive: item.isActive,
+          },
+        },
+      });
+      return item;
+    });
+  }
+
+  async updateCashInTransferType(
+    id: string,
+    dto: UpdateCashInTransferTypeDto,
+    actorId: string,
+  ) {
+    const existing = await this.prisma.cashInTransferType.findUnique({ where: { id } });
+    if (!existing) throw new Error('Cash In transfer type not found');
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.cashInTransferType.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.transferMode !== undefined ? { transferMode: dto.transferMode } : {}),
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'CASH_IN_TRANSFER_TYPE',
+          entityId: id,
+          action: 'UPDATE',
+          oldValues: {
+            name: existing.name,
+            transferMode: existing.transferMode,
+          },
+          newValues: {
+            name: updated.name,
+            transferMode: updated.transferMode,
+          },
+        },
+      });
+      return updated;
+    });
+  }
+
+  async setCashInTransferTypeActive(id: string, isActive: boolean, actorId: string) {
+    const existing = await this.prisma.cashInTransferType.findUnique({ where: { id } });
+    if (!existing) throw new Error('Cash In transfer type not found');
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.cashInTransferType.update({
+        where: { id },
+        data: { isActive },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'CASH_IN_TRANSFER_TYPE',
           entityId: id,
           action: isActive ? 'REACTIVATE' : 'DEACTIVATE',
           oldValues: { isActive: existing.isActive },
