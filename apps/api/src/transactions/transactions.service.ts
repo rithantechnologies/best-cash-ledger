@@ -1359,15 +1359,20 @@ export class TransactionsService {
 
       let commissionAccount: any = null;
       if (commissionDigitalAmount > 0) {
-        if (!dto.commissionAccountId) {
+        const effectiveCommissionAccountId =
+          dto.commissionAccountId ??
+          (splitWalletTransfer && sourceAllocations.length === 1
+            ? sourceAllocations[0].sourceAccountId
+            : undefined);
+        if (!effectiveCommissionAccountId) {
           throw new BadRequestException('Choose the account that received the bank / UPI commission');
         }
-        if (!sourceAccountIds.includes(dto.commissionAccountId)) {
-          await this.validation.lockAccount(tx, dto.commissionAccountId);
+        if (!sourceAccountIds.includes(effectiveCommissionAccountId)) {
+          await this.validation.lockAccount(tx, effectiveCommissionAccountId);
         }
         commissionAccount = await this.validation.transferSource(
           tx,
-          dto.commissionAccountId,
+          effectiveCommissionAccountId,
         );
       }
 
