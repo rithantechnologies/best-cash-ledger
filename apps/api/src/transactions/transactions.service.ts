@@ -168,6 +168,7 @@ export class TransactionsService {
           cashAccount: true,
           servicePaymentAccount: true,
           commissionAccount: true,
+          sourceAllocations: { include: { sourceAccount: true } },
         },
       },
       microAtm: true,
@@ -1270,20 +1271,72 @@ export class TransactionsService {
       ) {
         throw new ForbiddenException('Staff can only complete their own pending cash entries');
       }
-      if (dto.sourceAccountId === detail.cashAccountId) {
+      const beneficiaryMode = dto.beneficiaryMode ?? detail.beneficiaryMode;
+      const amount = Number(detail.amount);
+      const splitWalletTransfer =
+        detail.direction === 'IN' && beneficiaryMode === 'BANK';
+      const sourceAllocations = splitWalletTransfer
+        ? (dto.sourceAllocations ?? (dto.sourceAccountId
+            ? [{
+                sourceAccountId: dto.sourceAccountId,
+                amount,
+                referenceNumber: dto.referenceNumber,
+              }]
+            : []))
+            .map((allocation) => ({
+              sourceAccountId: allocation.sourceAccountId,
+              amount: this.money(allocation.amount),
+              referenceNumber: allocation.referenceNumber?.trim() || null,
+            }))
+        : [];
+
+      if (splitWalletTransfer) {
+        if (!sourceAllocations.length) {
+          throw new BadRequestException('Add at least one wallet source');
+        }
+        const allocatedAmount = this.money(
+          sourceAllocations.reduce((sum, allocation) => sum + allocation.amount, 0),
+        );
+        if (sourceAllocations.some((allocation) => allocation.amount <= 0)) {
+          throw new BadRequestException('Each wallet allocation must be greater than zero');
+        }
+        if (Math.abs(allocatedAmount - this.money(amount)) > 0.001) {
+          throw new BadRequestException('Wallet allocations must equal the beneficiary payout amount');
+        }
+      } else if (!dto.sourceAccountId) {
+        throw new BadRequestException(
+          detail.direction === 'OUT'
+            ? 'Choose the incoming transfer account'
+            : 'Choose the transfer source account',
+        );
+      }
+
+      const sourceAccountIds = splitWalletTransfer
+        ? [...new Set(sourceAllocations.map((allocation) => allocation.sourceAccountId))]
+        : [dto.sourceAccountId!];
+      if (sourceAccountIds.includes(detail.cashAccountId)) {
         throw new BadRequestException('Choose a bank, UPI or wallet account');
       }
 
-      await this.validation.lockAccount(tx, dto.sourceAccountId);
-      const sourceAccount = await this.validation.liquidAsset(
-        tx,
-        dto.sourceAccountId,
-        detail.direction === 'IN' ? 'Transfer source' : 'Incoming transfer account',
-      );
-      if (!sourceAccount.ledgerAccount) {
-        throw new NotFoundException('Source account ledger is unavailable');
+      for (const accountId of sourceAccountIds) {
+        await this.validation.lockAccount(tx, accountId);
       }
-      const beneficiaryMode = dto.beneficiaryMode ?? detail.beneficiaryMode;
+      const sourceAccounts = new Map<string, any>();
+      for (const accountId of sourceAccountIds) {
+        const account = await this.validation.liquidAsset(
+          tx,
+          accountId,
+          detail.direction === 'IN' ? 'Transfer source' : 'Incoming transfer account',
+        );
+        if (!account.ledgerAccount) {
+          throw new NotFoundException('Source account ledger is unavailable');
+        }
+        if (splitWalletTransfer && account.accountType !== AccountType.PROVIDER_WALLET) {
+          throw new BadRequestException('Bank-transfer cash-in sources must be wallet accounts');
+        }
+        sourceAccounts.set(accountId, account);
+      }
+      const sourceAccount = sourceAccounts.get(sourceAccountIds[0]);
       if (
         detail.direction === 'IN' &&
         beneficiaryMode === 'UPI' &&
@@ -1292,7 +1345,6 @@ export class TransactionsService {
         throw new BadRequestException('UPI cash-in transfers must be sent from a bank account');
       }
 
-      const amount = Number(detail.amount);
       const commissionAmount = Number(detail.commissionAmount);
       const commissionMode = detail.commissionMode ?? 'CASH';
       const commissionCashAmount =
@@ -1310,7 +1362,7 @@ export class TransactionsService {
         if (!dto.commissionAccountId) {
           throw new BadRequestException('Choose the account that received the bank / UPI commission');
         }
-        if (dto.commissionAccountId !== dto.sourceAccountId) {
+        if (!sourceAccountIds.includes(dto.commissionAccountId)) {
           await this.validation.lockAccount(tx, dto.commissionAccountId);
         }
         commissionAccount = await this.validation.transferSource(
@@ -1323,11 +1375,31 @@ export class TransactionsService {
       // the quick entry was created, so completion settles the full principal.
       const settlementAmount = amount;
       if (detail.direction === 'IN') {
-        await this.validation.ensureSufficientFunds(
-          tx,
-          sourceAccount,
-          settlementAmount,
-        );
+        if (splitWalletTransfer) {
+          const requiredByAccount = new Map<string, number>();
+          for (const allocation of sourceAllocations) {
+            requiredByAccount.set(
+              allocation.sourceAccountId,
+              this.money(
+                (requiredByAccount.get(allocation.sourceAccountId) ?? 0) +
+                  allocation.amount,
+              ),
+            );
+          }
+          for (const [accountId, requiredAmount] of requiredByAccount) {
+            await this.validation.ensureSufficientFunds(
+              tx,
+              sourceAccounts.get(accountId),
+              requiredAmount,
+            );
+          }
+        } else {
+          await this.validation.ensureSufficientFunds(
+            tx,
+            sourceAccount,
+            settlementAmount,
+          );
+        }
       }
 
       const ledgerCode =
@@ -1376,12 +1448,23 @@ export class TransactionsService {
                 amount: settlementAmount,
                 description: 'Clear pending transfer obligation',
               },
-              {
-                ledgerAccountId: sourceAccount.ledgerAccount.id,
-                entryType: EntryType.CREDIT,
-                amount: settlementAmount,
-                description: 'Transfer source outflow',
-              },
+              ...(splitWalletTransfer
+                ? sourceAllocations.map((allocation) => ({
+                    ledgerAccountId: sourceAccounts.get(allocation.sourceAccountId).ledgerAccount.id,
+                    entryType: EntryType.CREDIT,
+                    amount: allocation.amount,
+                    description:
+                      'Beneficiary transfer from wallet' +
+                      (allocation.referenceNumber
+                        ? ' · ' + allocation.referenceNumber
+                        : ''),
+                  }))
+                : [{
+                    ledgerAccountId: sourceAccount.ledgerAccount.id,
+                    entryType: EntryType.CREDIT,
+                    amount: settlementAmount,
+                    description: 'Transfer source outflow',
+                  }]),
             ]
           : [
               {
@@ -1424,6 +1507,18 @@ export class TransactionsService {
         'Complete ' + detail.transaction.transactionNumber,
         completionEntries,
       );
+
+      if (splitWalletTransfer) {
+        await tx.quickCashSourceAllocation.createMany({
+          data: sourceAllocations.map((allocation) => ({
+            quickCashTransferId: id,
+            sourceAccountId: allocation.sourceAccountId,
+            amount: new Prisma.Decimal(allocation.amount),
+            referenceNumber: allocation.referenceNumber,
+            createdById: userId,
+          })),
+        });
+      }
 
       await tx.quickCashTransferDetail.update({
         where: { id },
@@ -1472,6 +1567,7 @@ export class TransactionsService {
           newValues: {
             status: TransactionStatus.COMPLETED,
             sourceAccountId: sourceAccount.id,
+            sourceAllocations: splitWalletTransfer ? sourceAllocations : undefined,
             commissionMode,
             commissionAccountId: commissionAccount?.id ?? null,
             customerName:
@@ -3095,6 +3191,7 @@ export class TransactionsService {
             sourceAccount: true,
             commissionAccount: true,
             servicePaymentAccount: true,
+            sourceAllocations: { include: { sourceAccount: true } },
           },
         },
         aeps: { include: { cashAccount: true, settlementAccount: true } },

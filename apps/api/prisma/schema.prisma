@@ -360,6 +360,7 @@ model FinancialAccount {
   cashTransfersCash               CashTransferDetail[]          @relation("CashTransferCash")
   quickCashMovements              QuickCashTransferDetail[]     @relation("QuickCashMovementCash")
   quickCashSources                QuickCashTransferDetail[]     @relation("QuickCashMovementSource")
+  quickCashSourceAllocations      QuickCashSourceAllocation[]
   quickCashCommissionAccounts     QuickCashTransferDetail[]     @relation("QuickCashCommissionAccount")
   quickCashServicePaymentAccounts QuickCashTransferDetail[]     @relation("QuickCashServicePaymentAccount")
   aepsSettlements                 AepsDetail[]                  @relation("AepsSettlement")
@@ -756,42 +757,58 @@ model CashTransferDetail {
 }
 
 model QuickCashTransferDetail {
-  id                      String            @id @default(uuid())
-  transactionId           String            @unique
-  transaction             Transaction       @relation(fields: [transactionId], references: [id])
+  id                      String                      @id @default(uuid())
+  transactionId           String                      @unique
+  transaction             Transaction                 @relation(fields: [transactionId], references: [id])
   direction               String
-  purpose                 String            @default("TRANSFER")
+  purpose                 String                      @default("TRANSFER")
   serviceName             String?
-  cashOutType             String            @default("UPI_QR")
+  cashOutType             String                      @default("UPI_QR")
   aadhaarLastFour         String?
   customerBankName        String?
   cardLastFour            String?
   cashAccountId           String
-  cashAccount             FinancialAccount  @relation("QuickCashMovementCash", fields: [cashAccountId], references: [id])
+  cashAccount             FinancialAccount            @relation("QuickCashMovementCash", fields: [cashAccountId], references: [id])
   sourceAccountId         String?
-  sourceAccount           FinancialAccount? @relation("QuickCashMovementSource", fields: [sourceAccountId], references: [id])
+  sourceAccount           FinancialAccount?           @relation("QuickCashMovementSource", fields: [sourceAccountId], references: [id])
   customerName            String?
   mobileNumber            String?
-  amount                  Decimal           @db.Decimal(18, 2)
-  commissionAmount        Decimal           @default(0) @db.Decimal(18, 2)
-  commissionCashAmount    Decimal?          @db.Decimal(18, 2)
-  commissionMode          String            @default("CASH")
+  amount                  Decimal                     @db.Decimal(18, 2)
+  commissionAmount        Decimal                     @default(0) @db.Decimal(18, 2)
+  commissionCashAmount    Decimal?                    @db.Decimal(18, 2)
+  commissionMode          String                      @default("CASH")
   commissionAccountId     String?
-  commissionAccount       FinancialAccount? @relation("QuickCashCommissionAccount", fields: [commissionAccountId], references: [id])
+  commissionAccount       FinancialAccount?           @relation("QuickCashCommissionAccount", fields: [commissionAccountId], references: [id])
   beneficiaryMode         String?
   beneficiaryDetails      String?
-  servicePaymentMode      String            @default("CASH")
+  servicePaymentMode      String                      @default("CASH")
   servicePaymentAccountId String?
-  servicePaymentAccount   FinancialAccount? @relation("QuickCashServicePaymentAccount", fields: [servicePaymentAccountId], references: [id])
-  completionTransactionId String?           @unique
+  servicePaymentAccount   FinancialAccount?           @relation("QuickCashServicePaymentAccount", fields: [servicePaymentAccountId], references: [id])
+  completionTransactionId String?                     @unique
+  sourceAllocations       QuickCashSourceAllocation[]
   completedAt             DateTime?
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
 
   @@index([cashAccountId, direction])
   @@index([sourceAccountId])
   @@index([commissionAccountId])
   @@index([servicePaymentAccountId])
+}
+
+model QuickCashSourceAllocation {
+  id                  String                  @id @default(uuid())
+  quickCashTransferId String
+  quickCashTransfer   QuickCashTransferDetail @relation(fields: [quickCashTransferId], references: [id], onDelete: Cascade)
+  sourceAccountId     String
+  sourceAccount       FinancialAccount        @relation(fields: [sourceAccountId], references: [id])
+  amount              Decimal                 @db.Decimal(18, 2)
+  referenceNumber     String?
+  createdById         String
+  createdAt           DateTime                @default(now())
+
+  @@index([quickCashTransferId])
+  @@index([sourceAccountId])
 }
 
 model AepsDetail {
@@ -855,17 +872,17 @@ model InternalTransferDetail {
 }
 
 model ExpenseDetail {
-  id                String           @id @default(uuid())
-  transactionId     String           @unique
-  transaction       Transaction      @relation(fields: [transactionId], references: [id])
+  id                String            @id @default(uuid())
+  transactionId     String            @unique
+  transaction       Transaction       @relation(fields: [transactionId], references: [id])
   expenseCategoryId String
-  expenseCategory   ExpenseCategory  @relation(fields: [expenseCategoryId], references: [id])
+  expenseCategory   ExpenseCategory   @relation(fields: [expenseCategoryId], references: [id])
   expenseType       UsageType
   paymentAccountId  String?
   paymentAccount    FinancialAccount? @relation(fields: [paymentAccountId], references: [id])
   amount            Decimal           @db.Decimal(18, 2)
   description       String?
-  createdAt         DateTime         @default(now())
+  createdAt         DateTime          @default(now())
 }
 
 model AtmWithdrawalDetail {

@@ -1,4 +1,5 @@
-import { IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsString, Length, Matches, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsString, Length, Matches, Min, ValidateNested } from 'class-validator';
 
 export class CreateQuickCashTransferDto {
   @IsIn(['IN', 'OUT'])
@@ -94,9 +95,30 @@ export class CreateQuickCashTransferDto {
   servicePaymentAccountId?: string;
 }
 
-export class CompleteQuickCashTransferDto {
+class QuickCashSourceAllocationDto {
   @IsString()
   sourceAccountId!: string;
+
+  @IsNumber()
+  @Min(0.01)
+  amount!: number;
+
+  @IsOptional()
+  @IsString()
+  referenceNumber?: string;
+}
+
+export class CompleteQuickCashTransferDto {
+  @IsOptional()
+  @IsString()
+  sourceAccountId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => QuickCashSourceAllocationDto)
+  sourceAllocations?: QuickCashSourceAllocationDto[];
 
   @IsOptional()
   @IsString()
