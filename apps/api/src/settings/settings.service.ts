@@ -4,6 +4,7 @@ import { CreateExpenseCategoryDto } from './dto/create-expense-category.dto.js';
 import { CreateCashInTransferTypeDto } from './dto/create-cash-in-transfer-type.dto.js';
 import { CreateServiceCatalogDto } from './dto/create-service-catalog.dto.js';
 import { CreatePaymentTermDto } from './dto/create-payment-term.dto.js';
+import { CreateCardNetworkDto } from './dto/create-card-network.dto.js';
 import { CreateCommissionRuleDto } from './dto/create-commission-rule.dto.js';
 import { UpdatePaymentTermDto } from './dto/update-payment-term.dto.js';
 import { UpdateExpenseCategoryDto } from './dto/update-expense-category.dto.js';
@@ -88,6 +89,49 @@ export class SettingsService {
         data: {
           userId: actorId,
           entityType: 'PAYMENT_TERM',
+          entityId: id,
+          action: isActive ? 'REACTIVATE' : 'DEACTIVATE',
+          oldValues: { isActive: existing.isActive },
+          newValues: { isActive },
+        },
+      });
+      return updated;
+    });
+  }
+
+  cardNetworks(includeInactive = false) {
+    return this.prisma.cardNetwork.findMany({
+      where: includeInactive ? undefined : { isActive: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  createCardNetwork(dto: CreateCardNetworkDto, actorId: string) {
+    const name = dto.name.trim();
+    return this.prisma.$transaction(async (tx) => {
+      const item = await tx.cardNetwork.create({ data: { name } });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'CARD_NETWORK',
+          entityId: item.id,
+          action: 'CREATE',
+          newValues: { name: item.name, isActive: item.isActive },
+        },
+      });
+      return item;
+    });
+  }
+
+  async setCardNetworkActive(id: string, isActive: boolean, actorId: string) {
+    const existing = await this.prisma.cardNetwork.findUnique({ where: { id } });
+    if (!existing) throw new Error('Card network not found');
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.cardNetwork.update({ where: { id }, data: { isActive } });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'CARD_NETWORK',
           entityId: id,
           action: isActive ? 'REACTIVATE' : 'DEACTIVATE',
           oldValues: { isActive: existing.isActive },

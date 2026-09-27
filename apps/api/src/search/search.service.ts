@@ -48,7 +48,7 @@ export class SearchService {
         mobile: true,
         cards: {
           where: { isActive: true },
-          select: { id: true, bankName: true, lastFourDigits: true, nickname: true, isActive: true },
+          select: { id: true, bankName: true, cardType: true, cardNetworkId: true, cardNetwork: { select: { id: true, name: true } }, lastFourDigits: true, nickname: true, isActive: true },
           orderBy: { updatedAt: 'desc' },
         },
       },
@@ -113,6 +113,9 @@ export class SearchService {
           select: {
             id: true,
             bankName: true,
+            cardType: true,
+            cardNetworkId: true,
+            cardNetwork: { select: { id: true, name: true } },
             lastFourDigits: true,
             nickname: true,
             isActive: true,

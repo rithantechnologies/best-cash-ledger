@@ -29,6 +29,7 @@ class CardSwipeNewCustomerDto {
   })
   mobile!: string;
   @IsString() @MaxLength(100) bankName!: string;
+  @IsOptional() @IsString() cardNetworkId?: string;
   @IsString() @Length(4, 4) @Matches(/^\d{4}$/) lastFourDigits!: string;
 }
 

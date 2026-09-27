@@ -271,11 +271,15 @@ export class CustomersService {
 
   addCard(customerId: string, dto: CreateCardDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      if (dto.cardNetworkId) {
+        const network = await tx.cardNetwork.findFirst({ where: { id: dto.cardNetworkId, isActive: true }, select: { id: true } });
+        if (!network) throw new BadRequestException('Selected card network is not active');
+      }
       const item = await tx.customerCard.create({ data: { customerId, ...dto } });
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER_CARD', entityId: item.id, action: 'CREATE',
-          newValues: { customerId, bankName: item.bankName, cardType: item.cardType, lastFourDigits: item.lastFourDigits, nickname: item.nickname },
+          newValues: { customerId, bankName: item.bankName, cardType: item.cardType, cardNetworkId: item.cardNetworkId, lastFourDigits: item.lastFourDigits, nickname: item.nickname },
         },
       });
       return item;
@@ -286,12 +290,16 @@ export class CustomersService {
     const old = await this.prisma.customerCard.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('Card not found');
     return this.prisma.$transaction(async (tx) => {
+      if (dto.cardNetworkId) {
+        const network = await tx.cardNetwork.findFirst({ where: { id: dto.cardNetworkId, isActive: true }, select: { id: true } });
+        if (!network) throw new BadRequestException('Selected card network is not active');
+      }
       const item = await tx.customerCard.update({ where: { id }, data: dto });
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER_CARD', entityId: id, action: 'UPDATE',
-          oldValues: { bankName: old.bankName, cardType: old.cardType, lastFourDigits: old.lastFourDigits, nickname: old.nickname },
-          newValues: { bankName: item.bankName, cardType: item.cardType, lastFourDigits: item.lastFourDigits, nickname: item.nickname },
+          oldValues: { bankName: old.bankName, cardType: old.cardType, cardNetworkId: old.cardNetworkId, lastFourDigits: old.lastFourDigits, nickname: old.nickname },
+          newValues: { bankName: item.bankName, cardType: item.cardType, cardNetworkId: item.cardNetworkId, lastFourDigits: item.lastFourDigits, nickname: item.nickname },
         },
       });
       return item;

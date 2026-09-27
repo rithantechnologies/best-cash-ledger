@@ -14,6 +14,7 @@ type Term={id:string;name:string;durationValue:number;durationUnit:string;defaul
 type Category={id:string;name:string;expenseUsage:string;isActive:boolean};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
 type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";isActive:boolean};
+type CardNetworkConfig={id:string;name:string;isActive:boolean};
 type Customer={id:string;fullName:string};
 type Rule={id:string;customerId:string|null;providerId:string|null;gatewayId:string|null;paymentTermId:string|null;transactionType:string;commissionType:string;commissionRate:string;isActive:boolean;paymentTerm:Term|null};
 type EditState=
@@ -30,7 +31,7 @@ const input="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--
 const primary="app-primary-button min-h-11 px-4 text-sm font-bold";
 const secondary="app-secondary-button min-h-10 px-3 text-xs font-bold";
 export default function SettingsPage(){
- const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[categories,setCategories]=useState<Category[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[rules,setRules]=useState<Rule[]>([]),[services,setServices]=useState<ServiceConfig[]>([]),[cashInTransferTypes,setCashInTransferTypes]=useState<CashInTransferTypeConfig[]>([]);
+ const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[categories,setCategories]=useState<Category[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[rules,setRules]=useState<Rule[]>([]),[services,setServices]=useState<ServiceConfig[]>([]),[cashInTransferTypes,setCashInTransferTypes]=useState<CashInTransferTypeConfig[]>([]),[cardNetworks,setCardNetworks]=useState<CardNetworkConfig[]>([]);
  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[message,setMessage]=useState("");
  const [create,setCreate]=useState<CreateKind>(null),[toggleState,setToggleState]=useState<ToggleState>(null);
  const [providerName,setProviderName]=useState(""),[providerType,setProviderType]=useState("MULTI_SERVICE"),[providerSupportsAeps,setProviderSupportsAeps]=useState(false),[providerAepsRate,setProviderAepsRate]=useState("0");
@@ -41,11 +42,12 @@ export default function SettingsPage(){
  const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState("");
  const [serviceName,setServiceName]=useState(""),[serviceDefaultAmount,setServiceDefaultAmount]=useState("");
  const [serviceEdit,setServiceEdit]=useState<ServiceConfig|null>(null),[serviceEditName,setServiceEditName]=useState(""),[serviceEditAmount,setServiceEditAmount]=useState("");
+ const [cardNetworkName,setCardNetworkName]=useState("");
  const [transferTypeName,setTransferTypeName]=useState(""),[transferTypeMode,setTransferTypeMode]=useState<"UPI"|"BANK">("UPI");
  const [transferTypeEdit,setTransferTypeEdit]=useState<CashInTransferTypeConfig|null>(null),[transferTypeEditName,setTransferTypeEditName]=useState(""),[transferTypeEditMode,setTransferTypeEditMode]=useState<"UPI"|"BANK">("UPI");
 
  const load=useCallback(async()=>{
-  const [p,t,c,cu,r,s,ct]=await Promise.all([
+  const [p,t,c,cu,r,s,ct,cn]=await Promise.all([
    apiFetch<Provider[]>("/providers?includeInactive=true"),
    apiFetch<Term[]>("/settings/payment-terms?includeInactive=true"),
    apiFetch<Category[]>("/settings/expense-categories?includeInactive=true"),
@@ -53,8 +55,9 @@ export default function SettingsPage(){
    apiFetch<Rule[]>("/settings/commission-rules?includeInactive=true"),
    apiFetch<ServiceConfig[]>("/settings/services?includeInactive=true"),
    apiFetch<CashInTransferTypeConfig[]>("/settings/cash-in-transfer-types?includeInactive=true"),
+   apiFetch<CardNetworkConfig[]>("/settings/card-networks?includeInactive=true"),
   ]);
-  setProviders(p);setTerms(t);setCategories(c);setCustomers(cu);setRules(r);setServices(s);setCashInTransferTypes(ct);
+  setProviders(p);setTerms(t);setCategories(c);setCustomers(cu);setRules(r);setServices(s);setCashInTransferTypes(ct);setCardNetworks(cn);
  },[]);
  useEffect(()=>{
   setLoading(true);
@@ -68,6 +71,8 @@ export default function SettingsPage(){
  }
  async function addProvider(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers",{method:"POST",body:JSON.stringify({name:providerName,providerType,supportsAeps:providerSupportsAeps,aepsCommissionRate:Number(providerAepsRate||0)})}),()=>{setProviderName("");setProviderSupportsAeps(false);setProviderAepsRate("0");setCreate(null);},"Provider added.");}catch{}}
  async function addGateway(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers/"+gatewayProvider+"/gateways",{method:"POST",body:JSON.stringify({gatewayName,defaultChargeType:"PERCENTAGE",defaultChargeRate:Number(gatewayRate)})}),()=>{setGatewayName("");setGatewayRate("");setCreate(null);},"Gateway added.");}catch{}}
+ async function addCardNetwork(e:FormEvent){e.preventDefault();const name=cardNetworkName.trim();if(!name)return;try{await run(()=>apiFetch("/settings/card-networks",{method:"POST",body:JSON.stringify({name})}),()=>setCardNetworkName(""),"Card network added.");}catch{}}
+ async function toggleCardNetwork(item:CardNetworkConfig){try{await run(()=>apiFetch("/settings/card-networks/"+item.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:!item.isActive})}),()=>{},item.isActive?"Card network retired.":"Card network activated.");}catch{}}
  async function addTerm(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/settings/payment-terms",{method:"POST",body:JSON.stringify({name:termName,durationValue:Number(durationValue),durationUnit,defaultCommissionType:"PERCENTAGE",defaultCommissionRate:Number(termRate)})}),()=>{setTermName("");setDurationValue("0");setTermRate("0");setCreate(null);},"Payment term added.");}catch{}}
  async function addService(e:FormEvent){
   e.preventDefault();
@@ -177,6 +182,17 @@ export default function SettingsPage(){
         <div className="mt-4 flex gap-2"><button type="button" onClick={()=>beginTransferTypeEdit(item)} className={secondary}>Edit</button><button type="button" onClick={()=>toggleTransferType(item)} className={secondary}>{item.isActive?"Retire":"Activate"}</button></div>
       </div>)}
       {!cashInTransferTypes.length?<p className="p-3 text-sm text-[var(--text-muted)]">No Cash In transfer types configured yet.</p>:null}
+    </div>
+  </Surface>
+
+  <Surface className="overflow-hidden">
+    <div className="flex flex-col gap-3 border-b border-[var(--border)] p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
+      <div><p className="text-[10px] font-black uppercase tracking-[.12em] text-[var(--accent)]">Card Swipe</p><h2 className="mt-1 text-lg font-black">Card networks</h2><p className="mt-1 text-xs text-[var(--text-muted)]">Searchable card network choices used by quick card swipe. Add or retire networks without changing historical cards.</p></div>
+      <form onSubmit={addCardNetwork} className="flex gap-2"><input className={input} value={cardNetworkName} onChange={e=>setCardNetworkName(e.target.value)} placeholder="Network name" required/><button className={primary+" shrink-0"}>+ Network</button></form>
+    </div>
+    <div className="flex flex-wrap gap-2 p-4">
+      {cardNetworks.map(item=><button type="button" key={item.id} onClick={()=>void toggleCardNetwork(item)} className={"rounded-full border px-3 py-2 text-xs font-bold "+(item.isActive?"border-[var(--border)] bg-[var(--surface-soft)] text-[var(--text)]":"border-slate-200 bg-slate-50 text-slate-400 line-through")}>{item.name}<span className="ml-1.5 text-[9px] font-semibold">{item.isActive?"Active":"Retired"}</span></button>)}
+      {!cardNetworks.length?<p className="text-sm text-[var(--text-muted)]">No card networks configured.</p>:null}
     </div>
   </Surface>
 

@@ -202,6 +202,8 @@ model CustomerCard {
   customer         Customer                @relation(fields: [customerId], references: [id])
   bankName         String
   cardType         String?
+  cardNetworkId    String?
+  cardNetwork      CardNetwork?            @relation(fields: [cardNetworkId], references: [id])
   lastFourDigits   String
   nickname         String?
   isActive         Boolean                 @default(true)
@@ -209,6 +211,8 @@ model CustomerCard {
   updatedAt        DateTime                @updatedAt
   cardSwipeDetails CardSwipeDetail[]
   cardDueClearings CardDueClearingDetail[]
+
+  @@index([cardNetworkId])
 }
 
 model CustomerBankAccount {
@@ -316,6 +320,15 @@ model PaymentTerm {
   payables              CustomerPayable[]
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
+}
+
+model CardNetwork {
+  id        String         @id @default(uuid())
+  name      String         @unique
+  isActive  Boolean        @default(true)
+  cards     CustomerCard[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 }
 
 model CommissionRule {

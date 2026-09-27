@@ -335,6 +335,8 @@ export class TransactionsService {
           bankName: string;
           lastFourDigits: string;
           nickname: string | null;
+          cardType: string | null;
+          cardNetworkId: string | null;
           isActive: boolean;
         };
       } | null = null;
@@ -358,6 +360,13 @@ export class TransactionsService {
             'A customer with this mobile already exists. Use the existing customer.',
           );
         }
+        if (dto.newCustomer.cardNetworkId) {
+          const cardNetwork = await tx.cardNetwork.findFirst({
+            where: { id: dto.newCustomer.cardNetworkId, isActive: true },
+            select: { id: true },
+          });
+          if (!cardNetwork) throw new BadRequestException('Selected card network is not active');
+        }
         const customer = await tx.customer.create({
           data: {
             customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
@@ -372,6 +381,7 @@ export class TransactionsService {
             customerId: customer.id,
             bankName: dto.newCustomer.bankName.trim(),
             cardType: 'CREDIT',
+            cardNetworkId: dto.newCustomer.cardNetworkId,
             lastFourDigits: dto.newCustomer.lastFourDigits,
           },
         });
@@ -399,6 +409,7 @@ export class TransactionsService {
                 customerId: customer.id,
                 bankName: card.bankName,
                 cardType: card.cardType,
+                cardNetworkId: card.cardNetworkId,
                 lastFourDigits: card.lastFourDigits,
               },
             },
@@ -417,6 +428,8 @@ export class TransactionsService {
             bankName: card.bankName,
             lastFourDigits: card.lastFourDigits,
             nickname: card.nickname,
+            cardType: card.cardType,
+            cardNetworkId: card.cardNetworkId,
             isActive: card.isActive,
           },
         };

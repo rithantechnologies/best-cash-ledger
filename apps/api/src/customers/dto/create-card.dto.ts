@@ -9,6 +9,10 @@ export class CreateCardDto {
   @IsString()
   cardType?: string;
 
+  @IsOptional()
+  @IsString()
+  cardNetworkId?: string;
+
   @IsString()
   @Length(4, 4)
   lastFourDigits!: string;

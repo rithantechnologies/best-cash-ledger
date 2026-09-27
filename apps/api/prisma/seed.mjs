@@ -75,6 +75,18 @@ try {
     });
   }
 
+  const cardNetworks = [
+    'RuPay','Visa','Mastercard','American Express','Diners Club','Discover','JCB','UnionPay','Maestro',
+  ];
+
+  for (const name of cardNetworks) {
+    await prisma.cardNetwork.upsert({
+      where: { name },
+      update: {},
+      create: { name },
+    });
+  }
+
   const expenseCategories = [
     ['Bank Charges', 'BUSINESS'],
     ['Fuel', 'MIXED'],

@@ -7,6 +7,7 @@ import { CreateExpenseCategoryDto } from './dto/create-expense-category.dto.js';
 import { CreateCashInTransferTypeDto } from './dto/create-cash-in-transfer-type.dto.js';
 import { CreateServiceCatalogDto } from './dto/create-service-catalog.dto.js';
 import { CreatePaymentTermDto } from './dto/create-payment-term.dto.js';
+import { CreateCardNetworkDto } from './dto/create-card-network.dto.js';
 import { CreateCommissionRuleDto } from './dto/create-commission-rule.dto.js';
 import { SetActiveDto } from './dto/set-active.dto.js';
 import { UpdateCommissionRuleDto } from './dto/update-commission-rule.dto.js';
@@ -42,6 +43,23 @@ export class SettingsController {
   @Roles(RoleName.OWNER, RoleName.ADMIN)
   setPaymentTermActive(@Param('id') id: string, @Body() dto: SetActiveDto, @Req() req: any) {
     return this.settings.setPaymentTermActive(id, dto.isActive, req.user.userId);
+  }
+
+  @Get('card-networks')
+  cardNetworks(@Query('includeInactive') includeInactive?: string) {
+    return this.settings.cardNetworks(includeInactive === 'true');
+  }
+
+  @Post('card-networks')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  createCardNetwork(@Body() dto: CreateCardNetworkDto, @Req() req: any) {
+    return this.settings.createCardNetwork(dto, req.user.userId);
+  }
+
+  @Patch('card-networks/:id/active')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  setCardNetworkActive(@Param('id') id: string, @Body() dto: SetActiveDto, @Req() req: any) {
+    return this.settings.setCardNetworkActive(id, dto.isActive, req.user.userId);
   }
 
   @Get('services')
