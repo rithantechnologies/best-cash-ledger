@@ -386,7 +386,7 @@ export default function CashCounterPage(){
     const amount=Number(quickAmount);
     if(!quickAmount.trim()||!Number.isFinite(amount)||amount<=0){setQuickCommission("");return;}
     const rate=Number(selectedQuickTransferType.defaultCommissionRate||0);
-    const calculated=Math.round((amount*rate/100)*100)/100;
+    const calculated=amount<=500?10:Math.round((amount*rate/100)*100)/100;
     setQuickCommission(String(calculated));
   },[quickDirection,quickPurpose,quickAmount,selectedQuickTransferType,quickCommissionOverridden]);
   useEffect(()=>{
@@ -820,7 +820,6 @@ export default function CashCounterPage(){
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-extrabold">Cash book</h3>
-              <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Simple daily view · cash movement and the income earned from each entry</p>
             </div>
             <div className="grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1">
               <button type="button" className="min-h-8 rounded-lg bg-[var(--surface)] px-3 text-xs font-black text-[var(--text)] shadow-sm">Cash Book</button>
@@ -1160,7 +1159,7 @@ export default function CashCounterPage(){
           </label>
 
           {quickPurpose==="TRANSFER"&&quickDirection==="IN"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
-            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Transfer mode <span className="text-rose-500">*</span></span>{selectedQuickTransferType?<span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{Number(selectedQuickTransferType.defaultCommissionRate||0)}% fee</span>:null}</div>
+            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Transfer mode <span className="text-rose-500">*</span></span>{selectedQuickTransferType?<span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{Number(quickAmount||0)>0&&Number(quickAmount||0)<=500?"₹10 fee":Number(selectedQuickTransferType.defaultCommissionRate||0)+"% fee"}</span>:null}</div>
             {cashInTransferTypes.length?<div className={"mt-2 grid gap-1 rounded-[12px] bg-[var(--surface)] p-1 "+(cashInTransferTypes.length===2?"grid-cols-2":"grid-cols-1 sm:grid-cols-2")}>
               {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.transferMode);setQuickCommissionOverridden(false);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
             </div>:<p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">No Cash In transfer types are active. Configure them in Settings.</p>}
