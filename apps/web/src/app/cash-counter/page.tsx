@@ -814,83 +814,6 @@ export default function CashCounterPage(){
         </div>
       </Surface>
 
-      {pendingQuickCash.length?<Surface className="scroll-mt-24 overflow-hidden">
-        <div id="pending-cash" className="scroll-mt-24 flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <div className="flex items-center gap-2"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
-        </div>
-        <div className="divide-y divide-[var(--border)]">
-          {pendingQuickCash.map((item)=><div key={item.id} className="grid gap-3 px-4 py-3.5 sm:grid-cols-[110px_minmax(0,1fr)_auto_auto] sm:items-center sm:px-5">
-            <div><span className={"inline-flex rounded-full px-2.5 py-1 text-xs font-black "+(item.direction==="IN"?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700")}>{item.direction==="IN"?"Cash In":cashOutTypeLabel(item.cashOutType)}</span></div>
-            <div className="min-w-0"><p className="truncate text-sm font-bold">{item.customerName||item.mobileNumber||"Walk-in customer"}</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">{item.cashOutType==="AEPS"&&item.aadhaarLastFour?"Aadhaar ••••"+item.aadhaarLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.cashOutType==="MICRO_ATM"&&item.cardLastFour?"Card ••••"+item.cardLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.transaction.transactionNumber} · {new Date(item.transaction.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></div>
-            <div className="text-left sm:text-right"><strong className="money block text-sm">{money(item.amount)}</strong>{Number(item.commissionAmount)>0?<span className="text-xs font-semibold text-[var(--accent)]">{item.cashOutType==="MICRO_ATM"?"Commission "+money(item.commissionAmount)+" · settle later":(item.cashOutType==="AEPS"?"Commission ":"Fee ")+money(item.commissionAmount)+" · "+commissionBreakdownLabel(Number(item.commissionAmount),item.commissionMode,item.commissionCashAmount)}</span>:null}</div>
-            <button type="button" onClick={()=>openPendingCompletion(item)} className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm font-black text-amber-800">Complete</button>
-          </div>)}
-        </div>
-      </Surface>:null}
-
-      <Surface className="overflow-hidden">
-        <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <h3 className="text-sm font-extrabold">Income breakdown</h3>
-        </div>
-        <div className="grid grid-cols-2 gap-px bg-[var(--border)] lg:grid-cols-4">
-          <MetricCard label="Commission" value={money(commissionIncome)} tone="accent"/>
-          <MetricCard label="Services" value={money(serviceIncome)} tone="in"/>
-          <MetricCard label="Received in cash" value={money(incomeCash)} tone="in"/>
-          <MetricCard label="Bank / UPI" value={money(incomeDigital)} tone="accent"/>
-        </div>
-      </Surface>
-
-      <Surface className="overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <div>
-            <h3 className="text-sm font-extrabold">Balance</h3>
-            <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{range==="today"?"Through the day":"Expected vs counted"}</p>
-          </div>
-          <div className="flex rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-1">
-            {([["today","Today"],["7d","7D"],["30d","30D"]] as Array<[Range,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>{setRange(id);setSelectedHistoryId(null);}} className={"min-h-8 rounded-lg px-3 text-[13px] font-extrabold "+(range===id?"bg-[var(--accent)] text-white shadow-sm":"text-[var(--text-muted)]")}>{label}</button>)}
-          </div>
-        </div>
-        <div className="p-4 sm:p-5">
-          {range==="today"?<CashMovementChart opening={Number(today.openingTotal)} movements={today.movements??[]} selectedId={selectedActivityId} onSelect={selectMovement}/>:<CashHistoryChart rows={historyRows} selectedId={selectedHistoryId} onSelect={(row)=>setSelectedHistoryId(row.id)}/>}
-        </div>
-      </Surface>
-
-      {serviceGroups.length?<Surface className="cash-service-mix overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
-          <div><h3 className="text-sm font-extrabold">Cash mix</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Where today&apos;s physical cash moved</p></div>
-          {serviceFilter?<button type="button" onClick={()=>setServiceFilter(null)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-bold text-[var(--accent)]">Clear</button>:null}
-        </div>
-        <div className="grid lg:grid-cols-[330px_minmax(0,1fr)]">
-          <div className="cash-service-donut border-b border-[var(--border)] p-5 sm:p-6 lg:border-b-0 lg:border-r">
-            <FundsAllocationDonut
-              items={serviceGroups}
-              total={serviceMovementTotal}
-              selectedId={serviceFilter}
-              centerLabel="Cash moved"
-              centerHint="Tap a slice"
-              ariaLabel="Today cash movement by service"
-              className="cash-service-donut-frame"
-              onSelect={(item)=>setServiceFilter((current)=>current===item.id?null:item.id)}
-            />
-          </div>
-          <div className="divide-y divide-[var(--border)]">
-            {serviceGroups.map((row)=><button key={row.id} type="button" onClick={()=>setServiceFilter((current)=>current===row.id?null:row.id)} className={"cash-service-row grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3.5 text-left transition sm:px-5 "+(serviceFilter===row.id?"bg-[var(--accent-soft)]":"hover:bg-[var(--surface-soft)]")}>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2.5"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{background:row.color}}/><strong className="truncate text-[15px] font-extrabold">{row.label}</strong></div>
-                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 pl-5 text-[13px] font-semibold text-[var(--text-muted)]">
-                  <span>{row.count} txn{row.count===1?"":"s"}</span>
-                  <span className="text-[var(--money-in)]">In {money(row.cashIn)}</span>
-                  <span className="text-[var(--money-out)]">Out {money(row.cashOut)}</span>
-                  {Number(row.commissionAmount)>0?<span className="text-[var(--accent)]">Commission income {money(row.commissionAmount)}</span>:null}
-                  {Number(row.serviceIncomeAmount||0)>0?<span className="text-[var(--money-in)]">Service income {money(row.serviceIncomeAmount||0)}</span>:null}
-                </div>
-              </div>
-              <div className="shrink-0 text-right"><strong className="money block text-base font-black">{money(row.value)}</strong><span className="mt-0.5 block text-xs font-bold text-[var(--text-muted)]">{row.percentage.toFixed(0)}%</span></div>
-            </button>)}
-          </div>
-        </div>
-      </Surface>:null}
-
 {ledgerView==="CASHBOOK"?<>
       <Surface className="overflow-hidden">
         <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
@@ -1045,6 +968,84 @@ export default function CashCounterPage(){
         </div>:<div className="p-5 sm:p-7"><EmptyState title="No transactions yet" description="Cash movements and income earned during this session will appear here."/></div>}
       </Surface>
       </>}
+
+      {pendingQuickCash.length?<Surface className="scroll-mt-24 overflow-hidden">
+        <div id="pending-cash" className="scroll-mt-24 flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <div className="flex items-center gap-2"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
+        </div>
+        <div className="divide-y divide-[var(--border)]">
+          {pendingQuickCash.map((item)=><div key={item.id} className="grid gap-3 px-4 py-3.5 sm:grid-cols-[110px_minmax(0,1fr)_auto_auto] sm:items-center sm:px-5">
+            <div><span className={"inline-flex rounded-full px-2.5 py-1 text-xs font-black "+(item.direction==="IN"?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700")}>{item.direction==="IN"?"Cash In":cashOutTypeLabel(item.cashOutType)}</span></div>
+            <div className="min-w-0"><p className="truncate text-sm font-bold">{item.customerName||item.mobileNumber||"Walk-in customer"}</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">{item.cashOutType==="AEPS"&&item.aadhaarLastFour?"Aadhaar ••••"+item.aadhaarLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.cashOutType==="MICRO_ATM"&&item.cardLastFour?"Card ••••"+item.cardLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.transaction.transactionNumber} · {new Date(item.transaction.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></div>
+            <div className="text-left sm:text-right"><strong className="money block text-sm">{money(item.amount)}</strong>{Number(item.commissionAmount)>0?<span className="text-xs font-semibold text-[var(--accent)]">{item.cashOutType==="MICRO_ATM"?"Commission "+money(item.commissionAmount)+" · settle later":(item.cashOutType==="AEPS"?"Commission ":"Fee ")+money(item.commissionAmount)+" · "+commissionBreakdownLabel(Number(item.commissionAmount),item.commissionMode,item.commissionCashAmount)}</span>:null}</div>
+            <button type="button" onClick={()=>openPendingCompletion(item)} className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm font-black text-amber-800">Complete</button>
+          </div>)}
+        </div>
+      </Surface>:null}
+
+      <Surface className="overflow-hidden">
+        <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <h3 className="text-sm font-extrabold">Income breakdown</h3>
+        </div>
+        <div className="grid grid-cols-2 gap-px bg-[var(--border)] lg:grid-cols-4">
+          <MetricCard label="Commission" value={money(commissionIncome)} tone="accent"/>
+          <MetricCard label="Services" value={money(serviceIncome)} tone="in"/>
+          <MetricCard label="Received in cash" value={money(incomeCash)} tone="in"/>
+          <MetricCard label="Bank / UPI" value={money(incomeDigital)} tone="accent"/>
+        </div>
+      </Surface>
+
+      <Surface className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <div>
+            <h3 className="text-sm font-extrabold">Balance</h3>
+            <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{range==="today"?"Through the day":"Expected vs counted"}</p>
+          </div>
+          <div className="flex rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-1">
+            {([["today","Today"],["7d","7D"],["30d","30D"]] as Array<[Range,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>{setRange(id);setSelectedHistoryId(null);}} className={"min-h-8 rounded-lg px-3 text-[13px] font-extrabold "+(range===id?"bg-[var(--accent)] text-white shadow-sm":"text-[var(--text-muted)]")}>{label}</button>)}
+          </div>
+        </div>
+        <div className="p-4 sm:p-5">
+          {range==="today"?<CashMovementChart opening={Number(today.openingTotal)} movements={today.movements??[]} selectedId={selectedActivityId} onSelect={selectMovement}/>:<CashHistoryChart rows={historyRows} selectedId={selectedHistoryId} onSelect={(row)=>setSelectedHistoryId(row.id)}/>}
+        </div>
+      </Surface>
+
+      {serviceGroups.length?<Surface className="cash-service-mix overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
+          <div><h3 className="text-sm font-extrabold">Cash mix</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Where today&apos;s physical cash moved</p></div>
+          {serviceFilter?<button type="button" onClick={()=>setServiceFilter(null)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-bold text-[var(--accent)]">Clear</button>:null}
+        </div>
+        <div className="grid lg:grid-cols-[330px_minmax(0,1fr)]">
+          <div className="cash-service-donut border-b border-[var(--border)] p-5 sm:p-6 lg:border-b-0 lg:border-r">
+            <FundsAllocationDonut
+              items={serviceGroups}
+              total={serviceMovementTotal}
+              selectedId={serviceFilter}
+              centerLabel="Cash moved"
+              centerHint="Tap a slice"
+              ariaLabel="Today cash movement by service"
+              className="cash-service-donut-frame"
+              onSelect={(item)=>setServiceFilter((current)=>current===item.id?null:item.id)}
+            />
+          </div>
+          <div className="divide-y divide-[var(--border)]">
+            {serviceGroups.map((row)=><button key={row.id} type="button" onClick={()=>setServiceFilter((current)=>current===row.id?null:row.id)} className={"cash-service-row grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3.5 text-left transition sm:px-5 "+(serviceFilter===row.id?"bg-[var(--accent-soft)]":"hover:bg-[var(--surface-soft)]")}>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{background:row.color}}/><strong className="truncate text-[15px] font-extrabold">{row.label}</strong></div>
+                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 pl-5 text-[13px] font-semibold text-[var(--text-muted)]">
+                  <span>{row.count} txn{row.count===1?"":"s"}</span>
+                  <span className="text-[var(--money-in)]">In {money(row.cashIn)}</span>
+                  <span className="text-[var(--money-out)]">Out {money(row.cashOut)}</span>
+                  {Number(row.commissionAmount)>0?<span className="text-[var(--accent)]">Commission income {money(row.commissionAmount)}</span>:null}
+                  {Number(row.serviceIncomeAmount||0)>0?<span className="text-[var(--money-in)]">Service income {money(row.serviceIncomeAmount||0)}</span>:null}
+                </div>
+              </div>
+              <div className="shrink-0 text-right"><strong className="money block text-base font-black">{money(row.value)}</strong><span className="mt-0.5 block text-xs font-bold text-[var(--text-muted)]">{row.percentage.toFixed(0)}%</span></div>
+            </button>)}
+          </div>
+        </div>
+      </Surface>:null}
+
 
       <div id="cash-close-panel" className="scroll-mt-20">
         <Surface className="counter-surface overflow-hidden">
