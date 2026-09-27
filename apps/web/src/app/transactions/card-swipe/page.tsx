@@ -250,6 +250,7 @@ export default function CardSwipePage(){
   const [quickMobile,setQuickMobile]=useState("");
   const [quickBank,setQuickBank]=useState("");
   const [quickLastFour,setQuickLastFour]=useState("");
+  const [cardType,setCardType]=useState("CREDIT");
   const [cardNetworkId,setCardNetworkId]=useState("");
   const [addingCard,setAddingCard]=useState(false);
   const [newCardBank,setNewCardBank]=useState("");
@@ -359,6 +360,7 @@ export default function CardSwipePage(){
     (!!customerDigits&&c.cards.some(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)))
   ).slice(0,8):[];
   const selectedCard=customer?.cards.find(card=>card.id===cardId);
+  const visaNetworkId=networks.find(network=>network.isActive&&network.name.trim().toLowerCase()==="visa")?.id??"";
   const selectedCardHistory=cardId?customerHistory.find(row=>row.cardSwipe?.customerCard?.id===cardId):undefined;
   const selectedCardSetup=selectedCardHistory?.cardSwipe;
   const selectedCardHistoryProvider=selectedCardSetup?providers.find(item=>item.id===selectedCardSetup.providerId):undefined;
@@ -426,8 +428,9 @@ export default function CardSwipePage(){
   useEffect(()=>{
     if(customerMode!=="existing"||!selectedCard)return;
     const savedNetworkId=selectedCard.cardNetworkId??selectedCardSetup?.customerCard?.cardNetworkId??"";
-    setCardNetworkId(savedNetworkId&&networks.some(network=>network.id===savedNetworkId&&network.isActive)?savedNetworkId:"");
-  },[customerMode,selectedCard,selectedCardSetup,networks]);
+    setCardNetworkId(savedNetworkId&&networks.some(network=>network.id===savedNetworkId&&network.isActive)?savedNetworkId:visaNetworkId);
+    setCardType(selectedCard.cardType?.trim().toUpperCase()||"CREDIT");
+  },[customerMode,selectedCard,selectedCardSetup,networks,visaNetworkId]);
 
   useEffect(()=>{
     if(customerMode!=="existing"||!cardId||historyLoading)return;
@@ -563,6 +566,7 @@ export default function CardSwipePage(){
     setShowOptional(false);
     setUsualProviderId("");
     setUsualCardId("");
+    setCardType("CREDIT");
     setCardNetworkId("");
     setSaved(null);
     setError("");
@@ -577,6 +581,7 @@ export default function CardSwipePage(){
     setQuickMobile("");
     setQuickBank("");
     setQuickLastFour("");
+    setCardType("CREDIT");
     setCardNetworkId("");
     setUsualProviderId("");
     setUsualCardId("");
@@ -608,6 +613,8 @@ export default function CardSwipePage(){
   function beginNewCustomer(){
     const typedName=customerSearch.trim();
     switchCustomerMode("new");
+    setCardType("CREDIT");
+    setCardNetworkId(visaNetworkId);
     if(typedName&&!/\d{4,}/.test(typedName))setQuickName(typedName.toUpperCase());
   }
 
@@ -615,7 +622,7 @@ export default function CardSwipePage(){
     if(!customer)return;
     setNewCardBank("");
     setNewCardType("CREDIT");
-    setNewCardNetworkId("");
+    setNewCardNetworkId(visaNetworkId);
     setNewCardLastFour("");
     setNewCardNickname("");
     setError("");
@@ -710,15 +717,15 @@ export default function CardSwipePage(){
     e.preventDefault();setError("");
     setSaving(true);
     try{
-      if(customerMode==="existing"&&selectedCard&&cardNetworkId&&selectedCard.cardNetworkId!==cardNetworkId){
-        const updatedCard=await apiFetch<Card>("/customers/cards/"+selectedCard.id,{method:"PATCH",body:JSON.stringify({cardNetworkId})});
+      if(customerMode==="existing"&&selectedCard&&cardNetworkId&&(selectedCard.cardNetworkId!==cardNetworkId||(selectedCard.cardType?.trim().toUpperCase()||"CREDIT")!==cardType)){
+        const updatedCard=await apiFetch<Card>("/customers/cards/"+selectedCard.id,{method:"PATCH",body:JSON.stringify({cardNetworkId,cardType})});
         setCustomers(current=>current.map(item=>item.id===customerId?{...item,cards:item.cards.map(card=>card.id===updatedCard.id?updatedCard:card)}:item));
       }
       const result=await apiFetch<SavedSwipe>("/transactions/card-swipe",{method:"POST",body:JSON.stringify({
         ...(customerMode==="new"?{
           newCustomer:{
             fullName:quickName.trim().toUpperCase(),mobile:quickMobile.trim(),
-            bankName:quickBank.trim(),cardNetworkId,lastFourDigits:quickLastFour,
+            bankName:quickBank.trim(),cardType,cardNetworkId,lastFourDigits:quickLastFour,
           },
         }:{customerId,customerCardId:cardId}),
         swipeAmount:swipe,providerId,gatewayId,
@@ -859,7 +866,8 @@ export default function CardSwipePage(){
               <Field label="Mobile number"><div className="flex overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--accent)]"><span className="grid h-11 place-items-center border-r border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-semibold text-[var(--text-muted)]">+91</span><input className="h-11 min-w-0 flex-1 bg-transparent px-3 text-base outline-none" type="tel" inputMode="numeric" value={quickMobile} onChange={e=>setQuickMobile(e.target.value.replace(/\D/g,"").slice(0,10))} maxLength={10} placeholder="10-digit mobile"/></div>{quickMobile.length>0&&!quickMobileValid?<p className="mt-1 text-[11px] text-amber-600">Enter a valid Indian mobile number.</p>:null}</Field>
               <Field label="Card bank"><SearchableSelect className={control} value={quickBank} onChange={e=>setQuickBank(e.target.value)}><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
               <Field label="Card last 4"><input className={control+" font-semibold tracking-[.12em]"} inputMode="numeric" value={quickLastFour} onChange={e=>setQuickLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000"/></Field>
-              <Field label="Card network" className="sm:col-span-2"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select card network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field>
+              <Field label="Card type"><SearchableSelect className={control} value={cardType} onChange={e=>setCardType(e.target.value)}>{["CREDIT","DEBIT","BUSINESS","OTHER"].map(type=><option key={type} value={type}>{type}</option>)}</SearchableSelect></Field>
+              <Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select card network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field>
               {possibleExistingCustomers.length?<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:col-span-2"><p className="text-xs font-semibold text-amber-900">Possible existing customer</p><div className="mt-2 space-y-1">{possibleExistingCustomers.map(match=><button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between rounded-lg bg-white/70 px-3 py-2 text-left"><span><strong className="block text-xs text-slate-900">{match.fullName}</strong><span className="text-[11px] text-slate-500">{formatIndianMobile(match.mobile)}</span></span><span className="text-xs font-semibold text-indigo-700">Use existing →</span></button>)}</div></div>:null}
             </div>:customer?<div className="mt-3">
               <div className="flex items-center gap-3">
@@ -871,7 +879,7 @@ export default function CardSwipePage(){
                 {activeCards.map(card=>{const selected=card.id===cardId;const usual=card.id===usualCardId;const network=networks.find(item=>item.id===card.cardNetworkId);const last=customerHistory.find(row=>row.cardSwipe?.customerCard?.id===card.id);return <button key={card.id} type="button" onClick={()=>setCardId(card.id)} className={"swipe-card-choice min-w-[168px] rounded-xl border px-3 py-2.5 text-left "+(selected?"swipe-card-choice-selected border-[var(--accent)] bg-[var(--accent-soft)]":"border-[var(--border)] bg-[var(--surface)]")}><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-bold">{card.bankName}</span>{selected?<span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[8px] font-semibold text-white">Selected</span>:usual?<span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700">Usual</span>:null}</div><p className="mt-1 font-mono text-xs font-bold tracking-[.08em]">•••• {card.lastFourDigits}</p><p className="mt-1 truncate text-[9px] font-semibold text-[var(--text-muted)]">{[network?.name,card.cardType].filter(Boolean).join(" · ")||"Network not set"}{last?" · Used "+new Date(last.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"}):""}</p></button>;})}
                 <button type="button" onClick={openAddCard} className="flex min-w-[110px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] px-3 text-xs font-semibold text-[var(--accent)]">+ Add card</button>
               </div>
-              {cardId?<div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,220px)_1fr]"><Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field><div className="self-end pb-1">{historyLoading?<p className="text-[10px] font-semibold text-[var(--text-muted)]">Loading this card's last setup…</p>:selectedCardSetup?<p className="rounded-lg bg-[var(--accent-soft)] px-2.5 py-2 text-[10px] font-bold text-[var(--accent)]">Last setup loaded: {selectedCardHistoryProvider?.name||"Provider"} · {selectedCardHistoryGateway?.gatewayName||"Gateway"} · {selectedCardHistoryTerm?.name||"Term"} · gateway {rateText(Number(selectedCardSetup.providerChargeRate))}% · commission {rateText(Number(selectedCardSetup.commissionRate))}%</p>:<p className="text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Choose the setup once and it will be reused next time.</p>}</div></div>:null}
+              {cardId?<div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,180px)_minmax(0,220px)_1fr]"><Field label="Card type"><SearchableSelect className={control} value={cardType} onChange={e=>setCardType(e.target.value)}>{["CREDIT","DEBIT","BUSINESS","OTHER"].map(type=><option key={type} value={type}>{type}</option>)}</SearchableSelect></Field><Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field><div className="self-end pb-1">{historyLoading?<p className="text-[10px] font-semibold text-[var(--text-muted)]">Loading this card's last setup…</p>:selectedCardSetup?<p className="rounded-lg bg-[var(--accent-soft)] px-2.5 py-2 text-[10px] font-bold text-[var(--accent)]">Last setup loaded: {selectedCardHistoryProvider?.name||"Provider"} · {selectedCardHistoryGateway?.gatewayName||"Gateway"} · {selectedCardHistoryTerm?.name||"Term"} · gateway {rateText(Number(selectedCardSetup.providerChargeRate))}% · commission {rateText(Number(selectedCardSetup.commissionRate))}%</p>:<p className="text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Choose the setup once and it will be reused next time.</p>}</div></div>:null}
             </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, mobile or card last 4" autoComplete="off" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
             {customer?<CustomerCardSwipeHistory rows={customerHistory} loading={historyLoading}/>:null}
           </section>

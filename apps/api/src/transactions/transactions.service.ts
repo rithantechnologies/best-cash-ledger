@@ -380,7 +380,7 @@ export class TransactionsService {
           data: {
             customerId: customer.id,
             bankName: dto.newCustomer.bankName.trim(),
-            cardType: 'CREDIT',
+            cardType: dto.newCustomer.cardType?.trim() || 'CREDIT',
             cardNetworkId: dto.newCustomer.cardNetworkId,
             lastFourDigits: dto.newCustomer.lastFourDigits,
           },

@@ -38,7 +38,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[networks,setNetworks]=useState<Network[]>([]);
   const [mode,setMode]=useState<"existing"|"new">("existing"),[query,setQuery]=useState(""),[matches,setMatches]=useState<Customer[]>([]),[searching,setSearching]=useState(false),[customer,setCustomer]=useState<Customer|null>(null),[cardId,setCardId]=useState("");
   const [newName,setNewName]=useState(""),[newMobile,setNewMobile]=useState(""),[newBank,setNewBank]=useState(""),[newLastFour,setNewLastFour]=useState("");
-  const [network,setNetwork]=useState(""),[amount,setAmount]=useState(""),[providerId,setProviderId]=useState(""),[gatewayId,setGatewayId]=useState(""),[termId,setTermId]=useState(""),[commissionRate,setCommissionRate]=useState("2.3"),[previousRate,setPreviousRate]=useState<number|null>(null),[commissionTouched,setCommissionTouched]=useState(false);
+  const [cardType,setCardType]=useState("CREDIT"),[network,setNetwork]=useState(""),[amount,setAmount]=useState(""),[providerId,setProviderId]=useState(""),[gatewayId,setGatewayId]=useState(""),[termId,setTermId]=useState(""),[commissionRate,setCommissionRate]=useState("2.3"),[previousRate,setPreviousRate]=useState<number|null>(null),[commissionTouched,setCommissionTouched]=useState(false);
   const [swipeHistory,setSwipeHistory]=useState<SwipeHistory[]>([]),[historyLoading,setHistoryLoading]=useState(false);
 
   useEffect(()=>setReady(true),[]);
@@ -62,6 +62,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   },[open,mode,query,customer]);
 
   const provider=providers.find(p=>p.id===providerId),gateway=provider?.gateways.find(g=>g.id===gatewayId),term=terms.find(t=>t.id===termId),selectedCard=customer?.cards.find(c=>c.id===cardId);
+  const visaNetworkId=networks.find(item=>item.isActive!==false&&item.name.trim().toLowerCase()==="visa")?.id??"";
   const selectedCardHistory=cardId?swipeHistory.find(row=>row.cardSwipe?.customerCard?.id===cardId):undefined;
   const historySetup=selectedCardHistory?.cardSwipe;
   const historyProvider=historySetup?providers.find(p=>p.id===historySetup.providerId):undefined;
@@ -86,8 +87,9 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   useEffect(()=>{setCommissionTouched(false);},[termId]);
   useEffect(()=>{
     if(!selectedCard)return;
-    setNetwork(selectedCard.cardNetworkId??"");
-  },[cardId,selectedCard]);
+    setNetwork(selectedCard.cardNetworkId&&networks.some(item=>item.id===selectedCard.cardNetworkId&&item.isActive!==false)?selectedCard.cardNetworkId:visaNetworkId);
+    setCardType(selectedCard.cardType?.trim().toUpperCase()||"CREDIT");
+  },[cardId,selectedCard,networks,visaNetworkId]);
   useEffect(()=>{
     if(!customer?.id){setSwipeHistory([]);setPreviousRate(null);setHistoryLoading(false);return;}
     let cancelled=false;setSwipeHistory([]);setPreviousRate(null);setHistoryLoading(true);
@@ -131,24 +133,24 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
     return()=>{cancelled=true;};
   },[customer?.id,providerId,gatewayId,termId,term,historySetup,selectedCardHistory,commissionTouched]);
 
-  function reset(){setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setError("");}
+  function reset(){setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setCardType("CREDIT");setNetwork("");setAmount("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setError("");}
   function close(){setOpen(false);reset();}
   function chooseCustomer(next:Customer){
     setSwipeHistory([]);setCustomer(next);setQuery(next.fullName+(next.mobile?" · "+next.mobile:""));setMatches([]);setPreviousRate(null);setCommissionTouched(false);
     const digits=query.replace(/\D/g,"");const cards=next.cards.filter(c=>c.isActive);const matched=next.match?.cardLastFour?cards.find(c=>c.lastFourDigits===next.match?.cardLastFour):digits?cards.find(c=>c.lastFourDigits.includes(digits.slice(-4))):undefined;setCardId(matched?.id??(cards.length===1?cards[0].id:""));
   }
-  function changeMode(next:"existing"|"new"){setMode(next);setCustomer(null);setCardId("");setQuery("");setMatches([]);setNetwork("");setSwipeHistory([]);setPreviousRate(null);setError("");setCommissionTouched(false);}
+  function changeMode(next:"existing"|"new"){setMode(next);setCustomer(null);setCardId("");setQuery("");setMatches([]);setCardType("CREDIT");setNetwork(next==="new"?visaNetworkId:"");setSwipeHistory([]);setPreviousRate(null);setError("");setCommissionTouched(false);}
 
-  const existingReady=!!customer&&!!cardId&&!!network,newReady=!!newName.trim()&&validMobile(newMobile)&&!!newBank&&newLastFour.length===4&&!!network;
+  const existingReady=!!customer&&!!cardId&&!!cardType&&!!network,newReady=!!newName.trim()&&validMobile(newMobile)&&!!newBank&&newLastFour.length===4&&!!cardType&&!!network;
   const commissionValue=Number(commissionRate),commissionReady=commissionRate.trim()!==""&&Number.isFinite(commissionValue)&&commissionValue>=0&&commissionValue<=100;
   const canSave=!saving&&swipe>0&&commissionReady&&!!providerId&&!!gatewayId&&!!termId&&(mode==="existing"?existingReady:newReady);
 
   async function submit(e:FormEvent){
     e.preventDefault();if(!canSave)return;setSaving(true);setError("");
     try{
-      if(mode==="existing"&&selectedCard&&selectedCard.cardNetworkId!==network){await apiFetch("/customers/cards/"+selectedCard.id,{method:"PATCH",body:JSON.stringify({cardNetworkId:network})});}
+      if(mode==="existing"&&selectedCard&&(selectedCard.cardNetworkId!==network||(selectedCard.cardType?.trim().toUpperCase()||"CREDIT")!==cardType)){await apiFetch("/customers/cards/"+selectedCard.id,{method:"PATCH",body:JSON.stringify({cardNetworkId:network,cardType})});}
       const result=await apiFetch<SavedSwipe>("/transactions/card-swipe",{method:"POST",body:JSON.stringify({
-        ...(mode==="new"?{newCustomer:{fullName:newName.trim(),mobile:newMobile,bankName:newBank,cardNetworkId:network,lastFourDigits:newLastFour}}:{customerId:customer!.id,customerCardId:cardId}),
+        ...(mode==="new"?{newCustomer:{fullName:newName.trim(),mobile:newMobile,bankName:newBank,cardType,cardNetworkId:network,lastFourDigits:newLastFour}}:{customerId:customer!.id,customerCardId:cardId}),
         swipeAmount:swipe,providerId,gatewayId,providerChargeRate:providerRate,commissionRate:Number(commissionRate),paymentTermId:termId,dueAt:dueDate(term!),settledNow:true,
       })});
       try{const customerId=mode==="existing"?customer!.id:result.createdCustomer?.customer.id;if(customerId)localStorage.setItem("cashledger_card_customer_pref_"+customerId,JSON.stringify({providerId,gatewayId,termId,cardId:mode==="existing"?cardId:result.createdCustomer?.card.id}));}catch{}
@@ -170,7 +172,8 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
           </div>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Card network *</span><SearchableSelect mobileSheet searchPlaceholder="Search card network" className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={network} onChange={e=>setNetwork(e.target.value)}><option value="">Choose network</option>{networks.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SearchableSelect></label>
+            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Card type *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={cardType} onChange={e=>setCardType(e.target.value)}>{["CREDIT","DEBIT","BUSINESS","OTHER"].map(type=><option key={type} value={type}>{type}</option>)}</SearchableSelect></label>
+            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Card network *</span><SearchableSelect mobileSheet searchPlaceholder="Search card network" className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={network} onChange={e=>setNetwork(e.target.value)}><option value="">Choose network</option>{networks.filter(item=>item.isActive!==false).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SearchableSelect></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Swipe amount *</span><div className="mt-1 flex min-h-11 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3"><span className="mr-2 font-black">₹</span><input className="min-w-0 flex-1 bg-transparent text-lg font-black outline-none" inputMode="decimal" value={amount} onChange={e=>setAmount(cleanAmount(e.target.value))} placeholder="0"/></div></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Provider / wallet *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={providerId} onChange={e=>setProviderId(e.target.value)}><option value="">Choose provider</option>{providers.filter(p=>p.isActive!==false).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Gateway *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={gatewayId} onChange={e=>setGatewayId(e.target.value)}><option value="">Choose gateway</option>{provider?.gateways.filter(g=>g.isActive!==false).map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {rateText(g.id===gatewayId?providerRate:Number(g.defaultChargeRate))}%</option>)}</SearchableSelect></label>
