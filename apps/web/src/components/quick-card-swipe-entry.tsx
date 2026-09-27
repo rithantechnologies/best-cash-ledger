@@ -12,7 +12,14 @@ type Provider={id:string;name:string;isActive?:boolean;gateways:Gateway[]};
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionRate:string;isActive?:boolean};
 type Network={id:string;name:string;isActive?:boolean};
 type CommissionRule={commissionRate:string}|null;
-type SwipeHistory={commissions:{rate:string|null}[]};
+type SwipeHistory={
+  transactionAt:string;
+  commissions:{rate:string|null}[];
+  cardSwipe:{
+    providerId:string;gatewayId:string;providerChargeRate:string;commissionRate:string;paymentTermId:string;
+    customerCard:{id:string;bankName:string;lastFourDigits:string;cardNetworkId?:string|null}|null;
+  }|null;
+};
 type SavedSwipe={transaction:{id:string;transactionNumber:string};createdCustomer:{customer:{id:string};card:Card}|null};
 
 const INDIAN_BANKS=[
@@ -32,6 +39,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const [mode,setMode]=useState<"existing"|"new">("existing"),[query,setQuery]=useState(""),[matches,setMatches]=useState<Customer[]>([]),[searching,setSearching]=useState(false),[customer,setCustomer]=useState<Customer|null>(null),[cardId,setCardId]=useState("");
   const [newName,setNewName]=useState(""),[newMobile,setNewMobile]=useState(""),[newBank,setNewBank]=useState(""),[newLastFour,setNewLastFour]=useState("");
   const [network,setNetwork]=useState(""),[amount,setAmount]=useState(""),[providerId,setProviderId]=useState(""),[gatewayId,setGatewayId]=useState(""),[termId,setTermId]=useState(""),[commissionRate,setCommissionRate]=useState("2.3"),[previousRate,setPreviousRate]=useState<number|null>(null),[commissionTouched,setCommissionTouched]=useState(false);
+  const [swipeHistory,setSwipeHistory]=useState<SwipeHistory[]>([]),[historyLoading,setHistoryLoading]=useState(false);
 
   useEffect(()=>setReady(true),[]);
   useEffect(()=>{const fn=()=>setOpen(true);window.addEventListener("cashledger:open-quick-card-swipe",fn);return()=>window.removeEventListener("cashledger:open-quick-card-swipe",fn);},[]);
@@ -54,14 +62,23 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   },[open,mode,query,customer]);
 
   const provider=providers.find(p=>p.id===providerId),gateway=provider?.gateways.find(g=>g.id===gatewayId),term=terms.find(t=>t.id===termId),selectedCard=customer?.cards.find(c=>c.id===cardId);
-  const swipe=Number(amount||0),commission=swipe*Number(commissionRate||0)/100,providerFee=swipe*Number(gateway?.defaultChargeRate||0)/100,payable=Math.max(0,swipe-commission),profit=commission-providerFee;
+  const selectedCardHistory=cardId?swipeHistory.find(row=>row.cardSwipe?.customerCard?.id===cardId):undefined;
+  const historySetup=selectedCardHistory?.cardSwipe;
+  const historyProvider=historySetup?providers.find(p=>p.id===historySetup.providerId):undefined;
+  const historyGateway=historyProvider?.gateways.find(g=>g.id===historySetup?.gatewayId);
+  const historyTerm=historySetup?terms.find(t=>t.id===historySetup.paymentTermId):undefined;
+  const providerRate=historySetup&&historySetup.providerId===providerId&&historySetup.gatewayId===gatewayId?Number(historySetup.providerChargeRate):Number(gateway?.defaultChargeRate||0);
+  const swipe=Number(amount||0),commission=swipe*Number(commissionRate||0)/100,providerFee=swipe*providerRate/100,payable=Math.max(0,swipe-commission),profit=commission-providerFee;
   const activeCards=customer?.cards.filter(c=>c.isActive)??[];
 
   useEffect(()=>{
     if(!provider)return;
     let remembered="";try{remembered=localStorage.getItem("cashledger_card_gateway_"+provider.id)||"";}catch{}
-    const next=provider.gateways.find(g=>g.id===remembered&&g.isActive!==false)??provider.gateways.find(g=>g.isActive!==false);
-    setGatewayId(next?.id??"");
+    setGatewayId(current=>{
+      if(provider.gateways.some(g=>g.id===current&&g.isActive!==false))return current;
+      const next=provider.gateways.find(g=>g.id===remembered&&g.isActive!==false)??provider.gateways.find(g=>g.isActive!==false);
+      return next?.id??"";
+    });
     try{localStorage.setItem("cashledger_card_provider",provider.id);}catch{}
     setCommissionTouched(false);
   },[providerId,provider]);
@@ -72,29 +89,55 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
     setNetwork(selectedCard.cardNetworkId??"");
   },[cardId,selectedCard]);
   useEffect(()=>{
-    if(!customer?.id){setPreviousRate(null);return;}
-    let cancelled=false;setPreviousRate(null);
-    apiFetch<SwipeHistory[]>("/transactions/customer/"+customer.id+"/card-swipes").then(rows=>{
-      if(cancelled)return;const rate=rows[0]?.commissions?.find(c=>c.rate!==null)?.rate;setPreviousRate(rate===undefined||rate===null?null:Number(rate));
-    }).catch(()=>{if(!cancelled)setPreviousRate(null);});return()=>{cancelled=true;};
+    if(!customer?.id){setSwipeHistory([]);setPreviousRate(null);setHistoryLoading(false);return;}
+    let cancelled=false;setSwipeHistory([]);setPreviousRate(null);setHistoryLoading(true);
+    apiFetch<SwipeHistory[]>("/transactions/customer/"+customer.id+"/card-swipes")
+      .then(rows=>{if(!cancelled)setSwipeHistory(rows);})
+      .catch(()=>{if(!cancelled)setSwipeHistory([]);})
+      .finally(()=>{if(!cancelled)setHistoryLoading(false);});
+    return()=>{cancelled=true;};
   },[customer?.id]);
   useEffect(()=>{
+    if(!selectedCard||!historySetup)return;
+    const priorProvider=providers.find(p=>p.id===historySetup.providerId&&p.isActive!==false);
+    if(priorProvider?.gateways.some(g=>g.id===historySetup.gatewayId&&g.isActive!==false)){
+      setProviderId(historySetup.providerId);
+      setGatewayId(historySetup.gatewayId);
+    }
+    if(terms.some(t=>t.id===historySetup.paymentTermId&&t.isActive!==false))setTermId(historySetup.paymentTermId);
+    const priorNetworkId=selectedCard.cardNetworkId??historySetup.customerCard?.cardNetworkId??"";
+    if(priorNetworkId&&networks.some(n=>n.id===priorNetworkId&&n.isActive!==false))setNetwork(priorNetworkId);
+    const priorCommission=Number(historySetup.commissionRate||selectedCardHistory?.commissions.find(c=>c.rate!==null)?.rate||NaN);
+    if(Number.isFinite(priorCommission)){
+      setPreviousRate(priorCommission);
+      if(!commissionTouched)setCommissionRate(rateText(priorCommission));
+    }
+  },[selectedCard,historySetup,selectedCardHistory,providers,terms,networks,commissionTouched]);
+  useEffect(()=>{
     if(commissionTouched||!termId)return;
+    const historicalRate=historySetup&&historySetup.providerId===providerId&&historySetup.gatewayId===gatewayId&&historySetup.paymentTermId===termId
+      ?Number(historySetup.commissionRate||selectedCardHistory?.commissions.find(c=>c.rate!==null)?.rate||NaN):NaN;
+    if(Number.isFinite(historicalRate)){
+      setPreviousRate(historicalRate);
+      setCommissionRate(rateText(historicalRate));
+      return;
+    }
+    setPreviousRate(null);
     let cancelled=false;const q=new URLSearchParams({transactionType:"CARD_SWIPE",paymentTermId:termId});
     if(customer?.id)q.set("customerId",customer.id);if(providerId)q.set("providerId",providerId);if(gatewayId)q.set("gatewayId",gatewayId);
     apiFetch<CommissionRule>("/settings/commission-rules/resolve?"+q.toString()).then(rule=>{
-      if(cancelled)return;const termDefault=Number(term?.defaultCommissionRate||0);const next=previousRate!==null?previousRate:rule?Number(rule.commissionRate):termDefault>0?termDefault:2.3;setCommissionRate(rateText(next));
-    }).catch(()=>{if(!cancelled){const termDefault=Number(term?.defaultCommissionRate||0);setCommissionRate(rateText(previousRate!==null?previousRate:termDefault>0?termDefault:2.3));}});
+      if(cancelled)return;const termDefault=Number(term?.defaultCommissionRate||0);const next=rule?Number(rule.commissionRate):termDefault>0?termDefault:2.3;setCommissionRate(rateText(next));
+    }).catch(()=>{if(!cancelled){const termDefault=Number(term?.defaultCommissionRate||0);setCommissionRate(rateText(termDefault>0?termDefault:2.3));}});
     return()=>{cancelled=true;};
-  },[customer?.id,providerId,gatewayId,termId,term,previousRate,commissionTouched]);
+  },[customer?.id,providerId,gatewayId,termId,term,historySetup,selectedCardHistory,commissionTouched]);
 
-  function reset(){setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setError("");}
+  function reset(){setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setError("");}
   function close(){setOpen(false);reset();}
   function chooseCustomer(next:Customer){
-    setCustomer(next);setQuery(next.fullName+(next.mobile?" · "+next.mobile:""));setMatches([]);setPreviousRate(null);setCommissionTouched(false);
+    setSwipeHistory([]);setCustomer(next);setQuery(next.fullName+(next.mobile?" · "+next.mobile:""));setMatches([]);setPreviousRate(null);setCommissionTouched(false);
     const digits=query.replace(/\D/g,"");const cards=next.cards.filter(c=>c.isActive);const matched=next.match?.cardLastFour?cards.find(c=>c.lastFourDigits===next.match?.cardLastFour):digits?cards.find(c=>c.lastFourDigits.includes(digits.slice(-4))):undefined;setCardId(matched?.id??(cards.length===1?cards[0].id:""));
   }
-  function changeMode(next:"existing"|"new"){setMode(next);setCustomer(null);setCardId("");setQuery("");setMatches([]);setNetwork("");setError("");setCommissionTouched(false);}
+  function changeMode(next:"existing"|"new"){setMode(next);setCustomer(null);setCardId("");setQuery("");setMatches([]);setNetwork("");setSwipeHistory([]);setPreviousRate(null);setError("");setCommissionTouched(false);}
 
   const existingReady=!!customer&&!!cardId&&!!network,newReady=!!newName.trim()&&validMobile(newMobile)&&!!newBank&&newLastFour.length===4&&!!network;
   const commissionValue=Number(commissionRate),commissionReady=commissionRate.trim()!==""&&Number.isFinite(commissionValue)&&commissionValue>=0&&commissionValue<=100;
@@ -106,7 +149,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
       if(mode==="existing"&&selectedCard&&selectedCard.cardNetworkId!==network){await apiFetch("/customers/cards/"+selectedCard.id,{method:"PATCH",body:JSON.stringify({cardNetworkId:network})});}
       const result=await apiFetch<SavedSwipe>("/transactions/card-swipe",{method:"POST",body:JSON.stringify({
         ...(mode==="new"?{newCustomer:{fullName:newName.trim(),mobile:newMobile,bankName:newBank,cardNetworkId:network,lastFourDigits:newLastFour}}:{customerId:customer!.id,customerCardId:cardId}),
-        swipeAmount:swipe,providerId,gatewayId,providerChargeRate:Number(gateway!.defaultChargeRate),commissionRate:Number(commissionRate),paymentTermId:termId,dueAt:dueDate(term!),settledNow:true,
+        swipeAmount:swipe,providerId,gatewayId,providerChargeRate:providerRate,commissionRate:Number(commissionRate),paymentTermId:termId,dueAt:dueDate(term!),settledNow:true,
       })});
       try{const customerId=mode==="existing"?customer!.id:result.createdCustomer?.customer.id;if(customerId)localStorage.setItem("cashledger_card_customer_pref_"+customerId,JSON.stringify({providerId,gatewayId,termId,cardId:mode==="existing"?cardId:result.createdCustomer?.card.id}));}catch{}
       close();onSaved?.();window.dispatchEvent(new CustomEvent("cashledger:card-swipe-saved",{detail:{transactionId:result.transaction.id}}));
@@ -122,7 +165,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
           <div className="rounded-[18px] bg-[var(--surface-soft)] p-3">
             <div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface)] p-1"><button type="button" onClick={()=>changeMode("existing")} className={"min-h-9 rounded-lg text-xs font-black "+(mode==="existing"?"bg-indigo-600 text-white":"text-[var(--text-muted)]")}>Existing customer</button><button type="button" onClick={()=>changeMode("new")} className={"min-h-9 rounded-lg text-xs font-black "+(mode==="new"?"bg-indigo-600 text-white":"text-[var(--text-muted)]")}>New customer</button></div>
             {mode==="existing"?<div className="relative mt-3"><label className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Name, mobile or card last 4 *</label><input className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none" value={query} onChange={e=>{setQuery(e.target.value);setCustomer(null);setCardId("");setNetwork("");}} placeholder="Search customer" autoComplete="off"/>{!customer&&canSearch(query)?<div className="absolute inset-x-0 top-[68px] z-30 max-h-56 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">{searching?<p className="p-3 text-xs text-[var(--text-muted)]">Searching…</p>:matches.length?matches.map(c=><button type="button" key={c.id} onClick={()=>chooseCustomer(c)} className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-[var(--surface-soft)]"><strong className="block text-sm">{c.fullName}</strong><span className="text-[11px] text-[var(--text-muted)]">{c.mobile||"No mobile"}{c.match?.cardLastFour?" · Card •••• "+c.match.cardLastFour:""}</span></button>):<p className="p-3 text-xs text-[var(--text-muted)]">No match. Choose New customer above.</p>}</div>:null}
-            {customer?<div className="mt-3"><label className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Customer card *</label><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={cardId} onChange={e=>setCardId(e.target.value)}><option value="">Choose card</option>{activeCards.map(card=><option key={card.id} value={card.id}>{card.bankName} · •••• {card.lastFourDigits}{card.cardNetwork?.name?" · "+card.cardNetwork.name:""}</option>)}</SearchableSelect></div>:null}</div>:
+            {customer?<div className="mt-3"><label className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Customer card *</label><div className="mt-2 flex gap-2 overflow-x-auto pb-1">{activeCards.map(card=>{const selected=card.id===cardId;const last=swipeHistory.find(row=>row.cardSwipe?.customerCard?.id===card.id);return <button key={card.id} type="button" onClick={()=>{setCardId(card.id);setCommissionTouched(false);}} className={"min-w-[168px] rounded-2xl border px-3 py-3 text-left transition "+(selected?"border-indigo-500 bg-indigo-50 shadow-[0_8px_20px_rgba(79,70,229,.10)]":"border-[var(--border)] bg-[var(--surface)] hover:border-indigo-200")}><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-black">{card.bankName}</span>{selected?<span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[9px] font-black text-white">Selected</span>:null}</div><p className="mt-2 font-mono text-sm font-black tracking-[.12em]">•••• {card.lastFourDigits}</p><div className="mt-2 flex items-center justify-between gap-2 text-[9px] font-bold text-[var(--text-muted)]"><span className="truncate">{[card.cardNetwork?.name,card.cardType].filter(Boolean).join(" · ")||"Network not set"}</span><span className="shrink-0">{last?"Used "+new Date(last.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"}):"No prior swipe"}</span></div></button>;})}</div>{historyLoading&&cardId?<p className="mt-2 text-[10px] font-bold text-[var(--text-muted)]">Loading this card&apos;s last setup…</p>:selectedCardHistory&&historySetup?<p className="mt-2 rounded-lg bg-indigo-50 px-2.5 py-2 text-[10px] font-bold text-indigo-700">Last setup loaded: {historyProvider?.name||"Provider"} · {historyGateway?.gatewayName||"Gateway"} · {historyTerm?.name||"Term"} · gateway {rateText(Number(historySetup.providerChargeRate))}% · commission {rateText(Number(historySetup.commissionRate))}%</p>:cardId?<p className="mt-2 text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Configured defaults will be used.</p>:<p className="mt-2 text-[10px] font-semibold text-[var(--text-muted)]">Tap a card to continue.</p>}</div>:null}</div>:
             <div className="mt-3 grid gap-2 sm:grid-cols-2"><input className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Customer name *"/><input className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" inputMode="numeric" value={newMobile} onChange={e=>setNewMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile *"/><SearchableSelect mobileSheet className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={newBank} onChange={e=>setNewBank(e.target.value)}><option value="">Card bank *</option>{INDIAN_BANKS.map(bank=><option key={bank}>{bank}</option>)}</SearchableSelect><input className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold tracking-[.12em]" inputMode="numeric" value={newLastFour} onChange={e=>setNewLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Card last 4 *"/></div>}
           </div>
 
@@ -130,9 +173,9 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Card network *</span><SearchableSelect mobileSheet searchPlaceholder="Search card network" className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={network} onChange={e=>setNetwork(e.target.value)}><option value="">Choose network</option>{networks.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SearchableSelect></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Swipe amount *</span><div className="mt-1 flex min-h-11 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3"><span className="mr-2 font-black">₹</span><input className="min-w-0 flex-1 bg-transparent text-lg font-black outline-none" inputMode="decimal" value={amount} onChange={e=>setAmount(cleanAmount(e.target.value))} placeholder="0"/></div></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Provider / wallet *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={providerId} onChange={e=>setProviderId(e.target.value)}><option value="">Choose provider</option>{providers.filter(p=>p.isActive!==false).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></label>
-            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Gateway *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={gatewayId} onChange={e=>setGatewayId(e.target.value)}><option value="">Choose gateway</option>{provider?.gateways.filter(g=>g.isActive!==false).map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {Number(g.defaultChargeRate)}%</option>)}</SearchableSelect></label>
+            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Gateway *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={gatewayId} onChange={e=>setGatewayId(e.target.value)}><option value="">Choose gateway</option>{provider?.gateways.filter(g=>g.isActive!==false).map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {rateText(g.id===gatewayId?providerRate:Number(g.defaultChargeRate))}%</option>)}</SearchableSelect></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Payment term *</span><SearchableSelect mobileSheet searchPlaceholder="Search payment term" className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={termId} onChange={e=>setTermId(e.target.value)}><option value="">Choose term</option>{terms.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</SearchableSelect></label>
-            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Customer fee / commission % *</span><div className="relative mt-1"><input className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 pr-9 text-right text-lg font-black outline-none" type="number" inputMode="decimal" min="0" max="100" step="0.0001" value={commissionRate} onChange={e=>{setCommissionRate(e.target.value);setCommissionTouched(true);}}/><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--text-muted)]">%</span></div><p className="mt-1 text-[10px] text-[var(--text-muted)]">{previousRate!==null&&!commissionTouched?"Using this customer's previous rate":"Defaults to configured rate, otherwise 2.3%"}</p></label>
+            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Customer fee / commission % *</span><div className="relative mt-1"><input className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 pr-9 text-right text-lg font-black outline-none" type="number" inputMode="decimal" min="0" max="100" step="0.0001" value={commissionRate} onChange={e=>{setCommissionRate(e.target.value);setCommissionTouched(true);}}/><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--text-muted)]">%</span></div><p className="mt-1 text-[10px] text-[var(--text-muted)]">{previousRate!==null&&!commissionTouched?"Using this card's last swipe rate":"Defaults to configured rate, otherwise 2.3%"}</p></label>
           </div>
 
           {swipe>0?<div className="mt-3 rounded-[18px] border border-[var(--border)] bg-[var(--surface-soft)] p-3"><div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Customer gets</p><p className="money mt-1 text-xl font-black">{money(payable)}</p></div><div className="text-right"><p className="text-[10px] text-[var(--text-muted)]">Business profit before payout charges</p><p className={"money mt-1 font-black "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(profit)}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--border)] pt-3 text-xs"><div><span className="text-[var(--text-muted)]">Swipe</span><strong className="money mt-1 block">{money(swipe)}</strong></div><div><span className="text-[var(--text-muted)]">Customer fee</span><strong className="money mt-1 block text-[var(--money-in)]">{money(commission)}</strong></div><div><span className="text-[var(--text-muted)]">Gateway fee</span><strong className="money mt-1 block text-[var(--money-out)]">{money(providerFee)}</strong></div></div></div>:null}
