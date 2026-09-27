@@ -8,7 +8,6 @@ import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { SearchSelect } from "@/components/search-select";
 
 type BankDestination={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type UpiDestination={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
@@ -41,7 +40,10 @@ export default function PayablesPage(){
  const destinationId=destination.includes(":")?destination.split(":").slice(1).join(":"):undefined;
  const selectedBank=destinationType==="CUSTOMER_BANK"?selected?.customer.bankAccounts.find(a=>a.id===destinationId):undefined;
  const selectedUpi=destinationType==="CUSTOMER_UPI"?selected?.customer.upiAccounts.find(a=>a.id===destinationId):undefined;
- const payoutSourceAccounts=accounts.filter(a=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).filter(a=>destinationType==="CASH"?a.accountType==="CASH":destinationType?a.accountType!=="CASH":true);
+ const walletPayoutAccounts=accounts.filter(a=>a.accountType==="PROVIDER_WALLET");
+ const bankPayoutAccounts=accounts.filter(a=>["BANK","UPI"].includes(a.accountType));
+ const cashPayoutAccounts=accounts.filter(a=>a.accountType==="CASH");
+ const sourceIsCash=sourceAccount?.accountType==="CASH";
  const walletSource=sourceAccount?.accountType==="PROVIDER_WALLET";
  const payoutAmount=Number(amount||0);
  const payoutCharge=walletSource?Number(charge||0):0;
@@ -108,26 +110,28 @@ export default function PayablesPage(){
      <p className="text-xs text-[var(--text-muted)]">Due {new Date(selected.dueAt).toLocaleString("en-IN")} · Remaining {money(selected.remainingAmount)}</p>
     </div>
     <form id="pay-form" onSubmit={pay} className="grid gap-3 sm:grid-cols-2">
-     <Field label="Pay to" className="sm:col-span-2">
-      <SearchableSelect className={control} value={destination} onChange={e=>{setDestination(e.target.value);setSource("");setCharge("");}} required searchPlaceholder="Search customer bank or UPI…">
-       <option value="">Select payout destination</option>
-       <option value="CASH">Cash directly to {selected.customer.fullName}</option>
-       <optgroup label="Customer bank accounts">{selected.customer.bankAccounts.map(a=><option key={a.id} value={"BANK:"+a.id}>{a.accountHolderName} · {a.bankName} · {a.accountReference}</option>)}</optgroup>
-       <optgroup label="Customer UPI accounts">{selected.customer.upiAccounts.map(a=><option key={a.id} value={"UPI:"+a.id}>{a.accountName} · {a.upiId||a.mobileNumber||"UPI"}</option>)}</optgroup>
-      </SearchableSelect>
-      {destinationType==="CUSTOMER_BANK"&&selectedBank?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedBank.accountHolderName}</strong><br/>{selectedBank.bankName} · {selectedBank.accountReference}{selectedBank.ifsc?<><br/>IFSC {selectedBank.ifsc}</>:null}</div>:null}
-      {destinationType==="CUSTOMER_UPI"&&selectedUpi?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedUpi.accountName}</strong>{selectedUpi.providerName?" · "+selectedUpi.providerName:""}<br/>{selectedUpi.upiId||selectedUpi.mobileNumber||"UPI account"}</div>:null}
-      {!selected.customer.bankAccounts.length&&!selected.customer.upiAccounts.length?<Link href={"/customers/"+selected.customer.id} className="mt-2 inline-block text-xs font-bold text-[var(--accent)]">No saved bank/UPI · Add in customer profile →</Link>:null}
-     </Field>
-     <Field label="Customer payout"><input className={control} type="number" step="0.01" max={selected.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
-     {walletSource?<Field label="Wallet payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
-     <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):destinationType==="CASH"?"Choose the cash drawer handing over the cash":"Choose bank, UPI or wallet sending the payment"}>
-      <SearchableSelect className={control} value={source} onChange={e=>{setSource(e.target.value);const a=accounts.find(x=>x.id===e.target.value);if(a?.accountType!=="PROVIDER_WALLET")setCharge("");}} disabled={!destinationType} required searchPlaceholder="Search source account…">
-       <option value="">{destinationType?"Select source account":"Select Pay to first"}</option>
-       {payoutSourceAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}
+     <Field label="Pay from" className="sm:col-span-2" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):"Choose the business account sending the customer payout"}>
+      <SearchableSelect className={control} value={source} onChange={e=>{const next=accounts.find(x=>x.id===e.target.value);setSource(e.target.value);setDestination(next?.accountType==="CASH"?"CASH":"");if(next?.accountType!=="PROVIDER_WALLET")setCharge("");}} required searchPlaceholder="Search wallet or bank account…">
+       <option value="">Select payout source</option>
+       <optgroup label="Wallets">{walletPayoutAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</optgroup>
+       <optgroup label="Bank / UPI accounts">{bankPayoutAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</optgroup>
+       <optgroup label="Cash drawers">{cashPayoutAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</optgroup>
       </SearchableSelect>
       {sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Payout plus charge is higher than this account&apos;s available balance.</span>:null}
      </Field>
+     <Field label="Pay to" className="sm:col-span-2">
+      <SearchableSelect className={control} value={destination} onChange={e=>setDestination(e.target.value)} disabled={!source} required searchPlaceholder={sourceIsCash?"Cash payout":"Search customer bank or UPI…"}>
+       <option value="">{source?"Select payout destination":"Select Pay from first"}</option>
+       {sourceIsCash?<option value="CASH">Cash directly to {selected.customer.fullName}</option>:null}
+       {!sourceIsCash?<optgroup label="Customer bank accounts">{selected.customer.bankAccounts.map(a=><option key={a.id} value={"BANK:"+a.id}>{a.accountHolderName} · {a.bankName} · {a.accountReference}</option>)}</optgroup>:null}
+       {!sourceIsCash?<optgroup label="Customer UPI accounts">{selected.customer.upiAccounts.map(a=><option key={a.id} value={"UPI:"+a.id}>{a.accountName} · {a.upiId||a.mobileNumber||"UPI"}</option>)}</optgroup>:null}
+      </SearchableSelect>
+      {destinationType==="CUSTOMER_BANK"&&selectedBank?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedBank.accountHolderName}</strong><br/>{selectedBank.bankName} · {selectedBank.accountReference}{selectedBank.ifsc?<><br/>IFSC {selectedBank.ifsc}</>:null}</div>:null}
+      {destinationType==="CUSTOMER_UPI"&&selectedUpi?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedUpi.accountName}</strong>{selectedUpi.providerName?" · "+selectedUpi.providerName:""}<br/>{selectedUpi.upiId||selectedUpi.mobileNumber||"UPI account"}</div>:null}
+      {source&&!sourceIsCash&&!selected.customer.bankAccounts.length&&!selected.customer.upiAccounts.length?<Link href={"/customers/"+selected.customer.id} className="mt-2 inline-block text-xs font-bold text-[var(--accent)]">No saved bank/UPI · Add in customer profile →</Link>:null}
+     </Field>
+     <Field label="Customer payout"><input className={control} type="number" step="0.01" max={selected.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
+     {walletSource?<Field label="Wallet payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
      <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder={destinationType==="CASH"?"Optional cash acknowledgement":"UTR / bank reference"}/></Field>
      <Field label="Notes" className="sm:col-span-2"><input className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Optional notes"/></Field>
     </form>
