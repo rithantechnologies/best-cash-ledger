@@ -235,8 +235,10 @@ export class SettingsService {
   createCashInTransferType(dto: CreateCashInTransferTypeDto, actorId: string) {
     const name = dto.name.trim();
     return this.prisma.$transaction(async (tx) => {
+      const defaultCommissionRate =
+        dto.defaultCommissionRate ?? (dto.transferMode === 'UPI' ? 2 : 1);
       const item = await tx.cashInTransferType.create({
-        data: { name, transferMode: dto.transferMode },
+        data: { name, transferMode: dto.transferMode, defaultCommissionRate },
       });
       await tx.auditLog.create({
         data: {
@@ -247,6 +249,7 @@ export class SettingsService {
           newValues: {
             name: item.name,
             transferMode: item.transferMode,
+            defaultCommissionRate: item.defaultCommissionRate,
             isActive: item.isActive,
           },
         },
@@ -268,6 +271,11 @@ export class SettingsService {
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
           ...(dto.transferMode !== undefined ? { transferMode: dto.transferMode } : {}),
+          ...(dto.defaultCommissionRate !== undefined
+            ? { defaultCommissionRate: dto.defaultCommissionRate }
+            : dto.transferMode !== undefined
+              ? { defaultCommissionRate: dto.transferMode === 'UPI' ? 2 : 1 }
+              : {}),
         },
       });
       await tx.auditLog.create({
@@ -279,10 +287,12 @@ export class SettingsService {
           oldValues: {
             name: existing.name,
             transferMode: existing.transferMode,
+            defaultCommissionRate: existing.defaultCommissionRate,
           },
           newValues: {
             name: updated.name,
             transferMode: updated.transferMode,
+            defaultCommissionRate: updated.defaultCommissionRate,
           },
         },
       });

@@ -13,7 +13,7 @@ type Provider={id:string;name:string;providerType:string;supportsAeps:boolean;ae
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionType:string;defaultCommissionRate:string;isActive:boolean};
 type Category={id:string;name:string;expenseUsage:string;isActive:boolean};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
-type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";isActive:boolean};
+type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";defaultCommissionRate:string|number;isActive:boolean};
 type CardNetworkConfig={id:string;name:string;isActive:boolean};
 type Customer={id:string;fullName:string};
 type Rule={id:string;customerId:string|null;providerId:string|null;gatewayId:string|null;paymentTermId:string|null;transactionType:string;commissionType:string;commissionRate:string;isActive:boolean;paymentTerm:Term|null};
@@ -43,8 +43,8 @@ export default function SettingsPage(){
  const [serviceName,setServiceName]=useState(""),[serviceDefaultAmount,setServiceDefaultAmount]=useState("");
  const [serviceEdit,setServiceEdit]=useState<ServiceConfig|null>(null),[serviceEditName,setServiceEditName]=useState(""),[serviceEditAmount,setServiceEditAmount]=useState("");
  const [cardNetworkName,setCardNetworkName]=useState("");
- const [transferTypeName,setTransferTypeName]=useState(""),[transferTypeMode,setTransferTypeMode]=useState<"UPI"|"BANK">("UPI");
- const [transferTypeEdit,setTransferTypeEdit]=useState<CashInTransferTypeConfig|null>(null),[transferTypeEditName,setTransferTypeEditName]=useState(""),[transferTypeEditMode,setTransferTypeEditMode]=useState<"UPI"|"BANK">("UPI");
+ const [transferTypeName,setTransferTypeName]=useState(""),[transferTypeMode,setTransferTypeMode]=useState<"UPI"|"BANK">("UPI"),[transferTypeRate,setTransferTypeRate]=useState("2");
+ const [transferTypeEdit,setTransferTypeEdit]=useState<CashInTransferTypeConfig|null>(null),[transferTypeEditName,setTransferTypeEditName]=useState(""),[transferTypeEditMode,setTransferTypeEditMode]=useState<"UPI"|"BANK">("UPI"),[transferTypeEditRate,setTransferTypeEditRate]=useState("");
 
  const load=useCallback(async()=>{
   const [p,t,c,cu,r,s,ct,cn]=await Promise.all([
@@ -89,12 +89,12 @@ export default function SettingsPage(){
  }
  async function addTransferType(e:FormEvent){
   e.preventDefault();const name=transferTypeName.trim();if(!name)return;
-  try{await run(()=>apiFetch("/settings/cash-in-transfer-types",{method:"POST",body:JSON.stringify({name,transferMode:transferTypeMode})}),()=>{setTransferTypeName("");setTransferTypeMode("UPI");},"Cash In transfer type added.");}catch{}
+  try{await run(()=>apiFetch("/settings/cash-in-transfer-types",{method:"POST",body:JSON.stringify({name,transferMode:transferTypeMode,defaultCommissionRate:Number(transferTypeRate||0)})}),()=>{setTransferTypeName("");setTransferTypeMode("UPI");setTransferTypeRate("2");},"Cash In transfer type added.");}catch{}
  }
- function beginTransferTypeEdit(item:CashInTransferTypeConfig){setTransferTypeEdit(item);setTransferTypeEditName(item.name);setTransferTypeEditMode(item.transferMode);}
+ function beginTransferTypeEdit(item:CashInTransferTypeConfig){setTransferTypeEdit(item);setTransferTypeEditName(item.name);setTransferTypeEditMode(item.transferMode);setTransferTypeEditRate(String(Number(item.defaultCommissionRate||0)));}
  async function saveTransferTypeEdit(e:FormEvent){
   e.preventDefault();if(!transferTypeEdit)return;
-  try{await run(()=>apiFetch("/settings/cash-in-transfer-types/"+transferTypeEdit.id,{method:"PATCH",body:JSON.stringify({name:transferTypeEditName.trim(),transferMode:transferTypeEditMode})}),()=>setTransferTypeEdit(null),"Cash In transfer type updated.");}catch{}
+  try{await run(()=>apiFetch("/settings/cash-in-transfer-types/"+transferTypeEdit.id,{method:"PATCH",body:JSON.stringify({name:transferTypeEditName.trim(),transferMode:transferTypeEditMode,defaultCommissionRate:Number(transferTypeEditRate||0)})}),()=>setTransferTypeEdit(null),"Cash In transfer type updated.");}catch{}
  }
  async function toggleTransferType(item:CashInTransferTypeConfig){
   try{await run(()=>apiFetch("/settings/cash-in-transfer-types/"+item.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:!item.isActive})}),()=>{},item.isActive?"Cash In transfer type retired.":"Cash In transfer type activated.");}catch{}
@@ -170,15 +170,16 @@ export default function SettingsPage(){
   <Surface className="overflow-hidden">
     <div className="flex flex-col gap-3 border-b border-[var(--border)] p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
       <div><p className="text-[10px] font-black uppercase tracking-[.12em] text-[var(--accent)]">Daily Cash</p><h2 className="mt-1 text-lg font-black">Cash In transfer types</h2><p className="mt-1 text-xs text-[var(--text-muted)]">Configure the choices shown in Cash In → Transfer. Each choice uses either UPI/GPay fields or bank-transfer fields.</p></div>
-      <form onSubmit={addTransferType} className="grid gap-2 sm:grid-cols-[minmax(180px,1fr)_130px_auto]">
+      <form onSubmit={addTransferType} className="grid gap-2 sm:grid-cols-[minmax(180px,1fr)_130px_120px_auto]">
         <input className={input} value={transferTypeName} onChange={e=>setTransferTypeName(e.target.value)} placeholder="Transfer type name" required/>
-        <SearchableSelect className={input} value={transferTypeMode} onChange={e=>setTransferTypeMode(e.target.value as "UPI"|"BANK")}><option value="UPI">UPI / GPay</option><option value="BANK">Bank</option></SearchableSelect>
+        <SearchableSelect className={input} value={transferTypeMode} onChange={e=>{const mode=e.target.value as "UPI"|"BANK";setTransferTypeMode(mode);setTransferTypeRate(mode==="UPI"?"2":"1");}}><option value="UPI">UPI / GPay</option><option value="BANK">Bank</option></SearchableSelect>
+        <input className={input} type="number" min="0" max="100" step="0.01" value={transferTypeRate} onChange={e=>setTransferTypeRate(e.target.value)} placeholder="Commission %" required/>
         <button className={primary}>+ Type</button>
       </form>
     </div>
     <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3">
       {cashInTransferTypes.map(item=><div key={item.id} className={"rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4 "+(!item.isActive?"opacity-55":"")}>
-        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-black">{item.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{item.transferMode==="UPI"?"UPI / GPay beneficiary":"Bank beneficiary details"}</p></div><span className={"h-2.5 w-2.5 shrink-0 rounded-full "+(item.isActive?"bg-emerald-500":"bg-slate-300")}/></div>
+        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-black">{item.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{item.transferMode==="UPI"?"UPI / GPay beneficiary":"Bank beneficiary details"} · Default commission {Number(item.defaultCommissionRate||0)}%</p></div><span className={"h-2.5 w-2.5 shrink-0 rounded-full "+(item.isActive?"bg-emerald-500":"bg-slate-300")}/></div>
         <div className="mt-4 flex gap-2"><button type="button" onClick={()=>beginTransferTypeEdit(item)} className={secondary}>Edit</button><button type="button" onClick={()=>toggleTransferType(item)} className={secondary}>{item.isActive?"Retire":"Activate"}</button></div>
       </div>)}
       {!cashInTransferTypes.length?<p className="p-3 text-sm text-[var(--text-muted)]">No Cash In transfer types configured yet.</p>:null}
@@ -225,7 +226,8 @@ export default function SettingsPage(){
   <Modal open={!!transferTypeEdit} title="Edit Cash In transfer type" description="Changes apply to future Cash In entries; existing cashbook history keeps its saved label." onClose={()=>setTransferTypeEdit(null)}>
     <form onSubmit={saveTransferTypeEdit} className="space-y-3">
       <input className={input} value={transferTypeEditName} onChange={e=>setTransferTypeEditName(e.target.value)} placeholder="Transfer type name" required/>
-      <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Transfer mode</span><SearchableSelect className={input} value={transferTypeEditMode} onChange={e=>setTransferTypeEditMode(e.target.value as "UPI"|"BANK")}><option value="UPI">UPI / GPay</option><option value="BANK">Bank</option></SearchableSelect></label>
+      <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Transfer mode</span><SearchableSelect className={input} value={transferTypeEditMode} onChange={e=>{const mode=e.target.value as "UPI"|"BANK";setTransferTypeEditMode(mode);setTransferTypeEditRate(mode==="UPI"?"2":"1");}}><option value="UPI">UPI / GPay</option><option value="BANK">Bank</option></SearchableSelect></label>
+      <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default commission %</span><input className={input} type="number" min="0" max="100" step="0.01" value={transferTypeEditRate} onChange={e=>setTransferTypeEditRate(e.target.value)}/></label>
       <div className="flex justify-end gap-2"><button type="button" onClick={()=>setTransferTypeEdit(null)} className={secondary}>Cancel</button><button className={primary}>Save type</button></div>
     </form>
   </Modal>

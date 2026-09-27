@@ -43,9 +43,9 @@ type Session={
 
 type QuickCashDirection="IN"|"OUT";
 type QuickCashOutType="UPI_QR"|"AEPS"|"MICRO_ATM";
-type QuickCashFieldErrors={amount?:string;commission?:string;serviceName?:string;transferType?:string;servicePaymentAccount?:string;aadhaarLastFour?:string;customerBank?:string;cardLastFour?:string};
+type QuickCashFieldErrors={amount?:string;commission?:string;cashReceived?:string;serviceName?:string;transferType?:string;servicePaymentAccount?:string;aadhaarLastFour?:string;customerBank?:string;cardLastFour?:string};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
-type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";isActive:boolean};
+type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";defaultCommissionRate:string|number;isActive:boolean};
 type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null};
 type BankBeneficiary={accountHolder:string;accountNumber:string;ifsc:string};
 type CompleteSourceAllocation={sourceAccountId:string;amount:string;referenceNumber:string};
@@ -70,7 +70,7 @@ function serializeBankBeneficiary(accountHolder:string,accountNumber:string,ifsc
 }
 type QuickCashPending={
   id:string;direction:QuickCashDirection;customerName:string|null;mobileNumber:string|null;
-  amount:string|number;commissionAmount:string|number;commissionCashAmount?:string|number|null;commissionMode?:"CASH"|"UPI"|"SPLIT";
+  amount:string|number;cashReceivedAmount?:string|number|null;customerChangeAmount?:string|number|null;commissionAmount:string|number;commissionCashAmount?:string|number|null;commissionMode?:"CASH"|"UPI"|"SPLIT";
   cashOutType?:QuickCashOutType;aadhaarLastFour?:string|null;customerBankName?:string|null;cardLastFour?:string|null;
   beneficiaryMode?:"UPI"|"BANK"|null;beneficiaryDetails?:string|null;
   createdAt:string;
@@ -265,8 +265,11 @@ export default function CashCounterPage(){
   const [quickPurpose,setQuickPurpose]=useState<"TRANSFER"|"SERVICE">("TRANSFER");
   const [quickServiceName,setQuickServiceName]=useState("");
   const [quickCommission,setQuickCommission]=useState("");
+  const [quickCommissionOverridden,setQuickCommissionOverridden]=useState(false);
   const [quickCommissionMode,setQuickCommissionMode]=useState<"CASH"|"UPI"|"SPLIT">("CASH");
   const [quickCommissionCash,setQuickCommissionCash]=useState("");
+  const [quickCashReceived,setQuickCashReceived]=useState("");
+  const [quickCashReceivedOverridden,setQuickCashReceivedOverridden]=useState(false);
   const [quickTransferTypeId,setQuickTransferTypeId]=useState("");
   const [quickBeneficiaryMode,setQuickBeneficiaryMode]=useState<"UPI"|"BANK">("UPI");
   const [quickBeneficiaryUpi,setQuickBeneficiaryUpi]=useState("");
@@ -293,6 +296,7 @@ export default function CashCounterPage(){
   const [quickSaving,setQuickSaving]=useState(false);
   const quickAmountRef=useRef<HTMLInputElement>(null);
   const quickCommissionRef=useRef<HTMLInputElement>(null);
+  const quickCashReceivedRef=useRef<HTMLInputElement>(null);
   const quickServiceRef=useRef<HTMLInputElement>(null);
   const [portalReady,setPortalReady]=useState(false);
   const [pendingQuickCash,setPendingQuickCash]=useState<QuickCashPending[]>([]);
@@ -315,6 +319,12 @@ export default function CashCounterPage(){
   const role=currentUser.role??"";
   const completingQuickCash=useMemo(()=>pendingQuickCash.find((item)=>item.id===completePendingId)??null,[pendingQuickCash,completePendingId]);
   const selectedQuickTransferType=useMemo(()=>cashInTransferTypes.find((item)=>item.id===quickTransferTypeId)??null,[cashInTransferTypes,quickTransferTypeId]);
+  const quickCommissionValue=Number(quickCommission||0);
+  const quickCommissionCashValue=quickCommissionMode==="CASH"?quickCommissionValue:quickCommissionMode==="SPLIT"?Number(quickCommissionCash||0):0;
+  const quickCashAmountDue=quickDirection==="IN"&&quickPurpose==="TRANSFER"?Math.round((Number(quickAmount||0)+quickCommissionCashValue)*100)/100:0;
+  const quickCashReceivedValue=Number(quickCashReceived||0);
+  const quickCustomerChange=Math.max(0,Math.round((quickCashReceivedValue-quickCashAmountDue)*100)/100);
+  const quickCashShort=Math.max(0,Math.round((quickCashAmountDue-quickCashReceivedValue)*100)/100);
   const completionAccounts=useMemo(()=>accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)),[accounts]);
   const completionWalletAccounts=useMemo(()=>completionAccounts.filter((account)=>account.accountType==="PROVIDER_WALLET"),[completionAccounts]);
   const paySwitchCompletionAccountId=useMemo(()=>completionWalletAccounts.find((account)=>account.accountName.toUpperCase().includes("PAYSWITCH"))?.id??"",[completionWalletAccounts]);
@@ -371,6 +381,18 @@ export default function CashCounterPage(){
   useEffect(()=>{
     if(selectedQuickTransferType)setQuickBeneficiaryMode(selectedQuickTransferType.transferMode);
   },[selectedQuickTransferType]);
+  useEffect(()=>{
+    if(quickDirection!=="IN"||quickPurpose!=="TRANSFER"||!selectedQuickTransferType||quickCommissionOverridden)return;
+    const amount=Number(quickAmount);
+    if(!quickAmount.trim()||!Number.isFinite(amount)||amount<=0){setQuickCommission("");return;}
+    const rate=Number(selectedQuickTransferType.defaultCommissionRate||0);
+    const calculated=Math.round((amount*rate/100)*100)/100;
+    setQuickCommission(String(calculated));
+  },[quickDirection,quickPurpose,quickAmount,selectedQuickTransferType,quickCommissionOverridden]);
+  useEffect(()=>{
+    if(quickDirection!=="IN"||quickPurpose!=="TRANSFER"||quickCashReceivedOverridden)return;
+    setQuickCashReceived(quickCashAmountDue>0?String(quickCashAmountDue):"");
+  },[quickDirection,quickPurpose,quickCashAmountDue,quickCashReceivedOverridden]);
   useEffect(()=>{
     if(typeof window!=="undefined")localStorage.setItem("cashledger_daily_cash_columns",JSON.stringify(txColumns));
   },[txColumns]);
@@ -566,7 +588,7 @@ export default function CashCounterPage(){
   }
 
   function resetQuickCash(){
-    setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
+    setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
   }
   function selectQuickCustomer(customer:CustomerSuggestion){
     setQuickCustomerId(customer.id);
@@ -589,6 +611,8 @@ export default function CashCounterPage(){
     if(!quickDirection||!today||isClosed)return;
     const amount=Number(quickAmount),commissionAmount=Number(quickCommission||0),commissionCashAmount=quickCommissionMode==="SPLIT"?Number(quickCommissionCash||0):(quickCommissionMode==="CASH"?commissionAmount:0);
     const purpose=quickDirection==="IN"?quickPurpose:"TRANSFER";
+    const cashAmountDue=quickDirection==="IN"&&purpose==="TRANSFER"?Math.round(((Number.isFinite(amount)?amount:0)+(Number.isFinite(commissionCashAmount)?commissionCashAmount:0))*100)/100:0;
+    const cashReceivedAmount=quickDirection==="IN"&&purpose==="TRANSFER"?(quickCashReceived.trim()?Number(quickCashReceived):cashAmountDue):0;
     const validation:QuickCashFieldErrors={};
     if(!quickAmount.trim()||!Number.isFinite(amount)||amount<=0)validation.amount="Amount must be greater than 0.";
     if(purpose==="TRANSFER"&&(!Number.isFinite(commissionAmount)||commissionAmount<0))validation.commission="Commission cannot be negative.";
@@ -596,6 +620,7 @@ export default function CashCounterPage(){
     if(quickDirection==="OUT"&&quickCashOutType==="AEPS"&&!/^\d{4}$/.test(quickAadhaarLastFour))validation.aadhaarLastFour="Enter the last 4 Aadhaar digits.";
     if(quickDirection==="OUT"&&quickCashOutType==="MICRO_ATM"&&!/^\d{4}$/.test(quickCardLastFour))validation.cardLastFour="Enter the last 4 card digits.";
     if(quickDirection==="IN"&&purpose==="TRANSFER"&&!selectedQuickTransferType)validation.transferType="Choose a Cash In transfer type.";
+    if(quickDirection==="IN"&&purpose==="TRANSFER"&&(!Number.isFinite(cashReceivedAmount)||cashReceivedAmount<cashAmountDue))validation.cashReceived="Cash received must cover "+money(cashAmountDue)+" before change is returned.";
     if(purpose==="SERVICE"&&!quickServiceName.trim())validation.serviceName="Service name is required.";
     if(purpose==="SERVICE"&&quickServicePaymentMode==="UPI"&&!quickServicePaymentAccountId)validation.servicePaymentAccount="Choose the receiving bank / UPI account.";
     if(Object.keys(validation).length){
@@ -603,6 +628,7 @@ export default function CashCounterPage(){
       requestAnimationFrame(()=>{
         if(validation.amount)quickAmountRef.current?.focus();
         else if(validation.commission)quickCommissionRef.current?.focus();
+        else if(validation.cashReceived)quickCashReceivedRef.current?.focus();
         else if(validation.serviceName)quickServiceRef.current?.focus();
       });
       return;
@@ -616,6 +642,7 @@ export default function CashCounterPage(){
         direction:quickDirection,
         cashAccountId:today.cashAccountId,
         amount,
+        cashReceivedAmount:quickDirection==="IN"&&purpose==="TRANSFER"?cashReceivedAmount:undefined,
         purpose,
         serviceName:purpose==="SERVICE"?quickServiceName.trim():(quickDirection==="IN"&&purpose==="TRANSFER"?selectedQuickTransferType?.name:undefined),
         cashOutType:quickDirection==="OUT"?quickCashOutType:undefined,
@@ -1115,8 +1142,8 @@ export default function CashCounterPage(){
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {quickDirection==="IN"?<div className="mx-5 mt-2 grid grid-cols-2 rounded-[14px] bg-[var(--surface-soft)] p-1">
-          <button type="button" onClick={()=>{setQuickPurpose("TRANSFER");setQuickError("");clearQuickFieldError("serviceName");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="TRANSFER"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Transfer</button>
-          <button type="button" onClick={()=>{setQuickPurpose("SERVICE");setQuickCommission("");setQuickError("");clearQuickFieldError("commission");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="SERVICE"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Service</button>
+          <button type="button" onClick={()=>{setQuickPurpose("TRANSFER");setQuickCommissionOverridden(false);setQuickCashReceivedOverridden(false);setQuickError("");clearQuickFieldError("serviceName");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="TRANSFER"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Transfer</button>
+          <button type="button" onClick={()=>{setQuickPurpose("SERVICE");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickError("");clearQuickFieldError("commission");clearQuickFieldError("cashReceived");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="SERVICE"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Service</button>
         </div>:<div className="mx-5 mt-2 grid grid-cols-3 rounded-[14px] bg-[var(--surface-soft)] p-1">
           {(["UPI_QR","AEPS","MICRO_ATM"] as QuickCashOutType[]).map((kind)=><button key={kind} type="button" onClick={()=>{setQuickCashOutType(kind);setQuickSuccessful(true);if(kind==="MICRO_ATM"){setQuickCommissionMode("UPI");setQuickCommissionCash("");}else if(kind==="AEPS"){setQuickCommissionMode("CASH");setQuickCommissionCash("");}setQuickError("");setQuickFieldErrors({});}} className={"min-h-10 rounded-[10px] px-2 text-[12px] font-black transition "+(quickCashOutType===kind?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]")}>{cashOutTypeLabel(kind)}</button>)}
         </div>}
@@ -1131,12 +1158,21 @@ export default function CashCounterPage(){
             {quickFieldErrors.amount?<p id="quick-amount-error" className="mt-2 text-center text-[12px] font-bold text-rose-600">{quickFieldErrors.amount}</p>:null}
           </label>
 
+          {quickPurpose==="TRANSFER"&&quickDirection==="IN"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
+            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Transfer mode <span className="text-rose-500">*</span></span>{selectedQuickTransferType?<span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{Number(selectedQuickTransferType.defaultCommissionRate||0)}% default</span>:null}</div>
+            {cashInTransferTypes.length?<div className={"mt-2 grid gap-1 rounded-[12px] bg-[var(--surface)] p-1 "+(cashInTransferTypes.length===2?"grid-cols-2":"grid-cols-1 sm:grid-cols-2")}>
+              {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.transferMode);setQuickCommissionOverridden(false);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
+            </div>:<p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">No Cash In transfer types are active. Configure them in Settings.</p>}
+            {quickFieldErrors.transferType?<p className="mt-1.5 px-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.transferType}</p>:null}
+            {selectedQuickTransferType?<p className="mt-2 px-1 text-[10px] font-semibold text-[var(--text-muted)]">Commission is calculated automatically from the configured rate. You can edit the commission amount below for this transaction.</p>:null}
+          </div>:null}
+
           {quickPurpose==="TRANSFER"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
             <div className="flex items-center justify-between gap-4 px-1">
               <p className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Commission <span className="normal-case font-semibold">(₹0 allowed)</span></p>
               <div className="flex min-w-[150px] items-center justify-end gap-1.5">
                 <span className="text-xl font-black">₹</span>
-                <input ref={quickCommissionRef} disabled={quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.commission)} aria-describedby={quickFieldErrors.commission?"quick-commission-error":undefined} className="quick-cash-commission-input w-[150px] appearance-none bg-transparent p-0 text-right tabular-nums text-[var(--text)] disabled:opacity-40" placeholder="0" value={quickCommission} onChange={(event)=>{setQuickCommission(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("commission");setQuickError("");}}/>
+                <input ref={quickCommissionRef} disabled={quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.commission)} aria-describedby={quickFieldErrors.commission?"quick-commission-error":undefined} className="quick-cash-commission-input w-[150px] appearance-none bg-transparent p-0 text-right tabular-nums text-[var(--text)] disabled:opacity-40" placeholder="0" value={quickCommission} onChange={(event)=>{setQuickCommission(event.target.value.replace(/[^0-9.]/g,""));if(quickDirection==="IN")setQuickCommissionOverridden(true);clearQuickFieldError("commission");setQuickError("");}}/>
               </div>
             </div>
             {quickFieldErrors.commission?<p id="quick-commission-error" className="px-1 pt-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.commission}</p>:null}
@@ -1171,6 +1207,16 @@ export default function CashCounterPage(){
             </div>:null}
           </div>}
 
+          {quickDirection==="IN"&&quickPurpose==="TRANSFER"?<div className="mt-3 rounded-[17px] border border-emerald-200 bg-emerald-50/60 p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl bg-[var(--surface)] px-3 py-2.5 ring-1 ring-inset ring-emerald-100"><span className="block text-[9px] font-black uppercase tracking-wide text-emerald-700">Cash to collect</span><strong className="money mt-1 block text-[18px] font-black text-emerald-700">{money(quickCashAmountDue)}</strong><span className="mt-1 block text-[10px] font-semibold text-[var(--text-muted)]">{money(Number(quickAmount||0))} transfer{quickCommissionCashValue>0?" + "+money(quickCommissionCashValue)+" cash commission":""}</span></div>
+              <label className="rounded-xl bg-[var(--surface)] px-3 py-2.5 ring-1 ring-inset ring-[var(--border)]"><span className="block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">Cash received <span className="text-rose-500">*</span></span><div className="mt-1 flex items-center gap-1"><span className="font-black">₹</span><input ref={quickCashReceivedRef} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.cashReceived)} className="min-w-0 flex-1 bg-transparent p-0 text-[18px] font-black outline-none" value={quickCashReceived} onChange={(event)=>{setQuickCashReceived(event.target.value.replace(/[^0-9.]/g,""));setQuickCashReceivedOverridden(true);clearQuickFieldError("cashReceived");setQuickError("");}} placeholder="0"/></div></label>
+            </div>
+            {quickFieldErrors.cashReceived?<p className="mt-1.5 px-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.cashReceived}</p>:null}
+            <div className={"mt-2.5 flex items-center justify-between rounded-xl px-3 py-2.5 "+(quickCashShort>0?"bg-rose-50 text-rose-700":"bg-[var(--surface)] text-emerald-700")}><span className="text-[11px] font-black uppercase tracking-wide">{quickCashShort>0?"Still needed":"Change to customer"}</span><strong className="money text-[18px] font-black">{money(quickCashShort>0?quickCashShort:quickCustomerChange)}</strong></div>
+            {!quickCashShort&&quickCustomerChange>0?<p className="mt-2 px-1 text-[10px] font-semibold text-[var(--text-muted)]">Return this change to the customer. Only the transfer amount plus cash-paid commission remains in the drawer.</p>:null}
+          </div>:null}
+
           {quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
             <div className="grid grid-cols-2 rounded-xl bg-[var(--surface)] p-1">
               <button type="button" onClick={()=>{setQuickSuccessful(true);setQuickError("");}} className={"min-h-9 rounded-lg text-[12px] font-black "+(quickSuccessful?"bg-emerald-50 text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Successful</button>
@@ -1193,12 +1239,8 @@ export default function CashCounterPage(){
             </div>}
           </div>:null}
 
-          {quickPurpose==="TRANSFER"&&quickDirection==="IN"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
-            <div className="px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Service type <span className="text-rose-500">*</span></span></div>
-            {cashInTransferTypes.length?<div className={"mt-2 grid gap-1 rounded-[12px] bg-[var(--surface)] p-1 "+(cashInTransferTypes.length===2?"grid-cols-2":"grid-cols-1 sm:grid-cols-2")}>
-              {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.transferMode);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
-            </div>:<p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">No Cash In transfer types are active. Configure them in Settings.</p>}
-            {quickFieldErrors.transferType?<p className="mt-1.5 px-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.transferType}</p>:null}
+          {quickPurpose==="TRANSFER"&&quickDirection==="IN"&&selectedQuickTransferType?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
+            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary details</span><span className="text-[10px] font-bold text-[var(--text-muted)]">{quickBeneficiaryMode==="UPI"?"UPI / GPay":"Bank transfer"}</span></div>
             {quickBeneficiaryMode==="UPI"
               ?<input className="mt-2 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-[15px] font-bold text-[var(--text)] outline-none" value={quickBeneficiaryUpi} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>setQuickBeneficiaryUpi(event.target.value)} placeholder="UPI ID / mobile"/>
               :<div className="mt-2 grid gap-2 sm:grid-cols-3">

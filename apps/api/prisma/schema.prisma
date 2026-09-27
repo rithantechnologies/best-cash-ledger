@@ -410,12 +410,13 @@ model ServiceCatalog {
 }
 
 model CashInTransferType {
-  id           String   @id @default(uuid())
-  name         String   @unique
-  transferMode String
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  name                  String   @unique
+  transferMode          String
+  defaultCommissionRate Decimal  @default(0) @db.Decimal(10, 4)
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model ExpenseCategory {
@@ -788,6 +789,8 @@ model QuickCashTransferDetail {
   customerName            String?
   mobileNumber            String?
   amount                  Decimal                     @db.Decimal(18, 2)
+  cashReceivedAmount      Decimal?                    @db.Decimal(18, 2)
+  customerChangeAmount    Decimal?                    @db.Decimal(18, 2)
   commissionAmount        Decimal                     @default(0) @db.Decimal(18, 2)
   commissionCashAmount    Decimal?                    @db.Decimal(18, 2)
   commissionMode          String                      @default("CASH")

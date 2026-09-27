@@ -875,6 +875,18 @@ export class TransactionsService {
     const commissionDigitalAmount = this.money(
       Math.max(0, commissionAmount - commissionCashAmount),
     );
+    const cashAmountDue =
+      dto.direction === 'IN' && purpose === 'TRANSFER'
+        ? this.money(amount + commissionCashAmount)
+        : null;
+    const cashReceivedAmount =
+      cashAmountDue === null
+        ? null
+        : this.money(dto.cashReceivedAmount ?? cashAmountDue);
+    const customerChangeAmount =
+      cashAmountDue === null || cashReceivedAmount === null
+        ? null
+        : this.money(Math.max(0, cashReceivedAmount - cashAmountDue));
     const servicePaymentMode = dto.servicePaymentMode ?? 'CASH';
     const cashOutType =
       dto.direction === 'OUT' ? dto.cashOutType ?? 'UPI_QR' : 'UPI_QR';
@@ -937,6 +949,16 @@ export class TransactionsService {
       }
       if (dto.direction === 'IN' && commissionAmount >= amount) {
         throw new BadRequestException('Commission must be less than the cash-in amount');
+      }
+      if (
+        dto.direction === 'IN' &&
+        cashAmountDue !== null &&
+        cashReceivedAmount !== null &&
+        cashReceivedAmount < cashAmountDue
+      ) {
+        throw new BadRequestException(
+          'Cash received must cover the transfer amount and cash-paid commission',
+        );
       }
     }
 
@@ -1169,6 +1191,10 @@ export class TransactionsService {
           customerName: resolvedCustomerName,
           mobileNumber: resolvedMobile,
           amount: new Prisma.Decimal(amount),
+          cashReceivedAmount:
+            cashReceivedAmount === null ? null : new Prisma.Decimal(cashReceivedAmount),
+          customerChangeAmount:
+            customerChangeAmount === null ? null : new Prisma.Decimal(customerChangeAmount),
           commissionAmount: new Prisma.Decimal(commissionAmount),
           commissionCashAmount: new Prisma.Decimal(commissionCashAmount),
           commissionMode,
