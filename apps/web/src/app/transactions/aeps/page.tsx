@@ -355,7 +355,7 @@ export default function AepsPage(){
     const digits=mobileDigits(customerSearch);
     setCustomerMode("NEW");setCustomerId("");
     setNewMobile(digits.length===10?digits:"");
-    setNewName(digits.length===10?"":customerSearch.trim());
+    setNewName(digits.length===10?"":customerSearch.trim().toUpperCase());
     setBank("");
   }
 
@@ -414,7 +414,7 @@ export default function AepsPage(){
             </div>
 
             {customerMode==="NEW"?<div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label="Customer name"><input className={control} value={newName} onChange={e=>setNewName(e.target.value)} autoFocus placeholder="Full name"/></Field>
+              <Field label="Customer name"><input className={control} value={newName} onChange={e=>setNewName(e.target.value.toUpperCase())} autoFocus placeholder="Full name"/></Field>
               <Field label="Mobile (optional)"><div className="flex overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--accent)]"><span className="grid h-11 place-items-center border-r border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-semibold text-[var(--text-muted)]">+91</span><input className="h-11 min-w-0 flex-1 bg-transparent px-3 text-base outline-none" inputMode="numeric" maxLength={10} value={newMobile} onChange={e=>setNewMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile"/></div>{newMobile&&!mobileValid?<p className="mt-1 text-[11px] text-amber-600">Enter a valid Indian mobile number.</p>:null}</Field>
               {possibleExisting.length?<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:col-span-2"><p className="text-xs font-semibold text-amber-900">Possible existing customer</p><div className="mt-2 grid gap-1 sm:grid-cols-2">{possibleExisting.map(match=><button key={match.id} type="button" onClick={()=>selectCustomerState(match)} className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2 text-left"><span><strong className="block text-xs text-slate-900">{match.fullName}</strong><span className="text-[11px] text-slate-500">{formatMobile(match.mobile)||"No mobile"}</span></span><span className="text-xs font-semibold text-indigo-700">Use existing →</span></button>)}</div></div>:null}
             </div>:customer?<div className="mt-3 flex items-center gap-3">

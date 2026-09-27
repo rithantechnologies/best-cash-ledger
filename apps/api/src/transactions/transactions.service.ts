@@ -371,7 +371,7 @@ export class TransactionsService {
           data: {
             customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
             customerType: CustomerType.REGULAR,
-            fullName: dto.newCustomer.fullName.trim(),
+            fullName: dto.newCustomer.fullName.trim().toUpperCase(),
             mobile,
             createdById: userId,
           },
@@ -2010,7 +2010,7 @@ export class TransactionsService {
           data: {
             customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
             customerType: mobile ? CustomerType.REGULAR : CustomerType.WALK_IN,
-            fullName: dto.newCustomer.fullName.trim(),
+            fullName: dto.newCustomer.fullName.trim().toUpperCase(),
             mobile,
             createdById: userId,
           },

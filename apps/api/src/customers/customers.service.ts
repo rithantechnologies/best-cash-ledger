@@ -134,6 +134,7 @@ export class CustomersService {
       const customer = await tx.customer.create({
         data: {
           ...dto,
+          fullName: dto.fullName.trim().toUpperCase(),
           customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
           createdById: userId,
         },
@@ -176,7 +177,7 @@ export class CustomersService {
         data: {
           customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
           customerType: CustomerType.REGULAR,
-          fullName: dto.fullName.trim(),
+          fullName: dto.fullName.trim().toUpperCase(),
           mobile,
           createdById: userId,
         },
@@ -241,7 +242,10 @@ export class CustomersService {
           );
         }
       }
-      const updated = await tx.customer.update({ where: { id }, data: dto });
+      const updated = await tx.customer.update({
+        where: { id },
+        data: { ...dto, ...(dto.fullName ? { fullName: dto.fullName.trim().toUpperCase() } : {}) },
+      });
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER', entityId: id, action: 'UPDATE',
