@@ -9,6 +9,7 @@ import { CashHistoryChart, CashMovementChart } from "@/components/cash-desk/cash
 import { FundsAllocationDonut } from "@/components/dashboard/dashboard-charts";
 import { EmptyState, PageLoader, SectionHeading, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { useRememberedValues } from "@/lib/remembered-values";
 
 type Account={id:string;accountName:string;accountType:string;isActive?:boolean;currentBalance?:string|number};
 type Count={countType:string;denomination:string;quantity:number;totalAmount:string};
@@ -291,6 +292,7 @@ export default function CashCounterPage(){
   const [quickFieldErrors,setQuickFieldErrors]=useState<QuickCashFieldErrors>({});
   const [quickError,setQuickError]=useState("");
   const [quickSaving,setQuickSaving]=useState(false);
+  const {values:rememberedCustomerNames,remember:rememberCustomerName}=useRememberedValues("cashledger_recent_customer_names",8);
   const quickAmountRef=useRef<HTMLInputElement>(null);
   const quickCommissionRef=useRef<HTMLInputElement>(null);
   const quickServiceRef=useRef<HTMLInputElement>(null);
@@ -569,6 +571,7 @@ export default function CashCounterPage(){
     setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
   }
   function selectQuickCustomer(customer:CustomerSuggestion){
+    rememberCustomerName(customer.fullName);
     setQuickCustomerId(customer.id);
     setQuickCustomerLookup(customer.fullName+(customer.mobile?" · "+customer.mobile:""));
     setQuickCustomerName(customer.fullName);
@@ -636,6 +639,7 @@ export default function CashCounterPage(){
         remarks:quickRemarks.trim()||undefined,
         transactionAt:quickDirection==="OUT"&&quickTransactionAt?new Date(quickTransactionAt).toISOString():undefined,
       })});
+      rememberCustomerName(quickCustomerName);
       resetQuickCash();
       await load(today.cashAccountId);
     }catch(err){setQuickError(err instanceof Error?err.message:"Failed to save cash entry");}
@@ -667,6 +671,7 @@ export default function CashCounterPage(){
         referenceNumber:completeReference.trim()||undefined,
         notes:completeNotes.trim()||undefined,
       })});
+      rememberCustomerName(completeCustomerName);
       setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteSourceAllocations([]);setCompleteCommissionAccountId("");setCompleteCommissionAccountOverridden(false);setCompleteBeneficiaryMode("UPI");setCompleteBeneficiaryUpi("");setCompleteBankAccountHolder("");setCompleteBankAccountNumber("");setCompleteBankIfsc("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
       await load(cashAccountId);
     }catch(err){setCompleteError(err instanceof Error?err.message:"Failed to complete pending cash entry");}
@@ -1179,16 +1184,16 @@ export default function CashCounterPage(){
             <p className="mt-2 px-1 text-[10px] font-semibold text-[var(--text-muted)]">{quickSuccessful?"Cash is paid now; provider settlement stays Pending until completed later.":"Failed attempt records the attempt only. No cash or commission is posted."}</p>
             <div className="relative mt-3">
               <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Existing customer <span className="normal-case font-semibold">(optional)</span></span>
-              <input inputMode="search" autoComplete="off" className="mt-1.5 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[14px] font-bold outline-none" placeholder="Search name or mobile" value={quickCustomerLookup} onChange={(event)=>{setQuickCustomerLookup(event.target.value);setQuickCustomerId("");setQuickCustomerSuggestions([]);}}/>
+              <input inputMode="search" name="cashledger_daily_cash_customer_search" autoComplete="on" list="cashledger-daily-cash-remembered-names" className="mt-1.5 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[14px] font-bold outline-none" placeholder="Search name or mobile" value={quickCustomerLookup} onChange={(event)=>{setQuickCustomerLookup(event.target.value);setQuickCustomerId("");setQuickCustomerSuggestions([]);}}/>
               {!quickCustomerId&&quickCustomerLookup.trim().length>=2?<div className="absolute inset-x-0 top-[calc(100%+.35rem)] z-30 max-h-52 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
                 {quickCustomerSearchLoading?<p className="px-3 py-2 text-xs font-semibold text-[var(--text-muted)]">Searching…</p>:quickCustomerSuggestions.length?quickCustomerSuggestions.map((customer)=><button key={customer.id} type="button" onClick={()=>selectQuickCustomer(customer)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-[var(--surface-soft)]"><span className="min-w-0"><strong className="block truncate text-sm">{customer.fullName}</strong><span className="block truncate text-[11px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span></span><span className="shrink-0 text-xs font-black text-[var(--accent)]">Use</span></button>):<p className="px-3 py-2 text-xs font-semibold text-[var(--text-muted)]">No matching customer. You can continue without selecting one.</p>}
               </div>:null}
               {quickCustomerId?<button type="button" onClick={()=>{setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerName("");setQuickMobile("");}} className="mt-1.5 text-[11px] font-black text-[var(--accent)]">Change customer</button>:null}
             </div>
             {quickCashOutType==="AEPS"?<div className="mt-3">
-              <label className="block rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Aadhaar last 4 <span className="text-rose-500">*</span></span><input inputMode="numeric" maxLength={4} className="mt-1 w-full bg-transparent p-0 text-[17px] font-black tracking-[.12em] outline-none" value={quickAadhaarLastFour} onChange={(event)=>{setQuickAadhaarLastFour(event.target.value.replace(/\D/g,"").slice(0,4));clearQuickFieldError("aadhaarLastFour");}} placeholder="1234"/>{quickFieldErrors.aadhaarLastFour?<span className="mt-1 block text-[10px] font-bold text-rose-600">{quickFieldErrors.aadhaarLastFour}</span>:null}</label>
+              <label className="block rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Aadhaar last 4 <span className="text-rose-500">*</span></span><input inputMode="numeric" autoComplete="off" maxLength={4} className="mt-1 w-full bg-transparent p-0 text-[17px] font-black tracking-[.12em] outline-none" value={quickAadhaarLastFour} onChange={(event)=>{setQuickAadhaarLastFour(event.target.value.replace(/\D/g,"").slice(0,4));clearQuickFieldError("aadhaarLastFour");}} placeholder="1234"/>{quickFieldErrors.aadhaarLastFour?<span className="mt-1 block text-[10px] font-bold text-rose-600">{quickFieldErrors.aadhaarLastFour}</span>:null}</label>
             </div>:<div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Card last 4 <span className="text-rose-500">*</span></span><input inputMode="numeric" maxLength={4} className="mt-1 w-full bg-transparent p-0 text-[17px] font-black tracking-[.12em] outline-none" value={quickCardLastFour} onChange={(event)=>{setQuickCardLastFour(event.target.value.replace(/\D/g,"").slice(0,4));clearQuickFieldError("cardLastFour");}} placeholder="1234"/>{quickFieldErrors.cardLastFour?<span className="mt-1 block text-[10px] font-bold text-rose-600">{quickFieldErrors.cardLastFour}</span>:null}</label>
+              <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Card last 4 <span className="text-rose-500">*</span></span><input inputMode="numeric" autoComplete="off" maxLength={4} className="mt-1 w-full bg-transparent p-0 text-[17px] font-black tracking-[.12em] outline-none" value={quickCardLastFour} onChange={(event)=>{setQuickCardLastFour(event.target.value.replace(/\D/g,"").slice(0,4));clearQuickFieldError("cardLastFour");}} placeholder="1234"/>{quickFieldErrors.cardLastFour?<span className="mt-1 block text-[10px] font-bold text-rose-600">{quickFieldErrors.cardLastFour}</span>:null}</label>
               <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Customer bank <span className="normal-case font-semibold">(optional)</span></span><input className="mt-1 w-full bg-transparent p-0 text-[15px] font-bold outline-none" value={quickCustomerBank} onChange={(event)=>setQuickCustomerBank(event.target.value)} placeholder="Bank name"/></label>
             </div>}
           </div>:null}
@@ -1209,8 +1214,8 @@ export default function CashCounterPage(){
           </div>:null}
 
           <div className="mt-3 overflow-hidden rounded-[17px] bg-[var(--surface-soft)] px-4">
-            <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Customer</span><input className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Name" value={quickCustomerName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickCustomerName(event.target.value);setQuickError("");}}/></label>
-            <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Mobile</span><input inputMode="tel" className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Mobile number" value={quickMobile} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickMobile(event.target.value);setQuickError("");}}/></label>
+            <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Customer</span><input name="cashledger_daily_cash_customer_name" autoComplete="on" list="cashledger-daily-cash-remembered-names" className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Name" value={quickCustomerName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickCustomerName(event.target.value);setQuickError("");}}/></label>
+            <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Mobile</span><input inputMode="tel" name="cashledger_customer_mobile" autoComplete="on" className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Mobile number" value={quickMobile} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickMobile(event.target.value);setQuickError("");}}/></label>
             {quickDirection==="OUT"?<label className="flex min-h-[58px] items-center gap-3 border-b border-[var(--border)] py-2.5">
               <span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Date & time</span>
               <div className="min-w-0 flex-1 text-right"><input type="datetime-local" className="min-h-10 max-w-full bg-transparent p-0 text-right text-[14px] font-bold text-[var(--text)] outline-none" value={quickTransactionAt} onChange={(event)=>setQuickTransactionAt(event.target.value)}/><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Optional · blank uses current time</p></div>
@@ -1220,6 +1225,7 @@ export default function CashCounterPage(){
               <textarea rows={2} className="min-h-[42px] min-w-0 flex-1 resize-none appearance-none bg-transparent p-0 text-right text-[17px] font-extrabold leading-5 text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Add note" value={quickRemarks} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickRemarks(event.target.value);setQuickError("");}}/>
             </label>
           </div>
+          <datalist id="cashledger-daily-cash-remembered-names">{rememberedCustomerNames.map(name=><option key={name} value={name}/>)}</datalist>
 
           {quickError?<div role="alert" className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">{quickError}</div>:null}
         </div>
@@ -1332,11 +1338,11 @@ export default function CashCounterPage(){
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">
               <span className="block text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Customer</span>
-              <input className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeCustomerName} onChange={(event)=>setCompleteCustomerName(event.target.value)}/>
+              <input name="cashledger_complete_customer_name" autoComplete="on" list="cashledger-daily-cash-complete-remembered-names" className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeCustomerName} onChange={(event)=>setCompleteCustomerName(event.target.value)}/>
             </label>
             <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">
               <span className="block text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Mobile</span>
-              <input inputMode="tel" className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeMobile} onChange={(event)=>setCompleteMobile(event.target.value)}/>
+              <input inputMode="tel" name="cashledger_customer_mobile" autoComplete="on" className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeMobile} onChange={(event)=>setCompleteMobile(event.target.value)}/>
             </label>
             <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">
               <span className="block text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">{completingQuickCash?.cashOutType==="AEPS"||completingQuickCash?.cashOutType==="MICRO_ATM"?"Provider reference / RRN":"Reference / UTR"}</span>
@@ -1347,6 +1353,7 @@ export default function CashCounterPage(){
               <input className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeNotes} onChange={(event)=>setCompleteNotes(event.target.value)}/>
             </label>
           </div>
+          <datalist id="cashledger-daily-cash-complete-remembered-names">{rememberedCustomerNames.map(name=><option key={name} value={name}/>)}</datalist>
         </div>
 
         <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 sm:flex sm:items-center sm:justify-end sm:gap-3 sm:px-6">

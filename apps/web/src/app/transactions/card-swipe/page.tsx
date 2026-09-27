@@ -7,6 +7,7 @@ import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Field, Modal, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { useRememberedValues } from "@/lib/remembered-values";
 
 type Card={id:string;bankName:string;cardType?:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
 type Customer={id:string;fullName:string;mobile:string|null;cards:Card[]};
@@ -280,6 +281,7 @@ export default function CardSwipePage(){
   const [error,setError]=useState("");
   const [saving,setSaving]=useState(false);
   const [loading,setLoading]=useState(true);
+  const {values:rememberedCustomerNames,remember:rememberCustomerName}=useRememberedValues("cashledger_recent_customer_names",8);
 
   useEffect(()=>{
     document.body.classList.add("cashledger-modern-task");
@@ -534,6 +536,7 @@ export default function CardSwipePage(){
   }
 
   function selectCustomer(next:Customer){
+    rememberCustomerName(next.fullName);
     resetSwipeDetails(false);
     const matchingCard=customerDigits?next.cards.find(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):undefined;
     const activeCards=next.cards.filter(card=>card.isActive);
@@ -686,6 +689,7 @@ export default function CardSwipePage(){
         setCustomerMode("existing");
         preferenceCustomerId=next.id;
       }
+      rememberCustomerName(result.createdCustomer?.customer.fullName??customer?.fullName??quickName);
       savePreferences(preferenceCustomerId,result.createdCustomer?.card.id||cardId);
       setSaved(result);
       window.scrollTo({top:0,behavior:"smooth"});
@@ -794,10 +798,10 @@ export default function CardSwipePage(){
             </div>
 
             {customerMode==="new"?<div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label="Customer name"><input className={control} value={quickName} onChange={e=>setQuickName(e.target.value)} maxLength={150} autoFocus placeholder="Full name"/></Field>
-              <Field label="Mobile number"><div className="flex overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--accent)]"><span className="grid h-11 place-items-center border-r border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-semibold text-[var(--text-muted)]">+91</span><input className="h-11 min-w-0 flex-1 bg-transparent px-3 text-base outline-none" type="tel" inputMode="numeric" value={quickMobile} onChange={e=>setQuickMobile(e.target.value.replace(/\D/g,"").slice(0,10))} maxLength={10} placeholder="10-digit mobile"/></div>{quickMobile.length>0&&!quickMobileValid?<p className="mt-1 text-[11px] text-amber-600">Enter a valid Indian mobile number.</p>:null}</Field>
+              <Field label="Customer name"><input className={control} name="cashledger_new_customer_name" autoComplete="on" list="cashledger-card-swipe-remembered-names" value={quickName} onChange={e=>setQuickName(e.target.value)} maxLength={150} autoFocus placeholder="Full name"/></Field>
+              <Field label="Mobile number"><div className="flex overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--accent)]"><span className="grid h-11 place-items-center border-r border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-semibold text-[var(--text-muted)]">+91</span><input className="h-11 min-w-0 flex-1 bg-transparent px-3 text-base outline-none" type="tel" inputMode="numeric" name="cashledger_customer_mobile" autoComplete="on" value={quickMobile} onChange={e=>setQuickMobile(e.target.value.replace(/\D/g,"").slice(0,10))} maxLength={10} placeholder="10-digit mobile"/></div>{quickMobile.length>0&&!quickMobileValid?<p className="mt-1 text-[11px] text-amber-600">Enter a valid Indian mobile number.</p>:null}</Field>
               <Field label="Card bank"><SearchableSelect className={control} value={quickBank} onChange={e=>setQuickBank(e.target.value)}><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
-              <Field label="Card last 4"><input className={control+" font-semibold tracking-[.12em]"} inputMode="numeric" value={quickLastFour} onChange={e=>setQuickLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000"/></Field>
+              <Field label="Card last 4"><input className={control+" font-semibold tracking-[.12em]"} inputMode="numeric" autoComplete="off" value={quickLastFour} onChange={e=>setQuickLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000"/></Field>
               {possibleExistingCustomers.length?<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:col-span-2"><p className="text-xs font-semibold text-amber-900">Possible existing customer</p><div className="mt-2 space-y-1">{possibleExistingCustomers.map(match=><button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between rounded-lg bg-white/70 px-3 py-2 text-left"><span><strong className="block text-xs text-slate-900">{match.fullName}</strong><span className="text-[11px] text-slate-500">{formatIndianMobile(match.mobile)}</span></span><span className="text-xs font-semibold text-indigo-700">Use existing →</span></button>)}</div></div>:null}
             </div>:customer?<div className="mt-3">
               <div className="flex items-center gap-3">
@@ -809,7 +813,8 @@ export default function CardSwipePage(){
                 {activeCards.map(card=>{const selected=card.id===cardId;const usual=card.id===usualCardId;return <button key={card.id} type="button" onClick={()=>setCardId(card.id)} className={"swipe-card-choice min-w-[145px] rounded-xl border px-3 py-2.5 text-left "+(selected?"swipe-card-choice-selected border-[var(--accent)] bg-[var(--accent-soft)]":"border-[var(--border)] bg-[var(--surface)]")}><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-bold">{card.bankName}</span>{usual?<span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700">Usual</span>:null}</div><p className="mt-1 font-mono text-xs tracking-[.08em] text-[var(--text-muted)]">•••• {card.lastFourDigits}</p></button>;})}
                 <button type="button" onClick={openAddCard} className="flex min-w-[110px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] px-3 text-xs font-semibold text-[var(--accent)]">+ Add card</button>
               </div>
-            </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, mobile or card last 4" autoComplete="off" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
+            </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" name="cashledger_customer_search" autoComplete="off" list="cashledger-card-swipe-remembered-names" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, mobile or card last 4" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
+            <datalist id="cashledger-card-swipe-remembered-names">{rememberedCustomerNames.map(name=><option key={name} value={name}/>)}</datalist>
             {customer?<CustomerCardSwipeHistory rows={customerHistory} loading={historyLoading}/>:null}
           </section>
 
@@ -877,7 +882,7 @@ export default function CardSwipePage(){
     <form id="swipe-add-card" onSubmit={addCardToSelectedCustomer} className="grid gap-3 sm:grid-cols-2">
       <Field label="Bank"><SearchableSelect className={control} value={newCardBank} onChange={e=>setNewCardBank(e.target.value)} required><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
       <Field label="Card type"><SearchableSelect className={control} value={newCardType} onChange={e=>setNewCardType(e.target.value)}>{["CREDIT","DEBIT","BUSINESS","OTHER"].map(type=><option key={type} value={type}>{type}</option>)}</SearchableSelect></Field>
-      <Field label="Last 4 digits"><input className={control+" font-semibold tracking-[.12em]"} inputMode="numeric" value={newCardLastFour} onChange={e=>setNewCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
+      <Field label="Last 4 digits"><input className={control+" font-semibold tracking-[.12em]"} inputMode="numeric" autoComplete="off" value={newCardLastFour} onChange={e=>setNewCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
       <Field label="Nickname"><input className={control} value={newCardNickname} onChange={e=>setNewCardNickname(e.target.value)} placeholder="Optional"/></Field>
     </form>
   </Modal>
