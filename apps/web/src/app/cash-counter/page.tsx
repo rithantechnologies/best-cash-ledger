@@ -1164,7 +1164,7 @@ export default function CashCounterPage(){
               {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.transferMode);setQuickCommissionOverridden(false);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
             </div>:<p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">No Cash In transfer types are active. Configure them in Settings.</p>}
             {quickFieldErrors.transferType?<p className="mt-1.5 px-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.transferType}</p>:null}
-            {selectedQuickTransferType?<p className="mt-2 px-1 text-[10px] font-semibold text-[var(--text-muted)]">Commission is calculated automatically from the configured rate. You can edit the commission amount below for this transaction.</p>:null}
+
           </div>:null}
 
           {quickPurpose==="TRANSFER"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
