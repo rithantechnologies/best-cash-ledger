@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountNature, AccountType, CommissionMethod, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountNature, AccountType, CalculationType, CommissionMethod, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { LedgerService, type JournalEntry } from '../ledger/ledger.service.js';
@@ -2082,20 +2082,51 @@ export class TransactionsService {
           'Selected provider does not support Aadhaar withdrawals',
         );
       }
-      const effectivePlatformChargeRate =
-        dto.platformChargeRate !== undefined
-          ? Number(dto.platformChargeRate)
-          : gateway
-            ? Number(gateway.defaultChargeRate)
-            : Number(provider.aepsProviderChargeRate ?? 0);
+      const effectivePlatformChargeType = gateway
+        ? gateway.defaultChargeType
+        : CalculationType.PERCENTAGE;
+      const effectivePlatformChargeRate = gateway
+        ? Number(gateway.defaultChargeRate)
+        : Number(provider.aepsProviderChargeRate ?? 0);
       const calculatedPlatformCharge = this.money(
-        withdrawalAmount * effectivePlatformChargeRate / 100,
+        effectivePlatformChargeType === CalculationType.FIXED
+          ? effectivePlatformChargeRate
+          : withdrawalAmount * effectivePlatformChargeRate / 100,
+      );
+      const providerCommissionRule = await tx.aepsProviderCommissionRule.findFirst({
+        where: {
+          providerId: provider.id,
+          effectiveFrom: { lte: transactionAt },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gt: transactionAt } }],
+          minAmount: { lte: withdrawalAmount },
+          AND: [
+            {
+              OR: [
+                { maxAmount: null },
+                { maxAmount: { gte: withdrawalAmount } },
+              ],
+            },
+          ],
+        },
+        orderBy: { minAmount: 'desc' },
+      });
+      const providerCommissionValue = providerCommissionRule
+        ? Number(providerCommissionRule.value)
+        : 0;
+      const calculatedProviderCommission = this.money(
+        providerCommissionRule?.calculationType === CalculationType.PERCENTAGE
+          ? withdrawalAmount * providerCommissionValue / 100
+          : providerCommissionValue,
       );
       const calculatedSettlement = this.money(
-        withdrawalAmount - calculatedPlatformCharge,
+        withdrawalAmount - calculatedPlatformCharge + calculatedProviderCommission,
       );
-      if (calculatedSettlement <= 0 || calculatedPlatformCharge < 0) {
-        throw new BadRequestException('Invalid AePS provider charge');
+      if (
+        calculatedSettlement <= 0 ||
+        calculatedPlatformCharge < 0 ||
+        calculatedProviderCommission < 0
+      ) {
+        throw new BadRequestException('Invalid AePS provider settlement');
       }
 
       if (!successful) {
@@ -2126,6 +2157,13 @@ export class TransactionsService {
             gatewayId: dto.gatewayId,
             platformChargeRate: new Prisma.Decimal(effectivePlatformChargeRate),
             platformChargeAmount: new Prisma.Decimal(0),
+            providerCommissionRuleId: providerCommissionRule?.id ?? null,
+            providerCommissionCalculationType: providerCommissionRule?.calculationType ?? null,
+            providerCommissionRate:
+              providerCommissionRule?.calculationType === CalculationType.PERCENTAGE
+                ? new Prisma.Decimal(providerCommissionValue)
+                : null,
+            providerCommissionAmount: new Prisma.Decimal(0),
             commissionRate: new Prisma.Decimal(dto.commissionRate),
             commissionMethod,
             commissionAmount: new Prisma.Decimal(0),
@@ -2226,6 +2264,13 @@ export class TransactionsService {
           gatewayId: dto.gatewayId,
           platformChargeRate: new Prisma.Decimal(effectivePlatformChargeRate),
           platformChargeAmount: new Prisma.Decimal(calculatedPlatformCharge),
+          providerCommissionRuleId: providerCommissionRule?.id ?? null,
+          providerCommissionCalculationType: providerCommissionRule?.calculationType ?? null,
+          providerCommissionRate:
+            providerCommissionRule?.calculationType === CalculationType.PERCENTAGE
+              ? new Prisma.Decimal(providerCommissionValue)
+              : null,
+          providerCommissionAmount: new Prisma.Decimal(calculatedProviderCommission),
           commissionRate: new Prisma.Decimal(dto.commissionRate),
           commissionMethod,
           commissionAmount: new Prisma.Decimal(calculatedCommission),
@@ -2244,7 +2289,7 @@ export class TransactionsService {
             chargeType: 'PROVIDER',
             providerId: dto.providerId,
             gatewayId: dto.gatewayId,
-            calculationType: 'PERCENTAGE',
+            calculationType: effectivePlatformChargeType,
             rate: new Prisma.Decimal(effectivePlatformChargeRate),
             amount: new Prisma.Decimal(calculatedPlatformCharge),
           },
@@ -2254,10 +2299,21 @@ export class TransactionsService {
         await tx.transactionCommission.create({
           data: {
             transactionId: transaction.id,
-            commissionType: 'AEPS',
+            commissionType: 'AEPS_CUSTOMER',
             calculationType: 'PERCENTAGE',
             rate: new Prisma.Decimal(dto.commissionRate),
             amount: new Prisma.Decimal(calculatedCommission),
+          },
+        });
+      }
+      if (calculatedProviderCommission > 0 && providerCommissionRule) {
+        await tx.transactionCommission.create({
+          data: {
+            transactionId: transaction.id,
+            commissionType: 'AEPS_PROVIDER',
+            calculationType: providerCommissionRule.calculationType,
+            rate: new Prisma.Decimal(providerCommissionValue),
+            amount: new Prisma.Decimal(calculatedProviderCommission),
           },
         });
       }
@@ -2342,7 +2398,17 @@ export class TransactionsService {
           amount: calculatedCommission,
           customerId,
           providerSettlementId: providerSettlement.id,
-          description: 'AePS commission income',
+          description: 'AePS customer commission income',
+        });
+      }
+      if (calculatedProviderCommission > 0) {
+        entries.push({
+          ledgerAccountId: commissionLedger.id,
+          entryType: EntryType.CREDIT,
+          amount: calculatedProviderCommission,
+          customerId,
+          providerSettlementId: providerSettlement.id,
+          description: 'AePS provider commission income',
         });
       }
 
