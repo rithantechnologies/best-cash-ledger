@@ -34,6 +34,9 @@ export function QuickExpenseEntry({
   const [categories,setCategories]=useState<Category[]>([]);
   const [accounts,setAccounts]=useState<Account[]>([]);
   const [categoryId,setCategoryId]=useState("");
+  const [showNewCategory,setShowNewCategory]=useState(false);
+  const [newCategoryName,setNewCategoryName]=useState("");
+  const [creatingCategory,setCreatingCategory]=useState(false);
   const [amount,setAmount]=useState("");
   const [accountId,setAccountId]=useState("");
   const [note,setNote]=useState("");
@@ -64,7 +67,25 @@ export function QuickExpenseEntry({
   const activeAccounts=accounts.filter(a=>a.isActive!==false&&accountTypes.includes(a.accountType));
 
   function close(){
-    setOpen(false);setError("");setCategoryId("");setAmount("");setAccountId("");setNote("");
+    setOpen(false);setError("");setCategoryId("");setShowNewCategory(false);setNewCategoryName("");setAmount("");setAccountId("");setNote("");
+  }
+
+  async function addCategory(){
+    const name=newCategoryName.trim();
+    if(name.length<2)return;
+    setCreatingCategory(true);setError("");
+    try{
+      const created=await apiFetch<Category>("/settings/expense-categories",{
+        method:"POST",
+        body:JSON.stringify({name,expenseUsage:"BUSINESS"}),
+      });
+      setCategories(current=>[...current,created]);
+      setCategoryId(created.id);
+      setNewCategoryName("");
+      setShowNewCategory(false);
+    }catch(e){
+      setError(e instanceof Error?e.message:"Could not add category");
+    }finally{setCreatingCategory(false);}
   }
 
   async function submit(event:FormEvent){
@@ -140,6 +161,21 @@ export function QuickExpenseEntry({
                   <option value="">Choose category…</option>
                   {popular.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}
                 </SearchableSelect>
+                {!showNewCategory?<button type="button" onClick={()=>{setShowNewCategory(true);setError("");}}
+                  className="mt-2 min-h-8 px-1 text-[12px] font-black text-violet-700">+ Add new category</button>:
+                  <div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2.5">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">New expense category</p>
+                    <input autoFocus value={newCategoryName} onChange={e=>setNewCategoryName(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();void addCategory();}}}
+                      placeholder="Example: Office supplies" maxLength={80}
+                      className="min-h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-[14px] font-bold text-[var(--text)] outline-none focus:border-violet-300"/>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={()=>void addCategory()} disabled={creatingCategory||newCategoryName.trim().length<2}
+                        className="min-h-9 flex-1 rounded-xl bg-violet-600 px-3 text-[12px] font-black text-white disabled:opacity-40">{creatingCategory?"Adding…":"Add category"}</button>
+                      <button type="button" onClick={()=>{setShowNewCategory(false);setNewCategoryName("");}}
+                        className="min-h-9 rounded-xl border border-[var(--border)] px-3 text-[12px] font-black text-[var(--text-muted)]">Cancel</button>
+                    </div>
+                  </div>}
               </div>
 
               <div className="mt-3 overflow-hidden rounded-[17px] bg-[var(--surface-soft)] px-4">
