@@ -1,4 +1,4 @@
-import { IsIn, IsString } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class CreateCashInTransferTypeDto {
   @IsString()
@@ -6,4 +6,10 @@ export class CreateCashInTransferTypeDto {
 
   @IsIn(['UPI', 'BANK'])
   transferMode!: 'UPI' | 'BANK';
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  defaultCommissionRate?: number;
 }

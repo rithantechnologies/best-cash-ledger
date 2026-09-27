@@ -136,7 +136,7 @@ export default function MicroAtmPage(){
      <Field label="Find customer"><input className={control} value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name or mobile"/></Field>
      <Field label="Customer"><SearchableSelect className={control} value={customerId} onChange={e=>setCustomerId(e.target.value)} required><option value="">Select customer</option>{filteredCustomers.map(c=><option key={c.id} value={c.id}>{c.fullName}{c.mobile?" · "+c.mobile:""}</option>)}</SearchableSelect></Field>
     </div>:<div className="grid gap-3 sm:grid-cols-2">
-     <Field label="Customer name"><input className={control} value={newCustomerName} onChange={e=>setNewCustomerName(e.target.value)} placeholder="Enter customer name" required/></Field>
+     <Field label="Customer name"><input className={control} value={newCustomerName} onChange={e=>setNewCustomerName(e.target.value.toUpperCase())} placeholder="Enter customer name" required/></Field>
      <Field label="Mobile (optional)"><input className={control} inputMode="numeric" maxLength={10} value={newCustomerMobile} onChange={e=>setNewCustomerMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile"/>{newCustomerMobile&& !/^[6-9]\d{9}$/.test(newCustomerMobile)?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Enter a valid 10-digit Indian mobile number.</span>:null}</Field>
     </div>}
     <div className="mt-3 grid gap-3 sm:grid-cols-2">

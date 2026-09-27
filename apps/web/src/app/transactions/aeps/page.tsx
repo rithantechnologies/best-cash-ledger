@@ -12,8 +12,9 @@ import { apiFetch } from "@/lib/api";
 type BankAccount={id:string;bankName:string;accountReference:string;isActive:boolean};
 type Customer={id:string;fullName:string;mobile?:string|null;bankAccounts:BankAccount[]};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null;isActive?:boolean};
-type Gateway={id:string;gatewayName:string;defaultChargeRate:string};
-type Provider={id:string;name:string;supportsAeps:boolean;aepsCommissionRate:string;aepsProviderChargeRate:string;gateways:Gateway[]};
+type Gateway={id:string;gatewayName:string;defaultChargeRate:string;defaultChargeType:"PERCENTAGE"|"FIXED"};
+type ProviderCommissionRule={id:string;minAmount:string;maxAmount:string|null;calculationType:"PERCENTAGE"|"FIXED";value:string};
+type Provider={id:string;name:string;supportsAeps:boolean;aepsCommissionRate:string;aepsProviderChargeRate:string;aepsProviderCommissionRules:ProviderCommissionRule[];gateways:Gateway[]};
 type Rule={commissionRate:string}|null;
 type SavedAeps={transaction:{id:string};createdCustomer?:{id:string;fullName:string;mobile:string|null}|null};
 
@@ -57,6 +58,17 @@ function formatMobile(value:string|null|undefined){
   return digits.length===10?"+91 "+digits.slice(0,5)+" "+digits.slice(5):(value||"");
 }
 function rateText(value:number){return Number(value.toFixed(4)).toString();}
+function providerCommissionFor(provider:Provider|undefined,amount:number){
+  if(!provider||amount<=0)return 0;
+  const rule=(provider.aepsProviderCommissionRules||[]).find(item=>{
+    const min=Number(item.minAmount||0),max=item.maxAmount===null?null:Number(item.maxAmount);
+    return amount+0.001>=min&&(max===null||amount<=max+0.001);
+  });
+  if(!rule)return 0;
+  const value=Number(rule.value||0);
+  return Math.round((rule.calculationType==="PERCENTAGE"?amount*value/100:value)*100)/100;
+}
+
 function localDatePlus(days:number){
   const d=new Date();
   d.setDate(d.getDate()+days);
@@ -83,9 +95,9 @@ function RateControl({value,defaultValue,onChange}:{value:number;defaultValue:nu
 }
 
 function AepsSummary({
-  customerName,withdrawal,cashGiven,commission,charge,settlement,cashName,providerName,gatewayName,hasGateway,settledNow,successful,cashPayoutNow,ready,
+  customerName,withdrawal,cashGiven,commission,providerCommission,charge,settlement,cashName,providerName,gatewayName,hasGateway,settledNow,successful,cashPayoutNow,ready,
 }:{
-  customerName:string;withdrawal:number;cashGiven:number;commission:number;charge:number;settlement:number;
+  customerName:string;withdrawal:number;cashGiven:number;commission:number;providerCommission:number;charge:number;settlement:number;
   cashName:string;providerName:string;gatewayName:string;hasGateway:boolean;settledNow:boolean;successful:boolean;cashPayoutNow:boolean;ready:boolean;
 }){
   if(!successful){
@@ -115,14 +127,16 @@ function AepsSummary({
         <p className={"money result-total mt-1 font-black leading-none tracking-[-.045em] "+totalSize}>{total}</p>
       </div>
       <div className="swipe-result-earn max-w-[122px] rounded-xl bg-[color-mix(in_srgb,var(--money-in)_10%,transparent)] px-3 py-2 text-right">
-        <p className="text-[10px] font-semibold text-[var(--text-muted)]">You earn</p>
-        <p className="money result-earn mt-0.5 font-extrabold text-[var(--money-in)]">{money(commission)}</p>
+        <p className="text-[10px] font-semibold text-[var(--text-muted)]">Total income</p>
+        <p className="money result-earn mt-0.5 font-extrabold text-[var(--money-in)]">{money(commission+providerCommission)}</p>
       </div>
     </div>
-    <div className={"mt-4 grid gap-2 border-t border-[var(--border)] pt-3 "+(hasGateway?"grid-cols-3":"grid-cols-2")}>
+    <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--border)] pt-3">
       <div className="min-w-0"><p className="text-[10px] text-[var(--text-muted)]">Bank debit</p><p className="money result-metric mt-1 font-bold">{money(withdrawal)}</p></div>
-      {hasGateway?<div className="min-w-0"><p className="text-[10px] text-[var(--text-muted)]">Provider fee</p><p className="money result-metric mt-1 font-bold text-[var(--money-out)]">{ready?"−"+money(charge):"—"}</p></div>:null}
       <div className="min-w-0"><p className="text-[10px] text-[var(--text-muted)]">Settlement</p><p className="money result-metric mt-1 font-bold">{ready?money(settlement):"—"}</p></div>
+      <div className="min-w-0"><p className="text-[10px] text-[var(--text-muted)]">Customer commission</p><p className="money result-metric mt-1 font-bold text-[var(--money-in)]">+{money(commission)}</p></div>
+      <div className="min-w-0"><p className="text-[10px] text-[var(--text-muted)]">Provider commission</p><p className="money result-metric mt-1 font-bold text-[var(--money-in)]">+{money(providerCommission)}</p></div>
+      {charge>0?<div className="min-w-0"><p className="text-[10px] text-[var(--text-muted)]">Provider fee</p><p className="money result-metric mt-1 font-bold text-[var(--money-out)]">{ready?"−"+money(charge):"—"}</p></div>:null}
     </div>
     <div className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-3 text-[11px]">
       <div className="flex items-start justify-between gap-3"><span className="text-[var(--text-muted)]">Customer cash</span><strong className={cashPayoutNow?"text-[var(--money-in)]":"text-amber-400"}>{cashPayoutNow?(cashName?"Paid · "+cashName:"Paid"):"Due"}</strong></div>
@@ -316,8 +330,9 @@ export default function AepsPage(){
   const commission=Math.round(baseAmount*Number(commissionRate||0))/100;
   const withdrawal=Math.round((commissionMethod==="ADD_ON"?baseAmount+commission:baseAmount)*100)/100;
   const cashGiven=Math.round((commissionMethod==="ADD_ON"?baseAmount:baseAmount-commission)*100)/100;
-  const charge=Math.round(withdrawal*Number(chargeRate||0))/100;
-  const settlement=Math.round((withdrawal-charge)*100)/100;
+  const charge=Math.round((gateway?.defaultChargeType==="FIXED"?Number(chargeRate||0):withdrawal*Number(chargeRate||0)/100)*100)/100;
+  const providerCommission=providerCommissionFor(provider,withdrawal);
+  const settlement=Math.round((withdrawal-charge+providerCommission)*100)/100;
   const commissionSeparate=settledNow&&commissionSettlementMode==="SEPARATE"&&commission>0;
   const mainSettlementReceipt=Math.max(0,Math.round((settlement-(commissionSeparate?commission:0))*100)/100);
   const commissionReceiptReady=!commissionSeparate||Boolean(commissionReceiptAccountId&&commissionReceiptAccountId!==settlementAccountId);
@@ -355,7 +370,7 @@ export default function AepsPage(){
     const digits=mobileDigits(customerSearch);
     setCustomerMode("NEW");setCustomerId("");
     setNewMobile(digits.length===10?digits:"");
-    setNewName(digits.length===10?"":customerSearch.trim());
+    setNewName(digits.length===10?"":customerSearch.trim().toUpperCase());
     setBank("");
   }
 
@@ -378,7 +393,6 @@ export default function AepsPage(){
         platformId:platformId.trim()||undefined,
         providerId,
         gatewayId:gatewayId||undefined,
-        platformChargeRate:Number(chargeRate||0),
         commissionRate:Number(commissionRate||0),
         cashAccountId:successful&&cashPayoutNow?cashAccountId||undefined:undefined,
         settlementAccountId,
@@ -414,7 +428,7 @@ export default function AepsPage(){
             </div>
 
             {customerMode==="NEW"?<div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label="Customer name"><input className={control} value={newName} onChange={e=>setNewName(e.target.value)} autoFocus placeholder="Full name"/></Field>
+              <Field label="Customer name"><input className={control} value={newName} onChange={e=>setNewName(e.target.value.toUpperCase())} autoFocus placeholder="Full name"/></Field>
               <Field label="Mobile (optional)"><div className="flex overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--accent)]"><span className="grid h-11 place-items-center border-r border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-semibold text-[var(--text-muted)]">+91</span><input className="h-11 min-w-0 flex-1 bg-transparent px-3 text-base outline-none" inputMode="numeric" maxLength={10} value={newMobile} onChange={e=>setNewMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile"/></div>{newMobile&&!mobileValid?<p className="mt-1 text-[11px] text-amber-600">Enter a valid Indian mobile number.</p>:null}</Field>
               {possibleExisting.length?<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:col-span-2"><p className="text-xs font-semibold text-amber-900">Possible existing customer</p><div className="mt-2 grid gap-1 sm:grid-cols-2">{possibleExisting.map(match=><button key={match.id} type="button" onClick={()=>selectCustomerState(match)} className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2 text-left"><span><strong className="block text-xs text-slate-900">{match.fullName}</strong><span className="text-[11px] text-slate-500">{formatMobile(match.mobile)||"No mobile"}</span></span><span className="text-xs font-semibold text-indigo-700">Use existing →</span></button>)}</div></div>:null}
             </div>:customer?<div className="mt-3 flex items-center gap-3">
@@ -439,7 +453,7 @@ export default function AepsPage(){
                 <div className="relative mt-2"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-[var(--text-muted)]">₹</span><input className="entry-amount-input" type="text" inputMode="decimal" value={formatAmountInput(amount)} onChange={e=>setAmount(cleanAmountInput(e.target.value))} placeholder="0" required/></div>
               </div>
               <div>
-                <div className="flex items-center justify-between gap-3"><h3 className="operational-label">Commission</h3>{commission>0?<strong className="money text-sm text-[var(--money-in)]">{money(commission)}</strong>:null}</div>
+                <div className="flex items-center justify-between gap-3"><h3 className="operational-label">Customer commission</h3>{commission>0?<strong className="money text-sm text-[var(--money-in)]">{money(commission)}</strong>:null}</div>
                 <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">
                   <button type="button" onClick={()=>setCommissionMethod("DEDUCT")} className={"min-h-9 rounded-lg px-3 text-xs font-bold transition "+(commissionMethod==="DEDUCT"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Included</button>
                   <button type="button" onClick={()=>setCommissionMethod("ADD_ON")} className={"min-h-9 rounded-lg px-3 text-xs font-bold transition "+(commissionMethod==="ADD_ON"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Add on</button>
@@ -467,9 +481,10 @@ export default function AepsPage(){
             <div className={"mt-3 grid gap-3 "+(providerHasGateways?"sm:grid-cols-3":"sm:grid-cols-1")}>
               <Field label="Provider"><SearchableSelect className={control} value={providerId} onChange={e=>setProviderId(e.target.value)} required><option value="">Select provider</option>{providers.filter(p=>p.supportsAeps).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></Field>
               {providerHasGateways?<Field label="Gateway"><SearchableSelect className={control} value={gatewayId} onChange={e=>setGatewayId(e.target.value)} required><option value="">Select gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</SearchableSelect></Field>:null}
-              {successful?<Field label="Provider fee %"><input className={control+" bg-[var(--surface-soft)] text-[var(--text-muted)]"} type="number" value={chargeRate} readOnly/></Field>:null}
+              {successful?<Field label={gateway?.defaultChargeType==="FIXED"?"Provider fee ₹":"Provider fee %"}><input className={control+" bg-[var(--surface-soft)] text-[var(--text-muted)]"} type="number" value={chargeRate} readOnly/></Field>:null}
             </div>
-            {providerId&&!providerHasGateways?<p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">Provider fee comes from Settings → Payment Providers. DigiSeva defaults to 1.6%; other providers are configurable.</p>:null}
+            {providerId&&!providerHasGateways?<p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">Provider fee is separate from provider commission. DigiSeva currently has no provider fee configured.</p>:null}
+            {successful&&providerCommission>0?<div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5"><div className="flex items-center justify-between gap-3"><span className="text-xs font-bold text-emerald-900">Provider commission from {provider?.name||"provider"}</span><strong className="money text-sm text-emerald-700">+{money(providerCommission)}</strong></div><p className="mt-1 text-[10px] font-semibold text-emerald-800/80">Added to business income and provider settlement. Customer commission remains separate.</p></div>:null}
 
             {successful&&providerWallet?<div className="wallet-summary-card mt-2 rounded-xl border border-[var(--border)] px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -485,7 +500,7 @@ export default function AepsPage(){
             </div>:successful&&providerId?<div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><Field label="Settlement account"><SearchableSelect className={control} value={settlementAccountId} onChange={e=>setSettlementAccountId(e.target.value)} required><option value="">Select receiving account</option>{accounts.filter(a=>a.isActive!==false&&["BANK","UPI"].includes(a.accountType)).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</SearchableSelect></Field><div className="grid grid-cols-2 gap-1 rounded-lg bg-[var(--surface-soft)] p-1"><button type="button" onClick={()=>setSettledNow(true)} className={"min-h-10 rounded-md px-3 text-xs font-bold "+(settledNow?"bg-[var(--surface)] text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Received</button><button type="button" onClick={()=>{setSettledNow(false);setCommissionSettlementMode("INCLUDED");setCommissionReceiptAccountId("");}} className={"min-h-10 rounded-md px-3 text-xs font-bold "+(!settledNow?"bg-[var(--surface)] text-amber-700 shadow-sm":"text-[var(--text-muted)]")}>Pending</button></div></div>:null}
 
             {successful&&commission>0?<div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
-              <div className="flex items-center justify-between gap-3"><span className="text-sm font-bold text-emerald-900">Commission settlement</span><strong className="money text-sm text-emerald-700">{money(commission)}</strong></div>
+              <div className="flex items-center justify-between gap-3"><span className="text-sm font-bold text-emerald-900">Customer commission settlement</span><strong className="money text-sm text-emerald-700">{money(commission)}</strong></div>
               {settledNow?<>
                 <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-white/70 p-1">
                   <button type="button" onClick={()=>{setCommissionSettlementMode("INCLUDED");setCommissionReceiptAccountId("");}} className={"min-h-9 rounded-md px-3 text-xs font-bold "+(commissionSettlementMode==="INCLUDED"?"bg-white text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Included</button>
@@ -523,7 +538,7 @@ export default function AepsPage(){
             </div>}
           </section>:null}
 
-          <section className="entry-section lg:hidden"><AepsSummary customerName={displayCustomerName} withdrawal={withdrawal} cashGiven={Math.max(0,cashGiven)} commission={commission} charge={charge} settlement={settlement} cashName={cashAccount?.accountName??""} providerName={provider?.name??""} gatewayName={gateway?.gatewayName??""} hasGateway={providerHasGateways} settledNow={settledNow} successful={successful} cashPayoutNow={cashPayoutNow} ready={calculationReady}/></section>
+          <section className="entry-section lg:hidden"><AepsSummary customerName={displayCustomerName} withdrawal={withdrawal} cashGiven={Math.max(0,cashGiven)} commission={commission} providerCommission={providerCommission} charge={charge} settlement={settlement} cashName={cashAccount?.accountName??""} providerName={provider?.name??""} gatewayName={gateway?.gatewayName??""} hasGateway={providerHasGateways} settledNow={settledNow} successful={successful} cashPayoutNow={cashPayoutNow} ready={calculationReady}/></section>
 
           <section className="entry-section p-0">
             <button type="button" onClick={()=>setShowOptional(v=>!v)} className="flex min-h-12 w-full items-center justify-between px-4 text-left"><span className="text-sm font-semibold">More details</span><span className="text-lg text-[var(--text-muted)]">{showOptional?"−":"+"}</span></button>
@@ -538,7 +553,7 @@ export default function AepsPage(){
         </Surface>
       </div>
 
-      <aside className="fixed right-6 top-[92px] z-20 hidden w-[340px] space-y-3 lg:block"><AepsSummary customerName={displayCustomerName} withdrawal={withdrawal} cashGiven={Math.max(0,cashGiven)} commission={commission} charge={charge} settlement={settlement} cashName={cashAccount?.accountName??""} providerName={provider?.name??""} gatewayName={gateway?.gatewayName??""} hasGateway={providerHasGateways} settledNow={settledNow} successful={successful} cashPayoutNow={cashPayoutNow} ready={calculationReady}/></aside>
+      <aside className="fixed right-6 top-[92px] z-20 hidden w-[340px] space-y-3 lg:block"><AepsSummary customerName={displayCustomerName} withdrawal={withdrawal} cashGiven={Math.max(0,cashGiven)} commission={commission} providerCommission={providerCommission} charge={charge} settlement={settlement} cashName={cashAccount?.accountName??""} providerName={provider?.name??""} gatewayName={gateway?.gatewayName??""} hasGateway={providerHasGateways} settledNow={settledNow} successful={successful} cashPayoutNow={cashPayoutNow} ready={calculationReady}/></aside>
     </div>
 
     <div className="fixed bottom-6 right-6 z-40 hidden w-[340px] lg:block"><button disabled={!canSave} className="swipe-primary-action min-h-12 w-full rounded-xl px-4 text-sm font-bold text-white shadow-[0_14px_36px_rgba(37,99,235,.28)] disabled:opacity-35">{saving?"Saving…":!successful?"Record failed attempt":calculationReady?(cashPayoutNow?"Record withdrawal · "+money(cashGiven):"Record & create due · "+money(cashGiven)):"Record Aadhaar withdrawal"}</button></div>

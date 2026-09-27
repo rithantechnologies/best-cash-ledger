@@ -6,6 +6,7 @@ import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateAepsDto } from './dto/create-aeps.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
+import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
 import {
   CardDueCommissionCollectionDto,
   CardDueRecoveryDto,
@@ -211,6 +212,12 @@ export class TransactionsController {
   @Roles(RoleName.OWNER, RoleName.ADMIN)
   updateDateTime(@Param('id') id: string, @Body() dto: UpdateTransactionDateTimeDto, @Req() req: any) {
     return this.transactions.updateDateTime(id, dto, req.user.userId);
+  }
+
+  @Post(':id/correct-amount')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  correctAmount(@Param('id') id: string, @Body() dto: CorrectTransactionAmountDto, @Req() req: any) {
+    return this.transactions.correctAmount(id, dto, req.user.userId, req.user.role);
   }
 
   @Post(':id/delete')

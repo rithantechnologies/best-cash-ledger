@@ -71,7 +71,7 @@ export default function CardDueClearingPage(){
  const [newCustomerOpen,setNewCustomerOpen]=useState(false),[newCustomerBusy,setNewCustomerBusy]=useState(false);
  const [newName,setNewName]=useState(""),[newMobile,setNewMobile]=useState(""),[newBank,setNewBank]=useState(""),[newLastFour,setNewLastFour]=useState("");
  const [addCardOpen,setAddCardOpen]=useState(false),[addCardBusy,setAddCardBusy]=useState(false);
- const [addCardBank,setAddCardBank]=useState(""),[addCardType,setAddCardType]=useState("CREDIT"),[addCardLastFour,setAddCardLastFour]=useState(""),[addCardNickname,setAddCardNickname]=useState("");
+ const [addCardBank,setAddCardBank]=useState(""),[addCardLastFour,setAddCardLastFour]=useState(""),[addCardNickname,setAddCardNickname]=useState("");
 
  const customer=customers.find(x=>x.id===customerId),addProvider=providers.find(x=>x.id===addProviderId);
  const addGateway=addProvider?.gateways.find(x=>x.id===addGatewayId);
@@ -121,7 +121,7 @@ export default function CardDueClearingPage(){
  }
  function openNewCustomer(){
   const typed=customerSearch.trim();
-  setNewName(typed&&!/\d{4,}/.test(typed)?typed:"");setNewMobile("");setNewBank("");setNewLastFour("");setError("");setNewCustomerOpen(true);
+  setNewName(typed&&!/\d{4,}/.test(typed)?typed.toUpperCase():"");setNewMobile("");setNewBank("");setNewLastFour("");setError("");setNewCustomerOpen(true);
  }
  async function createNewCustomerCard(e:FormEvent){
   e.preventDefault();
@@ -140,14 +140,14 @@ export default function CardDueClearingPage(){
  }
  function openAddCard(){
   if(!customer)return;
-  setAddCardBank("");setAddCardType("CREDIT");setAddCardLastFour("");setAddCardNickname("");setError("");setAddCardOpen(true);
+  setAddCardBank("");setAddCardLastFour("");setAddCardNickname("");setError("");setAddCardOpen(true);
  }
  async function addCard(e:FormEvent){
   e.preventDefault();if(!customerId||!addCardBank||addCardLastFour.length!==4)return;
   setAddCardBusy(true);setError("");
   try{
    const card=await apiFetch<Card>("/customers/"+customerId+"/cards",{method:"POST",body:JSON.stringify({
-    bankName:addCardBank,cardType:addCardType,lastFourDigits:addCardLastFour,nickname:addCardNickname.trim()||undefined,
+    bankName:addCardBank,cardType:"CREDIT",lastFourDigits:addCardLastFour,nickname:addCardNickname.trim()||undefined,
    })});
    setCustomers(current=>current.map(c=>c.id===customerId?{...c,cards:[...c.cards,card]}:c));
    setCardId(card.id);setAddCardOpen(false);setSuccess("Card added and selected.");
@@ -398,7 +398,7 @@ export default function CardDueClearingPage(){
   <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer px-4 py-3.5 text-sm font-black">All history <span className="float-right text-xs font-normal text-[var(--text-muted)]">{rows.length} total</span></summary><div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">{rows.map(row=><button key={row.id} onClick={()=>openCase(row)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{row.transaction.customer?.fullName??"Customer"} · {row.transaction.transactionNumber}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(row.transaction.transactionAt).toLocaleString("en-IN")}</p></div><div className="flex items-center gap-3"><span className="money text-xs font-bold">{money(row.dueAmount)}</span><StatusBadge tone={Number(row.principalRemaining)<=0.001?"emerald":Number(row.principalRecovered)>0?"amber":"rose"}>{Number(row.principalRemaining)<=0.001?"Fully settled":Number(row.principalRecovered)>0?"Partly settled":"Pending"}</StatusBadge></div></button>)}</div></details>
   <Modal open={newCustomerOpen} title="Add customer + card" onClose={()=>{if(!newCustomerBusy)setNewCustomerOpen(false);}} footer={<button form="due-new-customer" disabled={newCustomerBusy||!newName.trim()||!validMobile(newMobile)||!newBank||newLastFour.length!==4} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{newCustomerBusy?"Saving…":"Save customer"}</button>}>
    <form id="due-new-customer" onSubmit={createNewCustomerCard} className="grid gap-3 sm:grid-cols-2">
-    <Field label="Customer name"><input className="app-control" value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Full name" required/></Field>
+    <Field label="Customer name"><input className="app-control" value={newName} onChange={e=>setNewName(e.target.value.toUpperCase())} placeholder="Full name" required/></Field>
     <Field label="Mobile"><div className="flex overflow-hidden rounded-xl border border-[var(--border)]"><span className="grid h-11 place-items-center border-r border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm">+91</span><input className="h-11 min-w-0 flex-1 bg-transparent px-3 outline-none" inputMode="numeric" value={newMobile} onChange={e=>setNewMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile" required/></div></Field>
     <Field label="Card bank"><SearchableSelect className="app-control" value={newBank} onChange={e=>setNewBank(e.target.value)} required><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
     <Field label="Card last 4"><input className="app-control font-semibold tracking-[.12em]" inputMode="numeric" value={newLastFour} onChange={e=>setNewLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
@@ -407,7 +407,7 @@ export default function CardDueClearingPage(){
   <Modal open={addCardOpen} title="Add card" description={customer?""+customer.fullName+"":undefined} onClose={()=>{if(!addCardBusy)setAddCardOpen(false);}} footer={<button form="due-add-card" disabled={addCardBusy||!addCardBank||addCardLastFour.length!==4} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{addCardBusy?"Saving…":"Save & use card"}</button>}>
    <form id="due-add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
     <Field label="Bank"><SearchableSelect className="app-control" value={addCardBank} onChange={e=>setAddCardBank(e.target.value)} required><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
-    <Field label="Card type"><SearchableSelect className="app-control" value={addCardType} onChange={e=>setAddCardType(e.target.value)}><option value="CREDIT">Credit</option><option value="DEBIT">Debit</option><option value="BUSINESS">Business</option><option value="OTHER">Other</option></SearchableSelect></Field>
+    <Field label="Card type"><div className="app-control flex items-center bg-[var(--surface-soft)] font-bold">CREDIT</div></Field>
     <Field label="Last 4 digits"><input className="app-control font-semibold tracking-[.12em]" inputMode="numeric" value={addCardLastFour} onChange={e=>setAddCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
     <Field label="Nickname"><input className="app-control" value={addCardNickname} onChange={e=>setAddCardNickname(e.target.value)} placeholder="Optional"/></Field>
    </form>

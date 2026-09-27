@@ -20,7 +20,7 @@ export default function CustomersPage(){
  const [items,setItems]=useState<Customer[]>([]),[pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
  const [q,setQ]=useState(""),[sortBy,setSortBy]=useState("createdAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("desc"),[role,setRole]=useState("");
  const [creating,setCreating]=useState(false),[fullName,setFullName]=useState(""),[mobile,setMobile]=useState(""),[customerType,setCustomerType]=useState("REGULAR");
- const [addingCard,setAddingCard]=useState(false),[cardCustomerId,setCardCustomerId]=useState(""),[cardBank,setCardBank]=useState(""),[cardType,setCardType]=useState("CREDIT"),[cardLast4,setCardLast4]=useState(""),[cardNickname,setCardNickname]=useState("");
+ const [addingCard,setAddingCard]=useState(false),[cardCustomerId,setCardCustomerId]=useState(""),[cardBank,setCardBank]=useState(""),[cardLast4,setCardLast4]=useState(""),[cardNickname,setCardNickname]=useState("");
  const [editing,setEditing]=useState<Customer|null>(null),[editName,setEditName]=useState(""),[editMobile,setEditMobile]=useState(""),[editType,setEditType]=useState("REGULAR"),[editNotes,setEditNotes]=useState("");
  const [toggleTarget,setToggleTarget]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
  const control="app-control";
@@ -41,7 +41,7 @@ export default function CustomersPage(){
  }
  async function addCard(e:FormEvent){
   e.preventDefault();setBusy(true);setError("");setMessage("");
-  try{await apiFetch("/customers/"+cardCustomerId+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank,cardType,lastFourDigits:cardLast4,nickname:cardNickname||undefined})});setCardBank("");setCardLast4("");setCardNickname("");setAddingCard(false);setMessage("Card added.");await load();}
+  try{await apiFetch("/customers/"+cardCustomerId+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank,cardType:"CREDIT",lastFourDigits:cardLast4,nickname:cardNickname||undefined})});setCardBank("");setCardLast4("");setCardNickname("");setAddingCard(false);setMessage("Card added.");await load();}
   catch(e){setError(e instanceof Error?e.message:"Failed to add card");}finally{setBusy(false);}
  }
  function beginEdit(c:Customer){setEditing(c);setEditName(c.fullName);setEditMobile(c.mobile||"");setEditType(c.customerType);setEditNotes(c.notes||"");setError("");}
@@ -93,7 +93,7 @@ export default function CustomersPage(){
   </>}
   <Modal open={creating} title="Add customer" description="Create a reusable customer profile for faster counter work." onClose={()=>setCreating(false)}
    footer={<button form="create-customer" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Creating…":"Create customer"}</button>}>
-   <form id="create-customer" onSubmit={submit} className="grid gap-3 sm:grid-cols-2"><Field label="Customer name"><input className={control} value={fullName} onChange={e=>setFullName(e.target.value)} required/></Field><Field label="Mobile"><input className={control} inputMode="tel" value={mobile} onChange={e=>setMobile(e.target.value)} placeholder="Optional"/></Field><Field label="Customer type" className="sm:col-span-2"><SearchableSelect className={control} value={customerType} onChange={e=>setCustomerType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></SearchableSelect></Field></form>
+   <form id="create-customer" onSubmit={submit} className="grid gap-3 sm:grid-cols-2"><Field label="Customer name"><input className={control} value={fullName} onChange={e=>setFullName(e.target.value.toUpperCase())} required/></Field><Field label="Mobile"><input className={control} inputMode="tel" value={mobile} onChange={e=>setMobile(e.target.value)} placeholder="Optional"/></Field><Field label="Customer type" className="sm:col-span-2"><SearchableSelect className={control} value={customerType} onChange={e=>setCustomerType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></SearchableSelect></Field></form>
   </Modal>
 
   <Modal open={addingCard} title="Add saved card" description="Save only the non-sensitive card details used for identifying the card at the counter." onClose={()=>setAddingCard(false)}
@@ -101,7 +101,7 @@ export default function CustomersPage(){
    <form id="add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
     <Field label="Customer"><SearchSelect value={cardCustomerId} onChange={setCardCustomerId} options={items.filter(c=>c.isActive).map(c=>({value:c.id,label:c.fullName,searchText:c.fullName+" "+(c.mobile??"")}))} placeholder="Select customer" searchPlaceholder="Search customer…"/></Field>
     <Field label="Bank"><input className={control} value={cardBank} onChange={e=>setCardBank(e.target.value)} required/></Field>
-    <Field label="Card type"><SearchableSelect className={control} value={cardType} onChange={e=>setCardType(e.target.value)}>{["CREDIT","DEBIT","BUSINESS","OTHER"].map(x=><option key={x}>{x}</option>)}</SearchableSelect></Field>
+    <Field label="Card type"><div className={control+" flex items-center bg-slate-50 font-bold"}>CREDIT</div></Field>
     <Field label="Last 4 digits"><input className={control} inputMode="numeric" maxLength={4} value={cardLast4} onChange={e=>setCardLast4(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
     <Field label="Nickname" className="sm:col-span-2"><input className={control} value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="Optional"/></Field>
    </form>

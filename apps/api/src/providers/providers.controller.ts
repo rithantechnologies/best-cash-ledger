@@ -8,6 +8,7 @@ import { CreateProviderDto } from './dto/create-provider.dto.js';
 import { SetProviderActiveDto } from './dto/set-provider-active.dto.js';
 import { UpdateGatewayDto } from './dto/update-gateway.dto.js';
 import { UpdateProviderDto } from './dto/update-provider.dto.js';
+import { SetAepsProviderCommissionRulesDto } from './dto/set-aeps-provider-commission-rules.dto.js';
 import { ProvidersService } from './providers.service.js';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -36,6 +37,16 @@ export class ProvidersController {
   @Roles(RoleName.OWNER, RoleName.ADMIN)
   updateProvider(@Param('id') id: string, @Body() dto: UpdateProviderDto, @Req() req: any) {
     return this.providers.updateProvider(id, dto, req.user.userId);
+  }
+
+  @Patch(':id/aeps-provider-commission-rules')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  setAepsProviderCommissionRules(
+    @Param('id') id: string,
+    @Body() dto: SetAepsProviderCommissionRulesDto,
+    @Req() req: any,
+  ) {
+    return this.providers.setAepsProviderCommissionRules(id, dto, req.user.userId);
   }
 
   @Patch(':id/active')

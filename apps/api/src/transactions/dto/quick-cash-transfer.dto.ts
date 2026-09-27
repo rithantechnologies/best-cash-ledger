@@ -15,6 +15,11 @@ export class CreateQuickCashTransferDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  cashReceivedAmount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
   commissionAmount?: number;
 
   @IsOptional()

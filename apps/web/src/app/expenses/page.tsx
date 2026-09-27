@@ -49,12 +49,36 @@ export default function ExpensesPage(){
  const [categoryId,setCategoryId]=useState("ALL"),[dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState("");
  const [loading,setLoading]=useState(true),[error,setError]=useState("");
  useEffect(()=>{
-  Promise.all([
-   apiFetch<Tx[]>("/reports/transactions?type=BUSINESS_EXPENSE"),
-   apiFetch<Tx[]>("/reports/transactions?type=PERSONAL_EXPENSE"),
-   apiFetch<Category[]>("/settings/expense-categories?includeInactive=true"),
-  ]).then(([business,personal,cats])=>{setTransactions([...business,...personal].filter(tx=>tx.status!=="REVERSED").sort((a,b)=>new Date(b.transactionAt).getTime()-new Date(a.transactionAt).getTime()));setCategories(cats);})
-   .catch(e=>setError(e instanceof Error?e.message:"Failed to load expenses")).finally(()=>setLoading(false));
+  let cancelled=false;
+  const load=async()=>{
+   setLoading(true);setError("");
+   try{
+    let payload:[Tx[],Tx[],Category[]]|null=null;
+    for(let attempt=0;attempt<2&&!payload;attempt++){
+     const [business,personal,cats]=await Promise.all([
+      apiFetch<Tx[]|null>("/reports/transactions?type=BUSINESS_EXPENSE"),
+      apiFetch<Tx[]|null>("/reports/transactions?type=PERSONAL_EXPENSE"),
+      apiFetch<Category[]|null>("/settings/expense-categories?includeInactive=true"),
+     ]);
+     if(Array.isArray(business)&&Array.isArray(personal)&&Array.isArray(cats)){
+      payload=[business,personal,cats];
+      break;
+     }
+     if(attempt===0)await new Promise(resolve=>window.setTimeout(resolve,250));
+    }
+    if(!payload)throw new Error("Expense data was temporarily unavailable. Please refresh and try again.");
+    if(cancelled)return;
+    const [business,personal,cats]=payload;
+    setTransactions([...business,...personal].filter(tx=>tx.status!=="REVERSED").sort((a,b)=>new Date(b.transactionAt).getTime()-new Date(a.transactionAt).getTime()));
+    setCategories(cats);
+   }catch(e){
+    if(!cancelled)setError(e instanceof Error?e.message:"Failed to load expenses");
+   }finally{
+    if(!cancelled)setLoading(false);
+   }
+  };
+  load();
+  return()=>{cancelled=true;};
  },[]);
 
  const categoryById=useMemo(()=>new Map(categories.map(x=>[x.id,x.name])),[categories]);

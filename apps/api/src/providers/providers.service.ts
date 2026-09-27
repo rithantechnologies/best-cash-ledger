@@ -5,6 +5,7 @@ import { CreateGatewayDto } from './dto/create-gateway.dto.js';
 import { CreateProviderDto } from './dto/create-provider.dto.js';
 import { UpdateGatewayDto } from './dto/update-gateway.dto.js';
 import { UpdateProviderDto } from './dto/update-provider.dto.js';
+import { SetAepsProviderCommissionRulesDto } from './dto/set-aeps-provider-commission-rules.dto.js';
 
 @Injectable()
 export class ProvidersService {
@@ -16,6 +17,10 @@ export class ProvidersService {
       include: {
         gateways: includeInactive ? true : { where: { isActive: true } },
         accounts: true,
+        aepsProviderCommissionRules: {
+          where: { effectiveTo: null },
+          orderBy: { minAmount: 'asc' },
+        },
       },
       orderBy: { name: 'asc' },
     });
@@ -153,6 +158,86 @@ export class ProvidersService {
         },
       });
       return updated;
+    });
+  }
+
+
+
+  async setAepsProviderCommissionRules(
+    providerId: string,
+    dto: SetAepsProviderCommissionRulesDto,
+    actorId: string,
+  ) {
+    const normalized = [...dto.rules]
+      .map((rule) => ({
+        minAmount: Number(rule.minAmount),
+        maxAmount: rule.maxAmount === undefined ? null : Number(rule.maxAmount),
+        calculationType: rule.calculationType,
+        value: Number(rule.value),
+      }))
+      .sort((a, b) => a.minAmount - b.minAmount);
+
+    for (let index = 0; index < normalized.length; index += 1) {
+      const rule = normalized[index];
+      if (rule.maxAmount !== null && rule.maxAmount < rule.minAmount) {
+        throw new Error('AEPS provider commission slab maximum must be at least the minimum');
+      }
+      const previous = normalized[index - 1];
+      if (
+        previous &&
+        (previous.maxAmount === null || previous.maxAmount >= rule.minAmount)
+      ) {
+        throw new Error('AEPS provider commission slabs cannot overlap');
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const provider = await tx.provider.findUnique({ where: { id: providerId } });
+      if (!provider) throw new Error('Provider not found');
+
+      const current = await tx.aepsProviderCommissionRule.findMany({
+        where: { providerId, effectiveTo: null },
+        orderBy: { minAmount: 'asc' },
+      });
+      const effectiveAt = new Date();
+      if (current.length) {
+        await tx.aepsProviderCommissionRule.updateMany({
+          where: { providerId, effectiveTo: null },
+          data: { effectiveTo: effectiveAt },
+        });
+      }
+      if (normalized.length) {
+        await tx.aepsProviderCommissionRule.createMany({
+          data: normalized.map((rule) => ({
+            providerId,
+            minAmount: rule.minAmount,
+            maxAmount: rule.maxAmount,
+            calculationType: rule.calculationType,
+            value: rule.value,
+            effectiveFrom: effectiveAt,
+            createdById: actorId,
+          })),
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'AEPS_PROVIDER_COMMISSION_RULES',
+          entityId: providerId,
+          action: 'UPDATE',
+          oldValues: current.map((rule) => ({
+            minAmount: rule.minAmount.toString(),
+            maxAmount: rule.maxAmount?.toString() ?? null,
+            calculationType: rule.calculationType,
+            value: rule.value.toString(),
+          })),
+          newValues: normalized,
+        },
+      });
+      return tx.aepsProviderCommissionRule.findMany({
+        where: { providerId, effectiveTo: null },
+        orderBy: { minAmount: 'asc' },
+      });
     });
   }
 

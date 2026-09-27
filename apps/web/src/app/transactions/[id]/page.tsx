@@ -25,15 +25,20 @@ type Payable={
 };
 type CardSwipe={swipeAmount:string;providerChargeRate:string;providerChargeAmount:string;commissionRate:string;commissionAmount:string;customerPayableAmount:string;settlementAmount:string;dueAt:string;paymentTerm:{name:string}|null;settlementAccount:Account;customerCard:{bankName:string;lastFourDigits:string}|null};
 type CashTransfer={requestedAmount:string;commissionMethod:string;commissionRate:string;commissionAmount:string;cashReceived:string;actualTransferAmount:string;transferChargeAmount:string;sourceAccount:Account;cashAccount:Account};
-type Aeps={withdrawalAmount:string;platformChargeRate:string|null;platformChargeAmount:string;commissionRate:string|null;commissionMethod:string;commissionAmount:string;cashGiven:string;settlementAmount:string;cashAccount:Account|null;settlementAccount:Account;customerBankName:string;aadhaarLastFour:string};
+type Aeps={withdrawalAmount:string;platformChargeRate:string|null;platformChargeAmount:string;providerCommissionCalculationType:string|null;providerCommissionRate:string|null;providerCommissionAmount:string;commissionRate:string|null;commissionMethod:string;commissionAmount:string;cashGiven:string;settlementAmount:string;cashAccount:Account|null;settlementAccount:Account;customerBankName:string;aadhaarLastFour:string};
 type MicroAtm={withdrawalAmount:string;providerCommissionRate:string;providerCommissionAmount:string;cashGiven:string;settlementAmount:string;cashAccount:Account;settlementAccount:Account;customerBankName:string|null;cardLastFour:string};
 type Expense={expenseCategoryId:string;amount:string;description:string|null;paymentAccountId:string|null;expenseCategory:{name:string};paymentAccount:Account|null};
 type QuickCash={direction:"IN"|"OUT";purpose:string;serviceName:string|null;servicePaymentMode:string;amount:string;commissionAmount:string;commissionCashAmount:string|null;commissionMode:"CASH"|"UPI"|"SPLIT"|null;cashAccount:Account;sourceAccount:Account|null;commissionAccount:Account|null;servicePaymentAccount:Account|null};
+type InternalTransfer={transferAmount:string;chargeAmount:string;sourceAccount:Account;destinationAccount:Account};
+type AtmWithdrawal={cashReceived:string;atmCharge:string;withdrawalAmount:string;bankAccount:Account;cashAccount:Account};
+type CreditCardPayment={paymentAmount:string;creditCardAccount:Account;sourceAccount:Account};
+type CorrectionLink={id:string;transactionNumber:string;status:string};
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
- status:string;referenceNumber:string|null;notes:string|null;reversalReason:string|null;createdById:string;createdBy:{id:string;fullName:string}|null;
+ status:string;referenceNumber:string|null;notes:string|null;reversalReason:string|null;correctionSourceTransactionId:string|null;correctionReason:string|null;createdById:string;createdBy:{id:string;fullName:string}|null;
  customer:{fullName:string}|null;charges:Charge[];commissions:Commission[];journal:{journalNumber:string;description:string;entries:Entry[]}|null;
- payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;
+ payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;internalTransfer:InternalTransfer|null;atmWithdrawal:AtmWithdrawal|null;creditCardPayment:CreditCardPayment|null;
+ correctionSource:CorrectionLink|null;correctedTransaction:CorrectionLink|null;
 };
 
 const money=(v:string|number|null)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(v||0));
@@ -41,6 +46,18 @@ const tone=(s:string)=>s==="COMPLETED"?"emerald":s==="PENDING"?"amber":s==="REVE
 const label=(s:string)=>s.replaceAll("_"," ").toLowerCase().replace(/w/g,c=>c.toUpperCase());
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
 const displayService=(tx:Tx)=>tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
+const correctionBaseAmount=(tx:Tx)=>{
+ if(tx.cardSwipe)return Number(tx.cardSwipe.swipeAmount);
+ if(tx.cashTransfer)return Number(tx.cashTransfer.requestedAmount);
+ if(tx.quickCashTransfer)return Number(tx.quickCashTransfer.amount);
+ if(tx.aeps)return Number(tx.aeps.withdrawalAmount);
+ if(tx.microAtm)return Number(tx.microAtm.withdrawalAmount);
+ if(tx.internalTransfer)return Number(tx.internalTransfer.transferAmount);
+ if(tx.expense)return Number(tx.expense.amount);
+ if(tx.atmWithdrawal)return Number(tx.atmWithdrawal.cashReceived);
+ if(tx.creditCardPayment)return Number(tx.creditCardPayment.paymentAmount);
+ return Number(tx.grossAmount);
+};
 function payoutDisplay(payable:Payable|null){
  if(!payable)return null;
  if(payable.status==="PAID")return {label:"Payout Paid",tone:"emerald" as const};
@@ -129,7 +146,9 @@ function MoneyFlow({tx}:{tx:Tx}){
    return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Aadhaar attempt</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">The attempt was recorded, but no financial movement was posted.</p></div><div className="grid gap-2 p-3 sm:grid-cols-3 sm:p-4"><FlowCard label="Attempt amount" value={Number(d.withdrawalAmount)}/><FlowCard label="Result" value="Failed" tone="negative" meta={"Aadhaar •••• "+d.aadhaarLastFour}/><FlowCard label="Money moved" value={0} meta="No customer payout · no provider settlement"/></div></Surface>;
   }
   const cashDue=Boolean(tx.payable&&Number(tx.payable.remainingAmount)>0);
-  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-black">Money movement</h3>{cashDue?<StatusBadge tone="amber">Cash due {money(tx.payable!.remainingAmount)}</StatusBadge>:null}</div></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-5 sm:p-4"><FlowCard label="Bank debit" value={Number(d.withdrawalAmount)}/>{Number(d.platformChargeAmount)>0?<FlowCard label="Provider fee" value={"−"+money(d.platformChargeAmount)} tone="negative"/>:null}<FlowCard label="Provider settlement" value={Number(d.settlementAmount)} tone="accent" meta={settlement?.provider?.name??d.settlementAccount.accountName}/><FlowCard label={cashDue?"Cash due":"Cash given"} value={Number(d.cashGiven)} meta={cashDue?(tx.payable?.status?label(tx.payable.status):"Customer payable"):(d.cashAccount?.accountName??"Paid to customer")}/><FlowCard label="Business earns" value={"+"+money(d.commissionAmount)} tone="positive" meta={(d.commissionMethod==="ADD_ON"?"Add on":"Included")+(d.commissionRate?" · "+Number(d.commissionRate)+"%":"")}/></div></Surface>;
+  const providerCommission=Number(d.providerCommissionAmount||0);
+  const customerCommission=Number(d.commissionAmount||0);
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-black">Money movement</h3>{cashDue?<StatusBadge tone="amber">Cash due {money(tx.payable!.remainingAmount)}</StatusBadge>:null}</div></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 sm:p-4"><FlowCard label="Bank debit" value={Number(d.withdrawalAmount)}/><FlowCard label={cashDue?"Cash due":"Cash given"} value={Number(d.cashGiven)} meta={cashDue?(tx.payable?.status?label(tx.payable.status):"Customer payable"):(d.cashAccount?.accountName??"Paid to customer")}/><FlowCard label="Customer commission" value={"+"+money(customerCommission)} tone="positive" meta={(d.commissionMethod==="ADD_ON"?"Add on":"Included")+(d.commissionRate?" · "+Number(d.commissionRate)+"%":"")}/>{providerCommission>0?<FlowCard label="Provider commission" value={"+"+money(providerCommission)} tone="positive" meta={d.providerCommissionCalculationType==="PERCENTAGE"&&d.providerCommissionRate?Number(d.providerCommissionRate)+"%":"Provider slab"}/>:null}{Number(d.platformChargeAmount)>0?<FlowCard label="Provider fee" value={"−"+money(d.platformChargeAmount)} tone="negative"/>:null}<FlowCard label="Provider settlement" value={Number(d.settlementAmount)} tone="accent" meta={settlement?.provider?.name??d.settlementAccount.accountName}/></div></Surface>;
  }
  if(tx.transactionType==="MICRO_ATM"&&tx.microAtm){
   const d=tx.microAtm;
@@ -140,10 +159,31 @@ function MoneyFlow({tx}:{tx:Tx}){
 
 export default function TransactionDetailPage(){
  const {id}=useParams<{id:string}>();const router=useRouter();const [tx,setTx]=useState<Tx|null>(null),[reason,setReason]=useState(""),[error,setError]=useState(""),[role,setRole]=useState(""),[saving,setSaving]=useState(false),[reverseOpen,setReverseOpen]=useState(false),[deleteOpen,setDeleteOpen]=useState(false),[dateTimeOpen,setDateTimeOpen]=useState(false),[editDateTime,setEditDateTime]=useState(""),[dateTimeReason,setDateTimeReason]=useState("");
+ const [correctOpen,setCorrectOpen]=useState(false),[correctedAmount,setCorrectedAmount]=useState(""),[correctReason,setCorrectReason]=useState("");
  const [expenseSourceOpen,setExpenseSourceOpen]=useState(false),[expenseSourceId,setExpenseSourceId]=useState(""),[expenseSourceNote,setExpenseSourceNote]=useState(""),[expenseAccounts,setExpenseAccounts]=useState<Account[]>([]);
  const load=()=>apiFetch<Tx>("/transactions/"+id).then(setTx);
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}load().catch(e=>setError(e instanceof Error?e.message:"Failed to load transaction"));},[id]);
  async function reverse(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/reverse",{method:"POST",body:JSON.stringify({reason})});setReason("");setReverseOpen(false);await load();}catch(err){setError(err instanceof Error?err.message:"Reversal failed");}finally{setSaving(false);}}
+ function openAmountCorrection(){
+   if(!tx)return;
+   setCorrectedAmount(String(correctionBaseAmount(tx)));
+   setCorrectReason("");
+   setError("");
+   setCorrectOpen(true);
+ }
+ async function correctAmount(e:FormEvent){
+   e.preventDefault();
+   if(!tx)return;
+   const amount=Number(correctedAmount);
+   if(!Number.isFinite(amount)||amount<=0)return;
+   setSaving(true);setError("");
+   try{
+     const result=await apiFetch<{correctedTransactionId:string;inPlace:boolean}>("/transactions/"+id+"/correct-amount",{method:"POST",body:JSON.stringify({correctedAmount:amount,reason:correctReason.trim()})});
+     setCorrectOpen(false);setCorrectReason("");
+     if(result.correctedTransactionId===id||result.inPlace){await load();return;}
+     router.replace("/transactions/"+result.correctedTransactionId);
+   }catch(err){setError(err instanceof Error?err.message:"Amount correction failed");}finally{setSaving(false);}
+ }
  async function deleteTransaction(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/delete",{method:"POST",body:JSON.stringify({reason})});setReason("");setDeleteOpen(false);router.replace(tx?.expense?"/expenses":"/transactions");}catch(err){setError(err instanceof Error?err.message:"Delete failed");}finally{setSaving(false);}}
  function openDateTimeEditor(){
    if(!tx)return;
@@ -177,6 +217,8 @@ export default function TransactionDetailPage(){
 
  const cardDueType=["CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION"].includes(tx.transactionType);
  const canEditDateTime=role==="OWNER"||role==="ADMIN";
+ const correctionManagedElsewhere=["CUSTOMER_PAYOUT","CUSTOMER_RECEIVABLE","CUSTOMER_RECEIPT","PROVIDER_SETTLEMENT","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_ADJUSTMENT"].includes(tx.transactionType);
+ const canCorrect=(role==="OWNER"||role==="ADMIN")&&!correctionManagedElsewhere&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL"&&!tx.correctedTransaction;
  const canDelete=role==="OWNER"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const canReverse=role==="ADMIN"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const payoutState=tx.transactionType==="CARD_SWIPE"?payoutDisplay(tx.payable):null;
@@ -189,9 +231,11 @@ export default function TransactionDetailPage(){
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">← Transactions</Link><p className="mt-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--text-muted)]">{["BUSINESS_EXPENSE","PERSONAL_EXPENSE"].includes(tx.transactionType)?"Expense":displayService(tx)}</p><h1 className="mt-1 text-2xl font-black tracking-[-.035em] sm:text-3xl">{tx.transactionNumber}</h1><p className="mt-1 text-xs text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleString("en-IN")} · {tx.createdBy?.fullName??tx.createdById}</p></div>
-   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{tx.expense&&tx.status==="PENDING"?<button onClick={()=>void openExpenseSource()} className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-800">Add payment source</button>:null}{canEditDateTime?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canDelete?<button onClick={()=>{setReason("");setDeleteOpen(true)}} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">Delete</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
+   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{tx.expense&&tx.status==="PENDING"?<button onClick={()=>void openExpenseSource()} className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-800">Add payment source</button>:null}{canCorrect?<button onClick={openAmountCorrection} className="min-h-10 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800">Correct amount</button>:null}{canEditDateTime?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canDelete?<button onClick={()=>{setReason("");setDeleteOpen(true)}} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">Delete</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
+  {tx.correctionSource?<div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This is the corrected replacement for <Link className="font-black underline" href={"/transactions/"+tx.correctionSource.id}>{tx.correctionSource.transactionNumber}</Link>{tx.correctionReason?" · "+tx.correctionReason:""}.</div>:null}
+  {tx.correctedTransaction?<div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">This transaction was corrected. Active replacement: <Link className="font-black underline" href={"/transactions/"+tx.correctedTransaction.id}>{tx.correctedTransaction.transactionNumber}</Link>.</div>:null}
 
   <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-5">
    <FlowCard label="Processed" value={gross}/>
@@ -220,6 +264,15 @@ export default function TransactionDetailPage(){
     <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Expense</p><p className="mt-1 font-black">{tx.expense?.expenseCategory.name??"Expense"} · {money(tx.expense?.amount??tx.grossAmount)}</p></div>
     <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Paid from</span><SearchableSelect mobileSheet className="app-control w-full" value={expenseSourceId} onChange={e=>setExpenseSourceId(e.target.value)} required><option value="">Select cash / bank / UPI / wallet</option>{expenseAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}{a.currentBalance!==undefined?" · "+money(a.currentBalance):""}</option>)}</SearchableSelect></label>
     <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Note <span className="font-normal">(optional)</span></span><textarea className="app-control min-h-24 w-full p-3" value={expenseSourceNote} onChange={e=>setExpenseSourceNote(e.target.value)} placeholder="Add a note"/></label>
+   </form>
+  </Modal>
+
+  <Modal open={correctOpen} title="Correct transaction amount" description="The posted transaction is not overwritten. Cash Ledger reverses it safely and creates a linked corrected replacement." onClose={()=>{if(!saving)setCorrectOpen(false)}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={saving} onClick={()=>setCorrectOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold disabled:opacity-50">Cancel</button><button form="correct-amount" disabled={saving||!correctedAmount||Number(correctedAmount)<=0||correctReason.trim().length<3||Math.abs(Number(correctedAmount)-correctionBaseAmount(tx))<.001} className="min-h-11 rounded-xl bg-amber-600 text-sm font-black text-white disabled:opacity-50">{saving?"Correcting…":"Confirm correction"}</button></div>}>
+   <form id="correct-amount" onSubmit={correctAmount} className="space-y-3">
+    <div className="grid grid-cols-2 gap-2"><div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Current amount</p><p className="money mt-1 text-lg font-black">{money(correctionBaseAmount(tx))}</p></div><div className="rounded-xl bg-amber-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Difference</p><p className={"money mt-1 text-lg font-black "+(Number(correctedAmount)-correctionBaseAmount(tx)>=0?"text-emerald-700":"text-rose-700")}>{Number.isFinite(Number(correctedAmount))?money(Number(correctedAmount)-correctionBaseAmount(tx)):"—"}</p></div></div>
+    <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Correct amount</span><div className="flex min-h-12 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 focus-within:border-amber-500"><span className="mr-2 font-black">₹</span><input className="min-w-0 flex-1 bg-transparent text-xl font-black outline-none" type="number" inputMode="decimal" min="0.01" step="0.01" value={correctedAmount} onChange={e=>setCorrectedAmount(e.target.value)} autoFocus required/></div></label>
+    <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason for correction</span><textarea className="app-control min-h-24 w-full p-3" minLength={3} value={correctReason} onChange={e=>setCorrectReason(e.target.value)} placeholder="Example: Entered ₹10,000 instead of ₹1,000" required/></label>
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-5 text-amber-900">Percentage-based fees and commissions are recalculated from the saved transaction rates. Fixed charges stay fixed. If this transaction already has a customer payout, receipt or provider settlement receipt, reverse that linked movement first; Cash Ledger will block unsafe correction.</div>
    </form>
   </Modal>
 

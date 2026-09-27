@@ -44,9 +44,9 @@ type Session={
 
 type QuickCashDirection="IN"|"OUT";
 type QuickCashOutType="UPI_QR"|"AEPS"|"MICRO_ATM";
-type QuickCashFieldErrors={amount?:string;commission?:string;serviceName?:string;transferType?:string;servicePaymentAccount?:string;aadhaarLastFour?:string;customerBank?:string;cardLastFour?:string};
+type QuickCashFieldErrors={amount?:string;commission?:string;cashReceived?:string;serviceName?:string;transferType?:string;servicePaymentAccount?:string;aadhaarLastFour?:string;customerBank?:string;cardLastFour?:string};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
-type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";isActive:boolean};
+type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";defaultCommissionRate:string|number;isActive:boolean};
 type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null};
 type BankBeneficiary={accountHolder:string;accountNumber:string;ifsc:string};
 type CompleteSourceAllocation={sourceAccountId:string;amount:string;referenceNumber:string};
@@ -71,7 +71,7 @@ function serializeBankBeneficiary(accountHolder:string,accountNumber:string,ifsc
 }
 type QuickCashPending={
   id:string;direction:QuickCashDirection;customerName:string|null;mobileNumber:string|null;
-  amount:string|number;commissionAmount:string|number;commissionCashAmount?:string|number|null;commissionMode?:"CASH"|"UPI"|"SPLIT";
+  amount:string|number;cashReceivedAmount?:string|number|null;customerChangeAmount?:string|number|null;commissionAmount:string|number;commissionCashAmount?:string|number|null;commissionMode?:"CASH"|"UPI"|"SPLIT";
   cashOutType?:QuickCashOutType;aadhaarLastFour?:string|null;customerBankName?:string|null;cardLastFour?:string|null;
   beneficiaryMode?:"UPI"|"BANK"|null;beneficiaryDetails?:string|null;
   createdAt:string;
@@ -266,8 +266,11 @@ export default function CashCounterPage(){
   const [quickPurpose,setQuickPurpose]=useState<"TRANSFER"|"SERVICE">("TRANSFER");
   const [quickServiceName,setQuickServiceName]=useState("");
   const [quickCommission,setQuickCommission]=useState("");
+  const [quickCommissionOverridden,setQuickCommissionOverridden]=useState(false);
   const [quickCommissionMode,setQuickCommissionMode]=useState<"CASH"|"UPI"|"SPLIT">("CASH");
   const [quickCommissionCash,setQuickCommissionCash]=useState("");
+  const [quickCashReceived,setQuickCashReceived]=useState("");
+  const [quickCashReceivedOverridden,setQuickCashReceivedOverridden]=useState(false);
   const [quickTransferTypeId,setQuickTransferTypeId]=useState("");
   const [quickBeneficiaryMode,setQuickBeneficiaryMode]=useState<"UPI"|"BANK">("UPI");
   const [quickBeneficiaryUpi,setQuickBeneficiaryUpi]=useState("");
@@ -295,6 +298,7 @@ export default function CashCounterPage(){
   const {values:rememberedCustomerNames,remember:rememberCustomerName}=useRememberedValues("cashledger_recent_customer_names",8);
   const quickAmountRef=useRef<HTMLInputElement>(null);
   const quickCommissionRef=useRef<HTMLInputElement>(null);
+  const quickCashReceivedRef=useRef<HTMLInputElement>(null);
   const quickServiceRef=useRef<HTMLInputElement>(null);
   const [portalReady,setPortalReady]=useState(false);
   const [pendingQuickCash,setPendingQuickCash]=useState<QuickCashPending[]>([]);
@@ -317,6 +321,12 @@ export default function CashCounterPage(){
   const role=currentUser.role??"";
   const completingQuickCash=useMemo(()=>pendingQuickCash.find((item)=>item.id===completePendingId)??null,[pendingQuickCash,completePendingId]);
   const selectedQuickTransferType=useMemo(()=>cashInTransferTypes.find((item)=>item.id===quickTransferTypeId)??null,[cashInTransferTypes,quickTransferTypeId]);
+  const quickCommissionValue=Number(quickCommission||0);
+  const quickCommissionCashValue=quickCommissionMode==="CASH"?quickCommissionValue:quickCommissionMode==="SPLIT"?Number(quickCommissionCash||0):0;
+  const quickCashAmountDue=quickDirection==="IN"&&quickPurpose==="TRANSFER"?Math.round((Number(quickAmount||0)+quickCommissionCashValue)*100)/100:0;
+  const quickCashReceivedValue=Number(quickCashReceived||0);
+  const quickCustomerChange=Math.max(0,Math.round((quickCashReceivedValue-quickCashAmountDue)*100)/100);
+  const quickCashShort=Math.max(0,Math.round((quickCashAmountDue-quickCashReceivedValue)*100)/100);
   const completionAccounts=useMemo(()=>accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)),[accounts]);
   const completionWalletAccounts=useMemo(()=>completionAccounts.filter((account)=>account.accountType==="PROVIDER_WALLET"),[completionAccounts]);
   const paySwitchCompletionAccountId=useMemo(()=>completionWalletAccounts.find((account)=>account.accountName.toUpperCase().includes("PAYSWITCH"))?.id??"",[completionWalletAccounts]);
@@ -373,6 +383,18 @@ export default function CashCounterPage(){
   useEffect(()=>{
     if(selectedQuickTransferType)setQuickBeneficiaryMode(selectedQuickTransferType.transferMode);
   },[selectedQuickTransferType]);
+  useEffect(()=>{
+    if(quickDirection!=="IN"||quickPurpose!=="TRANSFER"||!selectedQuickTransferType||quickCommissionOverridden)return;
+    const amount=Number(quickAmount);
+    if(!quickAmount.trim()||!Number.isFinite(amount)||amount<=0){setQuickCommission("");return;}
+    const rate=Number(selectedQuickTransferType.defaultCommissionRate||0);
+    const calculated=amount<=500?10:Math.round((amount*rate/100)*100)/100;
+    setQuickCommission(String(calculated));
+  },[quickDirection,quickPurpose,quickAmount,selectedQuickTransferType,quickCommissionOverridden]);
+  useEffect(()=>{
+    if(quickDirection!=="IN"||quickPurpose!=="TRANSFER"||quickCashReceivedOverridden)return;
+    setQuickCashReceived(quickCashAmountDue>0?String(quickCashAmountDue):"");
+  },[quickDirection,quickPurpose,quickCashAmountDue,quickCashReceivedOverridden]);
   useEffect(()=>{
     if(typeof window!=="undefined")localStorage.setItem("cashledger_daily_cash_columns",JSON.stringify(txColumns));
   },[txColumns]);
@@ -568,7 +590,7 @@ export default function CashCounterPage(){
   }
 
   function resetQuickCash(){
-    setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
+    setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
   }
   function selectQuickCustomer(customer:CustomerSuggestion){
     rememberCustomerName(customer.fullName);
@@ -592,6 +614,8 @@ export default function CashCounterPage(){
     if(!quickDirection||!today||isClosed)return;
     const amount=Number(quickAmount),commissionAmount=Number(quickCommission||0),commissionCashAmount=quickCommissionMode==="SPLIT"?Number(quickCommissionCash||0):(quickCommissionMode==="CASH"?commissionAmount:0);
     const purpose=quickDirection==="IN"?quickPurpose:"TRANSFER";
+    const cashAmountDue=quickDirection==="IN"&&purpose==="TRANSFER"?Math.round(((Number.isFinite(amount)?amount:0)+(Number.isFinite(commissionCashAmount)?commissionCashAmount:0))*100)/100:0;
+    const cashReceivedAmount=quickDirection==="IN"&&purpose==="TRANSFER"?(quickCashReceived.trim()?Number(quickCashReceived):cashAmountDue):0;
     const validation:QuickCashFieldErrors={};
     if(!quickAmount.trim()||!Number.isFinite(amount)||amount<=0)validation.amount="Amount must be greater than 0.";
     if(purpose==="TRANSFER"&&(!Number.isFinite(commissionAmount)||commissionAmount<0))validation.commission="Commission cannot be negative.";
@@ -599,6 +623,7 @@ export default function CashCounterPage(){
     if(quickDirection==="OUT"&&quickCashOutType==="AEPS"&&!/^\d{4}$/.test(quickAadhaarLastFour))validation.aadhaarLastFour="Enter the last 4 Aadhaar digits.";
     if(quickDirection==="OUT"&&quickCashOutType==="MICRO_ATM"&&!/^\d{4}$/.test(quickCardLastFour))validation.cardLastFour="Enter the last 4 card digits.";
     if(quickDirection==="IN"&&purpose==="TRANSFER"&&!selectedQuickTransferType)validation.transferType="Choose a Cash In transfer type.";
+    if(quickDirection==="IN"&&purpose==="TRANSFER"&&(!Number.isFinite(cashReceivedAmount)||cashReceivedAmount<cashAmountDue))validation.cashReceived="Customer must give at least "+money(cashAmountDue)+".";
     if(purpose==="SERVICE"&&!quickServiceName.trim())validation.serviceName="Service name is required.";
     if(purpose==="SERVICE"&&quickServicePaymentMode==="UPI"&&!quickServicePaymentAccountId)validation.servicePaymentAccount="Choose the receiving bank / UPI account.";
     if(Object.keys(validation).length){
@@ -606,6 +631,7 @@ export default function CashCounterPage(){
       requestAnimationFrame(()=>{
         if(validation.amount)quickAmountRef.current?.focus();
         else if(validation.commission)quickCommissionRef.current?.focus();
+        else if(validation.cashReceived)quickCashReceivedRef.current?.focus();
         else if(validation.serviceName)quickServiceRef.current?.focus();
       });
       return;
@@ -619,6 +645,7 @@ export default function CashCounterPage(){
         direction:quickDirection,
         cashAccountId:today.cashAccountId,
         amount,
+        cashReceivedAmount:quickDirection==="IN"&&purpose==="TRANSFER"?cashReceivedAmount:undefined,
         purpose,
         serviceName:purpose==="SERVICE"?quickServiceName.trim():(quickDirection==="IN"&&purpose==="TRANSFER"?selectedQuickTransferType?.name:undefined),
         cashOutType:quickDirection==="OUT"?quickCashOutType:undefined,
@@ -792,90 +819,12 @@ export default function CashCounterPage(){
         </div>
       </Surface>
 
-      {pendingQuickCash.length?<Surface className="scroll-mt-24 overflow-hidden">
-        <div id="pending-cash" className="scroll-mt-24 flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <div className="flex items-center gap-2"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
-        </div>
-        <div className="divide-y divide-[var(--border)]">
-          {pendingQuickCash.map((item)=><div key={item.id} className="grid gap-3 px-4 py-3.5 sm:grid-cols-[110px_minmax(0,1fr)_auto_auto] sm:items-center sm:px-5">
-            <div><span className={"inline-flex rounded-full px-2.5 py-1 text-xs font-black "+(item.direction==="IN"?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700")}>{item.direction==="IN"?"Cash In":cashOutTypeLabel(item.cashOutType)}</span></div>
-            <div className="min-w-0"><p className="truncate text-sm font-bold">{item.customerName||item.mobileNumber||"Walk-in customer"}</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">{item.cashOutType==="AEPS"&&item.aadhaarLastFour?"Aadhaar ••••"+item.aadhaarLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.cashOutType==="MICRO_ATM"&&item.cardLastFour?"Card ••••"+item.cardLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.transaction.transactionNumber} · {new Date(item.transaction.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></div>
-            <div className="text-left sm:text-right"><strong className="money block text-sm">{money(item.amount)}</strong>{Number(item.commissionAmount)>0?<span className="text-xs font-semibold text-[var(--accent)]">{item.cashOutType==="MICRO_ATM"?"Commission "+money(item.commissionAmount)+" · settle later":(item.cashOutType==="AEPS"?"Commission ":"Fee ")+money(item.commissionAmount)+" · "+commissionBreakdownLabel(Number(item.commissionAmount),item.commissionMode,item.commissionCashAmount)}</span>:null}</div>
-            <button type="button" onClick={()=>openPendingCompletion(item)} className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm font-black text-amber-800">Complete</button>
-          </div>)}
-        </div>
-      </Surface>:null}
-
-      <Surface className="overflow-hidden">
-        <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <h3 className="text-sm font-extrabold">Income breakdown</h3>
-        </div>
-        <div className="grid grid-cols-2 gap-px bg-[var(--border)] lg:grid-cols-4">
-          <MetricCard label="Commission" value={money(commissionIncome)} tone="accent"/>
-          <MetricCard label="Services" value={money(serviceIncome)} tone="in"/>
-          <MetricCard label="Received in cash" value={money(incomeCash)} tone="in"/>
-          <MetricCard label="Bank / UPI" value={money(incomeDigital)} tone="accent"/>
-        </div>
-      </Surface>
-
-      <Surface className="overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <div>
-            <h3 className="text-sm font-extrabold">Balance</h3>
-            <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{range==="today"?"Through the day":"Expected vs counted"}</p>
-          </div>
-          <div className="flex rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-1">
-            {([["today","Today"],["7d","7D"],["30d","30D"]] as Array<[Range,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>{setRange(id);setSelectedHistoryId(null);}} className={"min-h-8 rounded-lg px-3 text-[13px] font-extrabold "+(range===id?"bg-[var(--accent)] text-white shadow-sm":"text-[var(--text-muted)]")}>{label}</button>)}
-          </div>
-        </div>
-        <div className="p-4 sm:p-5">
-          {range==="today"?<CashMovementChart opening={Number(today.openingTotal)} movements={today.movements??[]} selectedId={selectedActivityId} onSelect={selectMovement}/>:<CashHistoryChart rows={historyRows} selectedId={selectedHistoryId} onSelect={(row)=>setSelectedHistoryId(row.id)}/>}
-        </div>
-      </Surface>
-
-      {serviceGroups.length?<Surface className="cash-service-mix overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
-          <div><h3 className="text-sm font-extrabold">Cash mix</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Where today&apos;s physical cash moved</p></div>
-          {serviceFilter?<button type="button" onClick={()=>setServiceFilter(null)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-bold text-[var(--accent)]">Clear</button>:null}
-        </div>
-        <div className="grid lg:grid-cols-[330px_minmax(0,1fr)]">
-          <div className="cash-service-donut border-b border-[var(--border)] p-5 sm:p-6 lg:border-b-0 lg:border-r">
-            <FundsAllocationDonut
-              items={serviceGroups}
-              total={serviceMovementTotal}
-              selectedId={serviceFilter}
-              centerLabel="Cash moved"
-              centerHint="Tap a slice"
-              ariaLabel="Today cash movement by service"
-              className="cash-service-donut-frame"
-              onSelect={(item)=>setServiceFilter((current)=>current===item.id?null:item.id)}
-            />
-          </div>
-          <div className="divide-y divide-[var(--border)]">
-            {serviceGroups.map((row)=><button key={row.id} type="button" onClick={()=>setServiceFilter((current)=>current===row.id?null:row.id)} className={"cash-service-row grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3.5 text-left transition sm:px-5 "+(serviceFilter===row.id?"bg-[var(--accent-soft)]":"hover:bg-[var(--surface-soft)]")}>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2.5"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{background:row.color}}/><strong className="truncate text-[15px] font-extrabold">{row.label}</strong></div>
-                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 pl-5 text-[13px] font-semibold text-[var(--text-muted)]">
-                  <span>{row.count} txn{row.count===1?"":"s"}</span>
-                  <span className="text-[var(--money-in)]">In {money(row.cashIn)}</span>
-                  <span className="text-[var(--money-out)]">Out {money(row.cashOut)}</span>
-                  {Number(row.commissionAmount)>0?<span className="text-[var(--accent)]">Commission income {money(row.commissionAmount)}</span>:null}
-                  {Number(row.serviceIncomeAmount||0)>0?<span className="text-[var(--money-in)]">Service income {money(row.serviceIncomeAmount||0)}</span>:null}
-                </div>
-              </div>
-              <div className="shrink-0 text-right"><strong className="money block text-base font-black">{money(row.value)}</strong><span className="mt-0.5 block text-xs font-bold text-[var(--text-muted)]">{row.percentage.toFixed(0)}%</span></div>
-            </button>)}
-          </div>
-        </div>
-      </Surface>:null}
-
 {ledgerView==="CASHBOOK"?<>
       <Surface className="overflow-hidden">
         <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-extrabold">Cash book</h3>
-              <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Simple daily view · cash movement and the income earned from each entry</p>
             </div>
             <div className="grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1">
               <button type="button" className="min-h-8 rounded-lg bg-[var(--surface)] px-3 text-xs font-black text-[var(--text)] shadow-sm">Cash Book</button>
@@ -1024,6 +973,84 @@ export default function CashCounterPage(){
       </Surface>
       </>}
 
+      {pendingQuickCash.length?<Surface className="scroll-mt-24 overflow-hidden">
+        <div id="pending-cash" className="scroll-mt-24 flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <div className="flex items-center gap-2"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
+        </div>
+        <div className="divide-y divide-[var(--border)]">
+          {pendingQuickCash.map((item)=><div key={item.id} className="grid gap-3 px-4 py-3.5 sm:grid-cols-[110px_minmax(0,1fr)_auto_auto] sm:items-center sm:px-5">
+            <div><span className={"inline-flex rounded-full px-2.5 py-1 text-xs font-black "+(item.direction==="IN"?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700")}>{item.direction==="IN"?"Cash In":cashOutTypeLabel(item.cashOutType)}</span></div>
+            <div className="min-w-0"><p className="truncate text-sm font-bold">{item.customerName||item.mobileNumber||"Walk-in customer"}</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">{item.cashOutType==="AEPS"&&item.aadhaarLastFour?"Aadhaar ••••"+item.aadhaarLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.cashOutType==="MICRO_ATM"&&item.cardLastFour?"Card ••••"+item.cardLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.transaction.transactionNumber} · {new Date(item.transaction.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></div>
+            <div className="text-left sm:text-right"><strong className="money block text-sm">{money(item.amount)}</strong>{Number(item.commissionAmount)>0?<span className="text-xs font-semibold text-[var(--accent)]">{item.cashOutType==="MICRO_ATM"?"Commission "+money(item.commissionAmount)+" · settle later":(item.cashOutType==="AEPS"?"Commission ":"Fee ")+money(item.commissionAmount)+" · "+commissionBreakdownLabel(Number(item.commissionAmount),item.commissionMode,item.commissionCashAmount)}</span>:null}</div>
+            <button type="button" onClick={()=>openPendingCompletion(item)} className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm font-black text-amber-800">Complete</button>
+          </div>)}
+        </div>
+      </Surface>:null}
+
+      <Surface className="overflow-hidden">
+        <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <h3 className="text-sm font-extrabold">Income breakdown</h3>
+        </div>
+        <div className="grid grid-cols-2 gap-px bg-[var(--border)] lg:grid-cols-4">
+          <MetricCard label="Commission" value={money(commissionIncome)} tone="accent"/>
+          <MetricCard label="Services" value={money(serviceIncome)} tone="in"/>
+          <MetricCard label="Received in cash" value={money(incomeCash)} tone="in"/>
+          <MetricCard label="Bank / UPI" value={money(incomeDigital)} tone="accent"/>
+        </div>
+      </Surface>
+
+      <Surface className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
+          <div>
+            <h3 className="text-sm font-extrabold">Balance</h3>
+            <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{range==="today"?"Through the day":"Expected vs counted"}</p>
+          </div>
+          <div className="flex rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-1">
+            {([["today","Today"],["7d","7D"],["30d","30D"]] as Array<[Range,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>{setRange(id);setSelectedHistoryId(null);}} className={"min-h-8 rounded-lg px-3 text-[13px] font-extrabold "+(range===id?"bg-[var(--accent)] text-white shadow-sm":"text-[var(--text-muted)]")}>{label}</button>)}
+          </div>
+        </div>
+        <div className="p-4 sm:p-5">
+          {range==="today"?<CashMovementChart opening={Number(today.openingTotal)} movements={today.movements??[]} selectedId={selectedActivityId} onSelect={selectMovement}/>:<CashHistoryChart rows={historyRows} selectedId={selectedHistoryId} onSelect={(row)=>setSelectedHistoryId(row.id)}/>}
+        </div>
+      </Surface>
+
+      {serviceGroups.length?<Surface className="cash-service-mix overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
+          <div><h3 className="text-sm font-extrabold">Cash mix</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">Where today&apos;s physical cash moved</p></div>
+          {serviceFilter?<button type="button" onClick={()=>setServiceFilter(null)} className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-bold text-[var(--accent)]">Clear</button>:null}
+        </div>
+        <div className="grid lg:grid-cols-[330px_minmax(0,1fr)]">
+          <div className="cash-service-donut border-b border-[var(--border)] p-5 sm:p-6 lg:border-b-0 lg:border-r">
+            <FundsAllocationDonut
+              items={serviceGroups}
+              total={serviceMovementTotal}
+              selectedId={serviceFilter}
+              centerLabel="Cash moved"
+              centerHint="Tap a slice"
+              ariaLabel="Today cash movement by service"
+              className="cash-service-donut-frame"
+              onSelect={(item)=>setServiceFilter((current)=>current===item.id?null:item.id)}
+            />
+          </div>
+          <div className="divide-y divide-[var(--border)]">
+            {serviceGroups.map((row)=><button key={row.id} type="button" onClick={()=>setServiceFilter((current)=>current===row.id?null:row.id)} className={"cash-service-row grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3.5 text-left transition sm:px-5 "+(serviceFilter===row.id?"bg-[var(--accent-soft)]":"hover:bg-[var(--surface-soft)]")}>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{background:row.color}}/><strong className="truncate text-[15px] font-extrabold">{row.label}</strong></div>
+                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 pl-5 text-[13px] font-semibold text-[var(--text-muted)]">
+                  <span>{row.count} txn{row.count===1?"":"s"}</span>
+                  <span className="text-[var(--money-in)]">In {money(row.cashIn)}</span>
+                  <span className="text-[var(--money-out)]">Out {money(row.cashOut)}</span>
+                  {Number(row.commissionAmount)>0?<span className="text-[var(--accent)]">Commission income {money(row.commissionAmount)}</span>:null}
+                  {Number(row.serviceIncomeAmount||0)>0?<span className="text-[var(--money-in)]">Service income {money(row.serviceIncomeAmount||0)}</span>:null}
+                </div>
+              </div>
+              <div className="shrink-0 text-right"><strong className="money block text-base font-black">{money(row.value)}</strong><span className="mt-0.5 block text-xs font-bold text-[var(--text-muted)]">{row.percentage.toFixed(0)}%</span></div>
+            </button>)}
+          </div>
+        </div>
+      </Surface>:null}
+
+
       <div id="cash-close-panel" className="scroll-mt-20">
         <Surface className="counter-surface overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
@@ -1097,11 +1124,11 @@ export default function CashCounterPage(){
     </>:null}
 
     {portalReady&&!loading&&!quickDirection&&!completePendingId?createPortal(<div className="fixed right-3 z-[70] flex flex-col items-end gap-2 bottom-[calc(5.35rem+env(safe-area-inset-bottom))] lg:bottom-5 lg:right-5">
-      <button type="button" aria-label="Cash in" onClick={()=>{if(!today||today.status==="CLOSED"){setError("Open or reopen the cash session to record Cash In");window.scrollTo({top:0,behavior:"smooth"});return;}setError("");setQuickError("");setQuickFieldErrors({});setQuickDirection("IN");}} className="flex min-h-10 items-center gap-2 rounded-full bg-emerald-600 px-3.5 text-[13px] font-black text-white shadow-[0_6px_18px_rgba(5,150,105,.20)] transition hover:-translate-y-0.5 active:translate-y-0">
-        <span className="text-base">↓</span><span>Cash In</span>
+      <button type="button" aria-label="Cash in" onClick={()=>{if(!today||today.status==="CLOSED"){setError("Open or reopen the cash session to record Cash In");window.scrollTo({top:0,behavior:"smooth"});return;}setError("");setQuickError("");setQuickFieldErrors({});setQuickDirection("IN");}} className="flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-600 px-3 text-[12px] font-black text-white shadow-[0_6px_18px_rgba(5,150,105,.20)] transition hover:-translate-y-0.5 active:translate-y-0">
+        <span className="text-sm">↓</span><span>Cash In</span>
       </button>
-      <button type="button" aria-label="Cash out" onClick={()=>{if(!today||today.status==="CLOSED"){setError("Open or reopen the cash session to record Cash Out");window.scrollTo({top:0,behavior:"smooth"});return;}setError("");setQuickError("");setQuickFieldErrors({});setQuickDirection("OUT");}} className="flex min-h-10 items-center gap-2 rounded-full bg-rose-600 px-3.5 text-[13px] font-black text-white shadow-[0_6px_18px_rgba(225,29,72,.18)] transition hover:-translate-y-0.5 active:translate-y-0">
-        <span className="text-base">↑</span><span>Cash Out</span>
+      <button type="button" aria-label="Cash out" onClick={()=>{if(!today||today.status==="CLOSED"){setError("Open or reopen the cash session to record Cash Out");window.scrollTo({top:0,behavior:"smooth"});return;}setError("");setQuickError("");setQuickFieldErrors({});setQuickDirection("OUT");}} className="flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-rose-600 px-3 text-[12px] font-black text-white shadow-[0_6px_18px_rgba(225,29,72,.18)] transition hover:-translate-y-0.5 active:translate-y-0">
+        <span className="text-sm">↑</span><span>Cash Out</span>
       </button>
     </div>,document.body):null}
 
@@ -1120,8 +1147,8 @@ export default function CashCounterPage(){
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {quickDirection==="IN"?<div className="mx-5 mt-2 grid grid-cols-2 rounded-[14px] bg-[var(--surface-soft)] p-1">
-          <button type="button" onClick={()=>{setQuickPurpose("TRANSFER");setQuickError("");clearQuickFieldError("serviceName");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="TRANSFER"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Transfer</button>
-          <button type="button" onClick={()=>{setQuickPurpose("SERVICE");setQuickCommission("");setQuickError("");clearQuickFieldError("commission");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="SERVICE"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Service</button>
+          <button type="button" onClick={()=>{setQuickPurpose("TRANSFER");setQuickCommissionOverridden(false);setQuickCashReceivedOverridden(false);setQuickError("");clearQuickFieldError("serviceName");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="TRANSFER"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Transfer</button>
+          <button type="button" onClick={()=>{setQuickPurpose("SERVICE");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickError("");clearQuickFieldError("commission");clearQuickFieldError("cashReceived");}} className={"min-h-9 rounded-[10px] text-[13px] font-black transition "+(quickPurpose==="SERVICE"?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)]")}>Service</button>
         </div>:<div className="mx-5 mt-2 grid grid-cols-3 rounded-[14px] bg-[var(--surface-soft)] p-1">
           {(["UPI_QR","AEPS","MICRO_ATM"] as QuickCashOutType[]).map((kind)=><button key={kind} type="button" onClick={()=>{setQuickCashOutType(kind);setQuickSuccessful(true);if(kind==="MICRO_ATM"){setQuickCommissionMode("UPI");setQuickCommissionCash("");}else if(kind==="AEPS"){setQuickCommissionMode("CASH");setQuickCommissionCash("");}setQuickError("");setQuickFieldErrors({});}} className={"min-h-10 rounded-[10px] px-2 text-[12px] font-black transition "+(quickCashOutType===kind?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]")}>{cashOutTypeLabel(kind)}</button>)}
         </div>}
@@ -1136,23 +1163,32 @@ export default function CashCounterPage(){
             {quickFieldErrors.amount?<p id="quick-amount-error" className="mt-2 text-center text-[12px] font-bold text-rose-600">{quickFieldErrors.amount}</p>:null}
           </label>
 
+          {quickPurpose==="TRANSFER"&&quickDirection==="IN"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
+            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Transfer mode <span className="text-rose-500">*</span></span>{selectedQuickTransferType?<span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{Number(quickAmount||0)>0&&Number(quickAmount||0)<=500?"₹10 fee":Number(selectedQuickTransferType.defaultCommissionRate||0)+"% fee"}</span>:null}</div>
+            {cashInTransferTypes.length?<div className={"mt-2 grid gap-1 rounded-[12px] bg-[var(--surface)] p-1 "+(cashInTransferTypes.length===2?"grid-cols-2":"grid-cols-1 sm:grid-cols-2")}>
+              {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.transferMode);setQuickCommissionOverridden(false);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
+            </div>:<p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">No Cash In transfer types are active. Configure them in Settings.</p>}
+            {quickFieldErrors.transferType?<p className="mt-1.5 px-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.transferType}</p>:null}
+
+          </div>:null}
+
           {quickPurpose==="TRANSFER"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
             <div className="flex items-center justify-between gap-4 px-1">
-              <p className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Commission <span className="normal-case font-semibold">(₹0 allowed)</span></p>
+              <p className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">{quickDirection==="IN"?"Fee":"Commission"} <span className="normal-case font-semibold">(₹0 allowed)</span></p>
               <div className="flex min-w-[150px] items-center justify-end gap-1.5">
                 <span className="text-xl font-black">₹</span>
-                <input ref={quickCommissionRef} disabled={quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.commission)} aria-describedby={quickFieldErrors.commission?"quick-commission-error":undefined} className="quick-cash-commission-input w-[150px] appearance-none bg-transparent p-0 text-right tabular-nums text-[var(--text)] disabled:opacity-40" placeholder="0" value={quickCommission} onChange={(event)=>{setQuickCommission(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("commission");setQuickError("");}}/>
+                <input ref={quickCommissionRef} disabled={quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.commission)} aria-describedby={quickFieldErrors.commission?"quick-commission-error":undefined} className="quick-cash-commission-input w-[150px] appearance-none bg-transparent p-0 text-right tabular-nums text-[var(--text)] disabled:opacity-40" placeholder="0" value={quickCommission} onChange={(event)=>{setQuickCommission(event.target.value.replace(/[^0-9.]/g,""));if(quickDirection==="IN")setQuickCommissionOverridden(true);clearQuickFieldError("commission");setQuickError("");}}/>
               </div>
             </div>
             {quickFieldErrors.commission?<p id="quick-commission-error" className="px-1 pt-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.commission}</p>:null}
             {Number(quickCommission||0)>0?(quickDirection==="OUT"&&quickCashOutType==="MICRO_ATM"
               ?<p className="mt-2.5 rounded-xl bg-[var(--surface)] px-3 py-2 text-[11px] font-semibold text-[var(--text-muted)]">Enter the commission amount now. Provider / settlement account can be completed later from Pending.</p>
-              :<><fieldset className="mt-2.5 grid grid-cols-3 rounded-[12px] bg-[var(--surface)] p-1" aria-label="Commission payment mode">
+              :<><><p className="mt-2.5 px-1 text-[10px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">{quickDirection==="IN"?"Fee paid by":"Commission payment mode"}</p><fieldset className="mt-1.5 grid grid-cols-3 rounded-[12px] bg-[var(--surface)] p-1" aria-label={quickDirection==="IN"?"Fee payment mode":"Commission payment mode"}>
                 <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[11px] font-black transition "+(quickCommissionMode==="CASH"?"bg-emerald-50 text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="commissionMode" value="CASH" checked={quickCommissionMode==="CASH"} onChange={()=>{setQuickCommissionMode("CASH");setQuickCommissionCash("");}} className="absolute h-px w-px opacity-0"/><span>Cash</span></label>
                 <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[11px] font-black transition "+(quickCommissionMode==="UPI"?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="commissionMode" value="UPI" checked={quickCommissionMode==="UPI"} onChange={()=>{setQuickCommissionMode("UPI");setQuickCommissionCash("");}} className="absolute h-px w-px opacity-0"/><span>Bank / UPI</span></label>
-                <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[11px] font-black transition "+(quickCommissionMode==="SPLIT"?"bg-violet-50 text-violet-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="commissionMode" value="SPLIT" checked={quickCommissionMode==="SPLIT"} onChange={()=>setQuickCommissionMode("SPLIT")} className="absolute h-px w-px opacity-0"/><span>Split</span></label>
-              </fieldset>{quickCommissionMode==="SPLIT"?<div className="mt-2.5 grid grid-cols-2 gap-2"><label className="rounded-xl bg-[var(--surface)] px-3 py-2 ring-1 ring-inset ring-[var(--border)]"><span className="block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">Cash part</span><div className="mt-1 flex items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" className="min-w-0 flex-1 bg-transparent p-0 text-[16px] font-black outline-none" value={quickCommissionCash} onChange={(event)=>{setQuickCommissionCash(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("commission");}} placeholder="0"/></div></label><div className="rounded-xl bg-blue-50 px-3 py-2 ring-1 ring-inset ring-blue-100"><span className="block text-[9px] font-black uppercase tracking-wide text-blue-700">Bank / UPI</span><strong className="money mt-1 block text-[16px] font-black text-blue-700">{money(Math.max(0,Number(quickCommission||0)-Number(quickCommissionCash||0)))}</strong></div></div>:null}</>)
-              :<p className="mt-2.5 px-1 text-[11px] font-semibold text-[var(--text-muted)]">No commission · payment mode is not required.</p>}
+                <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[11px] font-black transition "+(quickCommissionMode==="SPLIT"?"bg-violet-50 text-violet-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="commissionMode" value="SPLIT" checked={quickCommissionMode==="SPLIT"} onChange={()=>setQuickCommissionMode("SPLIT")} className="absolute h-px w-px opacity-0"/><span>{quickDirection==="IN"?"Both":"Split"}</span></label>
+              </fieldset></>{quickCommissionMode==="SPLIT"?<div className="mt-2.5 grid grid-cols-2 gap-2"><label className="rounded-xl bg-[var(--surface)] px-3 py-2 ring-1 ring-inset ring-[var(--border)]"><span className="block text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{quickDirection==="IN"?"Cash amount":"Cash part"}</span><div className="mt-1 flex items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" className="min-w-0 flex-1 bg-transparent p-0 text-[16px] font-black outline-none" value={quickCommissionCash} onChange={(event)=>{setQuickCommissionCash(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("commission");}} placeholder="0"/></div></label><div className="rounded-xl bg-blue-50 px-3 py-2 ring-1 ring-inset ring-blue-100"><span className="block text-[9px] font-black uppercase tracking-wide text-blue-700">Bank / UPI</span><strong className="money mt-1 block text-[16px] font-black text-blue-700">{money(Math.max(0,Number(quickCommission||0)-Number(quickCommissionCash||0)))}</strong></div></div>:null}</>)
+              :<p className="mt-2.5 px-1 text-[11px] font-semibold text-[var(--text-muted)]">No fee</p>}
           </div>:<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] px-4 py-3">
             <label className="block">
               <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Service <span className="text-rose-500">*</span></span>
@@ -1176,6 +1212,23 @@ export default function CashCounterPage(){
             </div>:null}
           </div>}
 
+          {quickDirection==="IN"&&quickPurpose==="TRANSFER"?<div className="mt-3 overflow-hidden rounded-[17px] border border-emerald-200 bg-emerald-50/60">
+            <div className="space-y-2 px-4 py-3">
+              <div className="flex items-center justify-between gap-4 text-[13px] font-bold text-[var(--text-muted)]"><span>Transfer amount</span><strong className="money text-[15px] text-[var(--text)]">{money(Number(quickAmount||0))}</strong></div>
+              <div className="flex items-center justify-between gap-4 text-[13px] font-bold text-[var(--text-muted)]"><span>+ Fee</span><strong className="money text-[15px] text-[var(--text)]">{money(quickCommissionCashValue)}</strong></div>
+              <div className="flex items-center justify-between gap-4 border-t border-emerald-200 pt-2.5"><span className="text-[13px] font-black uppercase tracking-[.04em] text-emerald-800">Total</span><strong className="money text-[22px] font-black text-emerald-700">{money(quickCashAmountDue)}</strong></div>
+            </div>
+            <label className="block border-t border-emerald-200 bg-[var(--surface)] px-4 py-3">
+              <span className="block text-[10px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Cash given by customer <span className="text-rose-500">*</span></span>
+              <div className="mt-1 flex items-center gap-1"><span className="text-xl font-black">₹</span><input ref={quickCashReceivedRef} inputMode="decimal" aria-invalid={Boolean(quickFieldErrors.cashReceived)} className="min-w-0 flex-1 bg-transparent p-0 text-[22px] font-black outline-none" value={quickCashReceived} onChange={(event)=>{setQuickCashReceived(event.target.value.replace(/[^0-9.]/g,""));setQuickCashReceivedOverridden(true);clearQuickFieldError("cashReceived");setQuickError("");}} placeholder="0"/></div>
+            </label>
+            {quickFieldErrors.cashReceived?<p className="bg-rose-50 px-4 py-2 text-[12px] font-bold text-rose-600">{quickFieldErrors.cashReceived}</p>:null}
+            <div className={"flex items-center justify-between gap-4 border-t px-4 py-3 "+(quickCashShort>0?"border-rose-200 bg-rose-50 text-rose-700":"border-emerald-200 bg-emerald-100/70 text-emerald-800")}>
+              <span className="text-[13px] font-black uppercase tracking-[.05em]">{quickCashShort>0?"Ask for more":"Give back"}</span>
+              <strong className="money text-[24px] font-black">{money(quickCashShort>0?quickCashShort:quickCustomerChange)}</strong>
+            </div>
+          </div>:null}
+
           {quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
             <div className="grid grid-cols-2 rounded-xl bg-[var(--surface)] p-1">
               <button type="button" onClick={()=>{setQuickSuccessful(true);setQuickError("");}} className={"min-h-9 rounded-lg text-[12px] font-black "+(quickSuccessful?"bg-emerald-50 text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Successful</button>
@@ -1198,12 +1251,8 @@ export default function CashCounterPage(){
             </div>}
           </div>:null}
 
-          {quickPurpose==="TRANSFER"&&quickDirection==="IN"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
-            <div className="px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Service type <span className="text-rose-500">*</span></span></div>
-            {cashInTransferTypes.length?<div className={"mt-2 grid gap-1 rounded-[12px] bg-[var(--surface)] p-1 "+(cashInTransferTypes.length===2?"grid-cols-2":"grid-cols-1 sm:grid-cols-2")}>
-              {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.transferMode);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
-            </div>:<p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">No Cash In transfer types are active. Configure them in Settings.</p>}
-            {quickFieldErrors.transferType?<p className="mt-1.5 px-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.transferType}</p>:null}
+          {quickPurpose==="TRANSFER"&&quickDirection==="IN"&&selectedQuickTransferType?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
+            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary details</span><span className="text-[10px] font-bold text-[var(--text-muted)]">{quickBeneficiaryMode==="UPI"?"UPI / GPay":"Bank transfer"}</span></div>
             {quickBeneficiaryMode==="UPI"
               ?<input className="mt-2 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-[15px] font-bold text-[var(--text)] outline-none" value={quickBeneficiaryUpi} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>setQuickBeneficiaryUpi(event.target.value)} placeholder="UPI ID / mobile"/>
               :<div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -1214,7 +1263,7 @@ export default function CashCounterPage(){
           </div>:null}
 
           <div className="mt-3 overflow-hidden rounded-[17px] bg-[var(--surface-soft)] px-4">
-            <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Customer</span><input name="cashledger_daily_cash_customer_name" autoComplete="on" list="cashledger-daily-cash-remembered-names" className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Name" value={quickCustomerName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickCustomerName(event.target.value);setQuickError("");}}/></label>
+            <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Customer</span><input name="cashledger_daily_cash_customer_name" autoComplete="on" list="cashledger-daily-cash-remembered-names" className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Name" value={quickCustomerName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickCustomerName(event.target.value.toUpperCase());setQuickError("");}}/></label>
             <label className="flex min-h-[52px] items-center gap-3 border-b border-[var(--border)]"><span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Mobile</span><input inputMode="tel" name="cashledger_customer_mobile" autoComplete="on" className="min-w-0 flex-1 appearance-none bg-transparent p-0 text-right text-[18px] font-black tracking-[-.015em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Mobile number" value={quickMobile} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickMobile(event.target.value);setQuickError("");}}/></label>
             {quickDirection==="OUT"?<label className="flex min-h-[58px] items-center gap-3 border-b border-[var(--border)] py-2.5">
               <span className="w-[76px] shrink-0 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Date & time</span>
@@ -1338,7 +1387,7 @@ export default function CashCounterPage(){
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">
               <span className="block text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Customer</span>
-              <input name="cashledger_complete_customer_name" autoComplete="on" list="cashledger-daily-cash-complete-remembered-names" className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeCustomerName} onChange={(event)=>setCompleteCustomerName(event.target.value)}/>
+              <input name="cashledger_complete_customer_name" autoComplete="on" list="cashledger-daily-cash-complete-remembered-names" className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeCustomerName} onChange={(event)=>setCompleteCustomerName(event.target.value.toUpperCase())}/>
             </label>
             <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">
               <span className="block text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Mobile</span>

@@ -284,9 +284,10 @@ model Provider {
   isActive           Boolean              @default(true)
   gateways           ProviderGateway[]
   accounts           FinancialAccount[]
-  charges            TransactionCharge[]
-  settlements        ProviderSettlement[]
-  cardDueRecoveries  CardDueRecovery[]
+  charges                     TransactionCharge[]
+  settlements                 ProviderSettlement[]
+  cardDueRecoveries           CardDueRecovery[]
+  aepsProviderCommissionRules AepsProviderCommissionRule[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 }
@@ -410,12 +411,13 @@ model ServiceCatalog {
 }
 
 model CashInTransferType {
-  id           String   @id @default(uuid())
-  name         String   @unique
-  transferMode String
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  name                  String   @unique
+  transferMode          String
+  defaultCommissionRate Decimal  @default(0) @db.Decimal(10, 4)
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model ExpenseCategory {
@@ -443,6 +445,8 @@ model Transaction {
   idempotencyKey              String?                      @unique
   reversedTransactionId       String?
   reversalReason              String?
+  correctionSourceTransactionId String?
+  correctionReason            String?
   createdById                 String
   updatedById                 String?
   createdAt                   DateTime                     @default(now())
@@ -474,6 +478,7 @@ model Transaction {
   @@index([transactionType, transactionAt])
   @@index([customerId, transactionAt])
   @@index([status])
+  @@index([correctionSourceTransactionId])
 }
 
 model TransactionCharge {
@@ -788,6 +793,8 @@ model QuickCashTransferDetail {
   customerName            String?
   mobileNumber            String?
   amount                  Decimal                     @db.Decimal(18, 2)
+  cashReceivedAmount      Decimal?                    @db.Decimal(18, 2)
+  customerChangeAmount    Decimal?                    @db.Decimal(18, 2)
   commissionAmount        Decimal                     @default(0) @db.Decimal(18, 2)
   commissionCashAmount    Decimal?                    @db.Decimal(18, 2)
   commissionMode          String                      @default("CASH")
@@ -825,6 +832,25 @@ model QuickCashSourceAllocation {
   @@index([sourceAccountId])
 }
 
+model AepsProviderCommissionRule {
+  id              String          @id @default(uuid())
+  providerId      String
+  provider        Provider        @relation(fields: [providerId], references: [id])
+  minAmount       Decimal         @db.Decimal(18, 2)
+  maxAmount       Decimal?        @db.Decimal(18, 2)
+  calculationType CalculationType
+  value           Decimal         @db.Decimal(18, 4)
+  effectiveFrom   DateTime        @default(now())
+  effectiveTo     DateTime?
+  createdById     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  aepsTransactions AepsDetail[]
+
+  @@index([providerId, effectiveFrom, effectiveTo])
+  @@index([providerId, minAmount, maxAmount])
+}
+
 model AepsDetail {
   id                   String            @id @default(uuid())
   transactionId        String            @unique
@@ -836,8 +862,13 @@ model AepsDetail {
   providerId           String?
   gatewayId            String?
   platformChargeRate   Decimal?          @db.Decimal(10, 4)
-  platformChargeAmount Decimal           @db.Decimal(18, 2)
-  commissionRate       Decimal?          @db.Decimal(10, 4)
+  platformChargeAmount              Decimal                     @db.Decimal(18, 2)
+  providerCommissionRuleId            String?
+  providerCommissionRule              AepsProviderCommissionRule? @relation(fields: [providerCommissionRuleId], references: [id])
+  providerCommissionCalculationType   CalculationType?
+  providerCommissionRate              Decimal?                    @db.Decimal(10, 4)
+  providerCommissionAmount            Decimal                     @default(0) @db.Decimal(18, 2)
+  commissionRate                      Decimal?                    @db.Decimal(10, 4)
   commissionMethod     CommissionMethod  @default(DEDUCT)
   commissionAmount     Decimal           @db.Decimal(18, 2)
   cashGiven            Decimal           @db.Decimal(18, 2)

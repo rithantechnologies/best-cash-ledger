@@ -321,7 +321,7 @@ export default function CashTransferPage(){
     setCustomerMode("NEW");
     setCustomerId("");
     setNewMobile(digits.length===10?digits:"");
-    setNewName(digits.length===10?"":customerSearch.trim());
+    setNewName(digits.length===10?"":customerSearch.trim().toUpperCase());
     clearDestination();
     setDestinationMode("NEW");
   }
@@ -480,7 +480,7 @@ export default function CashTransferPage(){
 
             {customerMode==="NEW"?<div className="mt-3 grid gap-3 sm:grid-cols-2">
               <Field label="Customer name">
-                <input className={control} value={newName} onChange={e=>setNewName(e.target.value)} autoFocus placeholder="Full name"/>
+                <input className={control} value={newName} onChange={e=>setNewName(e.target.value.toUpperCase())} autoFocus placeholder="Full name"/>
               </Field>
               <Field label="Mobile (optional)">
                 <input className={control} inputMode="numeric" maxLength={10} value={newMobile} onChange={e=>setNewMobile(e.target.value.replace(/D/g,"").slice(0,10))} placeholder="10-digit mobile"/>
