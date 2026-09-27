@@ -56,6 +56,7 @@ export class ProvidersService {
             providerType: provider.providerType,
             supportsAeps: provider.supportsAeps,
             aepsCommissionRate: provider.aepsCommissionRate.toString(),
+            aepsProviderChargeRate: provider.aepsProviderChargeRate.toString(),
             isActive: provider.isActive,
           },
         },
@@ -139,6 +140,7 @@ export class ProvidersService {
             notes: existing.notes,
             supportsAeps: existing.supportsAeps,
             aepsCommissionRate: existing.aepsCommissionRate.toString(),
+            aepsProviderChargeRate: existing.aepsProviderChargeRate.toString(),
           },
           newValues: {
             name: updated.name,
@@ -146,6 +148,7 @@ export class ProvidersService {
             notes: updated.notes,
             supportsAeps: updated.supportsAeps,
             aepsCommissionRate: updated.aepsCommissionRate.toString(),
+            aepsProviderChargeRate: updated.aepsProviderChargeRate.toString(),
           },
         },
       });

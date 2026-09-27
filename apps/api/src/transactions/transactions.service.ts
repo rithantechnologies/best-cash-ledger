@@ -1977,20 +1977,8 @@ export class TransactionsService {
         ? baseAmount
         : baseAmount - calculatedCommission,
     );
-    const calculatedPlatformCharge = this.money(
-      withdrawalAmount * dto.platformChargeRate / 100,
-    );
-    const calculatedSettlement = this.money(
-      withdrawalAmount - calculatedPlatformCharge,
-    );
-
-    if (
-      calculatedCashGiven <= 0 ||
-      calculatedSettlement <= 0 ||
-      calculatedPlatformCharge < 0 ||
-      calculatedCommission < 0
-    ) {
-      throw new BadRequestException('Invalid AePS charges or commission');
+    if (calculatedCashGiven <= 0 || calculatedCommission < 0) {
+      throw new BadRequestException('Invalid AePS commission');
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -2056,7 +2044,7 @@ export class TransactionsService {
         throw new BadRequestException('Customer is required');
       }
 
-      const { provider } = await this.validation.providerGateway(
+      const { provider, gateway } = await this.validation.providerGateway(
         tx,
         dto.providerId,
         dto.gatewayId,
@@ -2066,6 +2054,18 @@ export class TransactionsService {
         throw new BadRequestException(
           'Selected provider does not support Aadhaar withdrawals',
         );
+      }
+      const effectivePlatformChargeRate = gateway
+        ? Number(gateway.defaultChargeRate)
+        : Number(provider.aepsProviderChargeRate ?? 0);
+      const calculatedPlatformCharge = this.money(
+        withdrawalAmount * effectivePlatformChargeRate / 100,
+      );
+      const calculatedSettlement = this.money(
+        withdrawalAmount - calculatedPlatformCharge,
+      );
+      if (calculatedSettlement <= 0 || calculatedPlatformCharge < 0) {
+        throw new BadRequestException('Invalid AePS provider charge');
       }
 
       if (!successful) {
@@ -2094,7 +2094,7 @@ export class TransactionsService {
             platformId: dto.platformId,
             providerId: dto.providerId,
             gatewayId: dto.gatewayId,
-            platformChargeRate: new Prisma.Decimal(dto.platformChargeRate),
+            platformChargeRate: new Prisma.Decimal(effectivePlatformChargeRate),
             platformChargeAmount: new Prisma.Decimal(0),
             commissionRate: new Prisma.Decimal(dto.commissionRate),
             commissionMethod,
@@ -2194,7 +2194,7 @@ export class TransactionsService {
           platformId: dto.platformId,
           providerId: dto.providerId,
           gatewayId: dto.gatewayId,
-          platformChargeRate: new Prisma.Decimal(dto.platformChargeRate),
+          platformChargeRate: new Prisma.Decimal(effectivePlatformChargeRate),
           platformChargeAmount: new Prisma.Decimal(calculatedPlatformCharge),
           commissionRate: new Prisma.Decimal(dto.commissionRate),
           commissionMethod,
@@ -2215,7 +2215,7 @@ export class TransactionsService {
             providerId: dto.providerId,
             gatewayId: dto.gatewayId,
             calculationType: 'PERCENTAGE',
-            rate: new Prisma.Decimal(dto.platformChargeRate),
+            rate: new Prisma.Decimal(effectivePlatformChargeRate),
             amount: new Prisma.Decimal(calculatedPlatformCharge),
           },
         });

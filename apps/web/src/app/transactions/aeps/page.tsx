@@ -13,7 +13,7 @@ type BankAccount={id:string;bankName:string;accountReference:string;isActive:boo
 type Customer={id:string;fullName:string;mobile?:string|null;bankAccounts:BankAccount[]};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null;isActive?:boolean};
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string};
-type Provider={id:string;name:string;supportsAeps:boolean;aepsCommissionRate:string;gateways:Gateway[]};
+type Provider={id:string;name:string;supportsAeps:boolean;aepsCommissionRate:string;aepsProviderChargeRate:string;gateways:Gateway[]};
 type Rule={commissionRate:string}|null;
 type SavedAeps={transaction:{id:string};createdCustomer?:{id:string;fullName:string;mobile:string|null}|null};
 
@@ -257,7 +257,7 @@ export default function AepsPage(){
     const remembered=localStorage.getItem("cashledger_aeps_gateway_"+providerId);
     const next=currentProvider?.gateways.find(g=>g.id===remembered)??currentProvider?.gateways[0];
     setGatewayId(next?.id??"");
-    setChargeRate(next?String(Number(next.defaultChargeRate)):"0");
+    setChargeRate(next?String(Number(next.defaultChargeRate)):String(Number(currentProvider?.aepsProviderChargeRate||0)));
     const wallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId&&a.isActive!==false);
     setSettlementAccountId(wallet?.id??"");
   },[providerId,providers,accounts]);
@@ -273,6 +273,7 @@ export default function AepsPage(){
     if(gatewayId&&providerId)localStorage.setItem("cashledger_aeps_gateway_"+providerId,gatewayId);
     const g=providers.find(p=>p.id===providerId)?.gateways.find(x=>x.id===gatewayId);
     if(g)setChargeRate(String(Number(g.defaultChargeRate)));
+    else setChargeRate(String(Number(providers.find(p=>p.id===providerId)?.aepsProviderChargeRate||0)));
   },[gatewayId,providerId,providers]);
 
   useEffect(()=>{
@@ -377,7 +378,7 @@ export default function AepsPage(){
         platformId:platformId.trim()||undefined,
         providerId,
         gatewayId:gatewayId||undefined,
-        platformChargeRate:providerHasGateways?Number(chargeRate||0):0,
+        platformChargeRate:Number(chargeRate||0),
         commissionRate:Number(commissionRate||0),
         cashAccountId:successful&&cashPayoutNow?cashAccountId||undefined:undefined,
         settlementAccountId,
@@ -466,9 +467,9 @@ export default function AepsPage(){
             <div className={"mt-3 grid gap-3 "+(providerHasGateways?"sm:grid-cols-3":"sm:grid-cols-1")}>
               <Field label="Provider"><SearchableSelect className={control} value={providerId} onChange={e=>setProviderId(e.target.value)} required><option value="">Select provider</option>{providers.filter(p=>p.supportsAeps).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></Field>
               {providerHasGateways?<Field label="Gateway"><SearchableSelect className={control} value={gatewayId} onChange={e=>setGatewayId(e.target.value)} required><option value="">Select gateway</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</SearchableSelect></Field>:null}
-              {successful&&providerHasGateways?<Field label="Provider fee %"><input className={control+" bg-[var(--surface-soft)] text-[var(--text-muted)]"} type="number" value={chargeRate} readOnly/></Field>:null}
+              {successful?<Field label="Provider fee %"><input className={control+" bg-[var(--surface-soft)] text-[var(--text-muted)]"} type="number" value={chargeRate} readOnly/></Field>:null}
             </div>
-            {providerId&&!providerHasGateways?<p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">This provider does not use a separate gateway.</p>:null}
+            {providerId&&!providerHasGateways?<p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">Provider fee comes from Settings → Payment Providers. DigiSeva defaults to 1.6%; other providers are configurable.</p>:null}
 
             {successful&&providerWallet?<div className="wallet-summary-card mt-2 rounded-xl border border-[var(--border)] px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

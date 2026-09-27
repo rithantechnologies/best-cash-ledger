@@ -278,8 +278,9 @@ model Provider {
   name               String               @unique
   providerType       String
   notes              String?
-  supportsAeps       Boolean              @default(false)
-  aepsCommissionRate Decimal              @default(0) @db.Decimal(10, 4)
+  supportsAeps          Boolean              @default(false)
+  aepsCommissionRate    Decimal              @default(0) @db.Decimal(10, 4)
+  aepsProviderChargeRate Decimal             @default(0) @db.Decimal(10, 4)
   isActive           Boolean              @default(true)
   gateways           ProviderGateway[]
   accounts           FinancialAccount[]

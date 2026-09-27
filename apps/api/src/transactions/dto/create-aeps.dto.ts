@@ -37,7 +37,7 @@ export class CreateAepsDto {
   @IsOptional() @IsString() platformId?: string;
   @IsOptional() @IsString() providerId?: string;
   @IsOptional() @IsString() gatewayId?: string;
-  @IsNumber() @Min(0) platformChargeRate!: number;
+  @IsOptional() @IsNumber() @Min(0) platformChargeRate?: number;
   @IsNumber() @Min(0) commissionRate!: number;
   @IsOptional() @IsEnum(CommissionMethod) commissionMethod?: CommissionMethod;
   @IsOptional() @IsBoolean() successful?: boolean;

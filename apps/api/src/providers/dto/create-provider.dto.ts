@@ -6,4 +6,5 @@ export class CreateProviderDto {
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsBoolean() supportsAeps?: boolean;
   @IsOptional() @IsNumber() @Min(0) aepsCommissionRate?: number;
+  @IsOptional() @IsNumber() @Min(0) aepsProviderChargeRate?: number;
 }

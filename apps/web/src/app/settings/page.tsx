@@ -9,7 +9,7 @@ import { SettingsWorkspace } from "@/app/settings/settings-modern";
 import { apiFetch } from "@/lib/api";
 
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string;defaultChargeType:string;isActive:boolean};
-type Provider={id:string;name:string;providerType:string;supportsAeps:boolean;aepsCommissionRate:string;isActive:boolean;gateways:Gateway[]};
+type Provider={id:string;name:string;providerType:string;supportsAeps:boolean;aepsCommissionRate:string;aepsProviderChargeRate:string;isActive:boolean;gateways:Gateway[]};
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionType:string;defaultCommissionRate:string;isActive:boolean};
 type Category={id:string;name:string;expenseUsage:string;isActive:boolean};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
@@ -34,12 +34,12 @@ export default function SettingsPage(){
  const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[categories,setCategories]=useState<Category[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[rules,setRules]=useState<Rule[]>([]),[services,setServices]=useState<ServiceConfig[]>([]),[cashInTransferTypes,setCashInTransferTypes]=useState<CashInTransferTypeConfig[]>([]),[cardNetworks,setCardNetworks]=useState<CardNetworkConfig[]>([]);
  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[message,setMessage]=useState("");
  const [create,setCreate]=useState<CreateKind>(null),[toggleState,setToggleState]=useState<ToggleState>(null);
- const [providerName,setProviderName]=useState(""),[providerType,setProviderType]=useState("MULTI_SERVICE"),[providerSupportsAeps,setProviderSupportsAeps]=useState(false),[providerAepsRate,setProviderAepsRate]=useState("0");
+ const [providerName,setProviderName]=useState(""),[providerType,setProviderType]=useState("MULTI_SERVICE"),[providerSupportsAeps,setProviderSupportsAeps]=useState(false),[providerAepsRate,setProviderAepsRate]=useState("0"),[providerAepsChargeRate,setProviderAepsChargeRate]=useState("0");
  const [gatewayProvider,setGatewayProvider]=useState(""),[gatewayName,setGatewayName]=useState(""),[gatewayRate,setGatewayRate]=useState("");
  const [termName,setTermName]=useState(""),[durationValue,setDurationValue]=useState("0"),[durationUnit,setDurationUnit]=useState("DAYS"),[termRate,setTermRate]=useState("0");
  const [categoryName,setCategoryName]=useState("");
  const [ruleCustomer,setRuleCustomer]=useState(""),[ruleProvider,setRuleProvider]=useState(""),[ruleGateway,setRuleGateway]=useState(""),[ruleTerm,setRuleTerm]=useState(""),[ruleType,setRuleType]=useState("CARD_SWIPE"),[ruleCalc,setRuleCalc]=useState("PERCENTAGE"),[ruleRate,setRuleRate]=useState("");
- const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState("");
+ const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState(""),[e5,setE5]=useState("");
  const [serviceName,setServiceName]=useState(""),[serviceDefaultAmount,setServiceDefaultAmount]=useState("");
  const [serviceEdit,setServiceEdit]=useState<ServiceConfig|null>(null),[serviceEditName,setServiceEditName]=useState(""),[serviceEditAmount,setServiceEditAmount]=useState("");
  const [cardNetworkName,setCardNetworkName]=useState("");
@@ -69,7 +69,7 @@ export default function SettingsPage(){
   try{await action();reset();await load();try{localStorage.setItem("cashledger_settings_updated_at",String(Date.now()));}catch{}setMessage(success);window.setTimeout(()=>setMessage(""),2600);}
   catch(err){setError(err instanceof Error?err.message:"Save failed");throw err;}
  }
- async function addProvider(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers",{method:"POST",body:JSON.stringify({name:providerName,providerType,supportsAeps:providerSupportsAeps,aepsCommissionRate:Number(providerAepsRate||0)})}),()=>{setProviderName("");setProviderSupportsAeps(false);setProviderAepsRate("0");setCreate(null);},"Provider added.");}catch{}}
+ async function addProvider(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers",{method:"POST",body:JSON.stringify({name:providerName,providerType,supportsAeps:providerSupportsAeps,aepsCommissionRate:Number(providerAepsRate||0),aepsProviderChargeRate:Number(providerAepsChargeRate||0)})}),()=>{setProviderName("");setProviderSupportsAeps(false);setProviderAepsRate("0");setProviderAepsChargeRate("0");setCreate(null);},"Provider added.");}catch{}}
  async function addGateway(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/providers/"+gatewayProvider+"/gateways",{method:"POST",body:JSON.stringify({gatewayName,defaultChargeType:"PERCENTAGE",defaultChargeRate:Number(gatewayRate)})}),()=>{setGatewayName("");setGatewayRate("");setCreate(null);},"Gateway added.");}catch{}}
  async function addCardNetwork(e:FormEvent){e.preventDefault();const name=cardNetworkName.trim();if(!name)return;try{await run(()=>apiFetch("/settings/card-networks",{method:"POST",body:JSON.stringify({name})}),()=>setCardNetworkName(""),"Card network added.");}catch{}}
  async function toggleCardNetwork(item:CardNetworkConfig){try{await run(()=>apiFetch("/settings/card-networks/"+item.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:!item.isActive})}),()=>{},item.isActive?"Card network retired.":"Card network activated.");}catch{}}
@@ -119,7 +119,7 @@ export default function SettingsPage(){
 
  function beginEdit(next:Exclude<EditState,null>){
   setEdit(next);setError("");setMessage("");
-  if(next.kind==="provider"){setE1(next.item.name);setE2(next.item.providerType);setE3(next.item.supportsAeps?"true":"false");setE4(String(Number(next.item.aepsCommissionRate||0)));}
+  if(next.kind==="provider"){setE1(next.item.name);setE2(next.item.providerType);setE3(next.item.supportsAeps?"true":"false");setE4(String(Number(next.item.aepsCommissionRate||0)));setE5(String(Number(next.item.aepsProviderChargeRate||0)));}
   if(next.kind==="gateway"){setE1(next.item.gatewayName);setE2(String(Number(next.item.defaultChargeRate)));setE3(next.item.defaultChargeType);setE4("");}
   if(next.kind==="term"){setE1(next.item.name);setE2(String(next.item.durationValue));setE3(next.item.durationUnit);setE4(String(Number(next.item.defaultCommissionRate)));}
   if(next.kind==="category"){setE1(next.item.name);setE2("MIXED");setE3("");setE4("");}
@@ -128,7 +128,7 @@ export default function SettingsPage(){
  async function saveEdit(e:FormEvent){
   e.preventDefault();if(!edit)return;
   try{
-   if(edit.kind==="provider")await run(()=>apiFetch("/providers/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),providerType:e2,supportsAeps:e3==="true",aepsCommissionRate:Number(e4||0)})}),()=>{},"Provider updated.");
+   if(edit.kind==="provider")await run(()=>apiFetch("/providers/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),providerType:e2,supportsAeps:e3==="true",aepsCommissionRate:Number(e4||0),aepsProviderChargeRate:Number(e5||0)})}),()=>{},"Provider updated.");
    if(edit.kind==="gateway")await run(()=>apiFetch("/providers/gateways/"+edit.item.id,{method:"PATCH",body:JSON.stringify({gatewayName:e1.trim(),defaultChargeRate:Number(e2),defaultChargeType:e3})}),()=>{},"Gateway updated.");
    if(edit.kind==="term")await run(()=>apiFetch("/settings/payment-terms/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),durationValue:Number(e2),durationUnit:e3,defaultCommissionType:edit.item.defaultCommissionType,defaultCommissionRate:Number(e4)})}),()=>{},"Payment term updated.");
    if(edit.kind==="category")await run(()=>apiFetch("/settings/expense-categories/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),expenseUsage:"MIXED"})}),()=>{},"Expense category updated.");
@@ -236,7 +236,7 @@ export default function SettingsPage(){
       <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider type</span><SearchableSelect className={input} value={providerType} onChange={e=>setProviderType(e.target.value)}><option>MULTI_SERVICE</option><option>WALLET</option><option>CARD_PROVIDER</option><option>AEPS_PLATFORM</option></SearchableSelect></label>
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
         <label className="flex cursor-pointer items-center justify-between gap-3"><span><strong className="block text-sm">Aadhaar withdrawal</strong><span className="mt-0.5 block text-xs text-[var(--text-muted)]">Show this provider in Aadhaar-based withdrawals.</span></span><input type="checkbox" checked={providerSupportsAeps} onChange={e=>setProviderSupportsAeps(e.target.checked)} className="h-5 w-5 accent-[var(--accent)]"/></label>
-        {providerSupportsAeps?<label className="mt-3 block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default Aadhaar commission %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={providerAepsRate} onChange={e=>setProviderAepsRate(e.target.value)} /></label>:null}
+        {providerSupportsAeps?<div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default Aadhaar commission %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={providerAepsRate} onChange={e=>setProviderAepsRate(e.target.value)} /></label><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider charge %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={providerAepsChargeRate} onChange={e=>setProviderAepsChargeRate(e.target.value)} /><span className="mt-1 block text-[10px] text-[var(--text-muted)]">DigiSeva operating default: 1.6%. Configure other providers here.</span></label></div>:null}
       </div>
       <button className={primary+" w-full"}>Add Provider</button>
     </form>
@@ -271,7 +271,7 @@ export default function SettingsPage(){
         <SearchableSelect className={input} value={e2} onChange={e=>setE2(e.target.value)}><option>MULTI_SERVICE</option><option>WALLET</option><option>CARD_PROVIDER</option><option>AEPS_PLATFORM</option></SearchableSelect>
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
           <label className="flex cursor-pointer items-center justify-between gap-3"><span><strong className="block text-sm">Aadhaar withdrawal</strong><span className="mt-0.5 block text-xs text-[var(--text-muted)]">Enable only when this provider supports Aadhaar-linked bank withdrawal.</span></span><input type="checkbox" checked={e3==="true"} onChange={e=>setE3(e.target.checked?"true":"false")} className="h-5 w-5 accent-[var(--accent)]"/></label>
-          {e3==="true"?<label className="mt-3 block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default Aadhaar commission %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={e4} onChange={e=>setE4(e.target.value)} /></label>:null}
+          {e3==="true"?<div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default Aadhaar commission %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={e4} onChange={e=>setE4(e.target.value)} /></label><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider charge %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={e5} onChange={e=>setE5(e.target.value)} /><span className="mt-1 block text-[10px] text-[var(--text-muted)]">Provider-side deduction from AEPS settlement.</span></label></div>:null}
         </div>
       </>:null}
       {edit?.kind==="gateway"?<><input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Gateway name" required/><input className={input} type="number" min="0" step="0.0001" value={e2} onChange={e=>setE2(e.target.value)} placeholder="Charge rate" required/><SearchableSelect className={input} value={e3} onChange={e=>setE3(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed</option></SearchableSelect></>:null}
