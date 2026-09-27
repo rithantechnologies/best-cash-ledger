@@ -8,12 +8,13 @@ import { AppShell } from "@/components/app-shell";
 import { Field, Modal, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
-type Card={id:string;bankName:string;cardType?:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
+type Card={id:string;bankName:string;cardType?:string|null;cardNetworkId?:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
 type Customer={id:string;fullName:string;mobile:string|null;cards:Card[]};
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string};
 type Provider={id:string;name:string;gateways:Gateway[]};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null};
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionRate:string};
+type Network={id:string;name:string;isActive:boolean};
 type CommissionRule={commissionType:string;commissionRate:string}|null;
 type PaymentLeg={sourceAccountId:string;amount:string;chargeAmount:string};
 type HistoryCharge={amount:string;rate:string|null;chargeType:string};
@@ -21,7 +22,7 @@ type HistoryPayment={id:string;amount:string;status:string;sourceAccount:Account
 type CustomerSwipeHistory={
   id:string;transactionNumber:string;transactionAt:string;status:string;grossAmount:string;netAmount:string|null;
   charges:HistoryCharge[];commissions:{amount:string;rate:string|null}[];
-  cardSwipe:{swipeAmount:string;providerChargeAmount:string;commissionAmount:string;customerPayableAmount:string;customerCard:{bankName:string;lastFourDigits:string}|null}|null;
+  cardSwipe:{swipeAmount:string;providerId:string;gatewayId:string;providerChargeRate:string;providerChargeAmount:string;commissionRate:string;commissionAmount:string;customerPayableAmount:string;paymentTermId:string;customerCard:{id:string;bankName:string;cardNetworkId?:string|null;lastFourDigits:string}|null;paymentTerm:{id:string;name:string}|null}|null;
   payable:{id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;payments:HistoryPayment[]}|null;
   providerSettlementSource:{status:string;provider:{name:string}|null;gateway:{gatewayName:string}|null}|null;
 };
@@ -240,6 +241,7 @@ export default function CardSwipePage(){
   const [openCashAccountIds,setOpenCashAccountIds]=useState<string[]>([]);
   const [openCashSessions,setOpenCashSessions]=useState<Record<string,{openingTotal?:number|string;liveExpectedClosingTotal?:number|string}>>({});
   const [terms,setTerms]=useState<Term[]>([]);
+  const [networks,setNetworks]=useState<Network[]>([]);
   const [customerId,setCustomerId]=useState("");
   const [cardId,setCardId]=useState("");
   const [customerSearch,setCustomerSearch]=useState("");
@@ -248,9 +250,11 @@ export default function CardSwipePage(){
   const [quickMobile,setQuickMobile]=useState("");
   const [quickBank,setQuickBank]=useState("");
   const [quickLastFour,setQuickLastFour]=useState("");
+  const [cardNetworkId,setCardNetworkId]=useState("");
   const [addingCard,setAddingCard]=useState(false);
   const [newCardBank,setNewCardBank]=useState("");
   const [newCardType,setNewCardType]=useState("CREDIT");
+  const [newCardNetworkId,setNewCardNetworkId]=useState("");
   const [newCardLastFour,setNewCardLastFour]=useState("");
   const [newCardNickname,setNewCardNickname]=useState("");
   const [addingCardBusy,setAddingCardBusy]=useState(false);
