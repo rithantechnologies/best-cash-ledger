@@ -279,7 +279,7 @@ export class CustomersService {
         const network = await tx.cardNetwork.findFirst({ where: { id: dto.cardNetworkId, isActive: true }, select: { id: true } });
         if (!network) throw new BadRequestException('Selected card network is not active');
       }
-      const item = await tx.customerCard.create({ data: { customerId, ...dto } });
+      const item = await tx.customerCard.create({ data: { customerId, ...dto, cardType: 'CREDIT' } });
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER_CARD', entityId: item.id, action: 'CREATE',
@@ -298,7 +298,7 @@ export class CustomersService {
         const network = await tx.cardNetwork.findFirst({ where: { id: dto.cardNetworkId, isActive: true }, select: { id: true } });
         if (!network) throw new BadRequestException('Selected card network is not active');
       }
-      const item = await tx.customerCard.update({ where: { id }, data: dto });
+      const item = await tx.customerCard.update({ where: { id }, data: { ...dto, cardType: 'CREDIT' } });
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER_CARD', entityId: id, action: 'UPDATE',

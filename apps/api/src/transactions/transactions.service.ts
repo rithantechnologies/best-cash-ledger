@@ -381,7 +381,7 @@ export class TransactionsService {
           data: {
             customerId: customer.id,
             bankName: dto.newCustomer.bankName.trim(),
-            cardType: dto.newCustomer.cardType?.trim() || 'CREDIT',
+            cardType: 'CREDIT',
             cardNetworkId: dto.newCustomer.cardNetworkId,
             lastFourDigits: dto.newCustomer.lastFourDigits,
           },

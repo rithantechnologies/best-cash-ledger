@@ -71,7 +71,7 @@ export default function CardDueClearingPage(){
  const [newCustomerOpen,setNewCustomerOpen]=useState(false),[newCustomerBusy,setNewCustomerBusy]=useState(false);
  const [newName,setNewName]=useState(""),[newMobile,setNewMobile]=useState(""),[newBank,setNewBank]=useState(""),[newLastFour,setNewLastFour]=useState("");
  const [addCardOpen,setAddCardOpen]=useState(false),[addCardBusy,setAddCardBusy]=useState(false);
- const [addCardBank,setAddCardBank]=useState(""),[addCardType,setAddCardType]=useState("CREDIT"),[addCardLastFour,setAddCardLastFour]=useState(""),[addCardNickname,setAddCardNickname]=useState("");
+ const [addCardBank,setAddCardBank]=useState(""),[addCardLastFour,setAddCardLastFour]=useState(""),[addCardNickname,setAddCardNickname]=useState("");
 
  const customer=customers.find(x=>x.id===customerId),addProvider=providers.find(x=>x.id===addProviderId);
  const addGateway=addProvider?.gateways.find(x=>x.id===addGatewayId);
@@ -140,14 +140,14 @@ export default function CardDueClearingPage(){
  }
  function openAddCard(){
   if(!customer)return;
-  setAddCardBank("");setAddCardType("CREDIT");setAddCardLastFour("");setAddCardNickname("");setError("");setAddCardOpen(true);
+  setAddCardBank("");setAddCardLastFour("");setAddCardNickname("");setError("");setAddCardOpen(true);
  }
  async function addCard(e:FormEvent){
   e.preventDefault();if(!customerId||!addCardBank||addCardLastFour.length!==4)return;
   setAddCardBusy(true);setError("");
   try{
    const card=await apiFetch<Card>("/customers/"+customerId+"/cards",{method:"POST",body:JSON.stringify({
-    bankName:addCardBank,cardType:addCardType,lastFourDigits:addCardLastFour,nickname:addCardNickname.trim()||undefined,
+    bankName:addCardBank,cardType:"CREDIT",lastFourDigits:addCardLastFour,nickname:addCardNickname.trim()||undefined,
    })});
    setCustomers(current=>current.map(c=>c.id===customerId?{...c,cards:[...c.cards,card]}:c));
    setCardId(card.id);setAddCardOpen(false);setSuccess("Card added and selected.");
@@ -407,7 +407,7 @@ export default function CardDueClearingPage(){
   <Modal open={addCardOpen} title="Add card" description={customer?""+customer.fullName+"":undefined} onClose={()=>{if(!addCardBusy)setAddCardOpen(false);}} footer={<button form="due-add-card" disabled={addCardBusy||!addCardBank||addCardLastFour.length!==4} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{addCardBusy?"Saving…":"Save & use card"}</button>}>
    <form id="due-add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
     <Field label="Bank"><SearchableSelect className="app-control" value={addCardBank} onChange={e=>setAddCardBank(e.target.value)} required><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
-    <Field label="Card type"><SearchableSelect className="app-control" value={addCardType} onChange={e=>setAddCardType(e.target.value)}><option value="CREDIT">Credit</option><option value="DEBIT">Debit</option><option value="BUSINESS">Business</option><option value="OTHER">Other</option></SearchableSelect></Field>
+    <Field label="Card type"><div className="app-control flex items-center bg-[var(--surface-soft)] font-bold">CREDIT</div></Field>
     <Field label="Last 4 digits"><input className="app-control font-semibold tracking-[.12em]" inputMode="numeric" value={addCardLastFour} onChange={e=>setAddCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
     <Field label="Nickname"><input className="app-control" value={addCardNickname} onChange={e=>setAddCardNickname(e.target.value)} placeholder="Optional"/></Field>
    </form>
