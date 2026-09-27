@@ -181,6 +181,39 @@ function businessSummary(tx:BusinessTx,row:Row){
   if(tx.creditCardPayment)return {primary:tx.creditCardPayment.sourceAccount.accountName+" → "+tx.creditCardPayment.creditCardAccount.accountName,secondary:"Credit card payment "+money(tx.creditCardPayment.paymentAmount)};
   return {primary:tx.customer?.fullName??row.description??nice(tx.transactionType),secondary:row.description&&row.description!==tx.customer?.fullName?row.description:nice(tx.transactionType)};
 }
+function activityType(tx:RowTx,row:Row,source:BusinessTx){
+  const quick=source.quickCashTransfer;
+  let label=nice(source.transactionType);
+  if(tx.providerSettlementReceipt)label="Provider settlement";
+  else if(tx.payablePayment)label="Customer payout";
+  else if(source.transactionType==="SERVICE_INCOME")label="Service income";
+  else if(quick?.purpose==="TRANSFER"&&quick.direction==="IN")label=quick.beneficiaryMode==="BANK"?"Bank transfer":"UPI transfer";
+  else if(quick?.purpose==="TRANSFER"&&quick.direction==="OUT")label=quick.cashOutType==="AEPS"?"AEPS / Aadhaar withdrawal":quick.cashOutType==="MICRO_ATM"?"Micro ATM withdrawal":"UPI / QR cash out";
+  else if(source.cardSwipe)label="Card swipe";
+  else if(source.microAtm)label="Micro ATM withdrawal";
+  else if(source.aeps)label="AEPS / Aadhaar withdrawal";
+  else if(source.expense)label="Expense";
+  else if(source.cashTransfer)label="Cash transfer";
+  else if(source.internalTransfer)label="Internal transfer";
+  else if(source.atmWithdrawal)label="ATM withdrawal";
+  else if(source.creditCardPayment)label="Credit card payment";
+  if(row.description?.toLowerCase().includes("commission"))label+=" · Commission";
+  return label;
+}
+function activityPresentation(tx:RowTx,row:Row,summary:{primary:string;secondary:string}){
+  const source=ledgerBusinessSource(tx);
+  const name=source.quickCashTransfer?.customerName
+    ??source.customer?.fullName
+    ??source.cashTransfer?.beneficiary?.beneficiaryName
+    ??source.cashTransfer?.customerBankAccount?.accountHolderName
+    ??source.cashTransfer?.customerUpiAccount?.accountName
+    ??source.expense?.expenseCategory.name
+    ??summary.primary;
+  const type=activityType(tx,row,source);
+  const hidden=new Set([name,type,tx.transactionNumber,source.transactionNumber].filter(Boolean).map((value)=>String(value).trim().toLowerCase()));
+  const details=summary.secondary.split(" · ").map((part)=>part.trim()).filter((part)=>part&&!hidden.has(part.toLowerCase())).join(" · ");
+  return {name,type,details,sourceTransactionNumber:source.transactionNumber!==tx.transactionNumber?source.transactionNumber:null};
+}
 function movementSummary(tx:RowTx,row:Row){
   const source=ledgerBusinessSource(tx);
   const summary=businessSummary(source,row);
@@ -396,16 +429,17 @@ export default function AccountLedgerPage(){
             const tx=row.journal.transaction;
             const ms=moneyStatus(ledgerMoneySource(tx));
             const summary=movementSummary(tx,row);
+            const presentation=activityPresentation(tx,row,summary);
             return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>openMovement(row,isIn)} className="w-full text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent">
               <div className="p-4 sm:hidden">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <p className="text-[11px] font-semibold text-[var(--text-muted)]">{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{nice(tx.transactionType)}</span>
+                    <p className="text-sm font-black leading-5 text-[var(--text)]">{presentation.name}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-xs font-bold text-[var(--text)]">{presentation.type}</span>
+                      <span className="text-[10px] font-semibold text-[var(--text-muted)]">{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
                     </div>
-                    <p className="mt-2 text-sm font-black leading-5">{summary.primary}</p>
-                    <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{summary.secondary}</p>
+                    {presentation.details?<p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{presentation.details}</p>:null}
                   </div>
                   <div className="flex shrink-0 items-start gap-2">
                     <MoneyFlowIcon direction={isIn?"IN":"OUT"}/>
@@ -420,9 +454,9 @@ export default function AccountLedgerPage(){
                   {ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}
                   {ms?.dueAt?<span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-semibold text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}
                 </div>
-                <div className="mt-3 flex items-center justify-between border-t border-[var(--border)] pt-2.5">
-                  <p className="break-all text-[11px] font-semibold text-[var(--text-muted)]">{tx.transactionNumber}</p>
-                  {tx.id?<span className="text-[11px] font-black text-[var(--accent)]">View details →</span>:null}
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-2.5">
+                  <p className="min-w-0 break-all text-[10px] font-medium text-[var(--text-muted)]">{presentation.sourceTransactionNumber?"Source "+presentation.sourceTransactionNumber+" · Entry ":"Ref "}{tx.transactionNumber}</p>
+                  {tx.id?<span className="shrink-0 text-[11px] font-black text-[var(--accent)]">View details →</span>:null}
                 </div>
               </div>
               <div className="hidden gap-2 px-5 py-3.5 sm:grid sm:grid-cols-[110px_minmax(0,1fr)_130px_130px] sm:items-center">
@@ -434,11 +468,14 @@ export default function AccountLedgerPage(){
                   </div>
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold">{tx.transactionNumber}</p>
-                  <p className="mt-0.5 truncate text-xs font-semibold text-[var(--text)]">{summary.primary}</p>
-                  <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{summary.secondary}</p>
+                  <p className="truncate text-sm font-black text-[var(--text)]">{presentation.name}</p>
+                  <p className="mt-0.5 truncate text-xs font-bold text-[var(--text)]">{presentation.type}</p>
+                  {presentation.details?<p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{presentation.details}</p>:null}
                   <div className="mt-1.5 flex flex-wrap gap-1"><StatusBadge tone={tx.status==="COMPLETED"?"emerald":tx.status==="REVERSED"?"rose":"amber"}>{nice(tx.status)}</StatusBadge>{ms?<StatusBadge tone={ms.tone}>{ms.label}</StatusBadge>:null}{ms?.dueAt?<span className="px-1 py-0.5 text-[10px] text-[var(--text-muted)]">Due {new Date(ms.dueAt).toLocaleDateString("en-IN")}</span>:null}</div>
-                  {tx.id?<p className="mt-1 text-[10px] font-bold text-[var(--accent)]">View details</p>:null}
+                  <div className="mt-1 flex items-center gap-2 text-[10px]">
+                    <span className="truncate font-medium text-[var(--text-muted)]">{presentation.sourceTransactionNumber?"Source "+presentation.sourceTransactionNumber+" · Entry ":"Ref "}{tx.transactionNumber}</span>
+                    {tx.id?<span className="shrink-0 font-bold text-[var(--accent)]">View details</span>:null}
+                  </div>
                 </div>
                 <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div>
                 <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
