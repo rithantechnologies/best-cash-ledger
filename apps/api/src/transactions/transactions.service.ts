@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateAepsDto } from './dto/create-aeps.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
+import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
 import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
 import { CompleteExpenseDto, CreateExpenseDto } from './dto/create-expense.dto.js';
@@ -2081,9 +2082,12 @@ export class TransactionsService {
           'Selected provider does not support Aadhaar withdrawals',
         );
       }
-      const effectivePlatformChargeRate = gateway
-        ? Number(gateway.defaultChargeRate)
-        : Number(provider.aepsProviderChargeRate ?? 0);
+      const effectivePlatformChargeRate =
+        dto.platformChargeRate !== undefined
+          ? Number(dto.platformChargeRate)
+          : gateway
+            ? Number(gateway.defaultChargeRate)
+            : Number(provider.aepsProviderChargeRate ?? 0);
       const calculatedPlatformCharge = this.money(
         withdrawalAmount * effectivePlatformChargeRate / 100,
       );
@@ -3290,11 +3294,29 @@ export class TransactionsService {
       },
     });
     if (!transaction) throw new NotFoundException('Transaction not found');
-    const creator = await this.prisma.user.findUnique({
-      where: { id: transaction.createdById },
-      select: { id: true, fullName: true },
-    });
-    return { ...transaction, createdBy: creator };
+    const [creator, correctionSource, correctedTransaction] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: transaction.createdById },
+        select: { id: true, fullName: true },
+      }),
+      transaction.correctionSourceTransactionId
+        ? this.prisma.transaction.findUnique({
+            where: { id: transaction.correctionSourceTransactionId },
+            select: { id: true, transactionNumber: true, status: true },
+          })
+        : Promise.resolve(null),
+      this.prisma.transaction.findFirst({
+        where: { correctionSourceTransactionId: transaction.id },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, transactionNumber: true, status: true },
+      }),
+    ]);
+    return {
+      ...transaction,
+      createdBy: creator,
+      correctionSource,
+      correctedTransaction,
+    };
   }
 
   async updateDateTime(id: string, dto: UpdateTransactionDateTimeDto, userId: string) {
@@ -3480,6 +3502,685 @@ export class TransactionsService {
       });
       return updated;
     });
+  }
+
+  async correctAmount(
+    id: string,
+    dto: CorrectTransactionAmountDto,
+    userId: string,
+    actorRole: RoleName,
+  ) {
+    const correctedAmount = this.money(dto.correctedAmount);
+    const reason = dto.reason.trim();
+    if (correctedAmount <= 0) {
+      throw new BadRequestException('Corrected amount must be greater than zero');
+    }
+
+    const original = await this.prisma.transaction.findUnique({
+      where: { id },
+      include: {
+        charges: true,
+        commissions: true,
+        journal: { include: { entries: { include: { ledgerAccount: true } } } },
+        cardSwipe: true,
+        cashTransfer: true,
+        quickCashTransfer: { include: { sourceAllocations: true } },
+        aeps: true,
+        microAtm: true,
+        internalTransfer: true,
+        expense: true,
+        atmWithdrawal: true,
+        creditCardPayment: true,
+        payable: { include: { payments: true } },
+        receivableSource: { include: { collections: true } },
+        providerSettlementSource: { include: { receipts: true } },
+      },
+    });
+    if (!original) throw new NotFoundException('Transaction not found');
+    if (
+      original.status === TransactionStatus.REVERSED ||
+      original.transactionType === TransactionType.REVERSAL
+    ) {
+      throw new BadRequestException('Reversed transactions cannot be corrected');
+    }
+
+    const managedElsewhere = new Set<TransactionType>([
+      TransactionType.CUSTOMER_PAYOUT,
+      TransactionType.CUSTOMER_RECEIVABLE,
+      TransactionType.CUSTOMER_RECEIPT,
+      TransactionType.PROVIDER_SETTLEMENT,
+      TransactionType.CARD_DUE_CLEARING,
+      TransactionType.CARD_DUE_RECOVERY,
+      TransactionType.CARD_DUE_COMMISSION_COLLECTION,
+      TransactionType.CASH_ADJUSTMENT,
+    ]);
+    if (managedElsewhere.has(original.transactionType)) {
+      throw new BadRequestException(
+        'This linked/system transaction must be corrected from its source workflow rather than changing the posted amount here',
+      );
+    }
+
+    const baseAmount =
+      original.cardSwipe ? Number(original.cardSwipe.swipeAmount) :
+      original.cashTransfer ? Number(original.cashTransfer.requestedAmount) :
+      original.quickCashTransfer ? Number(original.quickCashTransfer.amount) :
+      original.aeps ? Number(original.aeps.withdrawalAmount) :
+      original.microAtm ? Number(original.microAtm.withdrawalAmount) :
+      original.internalTransfer ? Number(original.internalTransfer.transferAmount) :
+      original.expense ? Number(original.expense.amount) :
+      original.atmWithdrawal ? Number(original.atmWithdrawal.cashReceived) :
+      original.creditCardPayment ? Number(original.creditCardPayment.paymentAmount) :
+      Number(original.grossAmount);
+
+    if (Math.abs(baseAmount - correctedAmount) < 0.001) {
+      throw new BadRequestException('Corrected amount is the same as the current amount');
+    }
+
+    // A failed attempt or an unpaid pending expense has no posted financial movement.
+    // In that narrow case it is safer and clearer to edit the amount in-place while
+    // recording a permanent audit entry.
+    if (!original.journal) {
+      return this.prisma.$transaction(async (tx) => {
+        if (original.expense && original.status === TransactionStatus.PENDING) {
+          await tx.expenseDetail.update({
+            where: { transactionId: original.id },
+            data: { amount: new Prisma.Decimal(correctedAmount) },
+          });
+          const updated = await tx.transaction.update({
+            where: { id: original.id },
+            data: {
+              grossAmount: new Prisma.Decimal(correctedAmount),
+              netAmount: new Prisma.Decimal(correctedAmount),
+              correctionReason: reason,
+              updatedById: userId,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              userId,
+              entityType: 'TRANSACTION',
+              entityId: original.id,
+              action: 'CORRECT_AMOUNT',
+              oldValues: { amount: baseAmount, status: original.status },
+              newValues: { amount: correctedAmount, status: original.status },
+              reason,
+            },
+          });
+          return {
+            originalId: original.id,
+            correctedTransactionId: updated.id,
+            correctedTransactionNumber: updated.transactionNumber,
+            inPlace: true,
+          };
+        }
+
+        if (original.aeps && original.status === TransactionStatus.FAILED) {
+          await tx.aepsDetail.update({
+            where: { transactionId: original.id },
+            data: { withdrawalAmount: new Prisma.Decimal(correctedAmount) },
+          });
+          const updated = await tx.transaction.update({
+            where: { id: original.id },
+            data: {
+              grossAmount: new Prisma.Decimal(correctedAmount),
+              correctionReason: reason,
+              updatedById: userId,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              userId,
+              entityType: 'TRANSACTION',
+              entityId: original.id,
+              action: 'CORRECT_AMOUNT',
+              oldValues: { amount: baseAmount, status: original.status },
+              newValues: { amount: correctedAmount, status: original.status },
+              reason,
+            },
+          });
+          return {
+            originalId: original.id,
+            correctedTransactionId: updated.id,
+            correctedTransactionNumber: updated.transactionNumber,
+            inPlace: true,
+          };
+        }
+
+        if (original.quickCashTransfer && original.status === TransactionStatus.FAILED) {
+          await tx.quickCashTransferDetail.update({
+            where: { transactionId: original.id },
+            data: { amount: new Prisma.Decimal(correctedAmount) },
+          });
+          const updated = await tx.transaction.update({
+            where: { id: original.id },
+            data: {
+              grossAmount: new Prisma.Decimal(correctedAmount),
+              netAmount: new Prisma.Decimal(correctedAmount),
+              correctionReason: reason,
+              updatedById: userId,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              userId,
+              entityType: 'TRANSACTION',
+              entityId: original.id,
+              action: 'CORRECT_AMOUNT',
+              oldValues: { amount: baseAmount, status: original.status },
+              newValues: { amount: correctedAmount, status: original.status },
+              reason,
+            },
+          });
+          return {
+            originalId: original.id,
+            correctedTransactionId: updated.id,
+            correctedTransactionNumber: updated.transactionNumber,
+            inPlace: true,
+          };
+        }
+
+        throw new BadRequestException(
+          'This transaction has no posted journal and cannot be amount-corrected from this screen',
+        );
+      });
+    }
+
+    if (original.payable && Number(original.payable.paidAmount) > 0) {
+      throw new BadRequestException(
+        'Reverse the linked customer payout first, then correct this transaction',
+      );
+    }
+    if (
+      original.receivableSource &&
+      Number(original.receivableSource.receivedAmount) > 0
+    ) {
+      throw new BadRequestException(
+        'Reverse the linked customer receipt first, then correct this transaction',
+      );
+    }
+    if (
+      original.providerSettlementSource &&
+      Number(original.providerSettlementSource.receivedAmount) > 0
+    ) {
+      throw new BadRequestException(
+        'Reverse the linked provider settlement receipt first, then correct this transaction',
+      );
+    }
+
+    const scaleAllocations = (
+      rows: Array<{ accountId: string; amount: number; referenceNumber?: string | null }>,
+      target: number,
+    ) => {
+      if (!rows.length) return [];
+      if (rows.length === 1) {
+        return [{ ...rows[0], amount: this.money(target) }];
+      }
+      const total = rows.reduce((sum, row) => sum + row.amount, 0);
+      if (total <= 0) {
+        return rows.map((row, index) => ({
+          ...row,
+          amount: index === rows.length - 1 ? this.money(target) : 0,
+        }));
+      }
+      let used = 0;
+      return rows.map((row, index) => {
+        const amount =
+          index === rows.length - 1
+            ? this.money(target - used)
+            : this.money(target * row.amount / total);
+        used = this.money(used + amount);
+        return { ...row, amount };
+      });
+    };
+
+    let recreate: (() => Promise<any>) | null = null;
+    let quickCompletion:
+      | {
+          oldTransactionId: string;
+          transactionAt: Date;
+          sourceAccountId: string | null;
+          commissionAccountId: string | null;
+          beneficiaryMode: string | null;
+          beneficiaryDetails: string | null;
+          sourceAllocations: Array<{
+            accountId: string;
+            amount: number;
+            referenceNumber?: string | null;
+          }>;
+          referenceNumber: string | null;
+          notes: string | null;
+        }
+      | null = null;
+
+    if (original.transactionType === TransactionType.CARD_SWIPE && original.cardSwipe) {
+      const d = original.cardSwipe;
+      recreate = () =>
+        this.createCardSwipe(
+          {
+            customerId: original.customerId ?? undefined,
+            customerCardId: d.customerCardId,
+            swipeAmount: correctedAmount,
+            providerId: d.providerId,
+            gatewayId: d.gatewayId,
+            providerChargeRate: Number(d.providerChargeRate),
+            commissionRate: Number(d.commissionRate),
+            paymentTermId: d.paymentTermId,
+            dueAt: d.dueAt.toISOString(),
+            settledNow: false,
+            settlementDueAt:
+              original.providerSettlementSource?.dueAt?.toISOString(),
+            referenceNumber: original.referenceNumber ?? undefined,
+            notes: original.notes ?? undefined,
+          },
+          userId,
+          actorRole,
+          'CORRECTION:' + original.id + ':' + correctedAmount,
+        );
+    } else if (
+      original.transactionType === TransactionType.CASH_TRANSFER &&
+      original.cashTransfer
+    ) {
+      const d = original.cashTransfer;
+      const commissionRow = original.commissions.find(
+        (item) => item.commissionType === 'CASH_TRANSFER',
+      );
+      const fixedCommission = commissionRow?.calculationType === 'FIXED';
+      const nextCommission = fixedCommission
+        ? Number(d.commissionAmount)
+        : this.money(correctedAmount * Number(d.commissionRate) / 100);
+      const nextCashReceived =
+        d.commissionMethod === 'ADD_ON'
+          ? this.money(correctedAmount + nextCommission)
+          : correctedAmount;
+      const receiptRows = original.journal.entries
+        .filter(
+          (entry) =>
+            entry.entryType === EntryType.DEBIT &&
+            entry.description?.startsWith('Customer payment received') &&
+            entry.ledgerAccount.financialAccountId,
+        )
+        .map((entry) => ({
+          accountId: entry.ledgerAccount.financialAccountId!,
+          amount: Number(entry.amount),
+        }));
+      const allocations = scaleAllocations(
+        receiptRows.length
+          ? receiptRows
+          : [{ accountId: d.cashAccountId, amount: Number(d.cashReceived) }],
+        nextCashReceived,
+      );
+      recreate = () =>
+        this.createCashTransfer(
+          {
+            customerId: original.customerId!,
+            beneficiaryId: d.beneficiaryId ?? undefined,
+            beneficiaryAccountId: d.beneficiaryAccountId ?? undefined,
+            customerBankAccountId: d.customerBankAccountId ?? undefined,
+            customerUpiAccountId: d.customerUpiAccountId ?? undefined,
+            requestedAmount: correctedAmount,
+            commissionMethod: d.commissionMethod,
+            commissionRate: Number(d.commissionRate),
+            ...(fixedCommission
+              ? { commissionAmount: Number(d.commissionAmount) }
+              : {}),
+            transferChargeAmount: Number(d.transferChargeAmount),
+            transferChargeType: d.transferChargeType ?? undefined,
+            receiptAllocations: allocations,
+            sourceAccountId: d.sourceAccountId,
+            referenceNumber: original.referenceNumber ?? undefined,
+            notes: original.notes ?? undefined,
+          },
+          userId,
+          'CORRECTION:' + original.id + ':' + correctedAmount,
+        );
+    } else if (
+      (original.transactionType === TransactionType.CASH_TRANSFER ||
+        original.transactionType === TransactionType.SERVICE_INCOME) &&
+      original.quickCashTransfer
+    ) {
+      const d = original.quickCashTransfer;
+      if (d.completionTransactionId) {
+        const completion = await this.prisma.transaction.findUnique({
+          where: { id: d.completionTransactionId },
+          select: {
+            id: true,
+            transactionAt: true,
+            referenceNumber: true,
+            notes: true,
+          },
+        });
+        if (!completion) {
+          throw new BadRequestException('Linked quick-cash completion transaction is missing');
+        }
+        quickCompletion = {
+          oldTransactionId: completion.id,
+          transactionAt: completion.transactionAt,
+          sourceAccountId: d.sourceAccountId,
+          commissionAccountId: d.commissionAccountId,
+          beneficiaryMode: d.beneficiaryMode,
+          beneficiaryDetails: d.beneficiaryDetails,
+          sourceAllocations: d.sourceAllocations.map((row) => ({
+            accountId: row.sourceAccountId,
+            amount: Number(row.amount),
+            referenceNumber: row.referenceNumber,
+          })),
+          referenceNumber: completion.referenceNumber,
+          notes: completion.notes,
+        };
+      }
+      const commissionAmount = Number(d.commissionAmount);
+      const commissionCashAmount =
+        d.commissionCashAmount !== null
+          ? Number(d.commissionCashAmount)
+          : d.commissionMode === 'CASH'
+            ? commissionAmount
+            : 0;
+      const previousChange = Number(d.customerChangeAmount ?? 0);
+      const correctedCashReceived =
+        d.direction === 'IN' && d.purpose === 'TRANSFER'
+          ? this.money(correctedAmount + commissionCashAmount + previousChange)
+          : undefined;
+      recreate = () =>
+        this.createQuickCash(
+          {
+            direction: d.direction as 'IN' | 'OUT',
+            cashAccountId: d.cashAccountId,
+            amount: correctedAmount,
+            cashReceivedAmount: correctedCashReceived,
+            commissionAmount,
+            commissionCashAmount,
+            purpose: d.purpose as 'TRANSFER' | 'SERVICE',
+            serviceName: d.serviceName ?? undefined,
+            cashOutType: d.cashOutType as 'UPI_QR' | 'AEPS' | 'MICRO_ATM',
+            successful: true,
+            customerId: original.customerId ?? undefined,
+            aadhaarLastFour: d.aadhaarLastFour ?? undefined,
+            customerBankName: d.customerBankName ?? undefined,
+            cardLastFour: d.cardLastFour ?? undefined,
+            customerName: d.customerName ?? undefined,
+            mobileNumber: d.mobileNumber ?? undefined,
+            remarks: original.notes ?? undefined,
+            transactionAt: original.transactionAt.toISOString(),
+            commissionMode: d.commissionMode as 'CASH' | 'UPI' | 'SPLIT',
+            beneficiaryMode: d.beneficiaryMode as 'UPI' | 'BANK' | undefined,
+            beneficiaryDetails: d.beneficiaryDetails ?? undefined,
+            servicePaymentMode: d.servicePaymentMode as 'CASH' | 'UPI',
+            servicePaymentAccountId: d.servicePaymentAccountId ?? undefined,
+          },
+          userId,
+          actorRole,
+          'CORRECTION:' + original.id + ':' + correctedAmount,
+        );
+    } else if (
+      original.transactionType === TransactionType.AEPS_WITHDRAWAL &&
+      original.aeps
+    ) {
+      const d = original.aeps;
+      recreate = () =>
+        this.createAeps(
+          {
+            customerId: original.customerId ?? undefined,
+            aadhaarLastFour: d.aadhaarLastFour,
+            customerBankName: d.customerBankName,
+            withdrawalAmount: correctedAmount,
+            platformId: d.platformId ?? undefined,
+            providerId: d.providerId ?? undefined,
+            gatewayId: d.gatewayId ?? undefined,
+            platformChargeRate:
+              d.platformChargeRate === null ? undefined : Number(d.platformChargeRate),
+            commissionRate: Number(d.commissionRate ?? 0),
+            commissionMethod: d.commissionMethod,
+            successful: true,
+            cashPayoutNow: Boolean(d.cashAccountId),
+            cashPayoutDueAt: original.payable?.dueAt.toISOString(),
+            cashAccountId: d.cashAccountId ?? undefined,
+            settlementAccountId: d.settlementAccountId,
+            settledNow: false,
+            settlementDueAt:
+              original.providerSettlementSource?.dueAt?.toISOString(),
+            providerReference: d.providerReference ?? undefined,
+            transactionAt: original.transactionAt.toISOString(),
+            notes: original.notes ?? undefined,
+          },
+          userId,
+          'CORRECTION:' + original.id + ':' + correctedAmount,
+        );
+    } else if (
+      original.transactionType === TransactionType.MICRO_ATM &&
+      original.microAtm
+    ) {
+      const d = original.microAtm;
+      recreate = () =>
+        this.createMicroAtm(
+          {
+            customerId: original.customerId!,
+            cardLastFour: d.cardLastFour,
+            customerBankName: d.customerBankName ?? undefined,
+            withdrawalAmount: correctedAmount,
+            providerId: d.providerId,
+            gatewayId: d.gatewayId ?? undefined,
+            providerCommissionRate: Number(d.providerCommissionRate),
+            cashAccountId: d.cashAccountId,
+            settlementAccountId: d.settlementAccountId,
+            settledNow: false,
+            settlementDueAt:
+              original.providerSettlementSource?.dueAt?.toISOString(),
+            providerReference: d.providerReference ?? undefined,
+            transactionAt: original.transactionAt.toISOString(),
+            notes: original.notes ?? undefined,
+          },
+          userId,
+          'CORRECTION:' + original.id + ':' + correctedAmount,
+        );
+    } else if (
+      original.transactionType === TransactionType.INTERNAL_TRANSFER &&
+      original.internalTransfer
+    ) {
+      const d = original.internalTransfer;
+      recreate = () =>
+        this.createInternalTransfer(
+          {
+            sourceAccountId: d.sourceAccountId,
+            destinationAccountId: d.destinationAccountId,
+            transferAmount: correctedAmount,
+            chargeAmount: Number(d.chargeAmount),
+            referenceNumber: original.referenceNumber ?? undefined,
+            notes: original.notes ?? undefined,
+          },
+          userId,
+          'CORRECTION:' + original.id + ':' + correctedAmount,
+        );
+    } else if (
+      original.transactionType === TransactionType.BUSINESS_EXPENSE &&
+      original.expense
+    ) {
+      const d = original.expense;
+      recreate = () =>
+        this.createExpense(
+          {
+            expenseType: d.expenseType,
+            expenseCategoryId: d.expenseCategoryId,
+            amount: correctedAmount,
+            paymentAccountId: d.paymentAccountId ?? undefined,
+            description: d.description ?? undefined,
+            referenceNumber: original.referenceNumber ?? undefined,
+            notes: original.notes ?? undefined,
+          },
+          userId,
+          'CORRECTION:' + original.id + ':' + correctedAmount,
+        );
+    } else if (
+      original.transactionType === TransactionType.ATM_WITHDRAWAL &&
+      original.atmWithdrawal
+    ) {
+      const d = original.atmWithdrawal;
+      recreate = () =>
+        this.createAtmWithdrawal(
+          {
+            bankAccountId: d.bankAccountId,
+            cashAccountId: d.cashAccountId,
+            cashReceived: correctedAmount,
+            atmCharge: Number(d.atmCharge),
+            referenceNumber: original.referenceNumber ?? undefined,
+            notes: original.notes ?? undefined,
+          },
+          userId,
+          'CORRECTION:' + original.id + ':' + correctedAmount,
+        );
+    } else if (
+      original.transactionType === TransactionType.OWNER_CC_PAYMENT &&
+      original.creditCardPayment
+    ) {
+      const d = original.creditCardPayment;
+      recreate = () =>
+        this.createCreditCardPayment(
+          {
+            creditCardAccountId: d.creditCardAccountId,
+            sourceAccountId: d.sourceAccountId,
+            paymentAmount: correctedAmount,
+            referenceNumber: original.referenceNumber ?? undefined,
+            notes: original.notes ?? undefined,
+          },
+          userId,
+          'CORRECTION:' + original.id + ':' + correctedAmount,
+        );
+    }
+
+    if (!recreate) {
+      throw new BadRequestException(
+        'Amount correction is not available for this transaction type',
+      );
+    }
+
+    const reversalReason =
+      'Amount correction: ' + baseAmount.toFixed(2) + ' → ' +
+      correctedAmount.toFixed(2) + ' · ' + reason;
+
+    if (quickCompletion) {
+      await this.reverse(
+        quickCompletion.oldTransactionId,
+        { reason: reversalReason + ' · linked quick-cash completion' },
+        userId,
+      );
+    }
+    await this.reverse(original.id, { reason: reversalReason }, userId);
+
+    let createdResult: any;
+    try {
+      createdResult = await recreate();
+    } catch (error) {
+      throw new BadRequestException(
+        'The original was safely reversed, but the replacement could not be created. Create the corrected transaction manually and reference ' +
+          original.transactionNumber +
+          '. ' +
+          (error instanceof Error ? error.message : ''),
+      );
+    }
+
+    const createdTransaction =
+      createdResult?.transaction ?? createdResult;
+    if (!createdTransaction?.id) {
+      throw new BadRequestException('Corrected transaction was created but could not be identified');
+    }
+
+    let correctedCompletionId: string | null = null;
+    if (quickCompletion && original.quickCashTransfer) {
+      const newDetail = await this.prisma.quickCashTransferDetail.findUnique({
+        where: { transactionId: createdTransaction.id },
+      });
+      if (!newDetail) {
+        throw new BadRequestException('Corrected quick-cash detail was not created');
+      }
+      const scaledSources = scaleAllocations(
+        quickCompletion.sourceAllocations,
+        correctedAmount,
+      );
+      const completionResult = await this.completeQuickCash(
+        newDetail.id,
+        {
+          sourceAccountId:
+            scaledSources.length ? undefined : quickCompletion.sourceAccountId ?? undefined,
+          sourceAllocations: scaledSources.length
+            ? scaledSources.map((row) => ({
+                sourceAccountId: row.accountId,
+                amount: row.amount,
+                referenceNumber: row.referenceNumber ?? undefined,
+              }))
+            : undefined,
+          commissionAccountId:
+            quickCompletion.commissionAccountId ?? undefined,
+          customerName: original.quickCashTransfer.customerName ?? undefined,
+          mobileNumber: original.quickCashTransfer.mobileNumber ?? undefined,
+          referenceNumber: quickCompletion.referenceNumber ?? undefined,
+          notes: quickCompletion.notes ?? undefined,
+          beneficiaryMode:
+            quickCompletion.beneficiaryMode as 'UPI' | 'BANK' | undefined,
+          beneficiaryDetails:
+            quickCompletion.beneficiaryDetails ?? undefined,
+        },
+        userId,
+        actorRole,
+      );
+      correctedCompletionId = completionResult.completionTransactionId;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.transaction.update({
+        where: { id: createdTransaction.id },
+        data: {
+          correctionSourceTransactionId: original.id,
+          correctionReason: reason,
+          transactionAt: original.transactionAt,
+          updatedById: userId,
+        },
+      });
+      await tx.ledgerJournal.updateMany({
+        where: { transactionId: createdTransaction.id },
+        data: { postingDate: original.transactionAt },
+      });
+      if (quickCompletion && correctedCompletionId) {
+        await tx.transaction.update({
+          where: { id: correctedCompletionId },
+          data: { transactionAt: quickCompletion.transactionAt },
+        });
+        await tx.ledgerJournal.updateMany({
+          where: { transactionId: correctedCompletionId },
+          data: { postingDate: quickCompletion.transactionAt },
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entityType: 'TRANSACTION',
+          entityId: createdTransaction.id,
+          action: 'CORRECT_AMOUNT',
+          oldValues: {
+            sourceTransactionId: original.id,
+            sourceTransactionNumber: original.transactionNumber,
+            amount: baseAmount,
+          },
+          newValues: {
+            correctedTransactionId: createdTransaction.id,
+            amount: correctedAmount,
+          },
+          reason,
+        },
+      });
+    });
+
+    const corrected = await this.prisma.transaction.findUnique({
+      where: { id: createdTransaction.id },
+      select: { id: true, transactionNumber: true, transactionType: true },
+    });
+
+    return {
+      originalId: original.id,
+      reversalCreated: true,
+      correctedTransactionId: corrected!.id,
+      correctedTransactionNumber: corrected!.transactionNumber,
+      transactionType: corrected!.transactionType,
+      inPlace: false,
+    };
   }
 
   async deleteTransaction(id: string, dto: ReverseTransactionDto, userId: string) {

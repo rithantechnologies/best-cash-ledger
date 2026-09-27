@@ -444,6 +444,8 @@ model Transaction {
   idempotencyKey              String?                      @unique
   reversedTransactionId       String?
   reversalReason              String?
+  correctionSourceTransactionId String?
+  correctionReason            String?
   createdById                 String
   updatedById                 String?
   createdAt                   DateTime                     @default(now())
@@ -475,6 +477,7 @@ model Transaction {
   @@index([transactionType, transactionAt])
   @@index([customerId, transactionAt])
   @@index([status])
+  @@index([correctionSourceTransactionId])
 }
 
 model TransactionCharge {
