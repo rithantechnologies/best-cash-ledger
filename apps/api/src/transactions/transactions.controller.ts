@@ -216,7 +216,7 @@ export class TransactionsController {
   @Post(':id/delete')
   @Roles(RoleName.OWNER)
   deleteTransaction(@Param('id') id: string, @Body() dto: ReverseTransactionDto, @Req() req: any) {
-    return this.transactions.reverse(id, dto, req.user.userId);
+    return this.transactions.deleteTransaction(id, dto, req.user.userId);
   }
 
   @Post(':id/reverse')

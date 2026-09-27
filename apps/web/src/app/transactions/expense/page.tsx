@@ -8,13 +8,14 @@ import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
 
 type Account={id:string;accountName:string;accountType:string;bankName?:string|null;accountReference?:string|null;lastFourDigits?:string|null;currentBalance?:string|number;isActive?:boolean};
-type Category={id:string;name:string;isActive?:boolean;_count?:{expenses:number}};
+type Category={id:string;name:string;expenseUsage?:string;isActive?:boolean;_count?:{expenses:number}};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(v);
 
 export default function ExpensePage(){
  const router=useRouter();
  const [accounts,setAccounts]=useState<Account[]>([]),[categories,setCategories]=useState<Category[]>([]);
  const [categoryId,setCategoryId]=useState(""),[amount,setAmount]=useState(""),[accountId,setAccountId]=useState(""),[notes,setNotes]=useState("");
+ const [showNewCategory,setShowNewCategory]=useState(false),[newCategoryName,setNewCategoryName]=useState(""),[creatingCategory,setCreatingCategory]=useState(false);
  const [error,setError]=useState(""),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
 
  useEffect(()=>{Promise.all([apiFetch<Account[]>("/dashboard/accounts"),apiFetch<Category[]>("/settings/expense-categories")])
@@ -22,7 +23,15 @@ export default function ExpensePage(){
 
  const popular=useMemo(()=>categories.slice().sort((a,b)=>Number(b._count?.expenses||0)-Number(a._count?.expenses||0)||a.name.localeCompare(b.name)),[categories]);
  const value=Number(amount||0),category=categories.find(c=>c.id===categoryId),account=accounts.find(a=>a.id===accountId);
- const eligibleAccounts=accounts.filter(a=>a.isActive!==false&&["CASH","BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(a.accountType)); async function submit(e:FormEvent){
+ const eligibleAccounts=accounts.filter(a=>a.isActive!==false&&["CASH","BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(a.accountType));
+ async function addCategory(){
+  const name=newCategoryName.trim();if(name.length<2)return;setCreatingCategory(true);setError("");
+  try{
+   const created=await apiFetch<Category>("/settings/expense-categories",{method:"POST",body:JSON.stringify({name,expenseUsage:"BUSINESS"})});
+   setCategories(current=>[...current,created]);setCategoryId(created.id);setNewCategoryName("");setShowNewCategory(false);
+  }catch(err){setError(err instanceof Error?err.message:"Could not add category");}finally{setCreatingCategory(false);}
+ }
+ async function submit(e:FormEvent){
   e.preventDefault();setSaving(true);setError("");
   try{
    await apiFetch("/transactions/expense",{method:"POST",body:JSON.stringify({
@@ -49,6 +58,11 @@ export default function ExpensePage(){
      <SearchableSelect mobileSheet className={control+" mt-2"} value={categoryId} onChange={e=>setCategoryId(e.target.value)} required>
       <option value="">Select category</option>{popular.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
      </SearchableSelect>
+     {!showNewCategory?<button type="button" onClick={()=>{setShowNewCategory(true);setError("");}} className="mt-2 text-xs font-black text-[var(--accent)]">+ Add new category</button>:<div className="mt-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
+      <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">New expense category</p>
+      <div className="flex flex-col gap-2 sm:flex-row"><input autoFocus className={control+" flex-1"} value={newCategoryName} onChange={e=>setNewCategoryName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();void addCategory();}}} placeholder="Example: Office supplies" maxLength={80}/><button type="button" onClick={()=>void addCategory()} disabled={creatingCategory||newCategoryName.trim().length<2} className="app-primary-button min-h-11 px-4 text-xs font-bold disabled:opacity-40">{creatingCategory?"Adding…":"Add category"}</button><button type="button" onClick={()=>{setShowNewCategory(false);setNewCategoryName("");}} className="min-h-11 rounded-xl border border-[var(--border)] px-3 text-xs font-bold">Cancel</button></div>
+      <p className="mt-2 text-[10px] text-[var(--text-muted)]">The new category will be selected automatically for this expense.</p>
+     </div>}
     </Field>
     <Field label="Amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>    <Field label="Paid from (optional)">
      <SearchableSelect mobileSheet className={control} value={accountId} onChange={e=>setAccountId(e.target.value)}>

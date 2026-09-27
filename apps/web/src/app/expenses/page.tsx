@@ -53,7 +53,7 @@ export default function ExpensesPage(){
    apiFetch<Tx[]>("/reports/transactions?type=BUSINESS_EXPENSE"),
    apiFetch<Tx[]>("/reports/transactions?type=PERSONAL_EXPENSE"),
    apiFetch<Category[]>("/settings/expense-categories?includeInactive=true"),
-  ]).then(([business,personal,cats])=>{setTransactions([...business,...personal].sort((a,b)=>new Date(b.transactionAt).getTime()-new Date(a.transactionAt).getTime()));setCategories(cats);})
+  ]).then(([business,personal,cats])=>{setTransactions([...business,...personal].filter(tx=>tx.status!=="REVERSED").sort((a,b)=>new Date(b.transactionAt).getTime()-new Date(a.transactionAt).getTime()));setCategories(cats);})
    .catch(e=>setError(e instanceof Error?e.message:"Failed to load expenses")).finally(()=>setLoading(false));
  },[]);
 

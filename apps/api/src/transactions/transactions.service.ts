@@ -3443,6 +3443,50 @@ export class TransactionsService {
     });
   }
 
+  async deleteTransaction(id: string, dto: ReverseTransactionDto, userId: string) {
+    const original = await this.prisma.transaction.findUnique({
+      where: { id },
+      include: { expense: true, journal: { select: { id: true } } },
+    });
+    if (!original) throw new NotFoundException('Transaction not found');
+
+    // Pending expenses saved without a payment source have no accounting journal yet.
+    // They can be voided directly because there is no financial movement to reverse.
+    if (
+      original.expense &&
+      original.status === TransactionStatus.PENDING &&
+      !original.journal
+    ) {
+      return this.prisma.$transaction(async (tx) => {
+        const updated = await tx.transaction.update({
+          where: { id },
+          data: {
+            status: TransactionStatus.REVERSED,
+            reversalReason: dto.reason,
+            updatedById: userId,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            userId,
+            entityType: 'TRANSACTION',
+            entityId: id,
+            action: 'DELETE',
+            oldValues: {
+              status: original.status,
+              transactionNumber: original.transactionNumber,
+            },
+            newValues: { status: TransactionStatus.REVERSED },
+            reason: dto.reason,
+          },
+        });
+        return { originalId: id, deleted: true, transaction: updated };
+      });
+    }
+
+    return this.reverse(id, dto, userId);
+  }
+
   async reverse(id: string, dto: ReverseTransactionDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRawUnsafe(
