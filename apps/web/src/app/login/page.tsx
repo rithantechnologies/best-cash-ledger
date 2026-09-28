@@ -145,6 +145,7 @@ export default function LoginPage() {
                       </svg>
                     </span>
                     <input
+                      name="username"
                       autoComplete="username"
                       autoCapitalize="none"
                       spellCheck={false}
@@ -181,6 +182,7 @@ export default function LoginPage() {
                       </svg>
                     </span>
                     <input
+                      name="password"
                       autoComplete="current-password"
                       type={showPassword ? "text" : "password"}
                       value={password}
