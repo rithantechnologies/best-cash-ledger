@@ -57,7 +57,7 @@ run('/usr/bin/tar',[
   '-czf',source,
   '--exclude=.git',
   '--exclude=node_modules',
-  '--exclude=.next',
+  '--exclude=.next*',
   '--exclude=dist',
   '--exclude=backups',
   '--exclude=logs',
