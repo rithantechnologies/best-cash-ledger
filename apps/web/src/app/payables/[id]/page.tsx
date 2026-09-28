@@ -23,20 +23,23 @@ type Payable={
  payments:Payment[];createdBy:{id:string;fullName:string}|null;
 };
 type Audit={id:string;action:string;reason:string|null;createdAt:string;oldValues:unknown;newValues:unknown;user:{fullName:string}|null};
-type Account={id:string;accountName:string;accountType:string;currentBalance:number};
+type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null};
+type PayoutChargeRule={minAmount:string;maxAmount:string|null;calculationType:"PERCENTAGE"|"FIXED";value:string};
+type Provider={id:string;payoutChargeRules:PayoutChargeRule[]};
 const money=(v:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(v||0));
 const statusTone=(s:string)=>s==="PAID"?"emerald":s==="OVERDUE"?"rose":s==="PARTIALLY_PAID"?"indigo":s==="PENDING"?"amber":"slate";
 const serviceLabel=(v:string)=>({AEPS_WITHDRAWAL:"AEPS",CARD_SWIPE:"Card Swipe",MICRO_ATM:"Micro ATM",ATM_WITHDRAWAL:"ATM Withdrawal",CASH_TRANSFER:"Cash Transfer"} as Record<string,string>)[v]??v.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
+function configuredPayoutCharge(providers:Provider[],account:Account|undefined,amount:number){if(!account||account.accountType!=="PROVIDER_WALLET"||!account.providerId||amount<=0)return null;const rules=providers.find(p=>p.id===account.providerId)?.payoutChargeRules??[];if(!rules.length)return null;const rule=rules.find(r=>amount+0.001>=Number(r.minAmount)&&(r.maxAmount===null||amount<=Number(r.maxAmount)+0.001));if(!rule)return 0;const value=Number(rule.value||0);return Math.round((rule.calculationType==="PERCENTAGE"?amount*value/100:value)*100)/100;}
 
 export default function PayableDetailPage(){
  const {id}=useParams<{id:string}>();
  const searchParams=useSearchParams();
  const backHref=searchParams.get("from")==="dues"?"/dues":"/payables";
  const backLabel=searchParams.get("from")==="dues"?"Dues":"Payables";
- const [item,setItem]=useState<Payable|null>(null),[audit,setAudit]=useState<Audit[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[error,setError]=useState("");
+ const [item,setItem]=useState<Payable|null>(null),[audit,setAudit]=useState<Audit[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[providers,setProviders]=useState<Provider[]>([]),[error,setError]=useState("");
  const [payOpen,setPayOpen]=useState(false),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState(""),[busy,setBusy]=useState(false);
  const control="app-control";
- function load(){return apiFetch<Payable>("/payables/"+id).then(x=>{setItem(x);return Promise.all([apiFetch<Audit[]>("/audit?entityType=CUSTOMER_PAYABLE&entityId="+id).then(setAudit).catch(()=>{}),apiFetch<Account[]>("/dashboard/accounts").then(setAccounts)]);});}
+ function load(){return apiFetch<Payable>("/payables/"+id).then(x=>{setItem(x);return Promise.all([apiFetch<Audit[]>("/audit?entityType=CUSTOMER_PAYABLE&entityId="+id).then(setAudit).catch(()=>{}),apiFetch<Account[]>("/dashboard/accounts").then(setAccounts),apiFetch<Provider[]>("/providers").then(setProviders)]);});}
  useEffect(()=>{load().catch(e=>setError(e instanceof Error?e.message:"Failed to load payable"));},[id]);
  if(!item)return <AppShell><PageLoader label="Loading payable…"/></AppShell>;
 
@@ -53,7 +56,8 @@ export default function PayableDetailPage(){
  const payoutSourceAccounts=accounts.filter(a=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).filter(a=>destinationType==="CASH"?a.accountType==="CASH":destinationType?a.accountType!=="CASH":true);
  const walletSource=sourceAccount?.accountType==="PROVIDER_WALLET";
  const payoutAmount=Number(amount||0);
- const payoutCharge=walletSource?Number(charge||0):0;
+ const autoPayoutCharge=configuredPayoutCharge(providers,sourceAccount,payoutAmount);
+ const payoutCharge=walletSource?(autoPayoutCharge===null?Number(charge||0):autoPayoutCharge):0;
  const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
  const canPay=Number(item.remainingAmount)>0&&!["PAID","CANCELLED","REVERSED"].includes(item.status);
  async function submitPayment(e:FormEvent){e.preventDefault();if(!item||!canPay||!source)return;setBusy(true);setError("");try{await apiFetch("/payables/"+item.id+"/payments",{method:"POST",body:JSON.stringify({amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,destinationType,destinationId,referenceNumber:reference||undefined,notes:notes||undefined})});setPayOpen(false);setAmount("");setCharge("");setSource("");setDestination("");setReference("");setNotes("");await load();}catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}}
@@ -112,7 +116,7 @@ export default function PayableDetailPage(){
       {!item.customer.bankAccounts.length&&!item.customer.upiAccounts.length?<Link href={"/customers/"+item.customer.id} className="mt-2 inline-block text-xs font-bold text-[var(--accent)]">No saved bank/UPI · Add in customer profile →</Link>:null}
      </Field>
      <Field label="Customer payout"><input className={control} type="number" step="0.01" max={item.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
-     {walletSource?<Field label="Wallet payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
+     {walletSource?<Field label="Wallet payout charge" hint={autoPayoutCharge===null?"Deducted from business profit":"Auto from provider payout slab · deducted in addition to payout"}><input className={control} type="number" step="0.01" min="0" value={autoPayoutCharge===null?charge:String(autoPayoutCharge)} readOnly={autoPayoutCharge!==null} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
      <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):destinationType==="CASH"?"Choose the cash drawer handing over the cash":"Choose bank, UPI or wallet sending the payment"}>
       <SearchableSelect className={control} value={source} onChange={e=>{setSource(e.target.value);const a=accounts.find(x=>x.id===e.target.value);if(a?.accountType!=="PROVIDER_WALLET")setCharge("");}} disabled={!destinationType} required searchPlaceholder="Search source account…">
        <option value="">{destinationType?"Select source account":"Select Pay to first"}</option>

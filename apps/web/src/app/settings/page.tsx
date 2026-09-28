@@ -10,7 +10,7 @@ import { apiFetch } from "@/lib/api";
 
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string;defaultChargeType:string;isActive:boolean};
 type ProviderCommissionRule={id:string;minAmount:string;maxAmount:string|null;calculationType:"PERCENTAGE"|"FIXED";value:string};
-type Provider={id:string;name:string;providerType:string;supportsAeps:boolean;aepsCommissionRate:string;aepsProviderChargeRate:string;aepsProviderCommissionRules:ProviderCommissionRule[];isActive:boolean;gateways:Gateway[]};
+type Provider={id:string;name:string;providerType:string;supportsAeps:boolean;aepsCommissionRate:string;aepsProviderChargeRate:string;aepsProviderCommissionRules:ProviderCommissionRule[];payoutChargeRules:ProviderCommissionRule[];isActive:boolean;gateways:Gateway[]};
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionType:string;defaultCommissionRate:string;isActive:boolean};
 type Category={id:string;name:string;expenseUsage:string;isActive:boolean};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
@@ -46,6 +46,17 @@ function parseAepsProviderCommissionRules(value:string){
  });
 }
 
+function parsePayoutChargeRules(value:string){
+ const lines=value.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
+ return lines.map((line,index)=>{
+  const match=line.match(/^([0-9]+(?:\.[0-9]+)?)\s*(?:-\s*([0-9]+(?:\.[0-9]+)?)|\+)\s*=\s*₹?\s*([0-9]+(?:\.[0-9]+)?)\s*(%)?$/);
+  if(!match)throw new Error("Invalid payout charge slab on line "+(index+1)+". Use: 100-1000 = 5 or 25001+ = 15");
+  const minAmount=Number(match[1]),maxAmount=match[2]===undefined?undefined:Number(match[2]),ruleValue=Number(match[3]);
+  if(maxAmount!==undefined&&maxAmount<minAmount)throw new Error("Invalid payout slab range on line "+(index+1));
+  return {minAmount,maxAmount,calculationType:match[4]?"PERCENTAGE":"FIXED",value:ruleValue};
+ });
+}
+
 const input="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-[color-mix(in_srgb,var(--accent)_45%,var(--border))] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--accent)_10%,transparent)]";
 const primary="app-primary-button min-h-11 px-4 text-sm font-bold";
 const secondary="app-secondary-button min-h-10 px-3 text-xs font-bold";
@@ -58,7 +69,7 @@ export default function SettingsPage(){
  const [termName,setTermName]=useState(""),[durationValue,setDurationValue]=useState("0"),[durationUnit,setDurationUnit]=useState("DAYS"),[termRate,setTermRate]=useState("0");
  const [categoryName,setCategoryName]=useState("");
  const [ruleCustomer,setRuleCustomer]=useState(""),[ruleProvider,setRuleProvider]=useState(""),[ruleGateway,setRuleGateway]=useState(""),[ruleTerm,setRuleTerm]=useState(""),[ruleType,setRuleType]=useState("CARD_SWIPE"),[ruleCalc,setRuleCalc]=useState("PERCENTAGE"),[ruleRate,setRuleRate]=useState("");
- const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState(""),[e5,setE5]=useState(""),[e6,setE6]=useState("");
+ const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState(""),[e5,setE5]=useState(""),[e6,setE6]=useState(""),[e7,setE7]=useState("");
  const [serviceName,setServiceName]=useState(""),[serviceDefaultAmount,setServiceDefaultAmount]=useState("");
  const [serviceEdit,setServiceEdit]=useState<ServiceConfig|null>(null),[serviceEditName,setServiceEditName]=useState(""),[serviceEditAmount,setServiceEditAmount]=useState("");
  const [cardNetworkName,setCardNetworkName]=useState("");
@@ -138,7 +149,7 @@ export default function SettingsPage(){
 
  function beginEdit(next:Exclude<EditState,null>){
   setEdit(next);setError("");setMessage("");
-  if(next.kind==="provider"){setE1(next.item.name);setE2(next.item.providerType);setE3(next.item.supportsAeps?"true":"false");setE4(String(Number(next.item.aepsCommissionRate||0)));setE5(String(Number(next.item.aepsProviderChargeRate||0)));setE6(formatAepsProviderCommissionRules(next.item.aepsProviderCommissionRules||[]));}
+  if(next.kind==="provider"){setE1(next.item.name);setE2(next.item.providerType);setE3(next.item.supportsAeps?"true":"false");setE4(String(Number(next.item.aepsCommissionRate||0)));setE5(String(Number(next.item.aepsProviderChargeRate||0)));setE6(formatAepsProviderCommissionRules(next.item.aepsProviderCommissionRules||[]));setE7(formatAepsProviderCommissionRules(next.item.payoutChargeRules||[]));}
   if(next.kind==="gateway"){setE1(next.item.gatewayName);setE2(String(Number(next.item.defaultChargeRate)));setE3(next.item.defaultChargeType);setE4("");}
   if(next.kind==="term"){setE1(next.item.name);setE2(String(next.item.durationValue));setE3(next.item.durationUnit);setE4(String(Number(next.item.defaultCommissionRate)));}
   if(next.kind==="category"){setE1(next.item.name);setE2("MIXED");setE3("");setE4("");}
@@ -147,7 +158,7 @@ export default function SettingsPage(){
  async function saveEdit(e:FormEvent){
   e.preventDefault();if(!edit)return;
   try{
-   if(edit.kind==="provider")await run(async()=>{const slabs=parseAepsProviderCommissionRules(e6);await apiFetch("/providers/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),providerType:e2,supportsAeps:e3==="true",aepsCommissionRate:Number(e4||0),aepsProviderChargeRate:Number(e5||0)})});await apiFetch("/providers/"+edit.item.id+"/aeps-provider-commission-rules",{method:"PATCH",body:JSON.stringify({rules:slabs})});},()=>{},"Provider updated.");
+   if(edit.kind==="provider")await run(async()=>{const aepsSlabs=parseAepsProviderCommissionRules(e6);const payoutSlabs=parsePayoutChargeRules(e7);await apiFetch("/providers/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),providerType:e2,supportsAeps:e3==="true",aepsCommissionRate:Number(e4||0),aepsProviderChargeRate:Number(e5||0)})});await apiFetch("/providers/"+edit.item.id+"/aeps-provider-commission-rules",{method:"PATCH",body:JSON.stringify({rules:aepsSlabs})});await apiFetch("/providers/"+edit.item.id+"/payout-charge-rules",{method:"PATCH",body:JSON.stringify({rules:payoutSlabs})});},()=>{},"Provider updated.");
    if(edit.kind==="gateway")await run(()=>apiFetch("/providers/gateways/"+edit.item.id,{method:"PATCH",body:JSON.stringify({gatewayName:e1.trim(),defaultChargeRate:Number(e2),defaultChargeType:e3})}),()=>{},"Gateway updated.");
    if(edit.kind==="term")await run(()=>apiFetch("/settings/payment-terms/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),durationValue:Number(e2),durationUnit:e3,defaultCommissionType:edit.item.defaultCommissionType,defaultCommissionRate:Number(e4)})}),()=>{},"Payment term updated.");
    if(edit.kind==="category")await run(()=>apiFetch("/settings/expense-categories/"+edit.item.id,{method:"PATCH",body:JSON.stringify({name:e1.trim(),expenseUsage:"MIXED"})}),()=>{},"Expense category updated.");
@@ -293,6 +304,9 @@ export default function SettingsPage(){
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
           <label className="flex cursor-pointer items-center justify-between gap-3"><span><strong className="block text-sm">Aadhaar withdrawal</strong><span className="mt-0.5 block text-xs text-[var(--text-muted)]">Enable only when this provider supports Aadhaar-linked bank withdrawal.</span></span><input type="checkbox" checked={e3==="true"} onChange={e=>setE3(e.target.checked?"true":"false")} className="h-5 w-5 accent-[var(--accent)]"/></label>
           {e3==="true"?<div className="mt-3 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default customer commission %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={e4} onChange={e=>setE4(e.target.value)} /></label><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider fee %</span><input className={input} type="number" min="0" max="100" step="0.0001" value={e5} onChange={e=>setE5(e.target.value)} /><span className="mt-1 block text-[10px] text-[var(--text-muted)]">Optional cost deducted by the provider. Separate from provider commission.</span></label></div><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Provider commission slabs</span><textarea className={input+" min-h-40 py-3 font-mono text-xs"} value={e6} onChange={e=>setE6(e.target.value)} placeholder={`0-199 = 0\n200-499 = 1\n5001+ = 10`}/><span className="mt-1 block text-[10px] text-[var(--text-muted)]">One slab per line. Fixed: 4000-5000 = 14. Percentage: 0+ = 0.5%.</span></label></div>:null}
+        </div>
+        <div className="rounded-2xl border border-rose-200 bg-rose-50/40 p-4">
+          <label className="block"><span className="mb-1.5 block text-xs font-bold text-rose-800">Payout charge slabs</span><textarea className={input+" min-h-32 py-3 font-mono text-xs"} value={e7} onChange={e=>setE7(e.target.value)} placeholder={"100-1000 = 5\n1001-25000 = 7\n25001+ = 15"}/><span className="mt-1 block text-[10px] text-rose-700/80">Applied automatically when this provider wallet pays a customer or beneficiary. Principal and payout charge are posted separately.</span></label>
         </div>
       </>:null}
       {edit?.kind==="gateway"?<><input className={input} value={e1} onChange={e=>setE1(e.target.value)} placeholder="Gateway name" required/><input className={input} type="number" min="0" step="0.0001" value={e2} onChange={e=>setE2(e.target.value)} placeholder="Charge rate" required/><SearchableSelect className={input} value={e3} onChange={e=>setE3(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed</option></SearchableSelect></>:null}

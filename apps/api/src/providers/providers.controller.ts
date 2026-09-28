@@ -9,6 +9,7 @@ import { SetProviderActiveDto } from './dto/set-provider-active.dto.js';
 import { UpdateGatewayDto } from './dto/update-gateway.dto.js';
 import { UpdateProviderDto } from './dto/update-provider.dto.js';
 import { SetAepsProviderCommissionRulesDto } from './dto/set-aeps-provider-commission-rules.dto.js';
+import { SetProviderPayoutChargeRulesDto } from './dto/set-provider-payout-charge-rules.dto.js';
 import { ProvidersService } from './providers.service.js';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -47,6 +48,16 @@ export class ProvidersController {
     @Req() req: any,
   ) {
     return this.providers.setAepsProviderCommissionRules(id, dto, req.user.userId);
+  }
+
+  @Patch(':id/payout-charge-rules')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  setPayoutChargeRules(
+    @Param('id') id: string,
+    @Body() dto: SetProviderPayoutChargeRulesDto,
+    @Req() req: any,
+  ) {
+    return this.providers.setPayoutChargeRules(id, dto, req.user.userId);
   }
 
   @Patch(':id/active')

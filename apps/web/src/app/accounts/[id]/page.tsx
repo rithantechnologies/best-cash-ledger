@@ -38,7 +38,7 @@ type Row={
   journal:{postingDate:string;transaction:RowTx};
 };
 type Ledger={account:Account;openingBalance:number;openingBalanceIntroducedInRange:number;rows:Row[]};
-type Charge={amount:string;rate:string|null;chargeType:string};
+type Charge={amount:string;rate:string|null;chargeType:string;calculationType:string;notes:string|null;sourceAccount:TxAccount|null};
 type Commission={amount:string;rate:string;commissionType:string};
 type TxAccount={id:string;accountName:string};
 type SourceRef={id:string;transactionNumber:string};
@@ -247,6 +247,7 @@ function AccountMovementDetail({detail}:{detail:DrillDetail}){
   const summary=movementSummary(row.journal.transaction,row);
   const card=tx.cardSwipe;
   const gatewayFees=total(tx.charges);
+  const movementPayoutFees=total((movement.charges??[]).filter((charge)=>charge.chargeType==="PAYOUT"));
   const customerFees=total(tx.commissions);
   const payoutFees=tx.payable?.payments.filter((p)=>p.status==="COMPLETED").reduce((sum,p)=>sum+total(p.transaction.charges),0)??0;
   const profit=customerFees-gatewayFees-payoutFees;
@@ -279,7 +280,8 @@ function AccountMovementDetail({detail}:{detail:DrillDetail}){
         <span>Provider: <b className="text-[var(--text)]">{provider??"—"}</b></span><span>Gateway: <b className="text-[var(--text)]">{gateway??"—"}</b></span>{payoutFees>0?<span>Payout charges: <b className="money text-[var(--money-out)]">{money(payoutFees)}</b></span>:null}
       </div>
     </>:tx.transactionType==="SERVICE_INCOME"?<div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><DetailStat label="Service income" value={"+"+money(tx.grossAmount)} tone="text-[var(--money-in)]"/><DetailStat label="Service" value={tx.quickCashTransfer?.serviceName??"Service"}/><DetailStat label="Received in" value={tx.quickCashTransfer?.servicePaymentMode==="UPI"?(tx.quickCashTransfer.servicePaymentAccount?.accountName??"Bank / UPI"):(tx.quickCashTransfer?.cashAccount?.accountName??"Cash drawer")}/><DetailStat label="Charges" value={gatewayFees?"−"+money(gatewayFees):money(0)} tone={gatewayFees?"text-[var(--money-out)]":""}/></div>:<div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><DetailStat label="Processed" value={money(movement.grossAmount)}/><DetailStat label="Net value" value={money(movement.netAmount??movement.grossAmount)}/><DetailStat label="Charges" value={gatewayFees?"−"+money(gatewayFees):money(0)} tone={gatewayFees?"text-[var(--money-out)]":""}/><DetailStat label="Commission income" value={customerFees?"+"+money(customerFees):money(0)} tone={customerFees?"text-[var(--money-in)]":""}/></div>}
-    {movement.payablePayment?<div className="rounded-xl border border-[var(--border)] p-3 text-xs text-[var(--text-muted)]">Paid from <b className="text-[var(--text)]">{movement.payablePayment.sourceAccount.accountName}</b> · payout {money(movement.payablePayment.amount)}</div>:null}
+    {movementPayoutFees>0?<div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-xs text-rose-800"><div className="flex items-center justify-between gap-3"><span><b>Payout charge</b>{movement.charges.find(c=>c.chargeType==="PAYOUT")?.sourceAccount?.accountName?" · "+movement.charges.find(c=>c.chargeType==="PAYOUT")?.sourceAccount?.accountName:""}</span><strong className="money text-rose-700">−{money(movementPayoutFees)}</strong></div><p className="mt-1 text-[10px] text-rose-700/80">Deducted in addition to the payout principal.</p></div>:null}
+    {movement.payablePayment?<div className="rounded-xl border border-[var(--border)] p-3 text-xs text-[var(--text-muted)]">Paid from <b className="text-[var(--text)]">{movement.payablePayment.sourceAccount.accountName}</b> · payout {money(movement.payablePayment.amount)}{movementPayoutFees>0?" · payout charge "+money(movementPayoutFees):""}</div>:null}
     {(tx.notes||movement.notes)?<div className="rounded-xl border border-[var(--border)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Notes</p><p className="mt-1 text-sm text-[var(--text-muted)]">{tx.notes??movement.notes}</p></div>:null}
     <Link href={"/transactions/"+tx.id} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--accent)]">Open full transaction →</Link>
   </div>;

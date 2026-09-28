@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { AccountType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
+import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
 import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreatePayablePaymentDto } from './dto/create-payable-payment.dto.js';
@@ -14,6 +15,7 @@ export class PayablesService {
     private readonly ledger: LedgerService,
     private readonly validation: FinancialValidationService,
     private readonly idempotency: IdempotencyService,
+    private readonly payoutCharges: ProviderPayoutChargeService,
   ) {}
 
   private indiaDayRange(date = new Date()) {
@@ -198,7 +200,6 @@ export class PayablesService {
       }
 
       const remaining = Number(payable.remainingAmount);
-      const chargeAmount = Math.round(((dto.chargeAmount ?? 0) + Number.EPSILON) * 100) / 100;
       if (dto.amount > remaining + 0.001) {
         throw new BadRequestException('Payment exceeds remaining payable');
       }
@@ -258,7 +259,18 @@ export class PayablesService {
       if (dto.destinationType !== 'CASH' && sourceAccount.accountType === AccountType.CASH) {
         throw new BadRequestException('Bank or UPI payout cannot be paid directly from a cash account');
       }
-      if (sourceAccount.accountType !== AccountType.PROVIDER_WALLET && chargeAmount > 0) {
+      const configuredCharge = await this.payoutCharges.resolve(
+        tx,
+        sourceAccount,
+        dto.amount,
+      );
+      const chargeAmount = configuredCharge
+        ? configuredCharge.amount
+        : Math.round(((dto.chargeAmount ?? 0) + Number.EPSILON) * 100) / 100;
+      if (
+        sourceAccount.accountType !== AccountType.PROVIDER_WALLET &&
+        chargeAmount > 0
+      ) {
         throw new BadRequestException('Payout charge is allowed only for wallet payouts');
       }
       if (sourceAccount.accountType === AccountType.CASH) {
@@ -322,11 +334,18 @@ export class PayablesService {
         await tx.transactionCharge.create({
           data: {
             transactionId: transaction.id,
-            chargeType: sourceAccount.accountType === AccountType.PROVIDER_WALLET ? 'PAYOUT_WALLET' : 'PAYOUT',
+            chargeType: 'PAYOUT',
             providerId: sourceAccount.providerId,
-            calculationType: 'FIXED',
+            sourceAccountId: sourceAccount.id,
+            providerPayoutChargeRuleId: configuredCharge?.ruleId ?? null,
+            calculationType:
+              configuredCharge?.calculationType ?? 'FIXED',
+            rate:
+              configuredCharge
+                ? new Prisma.Decimal(configuredCharge.rate)
+                : null,
             amount: new Prisma.Decimal(chargeAmount),
-            notes: 'Customer payout charge',
+            notes: sourceAccount.accountName + ' payout charge',
           },
         });
       }

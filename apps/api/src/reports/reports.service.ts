@@ -152,6 +152,7 @@ export class ReportsService {
 
     const accountMovementSourceInclude = {
       customer: true,
+      charges: { include: { sourceAccount: true } },
       payable: true,
       receivableSource: true,
       cardSwipe: { include: { customerCard: true } },

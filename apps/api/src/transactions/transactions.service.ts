@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { AccountNature, AccountType, CalculationType, CommissionMethod, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
+import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
 import { LedgerService, type JournalEntry } from '../ledger/ledger.service.js';
 import { ProviderSettlementsService } from '../provider-settlements/provider-settlements.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -26,6 +27,7 @@ export class TransactionsService {
     private readonly validation: FinancialValidationService,
     private readonly idempotency: IdempotencyService,
     private readonly settlements: ProviderSettlementsService,
+    private readonly payoutCharges: ProviderPayoutChargeService,
   ) {}
 
   private money(value: number) {
@@ -306,7 +308,7 @@ export class TransactionsService {
     const customerPayments = (dto.customerPayments ?? []).map((payment) => ({
       sourceAccountId: payment.sourceAccountId,
       amount: this.money(payment.amount),
-      chargeAmount: this.money(payment.chargeAmount ?? 0),
+      requestedChargeAmount: this.money(payment.chargeAmount ?? 0),
     }));
     const customerPaidAmount = this.money(
       customerPayments.reduce((sum, payment) => sum + payment.amount, 0),
@@ -465,17 +467,9 @@ export class TransactionsService {
         throw new BadRequestException('Provider wallet is missing');
       }
 
-      const payoutRequiredByAccount = new Map<string, number>();
-      for (const payment of customerPayments) {
-        payoutRequiredByAccount.set(
-          payment.sourceAccountId,
-          this.money(
-            (payoutRequiredByAccount.get(payment.sourceAccountId) ?? 0) +
-              payment.amount + payment.chargeAmount,
-          ),
-        );
-      }
-      const payoutAccountIds = [...payoutRequiredByAccount.keys()].sort();
+      const payoutAccountIds = [
+        ...new Set(customerPayments.map((payment) => payment.sourceAccountId)),
+      ].sort();
       for (const accountId of payoutAccountIds) {
         await this.validation.lockAccount(tx, accountId);
       }
@@ -491,11 +485,40 @@ export class TransactionsService {
       const payoutAccountById = new Map(
         payoutAccounts.map((account) => [account.id, account]),
       );
+      const effectiveCustomerPayments = [];
       for (const payment of customerPayments) {
         const sourceAccount = payoutAccountById.get(payment.sourceAccountId)!;
-        if (sourceAccount.accountType !== AccountType.PROVIDER_WALLET && payment.chargeAmount > 0) {
-          throw new BadRequestException('Payout charge is allowed only for wallet payouts');
+        const configuredCharge = await this.payoutCharges.resolve(
+          tx,
+          sourceAccount,
+          payment.amount,
+        );
+        const chargeAmount = configuredCharge
+          ? configuredCharge.amount
+          : payment.requestedChargeAmount;
+        if (
+          sourceAccount.accountType !== AccountType.PROVIDER_WALLET &&
+          chargeAmount > 0
+        ) {
+          throw new BadRequestException(
+            'Payout charge is allowed only for wallet payouts',
+          );
         }
+        effectiveCustomerPayments.push({
+          ...payment,
+          chargeAmount,
+          configuredCharge,
+        });
+      }
+      const payoutRequiredByAccount = new Map<string, number>();
+      for (const payment of effectiveCustomerPayments) {
+        payoutRequiredByAccount.set(
+          payment.sourceAccountId,
+          this.money(
+            (payoutRequiredByAccount.get(payment.sourceAccountId) ?? 0) +
+              payment.amount + payment.chargeAmount,
+          ),
+        );
       }
       for (const account of payoutAccounts) {
         if (account.accountType === AccountType.CASH) {
@@ -693,8 +716,8 @@ export class TransactionsService {
       }
 
       const payoutTransactions = [];
-      for (let index = 0; index < customerPayments.length; index += 1) {
-        const payment = customerPayments[index];
+      for (let index = 0; index < effectiveCustomerPayments.length; index += 1) {
+        const payment = effectiveCustomerPayments[index];
         const sourceAccount = payoutAccountById.get(payment.sourceAccountId)!;
         const payoutTransaction = await tx.transaction.create({
           data: {
@@ -733,11 +756,18 @@ export class TransactionsService {
           await tx.transactionCharge.create({
             data: {
               transactionId: payoutTransaction.id,
-              chargeType: sourceAccount.accountType === AccountType.PROVIDER_WALLET ? 'PAYOUT_WALLET' : 'PAYOUT',
+              chargeType: 'PAYOUT',
               providerId: sourceAccount.providerId,
-              calculationType: 'FIXED',
+              sourceAccountId: sourceAccount.id,
+              providerPayoutChargeRuleId: payment.configuredCharge?.ruleId ?? null,
+              calculationType:
+                payment.configuredCharge?.calculationType ?? CalculationType.FIXED,
+              rate:
+                payment.configuredCharge
+                  ? new Prisma.Decimal(payment.configuredCharge.rate)
+                  : null,
               amount: new Prisma.Decimal(payment.chargeAmount),
-              notes: 'Customer payout charge',
+              notes: sourceAccount.accountName + ' payout charge',
             },
           });
         }
@@ -810,7 +840,7 @@ export class TransactionsService {
               paidAmount: customerPaidAmount.toString(),
               remainingAmount: remainingAmount.toString(),
               status: payableStatus,
-              paymentCount: customerPayments.length,
+              paymentCount: effectiveCustomerPayments.length,
             },
           },
         });
@@ -1419,6 +1449,42 @@ export class TransactionsService {
       // detail.amount is the principal. Commission was posted separately when
       // the quick entry was created, so completion settles the full principal.
       const settlementAmount = amount;
+      const payoutChargeRows: Array<{
+        sourceAccountId: string;
+        amount: number;
+        charge: Awaited<ReturnType<ProviderPayoutChargeService['resolve']>>;
+      }> = [];
+      if (detail.direction === 'IN') {
+        if (splitWalletTransfer) {
+          for (const allocation of sourceAllocations) {
+            const account = sourceAccounts.get(allocation.sourceAccountId);
+            const charge = await this.payoutCharges.resolve(
+              tx,
+              account,
+              allocation.amount,
+            );
+            payoutChargeRows.push({
+              sourceAccountId: allocation.sourceAccountId,
+              amount: charge?.amount ?? 0,
+              charge,
+            });
+          }
+        } else {
+          const charge = await this.payoutCharges.resolve(
+            tx,
+            sourceAccount,
+            settlementAmount,
+          );
+          payoutChargeRows.push({
+            sourceAccountId: sourceAccount.id,
+            amount: charge?.amount ?? 0,
+            charge,
+          });
+        }
+      }
+      const payoutChargeTotal = this.money(
+        payoutChargeRows.reduce((sum, row) => sum + row.amount, 0),
+      );
       if (detail.direction === 'IN') {
         if (splitWalletTransfer) {
           const requiredByAccount = new Map<string, number>();
@@ -1427,7 +1493,10 @@ export class TransactionsService {
               allocation.sourceAccountId,
               this.money(
                 (requiredByAccount.get(allocation.sourceAccountId) ?? 0) +
-                  allocation.amount,
+                  allocation.amount +
+                  (payoutChargeRows.find((row) =>
+                    row.sourceAccountId === allocation.sourceAccountId
+                  )?.amount ?? 0),
               ),
             );
           }
@@ -1442,18 +1511,28 @@ export class TransactionsService {
           await this.validation.ensureSufficientFunds(
             tx,
             sourceAccount,
-            settlementAmount,
+            settlementAmount + payoutChargeTotal,
           );
         }
       }
 
       const ledgerCode =
         detail.direction === 'IN' ? 'SYS-CUST-PAYABLE' : 'SYS-CUST-RECEIVABLE';
-      const pendingLedger = await tx.ledgerAccount.findUnique({
-        where: { ledgerCode },
-      });
+      const [pendingLedger, payoutChargeLedger] = await Promise.all([
+        tx.ledgerAccount.findUnique({
+          where: { ledgerCode },
+        }),
+        payoutChargeTotal > 0
+          ? tx.ledgerAccount.findUnique({
+              where: { ledgerCode: 'SYS-PROVIDER-CHARGE' },
+            })
+          : Promise.resolve(null),
+      ]);
       if (!pendingLedger) {
         throw new NotFoundException('Pending transfer ledger is missing');
+      }
+      if (payoutChargeTotal > 0 && !payoutChargeLedger) {
+        throw new NotFoundException('Provider payout charge ledger is missing');
       }
       const commissionReceivableLedger =
         commissionDigitalAmount > 0
@@ -1473,7 +1552,7 @@ export class TransactionsService {
           transactionNumber: 'QCC-' + Date.now().toString(36).toUpperCase(),
           transactionType: TransactionType.CASH_TRANSFER,
           transactionAt: new Date(),
-          grossAmount: new Prisma.Decimal(settlementAmount),
+          grossAmount: new Prisma.Decimal(settlementAmount + payoutChargeTotal),
           netAmount: new Prisma.Decimal(settlementAmount),
           status: TransactionStatus.COMPLETED,
           referenceNumber: dto.referenceNumber?.trim() || null,
@@ -1497,7 +1576,11 @@ export class TransactionsService {
                 ? sourceAllocations.map((allocation) => ({
                     ledgerAccountId: sourceAccounts.get(allocation.sourceAccountId).ledgerAccount.id,
                     entryType: EntryType.CREDIT,
-                    amount: allocation.amount,
+                    amount:
+                      allocation.amount +
+                      (payoutChargeRows.find((row) =>
+                        row.sourceAccountId === allocation.sourceAccountId
+                      )?.amount ?? 0),
                     description:
                       'Beneficiary transfer from wallet' +
                       (allocation.referenceNumber
@@ -1507,7 +1590,7 @@ export class TransactionsService {
                 : [{
                     ledgerAccountId: sourceAccount.ledgerAccount.id,
                     entryType: EntryType.CREDIT,
-                    amount: settlementAmount,
+                    amount: settlementAmount + payoutChargeTotal,
                     description: 'Transfer source outflow',
                   }]),
             ]
@@ -1525,6 +1608,17 @@ export class TransactionsService {
                 description: 'Clear pending incoming transfer',
               },
             ];
+      for (const row of payoutChargeRows) {
+        if (row.amount <= 0 || !payoutChargeLedger) continue;
+        completionEntries.push({
+          ledgerAccountId: payoutChargeLedger.id,
+          entryType: EntryType.DEBIT,
+          amount: row.amount,
+          description:
+            sourceAccounts.get(row.sourceAccountId).accountName +
+            ' payout charge expense',
+        });
+      }
       if (
         commissionDigitalAmount > 0 &&
         commissionAccount?.ledgerAccount &&
@@ -1545,6 +1639,28 @@ export class TransactionsService {
           },
         );
       }
+      for (const row of payoutChargeRows) {
+        if (row.amount <= 0) continue;
+        const account = sourceAccounts.get(row.sourceAccountId);
+        await tx.transactionCharge.create({
+          data: {
+            transactionId: completion.id,
+            chargeType: 'PAYOUT',
+            providerId: account.providerId,
+            sourceAccountId: account.id,
+            providerPayoutChargeRuleId: row.charge?.ruleId ?? null,
+            calculationType:
+              row.charge?.calculationType ?? CalculationType.FIXED,
+            rate:
+              row.charge
+                ? new Prisma.Decimal(row.charge.rate)
+                : null,
+            amount: new Prisma.Decimal(row.amount),
+            notes: account.accountName + ' payout charge',
+          },
+        });
+      }
+
       await this.ledger.post(
         tx,
         completion.id,
@@ -1632,6 +1748,13 @@ export class TransactionsService {
                 ? dto.beneficiaryDetails.trim() || null
                 : detail.beneficiaryDetails,
             completionTransactionId: completion.id,
+            payoutChargeAmount: payoutChargeTotal,
+            payoutChargeSources: payoutChargeRows
+              .filter((row) => row.amount > 0)
+              .map((row) => ({
+                sourceAccountId: row.sourceAccountId,
+                amount: row.amount,
+              })),
           },
         },
       });
@@ -1674,7 +1797,7 @@ export class TransactionsService {
         ? dto.requestedAmount
         : dto.requestedAmount - commissionAmount,
     );
-    const transferChargeAmount = this.money(dto.transferChargeAmount ?? 0);
+    const requestedTransferChargeAmount = this.money(dto.transferChargeAmount ?? 0);
     const legacyReceiptAccountId = dto.receiptAccountId ?? dto.cashAccountId;
     const receiptAllocations = dto.receiptAllocations?.length
       ? dto.receiptAllocations.map((item) => ({
@@ -1757,6 +1880,14 @@ export class TransactionsService {
       if (!commissionLedger) {
         throw new NotFoundException('Commission ledger not found');
       }
+      const configuredPayoutCharge = await this.payoutCharges.resolve(
+        tx,
+        sourceAccount,
+        actualTransferAmount,
+      );
+      const transferChargeAmount = configuredPayoutCharge
+        ? configuredPayoutCharge.amount
+        : requestedTransferChargeAmount;
       const sourceOutflow = actualTransferAmount + transferChargeAmount;
       if (sourceAccount.accountType === AccountType.OWNER_CREDIT_CARD) {
         await this.validation.ensureCreditCapacity(tx, sourceAccount, sourceOutflow);
@@ -1914,7 +2045,14 @@ export class TransactionsService {
                 ? 'WALLET'
                 : 'BANK'),
             providerId: sourceAccount.providerId,
-            calculationType: 'FIXED',
+            sourceAccountId: sourceAccount.id,
+            providerPayoutChargeRuleId: configuredPayoutCharge?.ruleId ?? null,
+            calculationType:
+              configuredPayoutCharge?.calculationType ?? CalculationType.FIXED,
+            rate:
+              configuredPayoutCharge
+                ? new Prisma.Decimal(configuredPayoutCharge.rate)
+                : null,
             amount: new Prisma.Decimal(transferChargeAmount),
           },
         });
@@ -1956,7 +2094,8 @@ export class TransactionsService {
           entryType: EntryType.DEBIT,
           amount: transferChargeAmount,
           customerId: dto.customerId,
-          description: 'Transfer charge expense',
+          description:
+            sourceAccount.accountName + ' payout / transfer charge expense',
         });
       }
 
@@ -2677,7 +2816,7 @@ export class TransactionsService {
       dto,
       providedIdempotencyKey,
     );
-    const chargeAmount = dto.chargeAmount ?? 0;
+    const requestedChargeAmount = dto.chargeAmount ?? 0;
     if (dto.sourceAccountId === dto.destinationAccountId) {
       throw new BadRequestException(
         'Source and destination accounts must be different',
@@ -2712,6 +2851,14 @@ export class TransactionsService {
           'Cash transfer destination',
         );
       }
+      const configuredPayoutCharge = await this.payoutCharges.resolve(
+        tx,
+        source,
+        dto.transferAmount,
+      );
+      const chargeAmount = configuredPayoutCharge
+        ? configuredPayoutCharge.amount
+        : requestedChargeAmount;
       await this.validation.ensureSufficientFunds(
         tx,
         source,
@@ -2762,15 +2909,26 @@ export class TransactionsService {
         await tx.transactionCharge.create({
           data: {
             transactionId: transaction.id,
-            chargeType:
-              source.accountType === AccountType.PROVIDER_WALLET
+            chargeType: configuredPayoutCharge
+              ? 'PAYOUT'
+              : source.accountType === AccountType.PROVIDER_WALLET
                 ? 'WALLET'
                 : source.accountType === AccountType.BANK
                   ? 'BANK'
                   : 'TRANSFER',
             providerId: source.providerId,
-            calculationType: 'FIXED',
+            sourceAccountId: source.id,
+            providerPayoutChargeRuleId: configuredPayoutCharge?.ruleId ?? null,
+            calculationType:
+              configuredPayoutCharge?.calculationType ?? CalculationType.FIXED,
+            rate:
+              configuredPayoutCharge
+                ? new Prisma.Decimal(configuredPayoutCharge.rate)
+                : null,
             amount: new Prisma.Decimal(chargeAmount),
+            notes: configuredPayoutCharge
+              ? source.accountName + ' payout charge'
+              : 'Internal transfer charge',
           },
         });
       }
@@ -2885,6 +3043,12 @@ export class TransactionsService {
           'Cash expense',
         );
       }
+      const configuredPayoutCharge = await this.payoutCharges.resolve(
+        tx,
+        paymentAccount,
+        dto.amount,
+      );
+      const payoutChargeAmount = configuredPayoutCharge?.amount ?? 0;
       if (paymentAccount.accountType === AccountType.OWNER_CREDIT_CARD) {
         if (paymentAccount.accountNature !== AccountNature.LIABILITY) {
           throw new BadRequestException(
@@ -2896,20 +3060,34 @@ export class TransactionsService {
         if (paymentAccount.accountNature !== AccountNature.ASSET) {
           throw new BadRequestException('Expense payment account must be an asset');
         }
-        await this.validation.ensureSufficientFunds(tx, paymentAccount, dto.amount);
+        await this.validation.ensureSufficientFunds(
+          tx,
+          paymentAccount,
+          dto.amount + payoutChargeAmount,
+        );
       }
 
-      const expenseLedger = await tx.ledgerAccount.findUnique({
-        where: { ledgerCode: 'SYS-BUSINESS-EXPENSE' },
-      });
+      const [expenseLedger, payoutChargeLedger] = await Promise.all([
+        tx.ledgerAccount.findUnique({
+          where: { ledgerCode: 'SYS-BUSINESS-EXPENSE' },
+        }),
+        payoutChargeAmount > 0
+          ? tx.ledgerAccount.findUnique({
+              where: { ledgerCode: 'SYS-PROVIDER-CHARGE' },
+            })
+          : Promise.resolve(null),
+      ]);
       if (!expenseLedger) throw new Error('Expense ledger missing');
+      if (payoutChargeAmount > 0 && !payoutChargeLedger) {
+        throw new Error('Provider payout charge ledger missing');
+      }
 
       const transaction = await tx.transaction.create({
         data: {
           transactionNumber: 'EXP-' + Date.now().toString(36).toUpperCase(),
           transactionType,
           transactionAt: new Date(),
-          grossAmount: new Prisma.Decimal(dto.amount),
+          grossAmount: new Prisma.Decimal(dto.amount + payoutChargeAmount),
           netAmount: new Prisma.Decimal(dto.amount),
           status: TransactionStatus.COMPLETED,
           idempotencyKey,
@@ -2928,23 +3106,53 @@ export class TransactionsService {
           description,
         },
       });
-      await this.ledger.post(tx, transaction.id, userId, description, [
+      if (payoutChargeAmount > 0 && configuredPayoutCharge) {
+        await tx.transactionCharge.create({
+          data: {
+            transactionId: transaction.id,
+            chargeType: 'PAYOUT',
+            providerId: paymentAccount.providerId,
+            sourceAccountId: paymentAccount.id,
+            providerPayoutChargeRuleId: configuredPayoutCharge.ruleId,
+            calculationType: configuredPayoutCharge.calculationType,
+            rate: new Prisma.Decimal(configuredPayoutCharge.rate),
+            amount: new Prisma.Decimal(payoutChargeAmount),
+            notes: paymentAccount.accountName + ' payout charge',
+          },
+        });
+      }
+      const expenseEntries: JournalEntry[] = [
         {
           ledgerAccountId: expenseLedger.id,
           entryType: EntryType.DEBIT,
           amount: dto.amount,
           description,
         },
+        ...(payoutChargeAmount > 0 && payoutChargeLedger
+          ? [{
+              ledgerAccountId: payoutChargeLedger.id,
+              entryType: EntryType.DEBIT,
+              amount: payoutChargeAmount,
+              description: paymentAccount.accountName + ' payout charge expense',
+            }]
+          : []),
         {
           ledgerAccountId: paymentAccount.ledgerAccount!.id,
           entryType: EntryType.CREDIT,
-          amount: dto.amount,
+          amount: dto.amount + payoutChargeAmount,
           description:
             paymentAccount.accountType === AccountType.OWNER_CREDIT_CARD
               ? 'Credit-card liability increased'
               : 'Expense payment',
         },
-      ]);
+      ];
+      await this.ledger.post(
+        tx,
+        transaction.id,
+        userId,
+        description,
+        expenseEntries,
+      );
       await this.auditCreated(tx, transaction, userId);
       return transaction;
     });
@@ -2991,6 +3199,12 @@ export class TransactionsService {
       }
 
       const amount = Number(transaction.expense.amount);
+      const configuredPayoutCharge = await this.payoutCharges.resolve(
+        tx,
+        paymentAccount,
+        amount,
+      );
+      const payoutChargeAmount = configuredPayoutCharge?.amount ?? 0;
       if (paymentAccount.accountType === AccountType.OWNER_CREDIT_CARD) {
         if (paymentAccount.accountNature !== AccountNature.LIABILITY) {
           throw new BadRequestException(
@@ -3002,13 +3216,27 @@ export class TransactionsService {
         if (paymentAccount.accountNature !== AccountNature.ASSET) {
           throw new BadRequestException('Expense payment account must be an asset');
         }
-        await this.validation.ensureSufficientFunds(tx, paymentAccount, amount);
+        await this.validation.ensureSufficientFunds(
+          tx,
+          paymentAccount,
+          amount + payoutChargeAmount,
+        );
       }
 
-      const expenseLedger = await tx.ledgerAccount.findUnique({
-        where: { ledgerCode: 'SYS-BUSINESS-EXPENSE' },
-      });
+      const [expenseLedger, payoutChargeLedger] = await Promise.all([
+        tx.ledgerAccount.findUnique({
+          where: { ledgerCode: 'SYS-BUSINESS-EXPENSE' },
+        }),
+        payoutChargeAmount > 0
+          ? tx.ledgerAccount.findUnique({
+              where: { ledgerCode: 'SYS-PROVIDER-CHARGE' },
+            })
+          : Promise.resolve(null),
+      ]);
       if (!expenseLedger) throw new Error('Expense ledger missing');
+      if (payoutChargeAmount > 0 && !payoutChargeLedger) {
+        throw new Error('Provider payout charge ledger missing');
+      }
 
       const description =
         transaction.expense.description || transaction.expense.expenseCategory.name;
@@ -3016,27 +3244,59 @@ export class TransactionsService {
         where: { transactionId },
         data: { paymentAccountId: paymentAccount.id },
       });
-      await this.ledger.post(tx, transaction.id, userId, description, [
+      if (payoutChargeAmount > 0 && configuredPayoutCharge) {
+        await tx.transactionCharge.create({
+          data: {
+            transactionId: transaction.id,
+            chargeType: 'PAYOUT',
+            providerId: paymentAccount.providerId,
+            sourceAccountId: paymentAccount.id,
+            providerPayoutChargeRuleId: configuredPayoutCharge.ruleId,
+            calculationType: configuredPayoutCharge.calculationType,
+            rate: new Prisma.Decimal(configuredPayoutCharge.rate),
+            amount: new Prisma.Decimal(payoutChargeAmount),
+            notes: paymentAccount.accountName + ' payout charge',
+          },
+        });
+      }
+      const expenseEntries: JournalEntry[] = [
         {
           ledgerAccountId: expenseLedger.id,
           entryType: EntryType.DEBIT,
           amount,
           description,
         },
+        ...(payoutChargeAmount > 0 && payoutChargeLedger
+          ? [{
+              ledgerAccountId: payoutChargeLedger.id,
+              entryType: EntryType.DEBIT,
+              amount: payoutChargeAmount,
+              description: paymentAccount.accountName + ' payout charge expense',
+            }]
+          : []),
         {
           ledgerAccountId: paymentAccount.ledgerAccount!.id,
           entryType: EntryType.CREDIT,
-          amount,
+          amount: amount + payoutChargeAmount,
           description:
             paymentAccount.accountType === AccountType.OWNER_CREDIT_CARD
               ? 'Credit-card liability increased'
               : 'Expense payment',
         },
-      ]);
+      ];
+      await this.ledger.post(
+        tx,
+        transaction.id,
+        userId,
+        description,
+        expenseEntries,
+      );
       const updated = await tx.transaction.update({
         where: { id: transactionId },
         data: {
           status: TransactionStatus.COMPLETED,
+          grossAmount: new Prisma.Decimal(amount + payoutChargeAmount),
+          netAmount: new Prisma.Decimal(amount),
           ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
         },
       });
@@ -3210,14 +3470,18 @@ export class TransactionsService {
           'Credit-card cash payment',
         );
       }
-      const [outstanding] = await Promise.all([
-        this.validation.balance(tx, cardAccount),
-        this.validation.ensureSufficientFunds(
-          tx,
-          sourceAccount,
-          dto.paymentAmount,
-        ),
-      ]);
+      const configuredPayoutCharge = await this.payoutCharges.resolve(
+        tx,
+        sourceAccount,
+        dto.paymentAmount,
+      );
+      const payoutChargeAmount = configuredPayoutCharge?.amount ?? 0;
+      const outstanding = await this.validation.balance(tx, cardAccount);
+      await this.validation.ensureSufficientFunds(
+        tx,
+        sourceAccount,
+        dto.paymentAmount + payoutChargeAmount,
+      );
       if (dto.paymentAmount > outstanding + 0.001) {
         throw new BadRequestException(
           'Payment exceeds current credit-card outstanding',
@@ -3229,7 +3493,7 @@ export class TransactionsService {
           transactionNumber: 'CCP-' + Date.now().toString(36).toUpperCase(),
           transactionType: TransactionType.OWNER_CC_PAYMENT,
           transactionAt: new Date(),
-          grossAmount: new Prisma.Decimal(dto.paymentAmount),
+          grossAmount: new Prisma.Decimal(dto.paymentAmount + payoutChargeAmount),
           netAmount: new Prisma.Decimal(dto.paymentAmount),
           status: TransactionStatus.COMPLETED,
           idempotencyKey,
@@ -3249,25 +3513,58 @@ export class TransactionsService {
         },
       });
 
+      const payoutChargeLedger = payoutChargeAmount > 0
+        ? await tx.ledgerAccount.findUnique({
+            where: { ledgerCode: 'SYS-PROVIDER-CHARGE' },
+          })
+        : null;
+      if (payoutChargeAmount > 0 && !payoutChargeLedger) {
+        throw new Error('Provider payout charge ledger missing');
+      }
+      if (payoutChargeAmount > 0 && configuredPayoutCharge) {
+        await tx.transactionCharge.create({
+          data: {
+            transactionId: transaction.id,
+            chargeType: 'PAYOUT',
+            providerId: sourceAccount.providerId,
+            sourceAccountId: sourceAccount.id,
+            providerPayoutChargeRuleId: configuredPayoutCharge.ruleId,
+            calculationType: configuredPayoutCharge.calculationType,
+            rate: new Prisma.Decimal(configuredPayoutCharge.rate),
+            amount: new Prisma.Decimal(payoutChargeAmount),
+            notes: sourceAccount.accountName + ' payout charge',
+          },
+        });
+      }
+
+      const paymentEntries: JournalEntry[] = [
+        {
+          ledgerAccountId: cardAccount.ledgerAccount!.id,
+          entryType: EntryType.DEBIT,
+          amount: dto.paymentAmount,
+          description: 'Reduce owner credit-card liability',
+        },
+        ...(payoutChargeAmount > 0 && payoutChargeLedger
+          ? [{
+              ledgerAccountId: payoutChargeLedger.id,
+              entryType: EntryType.DEBIT,
+              amount: payoutChargeAmount,
+              description: sourceAccount.accountName + ' payout charge expense',
+            }]
+          : []),
+        {
+          ledgerAccountId: sourceAccount.ledgerAccount!.id,
+          entryType: EntryType.CREDIT,
+          amount: dto.paymentAmount + payoutChargeAmount,
+          description: 'Credit-card payment source',
+        },
+      ];
       await this.ledger.post(
         tx,
         transaction.id,
         userId,
         'Owner credit card payment',
-        [
-          {
-            ledgerAccountId: cardAccount.ledgerAccount!.id,
-            entryType: EntryType.DEBIT,
-            amount: dto.paymentAmount,
-            description: 'Reduce owner credit-card liability',
-          },
-          {
-            ledgerAccountId: sourceAccount.ledgerAccount!.id,
-            entryType: EntryType.CREDIT,
-            amount: dto.paymentAmount,
-            description: 'Credit-card payment source',
-          },
-        ],
+        paymentEntries,
       );
 
       await this.auditCreated(tx, transaction, userId);
@@ -3280,7 +3577,7 @@ export class TransactionsService {
       where: { id },
       include: {
         customer: true,
-        charges: true,
+        charges: { include: { sourceAccount: true } },
         commissions: true,
         cardSwipe: {
           include: {
@@ -3314,7 +3611,7 @@ export class TransactionsService {
         expense: { include: { expenseCategory: true, paymentAccount: true } },
         atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
         creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
-        payable: { include: { payments: { include: { sourceAccount: true, transaction: { include: { charges: true } } } } } },
+        payable: { include: { payments: { include: { sourceAccount: true, transaction: { include: { charges: { include: { sourceAccount: true } } } } } } } },
         payablePayment: {
           include: {
             payable: {

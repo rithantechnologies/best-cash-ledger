@@ -288,6 +288,7 @@ model Provider {
   settlements                 ProviderSettlement[]
   cardDueRecoveries           CardDueRecovery[]
   aepsProviderCommissionRules AepsProviderCommissionRule[]
+  payoutChargeRules           ProviderPayoutChargeRule[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 }
@@ -395,6 +396,7 @@ model FinancialAccount {
   cashSessions                    CashSession[]
   providerSettlementDestinations  ProviderSettlement[]          @relation("ProviderSettlementDestination")
   providerSettlementReceipts      ProviderSettlementReceipt[]   @relation("ProviderSettlementReceiptAccount")
+  transactionCharges              TransactionCharge[]           @relation("TransactionChargeSourceAccount")
   createdAt                       DateTime                      @default(now())
   updatedAt                       DateTime                      @updatedAt
 
@@ -482,21 +484,27 @@ model Transaction {
 }
 
 model TransactionCharge {
-  id              String          @id @default(uuid())
-  transactionId   String
-  transaction     Transaction     @relation(fields: [transactionId], references: [id])
-  chargeType      String
-  providerId      String?
-  provider        Provider?       @relation(fields: [providerId], references: [id])
-  gatewayId       String?
-  calculationType CalculationType
-  rate            Decimal?        @db.Decimal(10, 4)
-  amount          Decimal         @db.Decimal(18, 2)
-  notes           String?
-  createdAt       DateTime        @default(now())
+  id                         String                    @id @default(uuid())
+  transactionId              String
+  transaction                Transaction               @relation(fields: [transactionId], references: [id])
+  chargeType                 String
+  providerId                 String?
+  provider                   Provider?                 @relation(fields: [providerId], references: [id])
+  gatewayId                  String?
+  sourceAccountId            String?
+  sourceAccount              FinancialAccount?         @relation("TransactionChargeSourceAccount", fields: [sourceAccountId], references: [id])
+  providerPayoutChargeRuleId String?
+  providerPayoutChargeRule   ProviderPayoutChargeRule? @relation(fields: [providerPayoutChargeRuleId], references: [id])
+  calculationType            CalculationType
+  rate                       Decimal?                  @db.Decimal(10, 4)
+  amount                     Decimal                   @db.Decimal(18, 2)
+  notes                      String?
+  createdAt                  DateTime                  @default(now())
 
   @@index([transactionId])
   @@index([providerId])
+  @@index([sourceAccountId])
+  @@index([providerPayoutChargeRuleId])
 }
 
 model TransactionCommission {
@@ -830,6 +838,25 @@ model QuickCashSourceAllocation {
 
   @@index([quickCashTransferId])
   @@index([sourceAccountId])
+}
+
+model ProviderPayoutChargeRule {
+  id              String          @id @default(uuid())
+  providerId      String
+  provider        Provider        @relation(fields: [providerId], references: [id])
+  minAmount       Decimal         @db.Decimal(18, 2)
+  maxAmount       Decimal?        @db.Decimal(18, 2)
+  calculationType CalculationType
+  value           Decimal         @db.Decimal(18, 4)
+  effectiveFrom   DateTime        @default(now())
+  effectiveTo     DateTime?
+  createdById     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  transactionCharges TransactionCharge[]
+
+  @@index([providerId, effectiveFrom, effectiveTo])
+  @@index([providerId, minAmount, maxAmount])
 }
 
 model AepsProviderCommissionRule {

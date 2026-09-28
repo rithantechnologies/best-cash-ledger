@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { AccountType, EntryType, PayableStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
+import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
 import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -18,6 +19,7 @@ export class CardDueClearingService {
     private readonly ledger: LedgerService,
     private readonly validation: FinancialValidationService,
     private readonly idempotency: IdempotencyService,
+    private readonly payoutCharges: ProviderPayoutChargeService,
   ) {}
 
   private money(value: number) {
@@ -132,16 +134,34 @@ export class CardDueClearingService {
           'Card due payment from cash',
         );
       }
-      await this.validation.ensureSufficientFunds(tx, sourceAccount, dueAmount);
+      const configuredPayoutCharge = await this.payoutCharges.resolve(
+        tx,
+        sourceAccount,
+        dueAmount,
+      );
+      const payoutChargeAmount = configuredPayoutCharge?.amount ?? 0;
+      await this.validation.ensureSufficientFunds(
+        tx,
+        sourceAccount,
+        dueAmount + payoutChargeAmount,
+      );
 
       const systemLedgers = await tx.ledgerAccount.findMany({
-        where: { ledgerCode: { in: ['SYS-CUST-RECEIVABLE', 'SYS-COMMISSION'] } },
+        where: {
+          ledgerCode: {
+            in: ['SYS-CUST-RECEIVABLE', 'SYS-COMMISSION', 'SYS-PROVIDER-CHARGE'],
+          },
+        },
       });
       const byCode = new Map(systemLedgers.map((item) => [item.ledgerCode, item]));
       const receivableLedger = byCode.get('SYS-CUST-RECEIVABLE');
       const commissionLedger = byCode.get('SYS-COMMISSION');
+      const payoutChargeLedger = byCode.get('SYS-PROVIDER-CHARGE');
       if (!receivableLedger || !commissionLedger) {
         throw new Error('Required card due clearing ledgers are missing');
+      }
+      if (payoutChargeAmount > 0 && !payoutChargeLedger) {
+        throw new Error('Provider payout charge ledger is missing');
       }
 
       const transaction = await tx.transaction.create({
@@ -150,7 +170,7 @@ export class CardDueClearingService {
           transactionType: TransactionType.CARD_DUE_CLEARING,
           transactionAt: new Date(),
           customerId: dto.customerId,
-          grossAmount: new Prisma.Decimal(dueAmount),
+          grossAmount: new Prisma.Decimal(dueAmount + payoutChargeAmount),
           netAmount: new Prisma.Decimal(totalReceivable),
           status: TransactionStatus.PENDING,
           idempotencyKey,
@@ -176,6 +196,22 @@ export class CardDueClearingService {
           duePaymentReference: dto.referenceNumber,
         },
       });
+
+      if (payoutChargeAmount > 0 && configuredPayoutCharge) {
+        await tx.transactionCharge.create({
+          data: {
+            transactionId: transaction.id,
+            chargeType: 'PAYOUT',
+            providerId: sourceAccount.providerId,
+            sourceAccountId: sourceAccount.id,
+            providerPayoutChargeRuleId: configuredPayoutCharge.ruleId,
+            calculationType: configuredPayoutCharge.calculationType,
+            rate: new Prisma.Decimal(configuredPayoutCharge.rate),
+            amount: new Prisma.Decimal(payoutChargeAmount),
+            notes: sourceAccount.accountName + ' payout charge',
+          },
+        });
+      }
 
       if (commissionAmount > 0) {
         await tx.transactionCommission.create({
@@ -205,10 +241,19 @@ export class CardDueClearingService {
           {
             ledgerAccountId: sourceAccount.ledgerAccount!.id,
             entryType: EntryType.CREDIT,
-            amount: dueAmount,
+            amount: dueAmount + payoutChargeAmount,
             customerId: dto.customerId,
             description: 'Paid customer credit-card due',
           },
+          ...(payoutChargeAmount > 0 && payoutChargeLedger
+            ? [{
+                ledgerAccountId: payoutChargeLedger.id,
+                entryType: EntryType.DEBIT,
+                amount: payoutChargeAmount,
+                customerId: dto.customerId,
+                description: sourceAccount.accountName + ' payout charge expense',
+              }]
+            : []),
           ...(commissionAmount > 0
             ? [{
                 ledgerAccountId: commissionLedger.id,
