@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -11,7 +10,7 @@ type ExpenseDetail={expenseCategoryId:string;expenseType:string;amount:string;de
 type Tx={id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;expense:ExpenseDetail|null};
 type Category={id:string;name:string;expenseUsage:string;isActive?:boolean};
 type Scope="COMBINED"|"BUSINESS"|"PERSONAL";
-type Period="30D"|"90D"|"6M"|"ALL"|"CUSTOM";
+type Period="TODAY"|"YESTERDAY"|"7D"|"30D"|"90D"|"6M"|"ALL"|"CUSTOM";
 
 const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(v||0));
 const palette=["#2563eb","#7c3aed","#0f766e","#d97706","#db2777","#64748b","#0891b2","#65a30d"];
@@ -45,7 +44,7 @@ function MonthlyChart({rows}:{rows:{label:string;amount:number}[]}){
 
 export default function ExpensesPage(){
  const [transactions,setTransactions]=useState<Tx[]>([]),[categories,setCategories]=useState<Category[]>([]);
- const [scope]=useState<Scope>("COMBINED"),[period,setPeriod]=useState<Period>("90D");
+ const [scope]=useState<Scope>("COMBINED"),[period,setPeriod]=useState<Period>("TODAY");
  const [categoryId,setCategoryId]=useState("ALL"),[dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState("");
  const [loading,setLoading]=useState(true),[error,setError]=useState("");
  useEffect(()=>{
@@ -84,7 +83,13 @@ export default function ExpensesPage(){
  const categoryById=useMemo(()=>new Map(categories.map(x=>[x.id,x.name])),[categories]);
  const filtered=useMemo(()=>{
   const now=new Date();
-  const cutoff=period==="ALL"||period==="CUSTOM"?0:period==="30D"?now.getTime()-30*86400000:period==="90D"?now.getTime()-90*86400000:new Date(now.getFullYear(),now.getMonth()-5,1).getTime();
+  const todayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+  const tomorrowStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).getTime();
+  const yesterdayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1).getTime();
+  const sevenDayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()-6).getTime();
+  const thirtyDayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()-29).getTime();
+  const ninetyDayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()-89).getTime();
+  const sixMonthStart=new Date(now.getFullYear(),now.getMonth()-5,1).getTime();
   const customFrom=dateFrom?new Date(dateFrom+"T00:00:00").getTime():0;
   const customTo=dateTo?new Date(dateTo+"T23:59:59.999").getTime():Number.POSITIVE_INFINITY;
   return transactions.filter(tx=>{
@@ -93,7 +98,13 @@ export default function ExpensesPage(){
    if(categoryId!=="ALL"&&expense.expenseCategoryId!==categoryId)return false;
    const when=new Date(tx.transactionAt).getTime();
    if(period==="CUSTOM")return when>=customFrom&&when<=customTo;
-   return when>=cutoff;
+   if(period==="TODAY")return when>=todayStart&&when<tomorrowStart;
+   if(period==="YESTERDAY")return when>=yesterdayStart&&when<todayStart;
+   if(period==="7D")return when>=sevenDayStart&&when<tomorrowStart;
+   if(period==="30D")return when>=thirtyDayStart&&when<tomorrowStart;
+   if(period==="90D")return when>=ninetyDayStart&&when<tomorrowStart;
+   if(period==="6M")return when>=sixMonthStart&&when<tomorrowStart;
+   return true;
   });
  },[transactions,scope,period,categoryId,dateFrom,dateTo]);
 
@@ -122,6 +133,7 @@ export default function ExpensesPage(){
 
  const monthCount=Math.max(1,new Set(filtered.map(t=>{const d=new Date(t.transactionAt);return d.getFullYear()+"-"+d.getMonth();})).size);
  const topCategory=byCategory[0];
+ const periodLabel=period==="TODAY"?"Today":period==="YESTERDAY"?"Yesterday":period==="7D"?"Last 7 days":period==="30D"?"Last 30 days":period==="90D"?"Last 90 days":period==="6M"?"Last 6 months":period==="ALL"?"All time":"Custom range";
 
  if(loading)return <AppShell><PageLoader label="Loading expenses…"/></AppShell>;
  return <AppShell><div className="page-enter mx-auto -mt-2 max-w-[1450px] space-y-3 sm:-mt-3 lg:-mt-4">
@@ -132,19 +144,22 @@ export default function ExpensesPage(){
 
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
-  <Surface className="p-3">
-   <div className="grid gap-3 lg:grid-cols-[minmax(180px,.8fr)_minmax(330px,1.1fr)_auto] lg:items-end">
+  <Surface className="p-3 sm:p-4">
+   <div>
+    <div className="flex items-center justify-between gap-3 px-1"><div><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Quick range</p><p className="mt-0.5 text-xs font-semibold text-[var(--text)]">{periodLabel}</p></div>{period!=="TODAY"||categoryId!=="ALL"?<button type="button" onClick={()=>{setCategoryId("ALL");setPeriod("TODAY");setDateFrom("");setDateTo("");}} className="min-h-9 rounded-full px-3 text-xs font-bold text-[var(--accent)]">Reset</button>:null}</div>
+    <div className="ui-scroll-fade mt-2"><div className="flex gap-1.5 overflow-x-auto pb-1 pr-4">{(["TODAY","YESTERDAY","7D","30D","90D","6M","ALL"] as Exclude<Period,"CUSTOM">[]).map(v=><button type="button" key={v} onClick={()=>{setPeriod(v);setDateFrom("");setDateTo("");}} className={"min-h-10 shrink-0 rounded-full border px-3.5 text-xs font-bold transition "+(period===v?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)]")}>{v==="TODAY"?"Today":v==="YESTERDAY"?"Yesterday":v==="7D"?"7 days":v==="30D"?"30 days":v==="90D"?"90 days":v==="6M"?"6 months":"All time"}</button>)}</div></div>
+   </div>
+   <div className="mt-3 grid gap-3 border-t border-[var(--border)] pt-3 lg:grid-cols-[minmax(180px,.8fr)_minmax(330px,1.1fr)] lg:items-end">
     <label className="grid gap-1"><span className="px-1 text-[10px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">Category</span><select value={categoryId} onChange={e=>setCategoryId(e.target.value)} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-semibold text-[var(--text)] outline-none focus:border-[var(--accent)]"><option value="ALL">All categories</option>{categories.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
     <div className="grid grid-cols-2 gap-2">
-     <label className="grid gap-1"><span className="px-1 text-[10px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">From date</span><input type="date" value={dateFrom} max={dateTo||undefined} onChange={e=>{setDateFrom(e.target.value);setPeriod("CUSTOM");}} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-semibold text-[var(--text)] outline-none focus:border-[var(--accent)]"/></label>
-     <label className="grid gap-1"><span className="px-1 text-[10px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">To date</span><input type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>{setDateTo(e.target.value);setPeriod("CUSTOM");}} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-semibold text-[var(--text)] outline-none focus:border-[var(--accent)]"/></label>
+     <label className="grid gap-1"><span className="px-1 text-[10px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">Custom from</span><input type="date" value={dateFrom} max={dateTo||undefined} onChange={e=>{setDateFrom(e.target.value);setPeriod("CUSTOM");}} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-semibold text-[var(--text)] outline-none focus:border-[var(--accent)]"/></label>
+     <label className="grid gap-1"><span className="px-1 text-[10px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">Custom to</span><input type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>{setDateTo(e.target.value);setPeriod("CUSTOM");}} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-semibold text-[var(--text)] outline-none focus:border-[var(--accent)]"/></label>
     </div>
-    <div className="flex flex-wrap items-center gap-1">{(["30D","90D","6M","ALL"] as Exclude<Period,"CUSTOM">[]).map(v=><button key={v} onClick={()=>{setPeriod(v);setDateFrom("");setDateTo("");}} className={"min-h-10 shrink-0 rounded-full border px-3 text-xs font-semibold "+(period===v?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] text-[var(--text-muted)]")}>{v==="30D"?"30 days":v==="90D"?"90 days":v==="6M"?"6 months":"All"}</button>)}{period==="CUSTOM"||categoryId!=="ALL"?<button onClick={()=>{setCategoryId("ALL");setPeriod("90D");setDateFrom("");setDateTo("");}} className="min-h-10 rounded-full px-3 text-xs font-bold text-[var(--accent)]">Reset</button>:null}</div>
    </div>
   </Surface>
 
   <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-   <Surface className="expense-kpi p-4"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Total expenses</p><p className="money mt-2 text-xl font-black text-[var(--money-out)] sm:text-2xl">{money(totals.total)}</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{filtered.length} transaction{filtered.length===1?"":"s"}</p></Surface>
+   <Surface className="expense-kpi p-4"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Total expenses</p><p className="money mt-2 text-xl font-black text-[var(--money-out)] sm:text-2xl">{money(totals.total)}</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{periodLabel} · {filtered.length} transaction{filtered.length===1?"":"s"}</p></Surface>
    <Surface className="expense-kpi p-4"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">This month</p><p className="money mt-2 text-xl font-black sm:text-2xl">{money(totals.month)}</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">Current calendar month</p></Surface>
    <Surface className="expense-kpi p-4"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Average / month</p><p className="money mt-2 text-xl font-black sm:text-2xl">{money(totals.total/monthCount)}</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">Across selected range</p></Surface>
    <Surface className="expense-kpi p-4"><p className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Top category</p><p className="mt-2 truncate text-lg font-black sm:text-xl">{topCategory?.name??"—"}</p><p className="money mt-1 text-[10px] text-[var(--text-muted)]">{topCategory?money(topCategory.amount):"No spending yet"}</p></Surface>
@@ -152,7 +167,7 @@ export default function ExpensesPage(){
 
   <div className="grid gap-4 xl:grid-cols-[.82fr_1.18fr]">
    <Surface className="dashboard-panel p-4 sm:p-5"><div className="mb-4"><p className="dashboard-kicker">Category mix</p><h2 className="mt-1 text-base font-bold">Where the money went</h2></div>{byCategory.length?<ExpenseDonut rows={byCategory}/>:<EmptyState title="No expense data in this range"/>}</Surface>
-   <Surface className="dashboard-panel p-4 sm:p-5"><div className="mb-4 flex items-center justify-between"><div><p className="dashboard-kicker">Trend</p><h2 className="mt-1 text-base font-bold">Monthly expense movement</h2></div><span className="text-[10px] text-[var(--text-muted)]">Last 6 months</span></div><MonthlyChart rows={monthly}/></Surface>
+   <Surface className="dashboard-panel p-4 sm:p-5"><div className="mb-4 flex items-center justify-between"><div><p className="dashboard-kicker">Trend</p><h2 className="mt-1 text-base font-bold">Monthly expense movement</h2></div><span className="text-[10px] text-[var(--text-muted)]">{periodLabel}</span></div><MonthlyChart rows={monthly}/></Surface>
   </div>
 
   <div className="grid gap-4 xl:grid-cols-[.72fr_1.28fr]">
