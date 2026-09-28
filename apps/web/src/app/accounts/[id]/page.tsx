@@ -202,8 +202,12 @@ function activityType(tx:RowTx,row:Row,source:BusinessTx){
 }
 function activityPresentation(tx:RowTx,row:Row,summary:{primary:string;secondary:string}){
   const source=ledgerBusinessSource(tx);
-  const name=source.quickCashTransfer?.customerName
+  const quickCustomer=source.quickCashTransfer?.customerName
     ??source.customer?.fullName
+    ??source.quickCashTransfer?.mobileNumber
+    ??null;
+  const name=quickCustomer
+    ??(source.quickCashTransfer?.purpose==="TRANSFER"?"Walk-in customer":null)
     ??source.cashTransfer?.beneficiary?.beneficiaryName
     ??source.cashTransfer?.customerBankAccount?.accountHolderName
     ??source.cashTransfer?.customerUpiAccount?.accountName
