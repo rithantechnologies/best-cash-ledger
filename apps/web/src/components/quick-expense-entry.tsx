@@ -21,9 +21,11 @@ const money=(value:number|string)=>new Intl.NumberFormat("en-IN",{
 
 export function QuickExpenseEntry({
   onSaved,
+  showTrigger=true,
   buttonClassName="",
 }:{
   onSaved?:()=>void;
+  showTrigger?:boolean;
   buttonClassName?:string;
 }){
   const [open,setOpen]=useState(false);
@@ -42,6 +44,7 @@ export function QuickExpenseEntry({
   const [note,setNote]=useState("");
 
   useEffect(()=>setReady(true),[]);
+  useEffect(()=>{const fn=()=>setOpen(true);window.addEventListener("cashledger:open-quick-expense",fn);return()=>window.removeEventListener("cashledger:open-quick-expense",fn);},[]);
   useEffect(()=>{
     if(!open)return;
     const previous=document.body.style.overflow;
@@ -116,10 +119,10 @@ export function QuickExpenseEntry({
   }
 
   return <>
-    <button type="button" aria-label="Expense" onClick={()=>setOpen(true)}
+    {showTrigger?<button type="button" aria-label="Expense" onClick={()=>setOpen(true)}
       className={"flex min-h-10 items-center gap-2 rounded-full bg-violet-600 px-3.5 text-[13px] font-black text-white shadow-[0_8px_22px_rgba(124,58,237,.24)] transition hover:-translate-y-0.5 active:translate-y-0 "+buttonClassName}>
       <span className="text-base leading-none">₹</span><span>Expense</span>
-    </button>
+    </button>:null}
 
     {ready&&open?createPortal(
       <div className="fixed inset-0 z-[110] grid place-items-end bg-black/45 p-0 sm:place-items-center sm:p-5" role="dialog" aria-modal="true" aria-label="Quick expense">

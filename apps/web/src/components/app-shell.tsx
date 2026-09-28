@@ -131,7 +131,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const hideShellSearch=isPreviewIndex;
   const showShellNew=pathname!=="/accounts";
   const [role,setRole]=useState(""),[userName,setUserName]=useState(""),[search,setSearch]=useState("");
-  const [menuOpen,setMenuOpen]=useState(false),[newOpen,setNewOpen]=useState(false),[navigating,setNavigating]=useState(false);
+  const [menuOpen,setMenuOpen]=useState(false),[newOpen,setNewOpen]=useState(false),[speedDialOpen,setSpeedDialOpen]=useState(false),[navigating,setNavigating]=useState(false);
   const [desktopCollapsed,setDesktopCollapsed]=useState(cachedDesktopCollapsed??false);
   const [desktopUserOpen,setDesktopUserOpen]=useState(false);
   const [theme,setTheme]=useState<ThemeMode>("system");
@@ -150,7 +150,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setDesktopCollapsed(collapsed);
     }catch{}
   },[]);
-  useEffect(()=>{setMenuOpen(false);setNewOpen(false);setDesktopUserOpen(false);setCustomerSearchOpen(false);setNavigating(false);},[pathname]);
+  useEffect(()=>{setMenuOpen(false);setNewOpen(false);setSpeedDialOpen(false);setDesktopUserOpen(false);setCustomerSearchOpen(false);setNavigating(false);},[pathname]);
   useEffect(()=>{
     const locked=menuOpen||newOpen;
     document.body.style.overflow=locked?"hidden":"";
@@ -284,10 +284,20 @@ export function AppShell({ children }: { children: ReactNode }) {
 
     {newOpen?<div className="fixed inset-0 z-[60] lg:hidden"><button className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={()=>setNewOpen(false)} aria-label="Close new transaction"/><div className="absolute inset-x-0 bottom-0 rounded-t-[28px] border-t border-[var(--border)] bg-[var(--surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl"><div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border)]"/><div className="mb-3 flex items-center justify-between"><strong>New transaction</strong><Link href="/transactions/new" className="text-xs font-semibold text-[var(--accent)]">All types</Link></div><div className="grid grid-cols-2 gap-2">{quickActions.map(([label,href,short])=>href==="/transactions/card-swipe"?<button type="button" key={href} onClick={()=>{setNewOpen(false);window.dispatchEvent(new CustomEvent("cashledger:open-quick-card-swipe"));}} className="app-quick-action flex min-h-16 items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-4 text-left"><span className="font-bold">{label}</span><span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{short}</span></button>:<Link key={href} href={href} className="app-quick-action flex min-h-16 items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-4"><span className="font-bold">{label}</span><span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{short}</span></Link>)}</div></div></div>:null}
 
-    <div className={(menuOpen||newOpen?"hidden ":"")+"fixed right-3 z-[45] flex flex-col items-end gap-2 lg:right-5 "+((pathname==="/"||pathname==="/cash-counter")?"bottom-[calc(10.85rem+env(safe-area-inset-bottom))] lg:bottom-[108px]":isTaskFlow?"bottom-4 lg:bottom-5":"bottom-[calc(5.35rem+env(safe-area-inset-bottom))] lg:bottom-5")}>
-      <QuickCardSwipeEntry showTrigger={pathname!=="/transactions/card-swipe"} buttonClassName="!min-h-9 !gap-1.5 !px-3 !text-[12px] whitespace-nowrap" onSaved={()=>router.refresh()}/>
+    {!isDashboard?<><QuickCardSwipeEntry showTrigger={false} onSaved={()=>router.refresh()}/><QuickExpenseEntry showTrigger={false} onSaved={()=>router.refresh()}/></>:null}
+
+    {isDashboard?<div className={(menuOpen||newOpen?"hidden ":"")+"fixed right-3 z-[45] flex flex-col items-end gap-2 bottom-[calc(10.85rem+env(safe-area-inset-bottom))] lg:bottom-[108px] lg:right-5"}>
+      <QuickCardSwipeEntry buttonClassName="!min-h-9 !gap-1.5 !px-3 !text-[12px] whitespace-nowrap" onSaved={()=>router.refresh()}/>
       <QuickExpenseEntry buttonClassName="!min-h-9 !gap-1.5 !px-3 !text-[12px] whitespace-nowrap" onSaved={()=>router.refresh()}/>
-    </div>
+    </div>:<div className={(menuOpen||newOpen?"hidden ":"")+"fixed right-3 z-[45] flex flex-col items-end gap-2 lg:right-5 "+(isTaskFlow?"bottom-4 lg:bottom-5":"bottom-[calc(5.35rem+env(safe-area-inset-bottom))] lg:bottom-5")}>
+      {speedDialOpen?<div className="flex flex-col items-end gap-2" role="menu" aria-label="Quick actions">
+        <Link href="/cash-counter?quick=IN" onClick={()=>setSpeedDialOpen(false)} className="flex min-h-10 items-center gap-2 rounded-full bg-emerald-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>↓</span><span>Cash In</span></Link>
+        <Link href="/cash-counter?quick=OUT" onClick={()=>setSpeedDialOpen(false)} className="flex min-h-10 items-center gap-2 rounded-full bg-rose-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>↑</span><span>Cash Out</span></Link>
+        {pathname!=="/transactions/card-swipe"?<button type="button" onClick={()=>{setSpeedDialOpen(false);window.dispatchEvent(new CustomEvent("cashledger:open-quick-card-swipe"));}} className="flex min-h-10 items-center gap-2 rounded-full bg-indigo-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>▣</span><span>Card Swipe</span></button>:null}
+        <button type="button" onClick={()=>{setSpeedDialOpen(false);window.dispatchEvent(new CustomEvent("cashledger:open-quick-expense"));}} className="flex min-h-10 items-center gap-2 rounded-full bg-violet-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>₹</span><span>Expense</span></button>
+      </div>:null}
+      <button type="button" onClick={()=>setSpeedDialOpen(open=>!open)} aria-expanded={speedDialOpen} aria-label={speedDialOpen?"Close quick actions":"Open quick actions"} className="grid h-12 w-12 place-items-center rounded-full bg-[var(--accent)] text-2xl font-black text-white shadow-[0_10px_26px_rgba(37,99,235,.30)] transition active:scale-95"><span className={"transition-transform "+(speedDialOpen?"rotate-45":"")}>+</span></button>
+    </div>}
 
     {!isTaskFlow?<nav className="app-mobile-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_94%,transparent)] px-1.5 pb-[max(.4rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-12px_30px_rgba(15,23,42,.08)] backdrop-blur-xl lg:hidden">
       <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/")?"bg-[var(--accent-soft)]":"")}><Icon name="home" className="h-[19px] w-[19px]"/></span><span>Home</span></Link>
