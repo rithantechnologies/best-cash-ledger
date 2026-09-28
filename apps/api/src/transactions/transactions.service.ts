@@ -130,6 +130,11 @@ export class TransactionsService {
       : {};
 
     const where: Prisma.TransactionWhereInput = {
+      // Quick-cash completion (QCC) rows are internal settlement postings for
+      // their parent QCT transaction. Keep them in the ledger/audit trail, but
+      // exclude them from the customer-facing transaction list so processed
+      // totals and transaction counts are not doubled.
+      NOT: { transactionNumber: { startsWith: 'QCC-' } },
       ...(options?.q ? {
         OR: [
           { transactionNumber: { contains: options.q, mode: 'insensitive' } },
