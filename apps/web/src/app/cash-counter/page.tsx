@@ -321,6 +321,7 @@ export default function CashCounterPage(){
   const quickServiceRef=useRef<HTMLInputElement>(null);
   const [portalReady,setPortalReady]=useState(false);
   const [pendingQuickCash,setPendingQuickCash]=useState<QuickCashPending[]>([]);
+  const [completedQuickCashIds,setCompletedQuickCashIds]=useState<string[]>([]);
   const [completePendingId,setCompletePendingId]=useState<string|null>(null);
   const [completeSourceAccountId,setCompleteSourceAccountId]=useState("");
   const [completeSourceAllocations,setCompleteSourceAllocations]=useState<CompleteSourceAllocation[]>([]);
@@ -808,6 +809,7 @@ export default function CashCounterPage(){
         notes:completeNotes.trim()||undefined,
       })});
       rememberCustomerName(completeCustomerName);
+      setCompletedQuickCashIds((current)=>current.includes(completePendingId)?current:[...current,completePendingId]);
       setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteSourceAllocations([]);setCompleteCommissionAccountId("");setCompleteCommissionAccountOverridden(false);setCompleteBeneficiaryMode("UPI");setCompleteBeneficiaryUpi("");setCompleteBankAccountHolder("");setCompleteBankAccountNumber("");setCompleteBankIfsc("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
       await load(cashAccountId);
     }catch(err){setCompleteError(err instanceof Error?err.message:"Failed to complete pending cash entry");}
@@ -834,6 +836,22 @@ export default function CashCounterPage(){
     setCompleteBeneficiaryUpi(mode==="UPI"?(item.beneficiaryDetails||""):"");
     setCompleteBankAccountHolder(bank.accountHolder);setCompleteBankAccountNumber(bank.accountNumber);setCompleteBankIfsc(bank.ifsc);
     setCompleteCustomerName(item.customerName||"");setCompleteMobile(item.mobileNumber||"");setCompleteReference("");setCompleteNotes("");setCompleteError("");
+  }
+
+  async function openPendingCompletionById(transactionId:string){
+    let item=pendingQuickCash.find((pending)=>pending.id===transactionId);
+    if(!item){
+      try{
+        const refreshed=await apiFetch<QuickCashPending[]>("/transactions/quick-cash/pending?cashAccountId="+encodeURIComponent(cashAccountId));
+        setPendingQuickCash(refreshed);
+        item=refreshed.find((pending)=>pending.id===transactionId);
+      }catch(err){
+        setError(err instanceof Error?err.message:"Could not load pending cash entry");
+        return;
+      }
+    }
+    if(!item){setCompletedQuickCashIds((current)=>current.includes(transactionId)?current:[...current,transactionId]);return;}
+    openPendingCompletion(item);
   }
 
   function selectMovement(movement:{id:string;activityId?:string}){
@@ -903,7 +921,7 @@ export default function CashCounterPage(){
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5">
           <p className="truncate text-sm font-bold">{today.cashAccount.accountName}{today.openedBy?.fullName?" · "+today.openedBy.fullName:""}</p>
           <div className="flex shrink-0 items-center gap-2">
-            {!isClosed?<QuickCashRushEntryV2 cashAccountId={today.cashAccountId} onSaved={()=>load(today.cashAccountId)}/>:null}
+            {!isClosed?<QuickCashRushEntryV2 cashAccountId={today.cashAccountId} onSaved={()=>load(today.cashAccountId)} pendingTransactionIds={pendingQuickCash.map((item)=>item.id)} completedTransactionIds={completedQuickCashIds} onCompleteTransaction={openPendingCompletionById} onShowPending={()=>requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}))}/>:null}
             <p className="text-[13px] font-semibold text-[var(--text-muted)]">{new Date(today.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(today.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
             {!isClosed?<span className="dashboard-live-badge"><i/>Live</span>:<span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-extrabold text-emerald-200">Closed</span>}
           </div>

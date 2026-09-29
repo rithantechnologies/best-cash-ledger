@@ -11,6 +11,7 @@ type CashOutType="UPI_QR"|"AEPS"|"MICRO_ATM";
 type CommissionMode="CASH"|"UPI"|"SPLIT";
 type BeneficiaryMode="UPI"|"BANK";
 type RowStatus="READY"|"SAVING"|"SAVED"|"ERROR";
+type RowFilter="ALL"|"UNSAVED"|"PENDING"|"COMPLETE";
 type Account={id:string;accountName:string;accountType:string;isActive?:boolean;currentBalance?:string|number};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;allowPartnerFulfillment:boolean;defaultPartnerName:string|null;defaultPartnerCharge:string|number|null;isActive:boolean};
 type TransferType={id:string;name:string;transferMode:BeneficiaryMode;defaultCommissionRate:string|number;isActive:boolean};
@@ -92,9 +93,12 @@ function rowError(row:RushRow,services:ServiceConfig[]){
   }
   return "";
 }
-export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cashAccountId:string;disabled?:boolean;onSaved?:()=>void|Promise<void>}){
+export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCompleteTransaction,onShowPending,completedTransactionIds=[],pendingTransactionIds=[]}:{cashAccountId:string;disabled?:boolean;onSaved?:()=>void|Promise<void>;onCompleteTransaction?:(transactionId:string)=>void|Promise<void>;onShowPending?:()=>void;completedTransactionIds?:string[];pendingTransactionIds?:string[]}){
   const router=useRouter();
   const [open,setOpen]=useState(false);
+  const [minimized,setMinimized]=useState(false);
+  const [maximized,setMaximized]=useState(false);
+  const [rowFilter,setRowFilter]=useState<RowFilter>("ALL");
   const [rows,setRows]=useState<RushRow[]>([]);
   const [accounts,setAccounts]=useState<Account[]>([]);
   const [services,setServices]=useState<ServiceConfig[]>([]);
@@ -102,7 +106,6 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
   const [configError,setConfigError]=useState("");
   const [savingAll,setSavingAll]=useState(false);
   const [savedSinceRefresh,setSavedSinceRefresh]=useState(false);
-  const [rowMenuKey,setRowMenuKey]=useState<string|null>(null);
   const amountRefs=useRef<Record<string,HTMLInputElement|null>>({});
   const customerSearchTimers=useRef<Record<string,number>>({});
   const lastDirection=useRef<Direction>("IN");
@@ -139,19 +142,27 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
   }
   async function openRush(){
     if(disabled||!cashAccountId)return;
-    setSavedSinceRefresh(false);setSavingAll(false);setOpen(true);amountRefs.current={};
+    setSavingAll(false);setOpen(true);setMinimized(false);amountRefs.current={};
     const transferRows=await loadConfig();
+    if(rows.length){
+      window.setTimeout(()=>{
+        const firstEditable=rows.find((row)=>row.status!=="SAVED");
+        if(firstEditable)amountRefs.current[firstEditable.key]?.focus();
+      },60);
+      return;
+    }
     const defaultType=transferRows.find((item)=>item.isActive!==false);
-    const initial=Array.from({length:4},()=>readyRow(lastDirection.current,defaultType));
+    const initial=Array.from({length:10},()=>readyRow(lastDirection.current,defaultType));
     setRows(initial);
     window.setTimeout(()=>amountRefs.current[initial[0].key]?.focus(),60);
   }
   async function closeRush(){
-    const unsaved=rows.some((row)=>row.status!=="SAVED"&&hasDraft(row));
-    if(unsaved&&!window.confirm("Discard unsaved rush-entry rows? Saved rows are already recorded."))return;
-    setOpen(false);
-    if(savedSinceRefresh)await onSaved?.();
+    setOpen(false);setMinimized(false);setMaximized(false);
+    if(savedSinceRefresh){await onSaved?.();setSavedSinceRefresh(false);}
   }
+  function minimizeRush(){setMinimized(true);setRowFilter("ALL");}
+  function restoreRush(){setMinimized(false);setOpen(true);}
+
   function updateRow(key:string,patch:Partial<RushRow>){
     setRows((current)=>keepTrailingBlank(current.map((row)=>row.key===key&&row.status!=="SAVED"?{...row,...patch,status:"READY",message:undefined}:row)));
   }
@@ -172,11 +183,9 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
       if(direction==="IN"&&defaultType){next.transferTypeId=defaultType.id;next.beneficiaryMode=defaultType.transferMode;}
       return next;
     })));
-    setRowMenuKey(null);
   }
   function toggleExpanded(key:string){
     setRows((current)=>current.map((row)=>row.key===key?{...row,expanded:!row.expanded}:row.expanded?{...row,expanded:false}:row));
-    setRowMenuKey(null);
   }
   function setTransferType(key:string,id:string){
     const type=activeTransferTypes.find((item)=>item.id===id);
@@ -229,8 +238,11 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
     requestAnimationFrame(()=>amountRefs.current[row.key]?.focus());
   }
   function removeRow(key:string){
-    setRows((current)=>current.length<=1?current:keepTrailingBlank(current.filter((row)=>row.key!==key)));
-    setRowMenuKey(null);
+    setRows((current)=>{
+      const next=current.filter((row)=>row.key!==key);
+      while(next.length<10)next.push(readyRow(lastDirection.current));
+      return keepTrailingBlank(next);
+    });
   }
   function focusRelative(key:string,delta:number){
     const index=rows.findIndex((row)=>row.key===key),target=rows[index+delta];
@@ -302,24 +314,27 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
   async function openTransaction(row:RushRow){
     if(!row.transactionId)return;setOpen(false);if(savedSinceRefresh)await onSaved?.();router.push("/transactions/"+row.transactionId);
   }
+  const completedSet=new Set(completedTransactionIds);
   const savedRows=rows.filter((row)=>row.status==="SAVED"),enteredRows=rows.filter(hasDraft);
+  const pendingRows=rows.filter((row)=>row.status==="SAVED"&&row.savedStatus==="PENDING"&&Boolean(row.transactionId)&&!completedSet.has(row.transactionId!));
+  const completeRows=rows.filter((row)=>row.status==="SAVED"&&!pendingRows.includes(row));
   const readyTotal=enteredRows.reduce((sum,row)=>sum+Number(row.amount||0),0);
   const unsavedCount=rows.filter((row)=>row.status!=="SAVED"&&hasDraft(row)).length;
+  const visibleRows=rows.map((row,index)=>({row,index})).filter(({row})=>rowFilter==="ALL"||(rowFilter==="UNSAVED"&&row.status!=="SAVED")||(rowFilter==="PENDING"&&pendingRows.includes(row))||(rowFilter==="COMPLETE"&&completeRows.includes(row)));
 
   return <>
     <button type="button" onClick={openRush} disabled={disabled||!cashAccountId}
       className="flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-slate-900 px-3 text-[12px] font-black text-white shadow-[0_6px_18px_rgba(15,23,42,.22)] transition hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40">
       <span className="text-sm">▦</span><span>Rush / Bulk</span>
     </button>
-    {open&&typeof document!=="undefined"?createPortal(
+    {open&&minimized&&typeof document!=="undefined"?createPortal(<div className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-[90] flex min-w-[340px] items-center gap-3 rounded-2xl border border-violet-200 bg-white px-4 py-3 shadow-2xl"><div className="min-w-0 flex-1"><p className="text-xs font-black">Rush Cash Entry</p><p className="mt-0.5 text-[10px] font-bold text-[var(--text-muted)]">{savedRows.length} saved · {pendingRows.length} pending · {unsavedCount} unsaved</p></div><button type="button" onClick={restoreRush} className="min-h-9 rounded-lg bg-violet-600 px-3 text-[10px] font-black text-white">Restore</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] font-black text-[var(--text-muted)]">×</button></div>,document.body):null}
+    {open&&!minimized&&typeof document!=="undefined"?createPortal(
       <div className="fixed inset-0 z-[105] flex flex-col bg-black/45 p-0 sm:p-3" role="dialog" aria-modal="true" aria-label="Rush cash entry">
-        <div className="m-auto flex max-h-[97dvh] w-full max-w-[1480px] flex-col overflow-hidden rounded-none bg-[var(--surface)] shadow-2xl sm:rounded-[22px]">
-          <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] px-4 sm:px-5">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="truncate text-[17px] font-black tracking-[-.03em]">Rush Cash Entry</h2>
-              <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">Counter</span>
-            </div>
-            <button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--surface-soft)] text-lg font-bold text-[var(--text-muted)]" aria-label="Close rush entry">×</button>
+        <div className={"m-auto flex w-full flex-col overflow-hidden bg-[var(--surface)] shadow-2xl "+(maximized?"h-[100dvh] max-h-[100dvh] max-w-none rounded-none":"max-h-[97dvh] max-w-[1480px] rounded-none sm:rounded-[22px]")}>
+          <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-1.5 sm:px-4">
+            <div className="flex min-w-0 items-center gap-2"><h2 className="truncate text-[17px] font-black tracking-[-.03em]">Rush Cash Entry</h2><span className="rounded-full bg-slate-900 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">Counter</span></div>
+            <div className="flex items-center gap-1 rounded-lg bg-[var(--surface-soft)] p-0.5">{(["ALL","UNSAVED","PENDING","COMPLETE"] as RowFilter[]).map((filter)=><button key={filter} type="button" onClick={()=>setRowFilter(filter)} className={"min-h-7 rounded-md px-2 text-[9px] font-black "+(rowFilter===filter?"bg-white text-violet-700 shadow-sm":"text-[var(--text-muted)]")}>{filter==="ALL"?"All":filter==="UNSAVED"?"Unsaved "+unsavedCount:filter==="PENDING"?"Pending "+pendingRows.length:"Complete "+completeRows.length}</button>)}</div>
+            <div className="flex items-center gap-1">{pendingTransactionIds.length&&onShowPending?<button type="button" onClick={()=>{setOpen(false);setMinimized(false);onShowPending();}} className="min-h-8 rounded-lg bg-amber-50 px-2.5 text-[9px] font-black text-amber-800">Daily pending {pendingTransactionIds.length}</button>:null}<button type="button" onClick={minimizeRush} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-sm font-black text-[var(--text-muted)]" aria-label="Minimize">—</button><button type="button" onClick={()=>setMaximized((value)=>!value)} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-xs font-black text-[var(--text-muted)]" aria-label={maximized?"Restore size":"Maximize"}>{maximized?"❐":"□"}</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-lg font-bold text-[var(--text-muted)]" aria-label="Close rush entry">×</button></div>
           </header>
           {configError?<div className="shrink-0 border-b border-amber-200 bg-amber-50 px-5 py-1.5 text-[10px] font-bold text-amber-800">{configError}</div>:null}
 
@@ -329,14 +344,15 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
                 <span>#</span><span>Type</span><span>Mode <b className="text-rose-500">*</b></span><span>Amount <b className="text-rose-500">*</b></span><span>Fee</span><span>Due</span><span className="opacity-70">Customer · optional</span><span className="text-right">Action</span>
               </div>
               <div className="divide-y divide-[var(--border)]">
-                {rows.map((row,index)=>{
+                {visibleRows.map(({row,index})=>{
                   const modeValue=row.direction==="OUT"?row.cashOutType:row.purpose==="SERVICE"?"SERVICE":row.transferTypeId?"TR:"+row.transferTypeId:"";
                   const selectedService=activeServices.find((item)=>item.name.toLowerCase()===row.serviceName.trim().toLowerCase());
                   const due=cashDue(row),given=row.cashReceived.trim()?Number(row.cashReceived):due,change=Math.max(0,given-due);
                   const primaryDue=row.direction==="IN"&&row.purpose==="TRANSFER"?due:Number(row.amount||0);
                   const dueWord=row.direction==="OUT"?"payout":row.purpose==="SERVICE"?"charge":"due";
                   const customerValue=row.customerLookup||row.customerName;
-                  return <div key={row.key} className={row.expanded?"bg-violet-50/20":row.status==="SAVED"?"bg-emerald-50/30":""}>
+                  const isPending=row.status==="SAVED"&&row.savedStatus==="PENDING"&&Boolean(row.transactionId)&&!completedSet.has(row.transactionId!);
+                  return <div key={row.key} className={row.expanded?"bg-violet-50/20":row.status==="SAVED"?(isPending?"bg-amber-50/30":"bg-emerald-50/30"):""}>
                     <div className="grid grid-cols-[34px_118px_175px_125px_92px_110px_minmax(210px,1fr)_168px] items-center gap-2 px-3 py-1.5">
                       <span className="text-center text-[10px] font-black text-[var(--text-muted)]">{index+1}</span>
                       <select value={row.direction} disabled={row.status==="SAVED"||row.status==="SAVING"} onChange={(event)=>setDirection(row.key,event.target.value as Direction)}
@@ -370,15 +386,12 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
                           {row.customerSearchLoading?<p className="px-2 py-1.5 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer)=><button key={customer.id} type="button" onClick={()=>selectExistingCustomer(row.key,customer)} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-[var(--surface-soft)]"><span className="min-w-0"><strong className="block truncate text-[10px]">{customer.fullName}</strong><span className="block truncate text-[9px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span></span><span className="text-[9px] font-black text-violet-600">Use</span></button>):<p className="px-2 py-1.5 text-[10px] text-[var(--text-muted)]">No match · will save as entered</p>}
                         </div>:null}
                       </div>
-                      <div className="relative flex items-center justify-end gap-1.5">
-                        {row.status==="SAVED"?<><span className="mr-1 text-[10px] font-black text-emerald-700">✓ Saved</span><button type="button" onClick={()=>void openTransaction(row)} className="min-h-8 rounded-lg bg-emerald-600 px-2.5 text-[10px] font-black text-white">Open</button></>:
+                      <div className="flex items-center justify-end gap-1.5">
+                        {row.status==="SAVED"?isPending?<><span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-800">Pending</span><button type="button" onClick={()=>{setMinimized(true);if(row.transactionId)void onCompleteTransaction?.(row.transactionId);}} className="min-h-8 rounded-lg bg-amber-500 px-2.5 text-[10px] font-black text-white">Complete</button></>:<><span className="rounded-full bg-emerald-100 px-2 py-1 text-[9px] font-black text-emerald-700">✓ Complete</span><button type="button" onClick={()=>void openTransaction(row)} className="min-h-8 rounded-lg bg-emerald-600 px-2.5 text-[10px] font-black text-white">Open</button></>:
                         <>{row.status==="SAVING"?<span className="mr-1 text-[9px] font-black text-violet-700">Saving…</span>:row.status==="ERROR"?<span title={row.message} className="grid h-6 w-6 place-items-center rounded-full bg-rose-50 text-[10px] font-black text-rose-600">!</span>:null}
+                          <button type="button" disabled={row.status==="SAVING"} onClick={()=>toggleExpanded(row.key)} className={"min-h-8 rounded-lg px-2.5 text-[10px] font-black "+(row.expanded?"bg-violet-100 text-violet-700":"bg-[var(--surface-soft)] text-violet-700")}>{row.expanded?"Hide":"Details"}</button>
                           <button type="button" disabled={row.status==="SAVING"||!hasDraft(row)} onClick={()=>void saveRow(row.key)} className="min-h-8 rounded-lg bg-violet-600 px-3 text-[10px] font-black text-white shadow-sm disabled:opacity-25">Save</button>
-                          <button type="button" disabled={row.status==="SAVING"} onClick={()=>setRowMenuKey((current)=>current===row.key?null:row.key)} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-sm font-black text-[var(--text-muted)] hover:text-[var(--text)]" aria-label={"Row "+(index+1)+" options"}>•••</button>
-                          {rowMenuKey===row.key?<div className="absolute right-0 top-[calc(100%+4px)] z-50 w-36 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
-                            <button type="button" onClick={()=>toggleExpanded(row.key)} className="flex min-h-9 w-full items-center rounded-lg px-2.5 text-left text-[10px] font-black hover:bg-[var(--surface-soft)]">{row.expanded?"Hide details":"Details"}</button>
-                            <button type="button" onClick={()=>removeRow(row.key)} className="flex min-h-9 w-full items-center rounded-lg px-2.5 text-left text-[10px] font-black text-rose-600 hover:bg-rose-50">Remove row</button>
-                          </div>:null}</>}
+                          <button type="button" disabled={row.status==="SAVING"} onClick={()=>removeRow(row.key)} className="grid h-8 w-7 place-items-center rounded-lg text-sm font-black text-[var(--text-muted)] opacity-35 transition hover:bg-rose-50 hover:text-rose-600 hover:opacity-100" aria-label={"Remove row "+(index+1)}>×</button></>}
                       </div>
                     </div>
 
