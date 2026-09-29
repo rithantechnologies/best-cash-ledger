@@ -977,7 +977,7 @@ export default function CashCounterPage(){
           </div>
         </div>
 
-        <div className="hidden lg:grid lg:grid-cols-2 lg:divide-x lg:divide-[var(--border)]">
+        <div className="hidden md:grid md:grid-cols-2 md:divide-x md:divide-[var(--border)]">
           {(["IN","OUT"] as QuickCashDirection[]).map((side)=>{
             const rows=cashBookRows[side],pageRows=cashBookRowsFor(side),totals=cashBookTotals[side],page=cashBookPageFor(side),pageCount=cashBookPageCounts[side],range=cashBookRangeFor(side);
             return <div key={side} className="min-w-0">
@@ -1009,7 +1009,7 @@ export default function CashCounterPage(){
           })}
         </div>
 
-        <div className="lg:hidden">
+        <div className="md:hidden">
           {(()=>{
             const side=cashBookMobileDirection,rows=cashBookRows[side],pageRows=cashBookRowsFor(side),totals=cashBookTotals[side],page=cashBookPageFor(side),pageCount=cashBookPageCounts[side],range=cashBookRangeFor(side);
             return <>
