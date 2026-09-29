@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { QuickCashRushEntry } from "@/components/quick-cash-rush-entry";
 import { CashHistoryChart, CashMovementChart } from "@/components/cash-desk/cash-desk-charts";
 import { FundsAllocationDonut } from "@/components/dashboard/dashboard-charts";
 import { EmptyState, PageLoader, SectionHeading, Surface } from "@/components/ui";
@@ -794,6 +795,7 @@ export default function CashCounterPage(){
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5">
           <p className="truncate text-sm font-bold">{today.cashAccount.accountName}{today.openedBy?.fullName?" · "+today.openedBy.fullName:""}</p>
           <div className="flex shrink-0 items-center gap-2">
+            {!isClosed?<QuickCashRushEntry cashAccountId={today.cashAccountId} onSaved={()=>load(today.cashAccountId)}/>:null}
             <p className="text-[13px] font-semibold text-[var(--text-muted)]">{new Date(today.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(today.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
             {!isClosed?<span className="dashboard-live-badge"><i/>Live</span>:<span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-extrabold text-emerald-200">Closed</span>}
           </div>
