@@ -1517,13 +1517,10 @@ export default function CashCounterPage(){
               </>}
             </div>
 
-            {completePayoutChargeTotal>0?<div className="rounded-[20px] border border-rose-200 bg-rose-50/60 p-4">
-              <div className="flex items-start justify-between gap-3"><div><span className="block text-[10px] font-black uppercase tracking-[.11em] text-rose-700">Business payout cost</span><p className="mt-1 text-[11px] font-semibold leading-4 text-rose-700/80">Borne by the business. The beneficiary receives the full payout amount; do not collect this charge again from the customer.</p></div><strong className="money shrink-0 text-lg font-black text-rose-700">−{money(completePayoutChargeTotal)}</strong></div>
-              <div className="mt-3 space-y-1.5 rounded-xl bg-white/70 px-3 py-2.5 text-[11px] font-bold">
-                {completePayoutChargeBreakdown.map((row,index)=><div key={row.accountName+"-"+index} className="flex items-center justify-between text-rose-800"><span>{row.accountName} payout charge</span><span>−{money(row.amount)}</span></div>)}
-                <div className="flex items-center justify-between border-t border-rose-200 pt-2 text-[var(--text)]"><span>Customer commission already collected</span><span className="money text-[var(--money-in)]">+{money(completeCustomerCommission)}</span></div>
-                <div className="flex items-center justify-between text-[var(--text)]"><span>Net earning after payout cost</span><strong className={"money "+(completeNetEarningAfterPayout>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(completeNetEarningAfterPayout)}</strong></div>
-              </div>
+            {completePayoutChargeTotal>0?<div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-sm">
+              <div className="flex items-center justify-between"><span className="font-semibold text-[var(--text-muted)]">Payout charge</span><strong className="money text-rose-600">−{money(completePayoutChargeTotal)}</strong></div>
+              <div className="mt-2 flex items-center justify-between"><span className="font-semibold text-[var(--text-muted)]">Commission</span><strong className="money text-[var(--money-in)]">+{money(completeCustomerCommission)}</strong></div>
+              <div className="mt-2 flex items-center justify-between border-t border-[var(--border)] pt-2"><span className="font-black text-[var(--text)]">Net earning</span><strong className={"money text-base font-black "+(completeNetEarningAfterPayout>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(completeNetEarningAfterPayout)}</strong></div>
             </div>:null}
 
             {commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0?<label className="block rounded-[20px] border border-blue-200 bg-blue-50/55 p-4 transition focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
