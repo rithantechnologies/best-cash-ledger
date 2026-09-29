@@ -375,6 +375,11 @@ export default function CashCounterPage(){
   const completePayoutChargeTotal=completePayoutChargeBreakdown.reduce((sum,row)=>sum+row.amount,0);
   const completeCustomerCommission=Number(completingQuickCash?.commissionAmount||0);
   const completeNetEarningAfterPayout=Math.round((completeCustomerCommission-completePayoutChargeTotal)*100)/100;
+  const completeSelectedSourceAccount=completionAccounts.find((account)=>account.id===completeSourceAccountId);
+  const completeSelectedSourceBalance=Number(completeSelectedSourceAccount?.currentBalance??0);
+  const completeAfterPayoutBalance=completeSelectedSourceAccount&&completingQuickCash?.direction==="IN"&&!bankTransferSplitCompletion
+    ?Math.round((completeSelectedSourceBalance-Number(completingQuickCash?.amount||0)-completePayoutChargeTotal)*100)/100
+    :null;
   const roinetCompletionAccountId=useMemo(()=>{
     const roinetAccounts=completionAccounts.filter((account)=>account.accountName.toUpperCase().includes("ROINET"));
     if(roinetAccounts.length<=1)return roinetAccounts[0]?.id??"";
@@ -1469,12 +1474,12 @@ export default function CashCounterPage(){
     </div>,document.body):null}
 
     {portalReady&&completePendingId?createPortal(<div className="fixed inset-0 z-[100] grid place-items-end bg-black/50 p-0 sm:place-items-center sm:p-5" role="dialog" aria-modal="true">
-      <form onSubmit={completeQuickCash} className="flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[30px] bg-[var(--surface)] shadow-2xl sm:max-h-[88dvh] sm:max-w-4xl sm:rounded-[28px]">
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6 sm:py-5">
+      <form onSubmit={completeQuickCash} className="flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-[var(--surface)] shadow-2xl sm:max-h-[86dvh] sm:max-w-3xl sm:rounded-[24px]">
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-4 py-3.5 sm:px-5 sm:py-4">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[.14em] text-amber-700">Pending cash · complete</p>
-            <h3 className="mt-1 text-[23px] font-black tracking-[-.04em] sm:text-[26px]">{completingQuickCash?.direction==="OUT"&&completingQuickCash.cashOutType&&completingQuickCash.cashOutType!=="UPI_QR"?"Complete "+cashOutTypeLabel(completingQuickCash.cashOutType):"Complete transaction"}</h3>
-            {completingQuickCash?<div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+            <p className="text-[9px] font-black uppercase tracking-[.13em] text-amber-700">Pending cash · complete</p>
+            <h3 className="mt-0.5 text-[21px] font-black tracking-[-.035em] sm:text-[24px]">{completingQuickCash?.direction==="OUT"&&completingQuickCash.cashOutType&&completingQuickCash.cashOutType!=="UPI_QR"?"Complete "+cashOutTypeLabel(completingQuickCash.cashOutType):"Complete transaction"}</h3>
+            {completingQuickCash?<div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] font-bold">
               {completingQuickCash.direction==="OUT"?<span className="rounded-full bg-rose-50 px-2.5 py-1 text-rose-700">{cashOutTypeLabel(completingQuickCash.cashOutType)}</span>:null}
               <span className="rounded-full bg-[var(--surface-soft)] px-2.5 py-1">Amount {money(completingQuickCash.amount)}</span>
               <span className="rounded-full bg-[var(--surface-soft)] px-2.5 py-1">{Number(completingQuickCash.commissionAmount)>0?(completingQuickCash.cashOutType==="MICRO_ATM"?"Commission "+money(completingQuickCash.commissionAmount)+" · settlement pending":"Commission "+money(completingQuickCash.commissionAmount)+" · "+commissionBreakdownLabel(Number(completingQuickCash.commissionAmount),completingQuickCash.commissionMode,completingQuickCash.commissionCashAmount)):"No commission"}</span>
@@ -1485,18 +1490,16 @@ export default function CashCounterPage(){
           <button type="button" onClick={()=>{setCompletePendingId(null);setCompleteError("");}} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)] transition hover:bg-[var(--border)] active:scale-95" aria-label="Close">×</button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">
           {completeError?<div role="alert" className="mb-4 rounded-[16px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-extrabold leading-5 text-rose-700">
             <span className="mr-2">!</span>{completeError}
           </div>:null}
 
-          <div className={"grid gap-3 "+(commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0?"lg:grid-cols-2":"")}>
-            <div className="block rounded-[20px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 transition focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]">
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-3.5 transition focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]">
               <div className="flex items-center justify-between gap-3">
-                <div>
-                  <span className="block text-[10px] font-black uppercase tracking-[.11em] text-[var(--text-muted)]">{bankTransferSplitCompletion?"Transferred from wallets":completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI / bank received in"):"Money transferred from"} <span className="text-rose-500">*</span></span>
-                </div>
-                {bankTransferSplitCompletion?<strong className="money shrink-0 text-sm font-black">{money(completeAllocatedAmount)} / {money(Number(completingQuickCash?.amount||0))}</strong>:completeSourceAccountId?<strong className="money shrink-0 text-sm font-black">{money(accounts.find((account)=>account.id===completeSourceAccountId)?.currentBalance??0)}</strong>:null}
+                <span className="text-[11px] font-black text-[var(--text)]">{bankTransferSplitCompletion?"Transferred from wallets":completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI / bank received in"):"Money transferred from"} <span className="text-rose-500">*</span></span>
+                {bankTransferSplitCompletion?<strong className="money shrink-0 text-xs font-black">{money(completeAllocatedAmount)} / {money(Number(completingQuickCash?.amount||0))}</strong>:null}
               </div>
               {bankTransferSplitCompletion?<div className="mt-3 space-y-2">
                 {completeSourceAllocations.map((row,index)=><div key={index} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
@@ -1528,20 +1531,20 @@ export default function CashCounterPage(){
                   <option value="">Select Bank / UPI / Wallet</option>
                   {completionSourceAccounts.map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
                 </SearchableSelect>
-                {completeSourceAccountId?<div className="mt-3 flex items-center justify-between rounded-xl bg-[var(--surface)] px-3 py-2.5 text-[13px] font-bold">
-                  <span className="text-[var(--text-muted)]">Current balance</span>
-                  <strong className="money text-[16px] font-black text-[var(--text)]">{money(accounts.find((account)=>account.id===completeSourceAccountId)?.currentBalance??0)}</strong>
+                {completeSourceAccountId?<div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-[11px] font-semibold text-[var(--text-muted)]">
+                  <span>Balance <strong className="money ml-1 text-[var(--text)]">{money(completeSelectedSourceBalance)}</strong></span>
+                  {completeAfterPayoutBalance!==null?<span>After payout <strong className={"money ml-1 "+(completeAfterPayoutBalance>=0?"text-[var(--text)]":"text-rose-600")}>{money(completeAfterPayoutBalance)}</strong></span>:null}
                 </div>:null}
               </>}
             </div>
 
-            {completePayoutChargeTotal>0?<div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-sm">
-              <div className="flex items-center justify-between"><span className="font-semibold text-[var(--text-muted)]">Payout charge</span><strong className="money text-rose-600">−{money(completePayoutChargeTotal)}</strong></div>
-              <div className="mt-2 flex items-center justify-between"><span className="font-semibold text-[var(--text-muted)]">Commission</span><strong className="money text-[var(--money-in)]">+{money(completeCustomerCommission)}</strong></div>
-              <div className="mt-2 flex items-center justify-between border-t border-[var(--border)] pt-2"><span className="font-black text-[var(--text)]">Net earning</span><strong className={"money text-base font-black "+(completeNetEarningAfterPayout>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(completeNetEarningAfterPayout)}</strong></div>
+            {completePayoutChargeTotal>0?<div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] text-center">
+              <div className="px-2 py-2.5"><span className="block text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payout</span><strong className="money mt-0.5 block text-sm font-black text-rose-600">−{money(completePayoutChargeTotal)}</strong></div>
+              <div className="border-x border-[var(--border)] px-2 py-2.5"><span className="block text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Commission</span><strong className="money mt-0.5 block text-sm font-black text-[var(--money-in)]">+{money(completeCustomerCommission)}</strong></div>
+              <div className="px-2 py-2.5"><span className="block text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Net</span><strong className={"money mt-0.5 block text-sm font-black "+(completeNetEarningAfterPayout>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(completeNetEarningAfterPayout)}</strong></div>
             </div>:null}
 
-            {commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0?<label className="block rounded-[20px] border border-blue-200 bg-blue-50/55 p-4 transition focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+            {commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0?<label className="block rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 transition focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <span className="block text-[10px] font-black uppercase tracking-[.11em] text-blue-700">Commission received in <span className="text-rose-500">*</span></span>
@@ -1552,20 +1555,17 @@ export default function CashCounterPage(){
                 <option value="">Select Bank / UPI account</option>
                 {accounts.filter((account)=>account.isActive!==false&&["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType)).map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
               </SearchableSelect>
-              {completeCommissionAccountId?<div className="mt-3 flex items-center justify-between rounded-xl bg-[var(--surface)] px-3 py-2.5 text-[13px] font-bold">
-                <span className="text-[var(--text-muted)]">Current balance</span>
-                <strong className="money text-[16px] font-black">{money(accounts.find((account)=>account.id===completeCommissionAccountId)?.currentBalance??0)}</strong>
-              </div>:null}
+              {completeCommissionAccountId?<p className="mt-1.5 px-1 text-right text-[11px] font-semibold text-[var(--text-muted)]">Balance <strong className="money ml-1 text-[var(--text)]">{money(accounts.find((account)=>account.id===completeCommissionAccountId)?.currentBalance??0)}</strong></p>:null}
             </label>:null}
           </div>
 
-          {completingQuickCash?.direction==="IN"?<div className="mt-4 rounded-[18px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary destination</span>
+          {completingQuickCash?.direction==="IN"?<div className="mt-3 border-t border-[var(--border)] pt-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-black text-[var(--text)]">Beneficiary</span>
               <div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>{setCompleteBeneficiaryMode("UPI");setCompleteSourceAllocations([]);if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId(paySwitchCompletionAccountId);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(mirrorsCompletionCommissionAccount(completingQuickCash,"UPI")?paySwitchCompletionAccountId:"");}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>{setCompleteBeneficiaryMode("BANK");if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId("");setCompleteSourceAllocations([{sourceAccountId:paySwitchCompletionAccountId,amount:String(Number(completingQuickCash?.amount||0)),referenceNumber:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(paySwitchCompletionAccountId);}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div>
             </div>
             {completeBeneficiaryMode==="UPI"
-              ?<input className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-extrabold text-[var(--text)] outline-none" value={completeBeneficiaryUpi} onChange={(event)=>setCompleteBeneficiaryUpi(event.target.value)} placeholder="UPI ID / mobile"/>
+              ?<input className="mt-2 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[15px] font-bold text-[var(--text)] outline-none" value={completeBeneficiaryUpi} onChange={(event)=>setCompleteBeneficiaryUpi(event.target.value)} placeholder="UPI ID / mobile"/>
               :<div className="mt-3 grid gap-2 sm:grid-cols-3">
                 <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Account holder</span><input className="mt-1 w-full bg-transparent p-0 text-[15px] font-extrabold text-[var(--text)] outline-none" value={completeBankAccountHolder} onChange={(event)=>setCompleteBankAccountHolder(event.target.value)} placeholder="Name"/></label>
                 <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Account number</span><input inputMode="numeric" className="mt-1 w-full bg-transparent p-0 text-[15px] font-extrabold text-[var(--text)] outline-none" value={completeBankAccountNumber} onChange={(event)=>setCompleteBankAccountNumber(event.target.value.replace(/\s/g,""))} placeholder="Account no."/></label>
@@ -1573,30 +1573,30 @@ export default function CashCounterPage(){
               </div>}
           </div>:null}
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">
-              <span className="block text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Customer</span>
-              <input name="cashledger_complete_customer_name" autoComplete="section-completecashcustomer name" list="cashledger-daily-cash-complete-remembered-names" className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeCustomerName} onChange={(event)=>setCompleteCustomerName(event.target.value.toUpperCase())}/>
+          <div className="mt-3 grid gap-x-3 gap-y-2 border-t border-[var(--border)] pt-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Customer</span>
+              <input name="cashledger_complete_customer_name" autoComplete="section-completecashcustomer name" list="cashledger-daily-cash-complete-remembered-names" className="min-h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[14px] font-bold text-[var(--text)] outline-none" value={completeCustomerName} onChange={(event)=>setCompleteCustomerName(event.target.value.toUpperCase())}/>
             </label>
-            <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">
-              <span className="block text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Mobile</span>
-              <input type="tel" inputMode="tel" name="cashledger_customer_mobile" autoComplete="section-completecashcustomer tel" className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeMobile} onChange={(event)=>setCompleteMobile(event.target.value)}/>
+            <label className="block">
+              <span className="mb-1 block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Mobile</span>
+              <input type="tel" inputMode="tel" name="cashledger_customer_mobile" autoComplete="section-completecashcustomer tel" className="min-h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[14px] font-bold text-[var(--text)] outline-none" value={completeMobile} onChange={(event)=>setCompleteMobile(event.target.value)}/>
             </label>
-            <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">
-              <span className="block text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">{completingQuickCash?.cashOutType==="AEPS"||completingQuickCash?.cashOutType==="MICRO_ATM"?"Provider reference / RRN":"Reference / UTR"}</span>
-              <input className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeReference} onChange={(event)=>setCompleteReference(event.target.value)}/>
+            <label className="block">
+              <span className="mb-1 block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">{completingQuickCash?.cashOutType==="AEPS"||completingQuickCash?.cashOutType==="MICRO_ATM"?"Provider reference / RRN":"Reference / UTR"}</span>
+              <input className="min-h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[14px] font-bold text-[var(--text)] outline-none" value={completeReference} onChange={(event)=>setCompleteReference(event.target.value)}/>
             </label>
-            <label className="block rounded-[16px] bg-[var(--surface-soft)] px-4 py-3 ring-1 ring-inset ring-[var(--border)]">
-              <span className="block text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Remarks</span>
-              <input className="mt-1.5 w-full border-0 bg-transparent p-0 text-[17px] font-extrabold text-[var(--text)] outline-none placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="" value={completeNotes} onChange={(event)=>setCompleteNotes(event.target.value)}/>
+            <label className="block">
+              <span className="mb-1 block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Remarks</span>
+              <input className="min-h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[14px] font-bold text-[var(--text)] outline-none" value={completeNotes} onChange={(event)=>setCompleteNotes(event.target.value)}/>
             </label>
           </div>
           <datalist id="cashledger-daily-cash-complete-remembered-names">{rememberedCustomerNames.map(name=><option key={name} value={name}/>)}</datalist>
         </div>
 
-        <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 sm:flex sm:items-center sm:justify-end sm:gap-3 sm:px-6">
+        <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 sm:flex sm:items-center sm:justify-end sm:gap-2.5 sm:px-5">
           <button type="button" onClick={()=>{setCompletePendingId(null);setCompleteError("");}} className="hidden min-h-11 rounded-xl px-4 text-sm font-black text-[var(--text-muted)] sm:inline-flex sm:items-center">Cancel</button>
-          <button disabled={quickSaving||!completeAllocationValid||(!bankTransferSplitCompletion&&!completeSourceAccountId)||(commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0&&!completeCommissionAccountId)} className="min-h-[52px] w-full rounded-[16px] bg-[var(--accent)] px-6 text-base font-black text-white shadow-lg shadow-blue-600/15 transition active:scale-[.99] disabled:opacity-40 sm:w-auto sm:min-w-[190px]">{quickSaving?"Completing…":"Complete transaction"}</button>
+          <button disabled={quickSaving||!completeAllocationValid||(!bankTransferSplitCompletion&&!completeSourceAccountId)||(commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0&&!completeCommissionAccountId)} className="min-h-[48px] w-full rounded-[14px] bg-[var(--accent)] px-6 text-[15px] font-black text-white shadow-lg shadow-blue-600/15 transition active:scale-[.99] disabled:opacity-40 sm:w-auto sm:min-w-[190px]">{quickSaving?"Completing…":"Complete transaction"}</button>
         </footer>
       </form>
     </div>,document.body):null}
