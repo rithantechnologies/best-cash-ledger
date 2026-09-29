@@ -8,7 +8,7 @@ import { AppShell } from "@/components/app-shell";
 import { QuickCashRushEntryV2 } from "@/components/quick-cash-rush-entry-v2";
 import { CashHistoryChart, CashMovementChart } from "@/components/cash-desk/cash-desk-charts";
 import { FundsAllocationDonut } from "@/components/dashboard/dashboard-charts";
-import { EmptyState, PageLoader, SectionHeading, Surface } from "@/components/ui";
+import { EmptyState, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { useRememberedValues } from "@/lib/remembered-values";
 
@@ -145,7 +145,6 @@ const commissionReceiptLabel=(activity:Activity)=>{
   return commissionDigitalLabel(activity.commissionAccountType);
 };
 const isCashInTransferService=(value:string)=>value==="GPAY_TRANSFER"||value==="BANK_TRANSFER"||value.startsWith("CASH_IN_TRANSFER::");
-const isServiceIncome=(value:string)=>value==="SERVICE_INCOME"||value.startsWith("SERVICE_INCOME::");
 const friendlyService=(value:string)=>{
   if(value.startsWith("CASH_IN_TRANSFER::"))return value.slice("CASH_IN_TRANSFER::".length);
   if(value.startsWith("SERVICE_INCOME::"))return value.slice("SERVICE_INCOME::".length);
@@ -260,7 +259,6 @@ export default function CashCounterPage(){
     return localStorage.getItem("cashledger_daily_cash_view")==="DETAILED"?"DETAILED":"CASHBOOK";
   });
   const [cashBookMobileDirection,setCashBookMobileDirection]=useState<QuickCashDirection>("IN");
-  const [mobileInsightsOpen,setMobileInsightsOpen]=useState(false);
   const [cashBookPageSize,setCashBookPageSize]=useState<30|50>(30);
   const [cashBookPages,setCashBookPages]=useState<Record<QuickCashDirection,number>>({IN:1,OUT:1});
   const [direction,setDirection]=useState<DirectionFilter>("ALL");
@@ -929,45 +927,37 @@ export default function CashCounterPage(){
     </Surface>:null}
 
     {today?<>
-      {!isClosed&&pendingQuickCash.length?<><div className="sticky top-2 z-30 hidden flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-[0_10px_24px_rgba(245,158,11,.12)] sm:flex">
-        <div className="min-w-0"><p className="text-sm font-black text-amber-900">{pendingQuickCash.length} transaction{pendingQuickCash.length===1?"":"s"} need completion</p><p className="mt-0.5 text-[12px] font-semibold text-amber-800">Finish wallet / bank / beneficiary details before end of day when possible.</p></div>
-        <button type="button" onClick={()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"})} className="min-h-9 rounded-xl bg-amber-500 px-3 text-xs font-black text-white">Review pending</button>
-      </div><button type="button" onClick={()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"})} className="sticky top-[4.15rem] z-30 flex min-h-10 w-full items-center justify-between rounded-xl border border-amber-300 bg-amber-50 px-3 text-left text-xs font-black text-amber-900 shadow-sm sm:hidden"><span>⚠ {pendingQuickCash.length} pending</span><span>Review →</span></button></>:null}
       <Surface className="cash-desk-hero overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-2.5 sm:px-5">
-          <p className="truncate text-sm font-bold">{today.cashAccount.accountName}{today.openedBy?.fullName?" · "+today.openedBy.fullName:""}</p>
-          <p className="text-[12px] font-semibold text-[#a9bfd5]">{new Date(today.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(today.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+        <div className="flex flex-col gap-2.5 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="min-w-0"><p className="truncate text-sm font-bold">{today.cashAccount.accountName}{today.openedBy?.fullName?" · "+today.openedBy.fullName:""}</p><p className="mt-0.5 text-[11px] font-semibold text-[#a9bfd5]">{new Date(today.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(today.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></div>
+          {!isClosed?<div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"IN"}))} className="min-h-10 rounded-xl bg-emerald-500 px-3.5 text-xs font-black text-white shadow-sm sm:px-4">↓ Cash In</button>
+            <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"OUT"}))} className="min-h-10 rounded-xl bg-rose-500 px-3.5 text-xs font-black text-white shadow-sm sm:px-4">↑ Cash Out</button>
+            <QuickCashRushEntryV2 cashAccountId={today.cashAccountId} onSaved={()=>load(today.cashAccountId)} pendingTransactionIds={pendingQuickCash.map((item)=>item.id)} completedTransactionIds={completedQuickCashIds} onCompleteTransaction={openPendingCompletionById} onShowPending={()=>requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}))}/>
+            <button type="button" disabled={!pendingQuickCash.length} onClick={()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"})} className={"min-h-10 rounded-xl px-3.5 text-xs font-black shadow-sm sm:px-4 "+(pendingQuickCash.length?"bg-amber-400 text-amber-950":"border border-white/15 bg-white/5 text-[#a9bfd5]")}>Pending {pendingQuickCash.length}</button>
+          </div>:null}
         </div>
         <div className="cash-desk-now p-4 sm:p-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <span className="text-xs font-black uppercase tracking-[.12em] text-[#a9bfd5]">{isClosed?"Closed cash":"Cash in hand"}</span>
-              <strong className="money cash-desk-now-money mt-2 block">{money(isClosed?today.actualClosingTotal||expected:expected)}</strong>
-              <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] font-semibold text-[#9fb5cc] sm:text-[13px]">
-                <span>Opening <strong className="money text-white">{money(today.openingTotal)}</strong></span><span>·</span>
-                <span className="text-[var(--money-in)]">In <strong className="money">{money(cashIn)}</strong></span><span>·</span>
-                <span className="text-[var(--money-out)]">Out <strong className="money">{money(cashOut)}</strong></span><span>·</span>
-                <span className="text-[#bed6ff]">Income <strong className="money">{money(totalIncome)}</strong></span>
-              </div>
-            </div>
-            {!isClosed?<div className="hidden flex-wrap items-center gap-2 lg:flex">
-              <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"IN"}))} className="min-h-10 rounded-xl bg-emerald-500 px-4 text-xs font-black text-white shadow-sm">↓ Cash In</button>
-              <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"OUT"}))} className="min-h-10 rounded-xl bg-rose-500 px-4 text-xs font-black text-white shadow-sm">↑ Cash Out</button>
-              <QuickCashRushEntryV2 cashAccountId={today.cashAccountId} onSaved={()=>load(today.cashAccountId)} pendingTransactionIds={pendingQuickCash.map((item)=>item.id)} completedTransactionIds={completedQuickCashIds} onCompleteTransaction={openPendingCompletionById} onShowPending={()=>requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}))}/>
-            </div>:null}
+          <span className="text-xs font-black uppercase tracking-[.12em] text-[#a9bfd5]">{isClosed?"Closed cash":"Cash in hand"}</span>
+          <strong className="money cash-desk-now-money mt-2 block">{money(isClosed?today.actualClosingTotal||expected:expected)}</strong>
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] font-semibold text-[#9fb5cc] sm:text-[13px]">
+            <span>Opening <strong className="money text-white">{money(today.openingTotal)}</strong></span><span>·</span>
+            <span className="text-[var(--money-in)]">In <strong className="money">{money(cashIn)}</strong></span><span>·</span>
+            <span className="text-[var(--money-out)]">Out <strong className="money">{money(cashOut)}</strong></span><span>·</span>
+            <span className="text-[#bed6ff]">Income <strong className="money">{money(totalIncome)}</strong></span>
           </div>
         </div>
       </Surface>
 
 {ledgerView==="CASHBOOK"?<>
-      <Surface className="overflow-visible">
-        <div className={"sticky z-20 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3 sm:px-5 lg:static "+(pendingQuickCash.length?"top-[6.9rem]":"top-[4rem]")}>
+      <Surface className="overflow-hidden">
+        <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-extrabold">Cash book</h3>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <label className="hidden min-h-9 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-bold text-[var(--text-muted)] sm:flex">
+              <label className="flex min-h-9 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-bold text-[var(--text-muted)]">
                 <span className="hidden sm:inline">Rows</span>
                 <select aria-label="Cash book rows per page" className="bg-transparent font-black text-[var(--text)] outline-none" value={cashBookPageSize} onChange={(event)=>changeCashBookPageSize(Number(event.target.value) as 30|50)}>
                   <option value={30}>30</option>
@@ -975,11 +965,10 @@ export default function CashCounterPage(){
                 </select>
                 <span>/ page</span>
               </label>
-              <div className="hidden grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1 sm:grid">
+              <div className="grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1">
                 <button type="button" className="min-h-8 rounded-lg bg-[var(--surface)] px-3 text-xs font-black text-[var(--text)] shadow-sm">Cash Book</button>
                 <button type="button" onClick={()=>setLedgerView("DETAILED")} className="min-h-8 rounded-lg px-3 text-xs font-black text-[var(--text-muted)]">Detailed</button>
               </div>
-              <button type="button" onClick={()=>setLedgerView("DETAILED")} className="min-h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-[11px] font-black text-[var(--text-muted)] sm:hidden">Detailed</button>
             </div>
           </div>
           <div className="mt-3 grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1 lg:hidden">
@@ -1024,24 +1013,25 @@ export default function CashCounterPage(){
           {(()=>{
             const side=cashBookMobileDirection,rows=cashBookRows[side],pageRows=cashBookRowsFor(side),totals=cashBookTotals[side],page=cashBookPageFor(side),pageCount=cashBookPageCounts[side],range=cashBookRangeFor(side);
             return <>
-              <div className={"flex items-center justify-between border-b border-[var(--border)] px-3 py-2.5 "+(side==="IN"?"bg-emerald-50/55":"bg-rose-50/55")}>
-                <div><p className={"text-xs font-black "+(side==="IN"?"text-emerald-700":"text-rose-700")}>{rows.length} {side==="IN"?"cash in":"cash out"} entr{rows.length===1?"y":"ies"}</p><p className="mt-0.5 text-[10px] font-semibold text-[var(--text-muted)]">Tap a row for full transaction details</p></div>
-                <div className="text-right"><strong className="money block text-sm font-black">{money(totals.amount)}</strong><span className="text-[10px] font-bold text-[var(--accent)]">Income {money(totals.income)}</span></div>
+              <div className="grid grid-cols-[58px_minmax(0,1fr)_82px_68px] gap-2 border-b border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-[9px] font-black uppercase tracking-[.05em] text-[var(--text-muted)]">
+                <span>Time</span><span>Service / Particular</span><span className="text-right">Amount</span><span className="text-right">Income</span>
               </div>
-              {rows.length?<div className="divide-y divide-[var(--border)]">{pageRows.map(({activity,amount})=>{
-                const income=Number(activity.incomeAmount??activity.commissionAmount??0);
-                const title=isCashInTransferService(activity.serviceType)?friendlyService(activity.serviceType):activity.particular;
-                const detail=isCashInTransferService(activity.serviceType)?activity.particular:friendlyService(activity.serviceType);
-                return <button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left active:bg-[var(--surface-soft)]">
-                  <span className="min-w-0 flex-1"><strong className="block truncate text-[14px]">{title}</strong><span className="mt-1 block truncate text-[11px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})} · {detail}</span></span>
-                  <span className="shrink-0 text-right"><strong className={"money block text-[15px] font-black "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{side==="IN"?"+":"−"}{money(amount)}</strong>{income>0?<span className="mt-0.5 block text-[10px] font-black text-[var(--accent)]">Income {money(income)}</span>:<span className="mt-0.5 block text-[10px] font-semibold text-[var(--text-muted)]">No income</span>}</span>
-                </button>;
-              })}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
+              {rows.length?<div className="divide-y divide-[var(--border)]">{pageRows.map(({activity,amount})=><button key={activity.id} type="button" onClick={()=>router.push("/transactions/"+activity.transactionId)} className="grid w-full grid-cols-[58px_minmax(0,1fr)_82px_68px] items-center gap-2 px-3 py-3 text-left">
+                <span className="text-[11px] font-semibold text-[var(--text-muted)]">{new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
+                <span className="min-w-0"><strong className="block truncate text-[13px]">{isCashInTransferService(activity.serviceType)?friendlyService(activity.serviceType):activity.particular}</strong>{isCashInTransferService(activity.serviceType)?<span className="mt-0.5 block truncate text-[9px] font-semibold text-[var(--text-muted)]">{activity.particular}</span>:null}</span>
+                <strong className={"money text-right text-[13px] "+(side==="IN"?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(amount)}</strong>
+                <span className="text-right">{Number(activity.incomeAmount??activity.commissionAmount??0)>0?<><strong className="money block text-[13px] text-[var(--accent)]">{money(Number(activity.incomeAmount??activity.commissionAmount??0))}</strong><span className="mt-0.5 block text-[8px] font-black uppercase text-[var(--text-muted)]">{Number(activity.serviceIncomeAmount||0)>0?"Service":commissionReceiptLabel(activity)||"Commission"}</span></>:<strong className="money text-[13px] text-[var(--accent)]">—</strong>}</span>
+              </button>)}</div>:<div className="px-4 py-8 text-center text-sm font-semibold text-[var(--text-muted)]">No {side==="IN"?"Cash In":"Cash Out"} entries</div>}
               {rows.length?<div className="border-t border-[var(--border)] px-3 py-2.5">
                 <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-[var(--text-muted)]"><span>Showing {range.start}–{range.end} of {range.total}</span><span className="font-black text-[var(--text)]">Page {page} / {pageCount}</span></div>
-                <div className="mt-2 grid grid-cols-2 gap-2"><button type="button" disabled={page<=1} onClick={()=>setCashBookPage(side,page-1)} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-xs font-black disabled:opacity-35">Previous</button><button type="button" disabled={page>=pageCount} onClick={()=>setCashBookPage(side,page+1)} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-xs font-black disabled:opacity-35">Next</button></div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" disabled={page<=1} onClick={()=>setCashBookPage(side,page-1)} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-xs font-black disabled:opacity-35">Previous</button>
+                  <button type="button" disabled={page>=pageCount} onClick={()=>setCashBookPage(side,page+1)} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-xs font-black disabled:opacity-35">Next</button>
+                </div>
               </div>:null}
-              <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-soft)] px-3 py-3 text-[13px]"><strong>Day total</strong><span className="text-right"><strong className="money block">{money(totals.amount)}</strong><span className="money mt-0.5 block text-[11px] font-bold text-[var(--accent)]">Income {money(totals.income)}</span></span></div>
+              <div className="grid grid-cols-[58px_minmax(0,1fr)_82px_68px] gap-2 border-t border-[var(--border)] bg-[var(--surface-soft)] px-3 py-3 text-[13px]">
+                <span/><strong>Day total</strong><strong className="money text-right">{money(totals.amount)}</strong><strong className="money text-right text-[var(--accent)]">{money(totals.income)}</strong>
+              </div>
             </>;
           })()}
         </div>
@@ -1139,26 +1129,23 @@ export default function CashCounterPage(){
       </>}
 
       {pendingQuickCash.length?<Surface className="scroll-mt-24 overflow-hidden">
-        <div id="pending-cash" className="scroll-mt-24 flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-          <div className="flex items-center gap-2"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
-        </div>
-        <div className="divide-y divide-[var(--border)]">
-          {pendingQuickCash.map((item)=><div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 px-4 py-3 sm:grid-cols-[110px_minmax(0,1fr)_auto_auto] sm:items-center sm:px-5">
-            <div className="sm:block"><span className={"inline-flex rounded-full px-2.5 py-1 text-[10px] font-black sm:text-xs "+(item.direction==="IN"?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700")}>{item.direction==="IN"?"Cash In":cashOutTypeLabel(item.cashOutType)}</span></div>
-            <div className="min-w-0 sm:col-auto"><p className="truncate text-sm font-bold">{item.customerName||item.mobileNumber||"Walk-in customer"}</p><p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)] sm:text-xs">{item.cashOutType==="AEPS"&&item.aadhaarLastFour?"Aadhaar ••••"+item.aadhaarLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.cashOutType==="MICRO_ATM"&&item.cardLastFour?"Card ••••"+item.cardLastFour+(item.customerBankName?" · "+item.customerBankName:"")+" · ":""}{item.transaction.transactionNumber} · {new Date(item.transaction.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></div>
-            <div className="col-start-1 text-left sm:col-auto sm:text-right"><strong className="money block text-sm">{money(item.amount)}</strong>{Number(item.commissionAmount)>0?<span className="block text-[10px] font-semibold text-[var(--accent)] sm:text-xs">{item.cashOutType==="MICRO_ATM"?"Commission "+money(item.commissionAmount)+" · settle later":(item.cashOutType==="AEPS"?"Commission ":"Fee ")+money(item.commissionAmount)+" · "+commissionBreakdownLabel(Number(item.commissionAmount),item.commissionMode,item.commissionCashAmount)}</span>:null}</div>
-            <button type="button" onClick={()=>openPendingCompletion(item)} className="col-start-2 row-start-2 min-h-9 self-end rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-black text-amber-800 sm:col-auto sm:row-auto sm:min-h-10 sm:text-sm">Complete</button>
-          </div>)}
+        <div id="pending-cash" className="scroll-mt-24 flex items-center gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
+        <div className="overflow-x-auto">
+          <div className="min-w-[760px]">
+            <div className="grid grid-cols-[100px_minmax(210px,1fr)_110px_150px_90px_100px] items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 text-[9px] font-black uppercase tracking-[.06em] text-[var(--text-muted)]"><span>Type</span><span>Customer / Ref</span><span className="text-right">Amount</span><span className="text-right">Fee / Income</span><span className="text-right">Time</span><span className="text-right">Action</span></div>
+            <div className="divide-y divide-[var(--border)]">{pendingQuickCash.map((item)=><div key={item.id} className="grid min-h-[54px] grid-cols-[100px_minmax(210px,1fr)_110px_150px_90px_100px] items-center gap-3 px-4 py-2">
+              <span><span className={"inline-flex rounded-full px-2.5 py-1 text-[10px] font-black "+(item.direction==="IN"?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700")}>{item.direction==="IN"?"Cash In":cashOutTypeLabel(item.cashOutType)}</span></span>
+              <span className="min-w-0"><strong className="block truncate text-[13px]">{item.customerName||item.mobileNumber||"Walk-in customer"}</strong><span className="mt-0.5 block truncate text-[10px] font-semibold text-[var(--text-muted)]">{item.transaction.transactionNumber}{item.customerBankName?" · "+item.customerBankName:""}</span></span>
+              <strong className="money text-right text-[13px]">{money(item.amount)}</strong>
+              <span className="text-right">{Number(item.commissionAmount)>0?<><strong className="money block text-[12px] text-[var(--accent)]">{money(item.commissionAmount)}</strong><span className="mt-0.5 block text-[9px] font-bold text-[var(--text-muted)]">{item.cashOutType==="MICRO_ATM"?"Settle later":commissionBreakdownLabel(Number(item.commissionAmount),item.commissionMode,item.commissionCashAmount)}</span></>:<span className="text-xs text-[var(--text-muted)]">—</span>}</span>
+              <span className="text-right text-[11px] font-semibold text-[var(--text-muted)]">{new Date(item.transaction.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
+              <button type="button" onClick={()=>openPendingCompletion(item)} className="min-h-8 rounded-lg border border-amber-300 bg-amber-50 px-2.5 text-[11px] font-black text-amber-800">Complete</button>
+            </div>)}</div>
+          </div>
         </div>
       </Surface>:null}
 
-      <Surface className="overflow-hidden lg:hidden">
-        <button type="button" onClick={()=>setMobileInsightsOpen((open)=>!open)} aria-expanded={mobileInsightsOpen} className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-          <div><h3 className="text-sm font-extrabold">Insights</h3><p className="mt-0.5 text-[12px] font-semibold text-[var(--text-muted)]">Income {money(totalIncome)} · Commission {money(commissionIncome)} · Services {money(serviceIncome)}</p></div>
-          <span className="text-lg font-black text-[var(--text-muted)]">{mobileInsightsOpen?"−":"+"}</span>
-        </button>
-      </Surface>
-      <div className={(mobileInsightsOpen?"grid":"hidden")+" gap-3 lg:grid lg:grid-cols-2"}>
+      <div className="grid gap-3 lg:grid-cols-2">
       <Surface className="overflow-hidden">
         <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
           <h3 className="text-sm font-extrabold">Income breakdown</h3>
@@ -1298,11 +1285,6 @@ export default function CashCounterPage(){
       </div>
     </>:null}
 
-    {today&&!isClosed&&!closing?<div className="fixed inset-x-3 bottom-[calc(4.85rem+env(safe-area-inset-bottom))] z-[44] grid grid-cols-3 gap-2 rounded-2xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_96%,transparent)] p-2 shadow-[0_14px_34px_rgba(15,23,42,.18)] backdrop-blur-xl lg:hidden">
-      <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"IN"}))} className="min-h-11 rounded-xl bg-emerald-600 px-2 text-xs font-black text-white">↓ Cash In</button>
-      <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"OUT"}))} className="min-h-11 rounded-xl bg-rose-600 px-2 text-xs font-black text-white">↑ Cash Out</button>
-      <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-rush-cash"))} className="min-h-11 rounded-xl bg-slate-900 px-2 text-xs font-black text-white">▦ Rush</button>
-    </div>:null}
     {today&&!isClosed&&closing?<div className="fixed inset-x-3 bottom-[calc(4.85rem+env(safe-area-inset-bottom))] z-[44] flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_97%,transparent)] p-2.5 shadow-[0_14px_34px_rgba(15,23,42,.20)] backdrop-blur-xl lg:hidden">
       <div className="grid min-w-0 flex-1 grid-cols-3 gap-1.5 text-center"><div><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Expected</span><strong className="money mt-0.5 block truncate text-[11px]">{money(expected)}</strong></div><div><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Counted</span><strong className="money mt-0.5 block truncate text-[11px]">{money(countedTotal)}</strong></div><div><span className={"block text-[8px] font-black uppercase "+(Math.abs(previewDifference)>.005?"text-rose-600":"text-emerald-700")}>Diff</span><strong className={"money mt-0.5 block truncate text-[11px] "+(Math.abs(previewDifference)>.005?"text-rose-700":"text-emerald-700")}>{money(previewDifference)}</strong></div></div>
       <button form="cash-close-form" type="submit" disabled={saving||Math.abs(previewDifference)>.005} className="min-h-11 shrink-0 rounded-xl bg-[var(--text)] px-4 text-xs font-black text-[var(--surface)] disabled:opacity-35">{saving?"Closing…":Math.abs(previewDifference)>.005?"Match cash":"Close"}</button>

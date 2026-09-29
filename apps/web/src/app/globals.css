@@ -2930,7 +2930,7 @@ html[data-theme="dark"] .cash-desk-now {
   font-weight: 850;
 }
 @media (max-width: 639px) {
-  .cash-desk-page { padding-bottom: 10.5rem; }
+  .cash-desk-page { padding-bottom: 5.5rem; }
   .cash-desk-page .app-section-heading h2 { font-size: 1.55rem; }
   .cash-desk-page .app-section-heading p { font-size: .78rem; }
   .cash-chart-svg { min-width: 520px; }

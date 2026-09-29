@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
@@ -109,7 +109,6 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   const [savingAll,setSavingAll]=useState(false);
   const [savedSinceRefresh,setSavedSinceRefresh]=useState(false);
   const amountRefs=useRef<Record<string,HTMLInputElement|null>>({});
-  const openRushRef=useRef<(()=>Promise<void>)|null>(null);
   const customerSearchTimers=useRef<Record<string,number>>({});
   const lastDirection=useRef<Direction>("IN");
 
@@ -159,19 +158,12 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     setRows(initial);
     window.setTimeout(()=>amountRefs.current[initial[0].key]?.focus(),60);
   }
-  useEffect(()=>{openRushRef.current=openRush;});
   async function closeRush(){
     setOpen(false);setMinimized(false);setMaximized(false);
     if(savedSinceRefresh){await onSaved?.();setSavedSinceRefresh(false);}
   }
   function minimizeRush(){setMinimized(true);setRowFilter("ACTIVE");}
   function restoreRush(){setMinimized(false);setOpen(true);}
-  useEffect(()=>{
-    const openFromDailyCash=()=>{void openRushRef.current?.();};
-    window.addEventListener("cashledger:open-rush-cash",openFromDailyCash);
-    return()=>window.removeEventListener("cashledger:open-rush-cash",openFromDailyCash);
-  },[]);
-
   function updateRow(key:string,patch:Partial<RushRow>){
     setRows((current)=>keepTrailingBlank(current.map((row)=>row.key===key&&row.status!=="SAVED"?{...row,...patch,status:"READY",message:undefined}:row)));
   }
@@ -370,17 +362,17 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
 
   return <>
     <button type="button" onClick={openRush} disabled={disabled||!cashAccountId}
-      className="flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-slate-900 px-3 text-[12px] font-black text-white shadow-[0_6px_18px_rgba(15,23,42,.22)] transition hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40">
-      <span className="text-sm">▦</span><span>Rush / Bulk</span>
+      className="flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-white/15 bg-white/10 px-3.5 text-[12px] font-black text-white shadow-sm transition hover:bg-white/15 active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-40 sm:px-4">
+      <span className="text-sm">▦</span><span>Quick Entry</span>
     </button>
-    {open&&minimized&&typeof document!=="undefined"?createPortal(<div className="fixed bottom-[calc(.75rem+env(safe-area-inset-bottom))] left-3 right-3 z-[90] flex items-center gap-2 rounded-2xl border border-violet-200 bg-[var(--surface)] px-3 py-2.5 shadow-2xl sm:left-auto sm:right-4 sm:w-[420px] sm:gap-3 sm:px-4 sm:py-3"><div className="min-w-0 flex-1"><p className="truncate text-xs font-black">Rush Cash Entry</p><p className="mt-0.5 truncate text-[10px] font-bold text-[var(--text-muted)]">{savedRows.length} saved · {pendingRows.length} pending · {unsavedCount} unsaved</p></div><button type="button" onClick={restoreRush} className="min-h-9 shrink-0 rounded-lg bg-violet-600 px-3 text-[10px] font-black text-white">Restore</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--surface-soft)] font-black text-[var(--text-muted)]">×</button></div>,document.body):null}
+    {open&&minimized&&typeof document!=="undefined"?createPortal(<div className="fixed bottom-[calc(.75rem+env(safe-area-inset-bottom))] left-3 right-3 z-[90] flex items-center gap-2 rounded-2xl border border-violet-200 bg-[var(--surface)] px-3 py-2.5 shadow-2xl sm:left-auto sm:right-4 sm:w-[420px] sm:gap-3 sm:px-4 sm:py-3"><div className="min-w-0 flex-1"><p className="truncate text-xs font-black">Quick Entry</p><p className="mt-0.5 truncate text-[10px] font-bold text-[var(--text-muted)]">{savedRows.length} saved · {pendingRows.length} pending · {unsavedCount} unsaved</p></div><button type="button" onClick={restoreRush} className="min-h-9 shrink-0 rounded-lg bg-violet-600 px-3 text-[10px] font-black text-white">Restore</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--surface-soft)] font-black text-[var(--text-muted)]">×</button></div>,document.body):null}
     {open&&!minimized&&typeof document!=="undefined"?createPortal(
-      <div className="fixed inset-0 z-[105] flex flex-col bg-black/45 p-0 sm:p-3" role="dialog" aria-modal="true" aria-label="Rush cash entry">
+      <div className="fixed inset-0 z-[105] flex flex-col bg-black/45 p-0 sm:p-3" role="dialog" aria-modal="true" aria-label="Quick cash entry">
         <div className={"m-auto flex w-full flex-col overflow-hidden bg-[var(--surface)] shadow-2xl "+(maximized?"h-[100dvh] max-h-[100dvh] max-w-none rounded-none":"max-h-[97dvh] max-w-[1480px] rounded-none sm:rounded-[22px]")}>
           <header className="grid min-h-12 shrink-0 items-center gap-2 border-b border-[var(--border)] px-3 py-1.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:px-4">
-            <div className="flex min-w-0 flex-wrap items-center gap-2"><h2 className="truncate text-[17px] font-black tracking-[-.03em]">Rush Cash Entry</h2><span className="rounded-full bg-slate-900 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">Counter</span>{pendingTransactionIds.length&&onShowPending?<button type="button" onClick={()=>{setOpen(false);setMinimized(false);onShowPending();}} className="min-h-7 shrink-0 rounded-full bg-amber-100 px-2.5 text-[9px] font-black text-amber-800">⚠ {pendingTransactionIds.length} need completion</button>:null}</div>
+            <div className="flex min-w-0 flex-wrap items-center gap-2"><h2 className="truncate text-[17px] font-black tracking-[-.03em]">Quick Entry</h2><span className="rounded-full bg-slate-900 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">Counter</span>{pendingTransactionIds.length&&onShowPending?<button type="button" onClick={()=>{setOpen(false);setMinimized(false);onShowPending();}} className="min-h-7 shrink-0 rounded-full bg-amber-100 px-2.5 text-[9px] font-black text-amber-800">⚠ {pendingTransactionIds.length} need completion</button>:null}</div>
             <div className="flex items-center gap-1 rounded-lg bg-[var(--surface-soft)] p-0.5">{(["ACTIVE","UNSAVED","PENDING","COMPLETE"] as RowFilter[]).map((filter)=><button key={filter} type="button" onClick={()=>setRowFilter(filter)} className={"min-h-7 rounded-md px-2 text-[9px] font-black "+(rowFilter===filter?"bg-white text-violet-700 shadow-sm":"text-[var(--text-muted)]")}>{filter==="ACTIVE"?"Active":filter==="UNSAVED"?"Unsaved "+unsavedCount:filter==="PENDING"?"Pending "+pendingRows.length:"Complete "+completeRows.length}</button>)}</div>
-            <div className="flex items-center justify-end gap-1 sm:border-l sm:border-[var(--border)] sm:pl-2"><button type="button" onClick={minimizeRush} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-sm font-black text-[var(--text-muted)]" aria-label="Minimize">—</button><button type="button" onClick={()=>setMaximized((value)=>!value)} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-xs font-black text-[var(--text-muted)]" aria-label={maximized?"Restore size":"Maximize"}>{maximized?"❐":"□"}</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-lg font-bold text-[var(--text-muted)]" aria-label="Close rush entry">×</button></div>
+            <div className="flex items-center justify-end gap-1 sm:border-l sm:border-[var(--border)] sm:pl-2"><button type="button" onClick={minimizeRush} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-sm font-black text-[var(--text-muted)]" aria-label="Minimize">—</button><button type="button" onClick={()=>setMaximized((value)=>!value)} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-xs font-black text-[var(--text-muted)]" aria-label={maximized?"Restore size":"Maximize"}>{maximized?"❐":"□"}</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-lg font-bold text-[var(--text-muted)]" aria-label="Close quick entry">×</button></div>
           </header>
           {configError?<div className="shrink-0 border-b border-amber-200 bg-amber-50 px-5 py-1.5 text-[10px] font-bold text-amber-800">{configError}</div>:null}
 
