@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateServiceCatalogDto {
   @IsOptional()
@@ -9,4 +9,17 @@ export class UpdateServiceCatalogDto {
   @IsNumber()
   @Min(0)
   defaultAmount?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  allowPartnerFulfillment?: boolean;
+
+  @IsOptional()
+  @IsString()
+  defaultPartnerName?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  defaultPartnerCharge?: number | null;
 }

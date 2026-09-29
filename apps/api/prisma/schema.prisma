@@ -379,6 +379,7 @@ model FinancialAccount {
   quickCashSourceAllocations      QuickCashSourceAllocation[]
   quickCashCommissionAccounts     QuickCashTransferDetail[]     @relation("QuickCashCommissionAccount")
   quickCashServicePaymentAccounts QuickCashTransferDetail[]     @relation("QuickCashServicePaymentAccount")
+  quickCashServicePartnerPaymentAccounts QuickCashTransferDetail[] @relation("QuickCashServicePartnerPaymentAccount")
   aepsSettlements                 AepsDetail[]                  @relation("AepsSettlement")
   aepsCash                        AepsDetail[]                  @relation("AepsCash")
   microAtmSettlements             MicroAtmDetail[]              @relation("MicroAtmSettlement")
@@ -404,12 +405,15 @@ model FinancialAccount {
 }
 
 model ServiceCatalog {
-  id            String   @id @default(uuid())
-  name          String   @unique
-  defaultAmount Decimal? @db.Decimal(18, 2)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                      String   @id @default(uuid())
+  name                    String   @unique
+  defaultAmount           Decimal? @db.Decimal(18, 2)
+  allowPartnerFulfillment Boolean  @default(false)
+  defaultPartnerName      String?
+  defaultPartnerCharge    Decimal? @db.Decimal(18, 2)
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 }
 
 model CashInTransferType {
@@ -813,6 +817,13 @@ model QuickCashTransferDetail {
   servicePaymentMode      String                      @default("CASH")
   servicePaymentAccountId String?
   servicePaymentAccount   FinancialAccount?           @relation("QuickCashServicePaymentAccount", fields: [servicePaymentAccountId], references: [id])
+  serviceFulfillmentMode  String                      @default("INTERNAL")
+  servicePartnerName      String?
+  servicePartnerCharge    Decimal                     @default(0) @db.Decimal(18, 2)
+  servicePartnerPaymentTiming String?
+  servicePartnerPaymentAccountId String?
+  servicePartnerPaymentAccount FinancialAccount?      @relation("QuickCashServicePartnerPaymentAccount", fields: [servicePartnerPaymentAccountId], references: [id])
+  servicePartnerPaidAt DateTime?
   completionTransactionId String?                     @unique
   sourceAllocations       QuickCashSourceAllocation[]
   completedAt             DateTime?
@@ -823,6 +834,7 @@ model QuickCashTransferDetail {
   @@index([sourceAccountId])
   @@index([commissionAccountId])
   @@index([servicePaymentAccountId])
+  @@index([servicePartnerPaymentAccountId])
 }
 
 model QuickCashSourceAllocation {

@@ -156,6 +156,9 @@ export class SettingsService {
         data: {
           name,
           defaultAmount: dto.defaultAmount === undefined ? null : dto.defaultAmount,
+          allowPartnerFulfillment: dto.allowPartnerFulfillment ?? false,
+          defaultPartnerName: dto.defaultPartnerName?.trim() || null,
+          defaultPartnerCharge: dto.defaultPartnerCharge === undefined ? null : dto.defaultPartnerCharge,
         },
       });
       await tx.auditLog.create({
@@ -167,6 +170,9 @@ export class SettingsService {
           newValues: {
             name: service.name,
             defaultAmount: service.defaultAmount?.toString() ?? null,
+            allowPartnerFulfillment: service.allowPartnerFulfillment,
+            defaultPartnerName: service.defaultPartnerName,
+            defaultPartnerCharge: service.defaultPartnerCharge?.toString() ?? null,
             isActive: service.isActive,
           },
         },
@@ -184,6 +190,9 @@ export class SettingsService {
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
           ...(dto.defaultAmount !== undefined ? { defaultAmount: dto.defaultAmount } : {}),
+          ...(dto.allowPartnerFulfillment !== undefined ? { allowPartnerFulfillment: dto.allowPartnerFulfillment } : {}),
+          ...(dto.defaultPartnerName !== undefined ? { defaultPartnerName: dto.defaultPartnerName?.trim() || null } : {}),
+          ...(dto.defaultPartnerCharge !== undefined ? { defaultPartnerCharge: dto.defaultPartnerCharge } : {}),
         },
       });
       await tx.auditLog.create({
@@ -195,10 +204,16 @@ export class SettingsService {
           oldValues: {
             name: existing.name,
             defaultAmount: existing.defaultAmount?.toString() ?? null,
+            allowPartnerFulfillment: existing.allowPartnerFulfillment,
+            defaultPartnerName: existing.defaultPartnerName,
+            defaultPartnerCharge: existing.defaultPartnerCharge?.toString() ?? null,
           },
           newValues: {
             name: updated.name,
             defaultAmount: updated.defaultAmount?.toString() ?? null,
+            allowPartnerFulfillment: updated.allowPartnerFulfillment,
+            defaultPartnerName: updated.defaultPartnerName,
+            defaultPartnerCharge: updated.defaultPartnerCharge?.toString() ?? null,
           },
         },
       });

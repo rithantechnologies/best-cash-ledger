@@ -45,8 +45,8 @@ type Session={
 
 type QuickCashDirection="IN"|"OUT";
 type QuickCashOutType="UPI_QR"|"AEPS"|"MICRO_ATM";
-type QuickCashFieldErrors={amount?:string;commission?:string;cashReceived?:string;serviceName?:string;transferType?:string;servicePaymentAccount?:string;aadhaarLastFour?:string;customerBank?:string;cardLastFour?:string};
-type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
+type QuickCashFieldErrors={amount?:string;commission?:string;cashReceived?:string;serviceName?:string;transferType?:string;servicePaymentAccount?:string;servicePartnerName?:string;servicePartnerCharge?:string;servicePartnerPaymentAccount?:string;aadhaarLastFour?:string;customerBank?:string;cardLastFour?:string};
+type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;allowPartnerFulfillment:boolean;defaultPartnerName:string|null;defaultPartnerCharge:string|number|null;isActive:boolean};
 type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";defaultCommissionRate:string|number;isActive:boolean};
 type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null};
 type BankBeneficiary={accountHolder:string;accountNumber:string;ifsc:string};
@@ -280,6 +280,11 @@ export default function CashCounterPage(){
   const [quickBankIfsc,setQuickBankIfsc]=useState("");
   const [quickServicePaymentMode,setQuickServicePaymentMode]=useState<"CASH"|"UPI">("CASH");
   const [quickServicePaymentAccountId,setQuickServicePaymentAccountId]=useState("");
+  const [quickServiceFulfillmentMode,setQuickServiceFulfillmentMode]=useState<"INTERNAL"|"PARTNER">("INTERNAL");
+  const [quickServicePartnerName,setQuickServicePartnerName]=useState("");
+  const [quickServicePartnerCharge,setQuickServicePartnerCharge]=useState("");
+  const [quickServicePartnerPaymentTiming,setQuickServicePartnerPaymentTiming]=useState<"PAID_NOW"|"PAY_LATER">("PAID_NOW");
+  const [quickServicePartnerPaymentAccountId,setQuickServicePartnerPaymentAccountId]=useState("");
   const [quickCustomerId,setQuickCustomerId]=useState("");
   const [quickCustomerLookup,setQuickCustomerLookup]=useState("");
   const [quickCustomerSuggestions,setQuickCustomerSuggestions]=useState<CustomerSuggestion[]>([]);
@@ -536,6 +541,25 @@ export default function CashCounterPage(){
     return Math.max(direction==="COMMISSION"?640:760,visible+gaps+40);
   },[displayedTxColumns,direction]);
   const quickServiceOptions=useMemo(()=>serviceCatalog.filter((item)=>item.isActive!==false).slice(0,5),[serviceCatalog]);
+  const selectedQuickService=useMemo(()=>serviceCatalog.find((item)=>item.isActive!==false&&item.name.toLowerCase()===quickServiceName.trim().toLowerCase())??null,[serviceCatalog,quickServiceName]);
+  const quickServicePartnerCost=quickServiceFulfillmentMode==="PARTNER"?Number(quickServicePartnerCharge||0):0;
+  const quickServiceEarning=Number(quickAmount||0)-quickServicePartnerCost;
+  const quickServicePartnerPaymentAccounts=useMemo(()=>accounts.filter((account)=>account.isActive!==false&&(account.id===today?.cashAccountId||["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType))),[accounts,today?.cashAccountId]);
+  function selectQuickService(item:ServiceConfig){
+    setQuickServiceName(item.name);
+    if(item.defaultAmount!==null&&Number(item.defaultAmount)>0)setQuickAmount(String(Number(item.defaultAmount)));
+    setQuickServiceFulfillmentMode("INTERNAL");
+    setQuickServicePartnerName(item.defaultPartnerName||"");
+    setQuickServicePartnerCharge(item.defaultPartnerCharge!==null&&item.defaultPartnerCharge!==undefined?String(Number(item.defaultPartnerCharge)):"");
+    setQuickServicePartnerPaymentTiming("PAID_NOW");
+    setQuickServicePartnerPaymentAccountId(today?.cashAccountId||"");
+    clearQuickFieldError("serviceName");
+    clearQuickFieldError("amount");
+    clearQuickFieldError("servicePartnerName");
+    clearQuickFieldError("servicePartnerCharge");
+    clearQuickFieldError("servicePartnerPaymentAccount");
+    setQuickError("");
+  }
   function toggleTxColumn(id:TxColumn){
     setTxColumns((current)=>current.includes(id)?(current.length===1?current:current.filter((column)=>column!==id)):[...current,id]);
   }
@@ -591,7 +615,7 @@ export default function CashCounterPage(){
   }
 
   function resetQuickCash(){
-    setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
+    setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickServiceFulfillmentMode("INTERNAL");setQuickServicePartnerName("");setQuickServicePartnerCharge("");setQuickServicePartnerPaymentTiming("PAID_NOW");setQuickServicePartnerPaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
   }
   function selectQuickCustomer(customer:CustomerSuggestion){
     rememberCustomerName(customer.fullName);
@@ -627,6 +651,12 @@ export default function CashCounterPage(){
     if(quickDirection==="IN"&&purpose==="TRANSFER"&&(!Number.isFinite(cashReceivedAmount)||cashReceivedAmount<cashAmountDue))validation.cashReceived="Customer must give at least "+money(cashAmountDue)+".";
     if(purpose==="SERVICE"&&!quickServiceName.trim())validation.serviceName="Service name is required.";
     if(purpose==="SERVICE"&&quickServicePaymentMode==="UPI"&&!quickServicePaymentAccountId)validation.servicePaymentAccount="Choose the receiving bank / UPI account.";
+    if(purpose==="SERVICE"&&quickServiceFulfillmentMode==="PARTNER"){
+      const partnerCharge=Number(quickServicePartnerCharge);
+      if(!quickServicePartnerName.trim())validation.servicePartnerName="Enter the partner / company name.";
+      if(!quickServicePartnerCharge.trim()||!Number.isFinite(partnerCharge)||partnerCharge<=0)validation.servicePartnerCharge="Partner charge must be greater than 0.";
+      if(quickServicePartnerPaymentTiming==="PAID_NOW"&&!quickServicePartnerPaymentAccountId)validation.servicePartnerPaymentAccount="Choose where the partner was paid from.";
+    }
     if(Object.keys(validation).length){
       setQuickFieldErrors(validation);setQuickError("");
       requestAnimationFrame(()=>{
@@ -662,6 +692,11 @@ export default function CashCounterPage(){
         beneficiaryDetails:purpose==="TRANSFER"&&quickDirection==="IN"?beneficiaryDetails||undefined:undefined,
         servicePaymentMode:purpose==="SERVICE"?quickServicePaymentMode:undefined,
         servicePaymentAccountId:purpose==="SERVICE"&&quickServicePaymentMode==="UPI"?quickServicePaymentAccountId||undefined:undefined,
+        serviceFulfillmentMode:purpose==="SERVICE"?quickServiceFulfillmentMode:undefined,
+        servicePartnerName:purpose==="SERVICE"&&quickServiceFulfillmentMode==="PARTNER"?quickServicePartnerName.trim()||undefined:undefined,
+        servicePartnerCharge:purpose==="SERVICE"&&quickServiceFulfillmentMode==="PARTNER"?Number(quickServicePartnerCharge||0):undefined,
+        servicePartnerPaymentTiming:purpose==="SERVICE"&&quickServiceFulfillmentMode==="PARTNER"?quickServicePartnerPaymentTiming:undefined,
+        servicePartnerPaymentAccountId:purpose==="SERVICE"&&quickServiceFulfillmentMode==="PARTNER"&&quickServicePartnerPaymentTiming==="PAID_NOW"?quickServicePartnerPaymentAccountId||undefined:undefined,
         customerName:quickCustomerName.trim()||undefined,
         mobileNumber:quickMobile.trim()||undefined,
         remarks:quickRemarks.trim()||undefined,
@@ -1185,12 +1220,12 @@ export default function CashCounterPage(){
           </div>:<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] px-4 py-3">
             <label className="block">
               <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Service <span className="text-rose-500">*</span></span>
-              <input ref={quickServiceRef} list="quick-service-options" aria-invalid={Boolean(quickFieldErrors.serviceName)} aria-describedby={quickFieldErrors.serviceName?"quick-service-error":undefined} className="mt-1 w-full appearance-none bg-transparent p-0 text-[20px] font-black tracking-[-.02em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Type or choose a service" value={quickServiceName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{setQuickServiceName(event.target.value);clearQuickFieldError("serviceName");setQuickError("");}}/>
+              <input ref={quickServiceRef} list="quick-service-options" aria-invalid={Boolean(quickFieldErrors.serviceName)} aria-describedby={quickFieldErrors.serviceName?"quick-service-error":undefined} className="mt-1 w-full appearance-none bg-transparent p-0 text-[20px] font-black tracking-[-.02em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Type or choose a service" value={quickServiceName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{const value=event.target.value;const match=serviceCatalog.find((item)=>item.isActive!==false&&item.name.toLowerCase()===value.trim().toLowerCase());if(match)selectQuickService(match);else{setQuickServiceName(value);setQuickServiceFulfillmentMode("INTERNAL");setQuickServicePartnerName("");setQuickServicePartnerCharge("");setQuickServicePartnerPaymentAccountId(today?.cashAccountId||"");clearQuickFieldError("serviceName");setQuickError("");}}}/>
               <datalist id="quick-service-options">{serviceCatalog.filter((item)=>item.isActive!==false).map((item)=><option key={item.id} value={item.name}/>)}</datalist>
               {quickFieldErrors.serviceName?<p id="quick-service-error" className="mt-1.5 text-[12px] font-bold text-rose-600">{quickFieldErrors.serviceName}</p>:null}
             </label>
             <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {quickServiceOptions.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickServiceName(item.name);if(item.defaultAmount!==null&&Number(item.defaultAmount)>0)setQuickAmount(String(Number(item.defaultAmount)));clearQuickFieldError("serviceName");clearQuickFieldError("amount");setQuickError("");quickServiceRef.current?.focus();}} className={"min-h-8 rounded-full border px-3 text-[12px] font-black transition active:scale-[.98] "+(quickServiceName.toLowerCase()===item.name.toLowerCase()?"border-emerald-300 bg-emerald-50 text-emerald-700":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{item.name}{item.defaultAmount!==null&&Number(item.defaultAmount)>0?" · ₹"+Number(item.defaultAmount).toLocaleString("en-IN"):""}</button>)}
+              {quickServiceOptions.map((item)=><button key={item.id} type="button" onClick={()=>{selectQuickService(item);quickServiceRef.current?.focus();}} className={"min-h-8 rounded-full border px-3 text-[12px] font-black transition active:scale-[.98] "+(quickServiceName.toLowerCase()===item.name.toLowerCase()?"border-emerald-300 bg-emerald-50 text-emerald-700":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{item.name}{item.defaultAmount!==null&&Number(item.defaultAmount)>0?" · ₹"+Number(item.defaultAmount).toLocaleString("en-IN"):""}</button>)}
             </div>
             <fieldset className="mt-3 grid grid-cols-2 rounded-[12px] bg-[var(--surface)] p-1" aria-label="Service payment mode">
               <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[12px] font-black transition "+(quickServicePaymentMode==="CASH"?"bg-emerald-50 text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="servicePaymentMode" value="CASH" checked={quickServicePaymentMode==="CASH"} onChange={()=>{setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");clearQuickFieldError("servicePaymentAccount");}} className="absolute h-px w-px opacity-0"/><span>Cash</span></label>
@@ -1203,6 +1238,44 @@ export default function CashCounterPage(){
               </SearchableSelect>
               {quickFieldErrors.servicePaymentAccount?<p className="mt-1.5 text-[12px] font-bold text-rose-600">{quickFieldErrors.servicePaymentAccount}</p>:null}
             </div>:null}
+
+            {(!selectedQuickService||selectedQuickService.allowPartnerFulfillment)?<div className="mt-3 rounded-[15px] border border-[var(--border)] bg-[var(--surface)] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div><p className="text-[10px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Fulfilled by</p><p className="mt-0.5 text-[10px] font-semibold text-[var(--text-muted)]">Customer price and partner cost stay separate.</p></div>
+                {selectedQuickService?.allowPartnerFulfillment&&selectedQuickService.defaultPartnerCharge!==null?<span className="rounded-full bg-violet-50 px-2 py-1 text-[10px] font-black text-violet-700">Default {money(Number(selectedQuickService.defaultPartnerCharge||0))}</span>:null}
+              </div>
+              <fieldset className="mt-2 grid grid-cols-2 rounded-[11px] bg-[var(--surface-soft)] p-1" aria-label="Service fulfillment">
+                <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[8px] text-[12px] font-black transition "+(quickServiceFulfillmentMode==="INTERNAL"?"bg-emerald-50 text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="serviceFulfillment" value="INTERNAL" checked={quickServiceFulfillmentMode==="INTERNAL"} onChange={()=>{setQuickServiceFulfillmentMode("INTERNAL");clearQuickFieldError("servicePartnerName");clearQuickFieldError("servicePartnerCharge");clearQuickFieldError("servicePartnerPaymentAccount");}} className="absolute h-px w-px opacity-0"/><span>✓ Done by us</span></label>
+                <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[8px] text-[12px] font-black transition "+(quickServiceFulfillmentMode==="PARTNER"?"bg-violet-50 text-violet-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="serviceFulfillment" value="PARTNER" checked={quickServiceFulfillmentMode==="PARTNER"} onChange={()=>{setQuickServiceFulfillmentMode("PARTNER");if(!quickServicePartnerName&&selectedQuickService?.defaultPartnerName)setQuickServicePartnerName(selectedQuickService.defaultPartnerName);if(!quickServicePartnerCharge&&selectedQuickService?.defaultPartnerCharge!==null&&selectedQuickService?.defaultPartnerCharge!==undefined)setQuickServicePartnerCharge(String(Number(selectedQuickService.defaultPartnerCharge)));setQuickServicePartnerPaymentAccountId((current)=>current||today?.cashAccountId||"");}} className="absolute h-px w-px opacity-0"/><span>Partner</span></label>
+              </fieldset>
+
+              {quickServiceFulfillmentMode==="PARTNER"?<div className="mt-3 space-y-2.5">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_132px]">
+                  <label className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Partner / company <span className="text-rose-500">*</span></span><input className="mt-1 w-full bg-transparent p-0 text-[15px] font-black outline-none" value={quickServicePartnerName} onChange={(event)=>{setQuickServicePartnerName(event.target.value);clearQuickFieldError("servicePartnerName");setQuickError("");}} placeholder="Friend company"/></label>
+                  <label className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Partner charge <span className="text-rose-500">*</span></span><div className="mt-1 flex items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" className="min-w-0 flex-1 bg-transparent p-0 text-right text-[16px] font-black outline-none" value={quickServicePartnerCharge} onChange={(event)=>{setQuickServicePartnerCharge(event.target.value.replace(/[^0-9.]/g,""));clearQuickFieldError("servicePartnerCharge");setQuickError("");}} placeholder="0"/></div></label>
+                </div>
+                {quickFieldErrors.servicePartnerName?<p className="text-[11px] font-bold text-rose-600">{quickFieldErrors.servicePartnerName}</p>:null}
+                {quickFieldErrors.servicePartnerCharge?<p className="text-[11px] font-bold text-rose-600">{quickFieldErrors.servicePartnerCharge}</p>:null}
+
+                <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2 rounded-xl bg-[var(--surface-soft)] px-3 py-2.5 text-center">
+                  <div><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Customer</span><strong className="money mt-0.5 block text-sm">{money(Number(quickAmount||0))}</strong></div><span className="text-[var(--text-muted)]">→</span>
+                  <div><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Partner</span><strong className="money mt-0.5 block text-sm text-violet-700">{money(quickServicePartnerCost)}</strong></div><span className="text-[var(--text-muted)]">→</span>
+                  <div><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Our earning</span><strong className={"money mt-0.5 block text-sm "+(quickServiceEarning<0?"text-rose-600":"text-emerald-700")}>{money(quickServiceEarning)}</strong></div>
+                </div>
+
+                <fieldset className="grid grid-cols-2 rounded-[11px] bg-[var(--surface-soft)] p-1" aria-label="Partner payment timing">
+                  <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[8px] text-[11px] font-black "+(quickServicePartnerPaymentTiming==="PAID_NOW"?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="partnerPaymentTiming" checked={quickServicePartnerPaymentTiming==="PAID_NOW"} onChange={()=>{setQuickServicePartnerPaymentTiming("PAID_NOW");setQuickServicePartnerPaymentAccountId((current)=>current||today?.cashAccountId||"");}} className="absolute h-px w-px opacity-0"/><span>Paid now</span></label>
+                  <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[8px] text-[11px] font-black "+(quickServicePartnerPaymentTiming==="PAY_LATER"?"bg-amber-50 text-amber-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="partnerPaymentTiming" checked={quickServicePartnerPaymentTiming==="PAY_LATER"} onChange={()=>{setQuickServicePartnerPaymentTiming("PAY_LATER");clearQuickFieldError("servicePartnerPaymentAccount");}} className="absolute h-px w-px opacity-0"/><span>Pay later</span></label>
+                </fieldset>
+                {quickServicePartnerPaymentTiming==="PAID_NOW"?<div>
+                  <SearchableSelect mobileSheet aria-label="Partner paid from" searchPlaceholder="Search cash / bank / wallet" className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-[13px] font-black" value={quickServicePartnerPaymentAccountId} onChange={(event)=>{setQuickServicePartnerPaymentAccountId(event.target.value);clearQuickFieldError("servicePartnerPaymentAccount");setQuickError("");}}>
+                    <option value="">Paid from…</option>
+                    {quickServicePartnerPaymentAccounts.map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
+                  </SearchableSelect>
+                  {quickFieldErrors.servicePartnerPaymentAccount?<p className="mt-1.5 text-[11px] font-bold text-rose-600">{quickFieldErrors.servicePartnerPaymentAccount}</p>:null}
+                </div>:<p className="rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">No cash leaves now. {money(quickServicePartnerCost)} is recorded as partner payable.</p>}
+              </div>:<div className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-800">Done internally · full service amount is business service earning.</div>}
+            </div>:selectedQuickService?<div className="mt-3 rounded-xl bg-[var(--surface)] px-3 py-2 text-[11px] font-semibold text-[var(--text-muted)]">This service is configured as done by us. Enable partner fulfilment in Settings when needed.</div>:null}
           </div>}
 
           {quickDirection==="IN"&&quickPurpose==="TRANSFER"?<div className="mt-3 overflow-hidden rounded-[17px] border border-emerald-200 bg-emerald-50/60">

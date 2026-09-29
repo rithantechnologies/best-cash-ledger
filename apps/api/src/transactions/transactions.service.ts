@@ -15,7 +15,7 @@ import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto
 import { CompleteExpenseDto, CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
-import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto } from './dto/quick-cash-transfer.dto.js';
+import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleServicePartnerPayableDto } from './dto/quick-cash-transfer.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 
@@ -175,6 +175,7 @@ export class TransactionsService {
         include: {
           cashAccount: true,
           servicePaymentAccount: true,
+          servicePartnerPaymentAccount: true,
           commissionAccount: true,
           sourceAllocations: { include: { sourceAccount: true } },
         },
@@ -924,6 +925,15 @@ export class TransactionsService {
         ? null
         : this.money(Math.max(0, cashReceivedAmount - cashAmountDue));
     const servicePaymentMode = dto.servicePaymentMode ?? 'CASH';
+    const serviceFulfillmentMode = dto.serviceFulfillmentMode ?? 'INTERNAL';
+    const servicePartnerCharge =
+      serviceFulfillmentMode === 'PARTNER'
+        ? this.money(dto.servicePartnerCharge ?? 0)
+        : 0;
+    const servicePartnerPaymentTiming =
+      serviceFulfillmentMode === 'PARTNER'
+        ? dto.servicePartnerPaymentTiming ?? 'PAID_NOW'
+        : null;
     const cashOutType =
       dto.direction === 'OUT' ? dto.cashOutType ?? 'UPI_QR' : 'UPI_QR';
     const successful =
@@ -964,6 +974,20 @@ export class TransactionsService {
       }
       if (servicePaymentMode === 'UPI' && !dto.servicePaymentAccountId) {
         throw new BadRequestException('Choose the bank / UPI account that received the service payment');
+      }
+      if (serviceFulfillmentMode === 'PARTNER') {
+        if (!dto.servicePartnerName?.trim()) {
+          throw new BadRequestException('Partner name is required for outsourced service work');
+        }
+        if (!Number.isFinite(servicePartnerCharge) || servicePartnerCharge <= 0) {
+          throw new BadRequestException('Partner charge must be greater than zero');
+        }
+        if (
+          servicePartnerPaymentTiming === 'PAID_NOW' &&
+          !dto.servicePartnerPaymentAccountId
+        ) {
+          throw new BadRequestException('Choose where the partner was paid from');
+        }
       }
     } else {
       if (commissionAmount < 0) {
@@ -1037,8 +1061,28 @@ export class TransactionsService {
         const serviceIncomeLedger = await tx.ledgerAccount.findUnique({
           where: { ledgerCode: 'SYS-SERVICE-INCOME' },
         });
-        if (!serviceIncomeLedger || !cashAccount.ledgerAccount) {
-          throw new NotFoundException('Service income ledger is missing');
+        const servicePartnerCostLedger =
+          serviceFulfillmentMode === 'PARTNER'
+            ? await tx.ledgerAccount.findUnique({
+                where: { ledgerCode: 'SYS-SERVICE-PARTNER-COST' },
+              })
+            : null;
+        const servicePartnerPayableLedger =
+          serviceFulfillmentMode === 'PARTNER' &&
+          servicePartnerPaymentTiming === 'PAY_LATER'
+            ? await tx.ledgerAccount.findUnique({
+                where: { ledgerCode: 'SYS-SERVICE-PARTNER-PAYABLE' },
+              })
+            : null;
+        if (
+          !serviceIncomeLedger ||
+          !cashAccount.ledgerAccount ||
+          (serviceFulfillmentMode === 'PARTNER' && !servicePartnerCostLedger) ||
+          (serviceFulfillmentMode === 'PARTNER' &&
+            servicePartnerPaymentTiming === 'PAY_LATER' &&
+            !servicePartnerPayableLedger)
+        ) {
+          throw new NotFoundException('Service income / partner ledgers are missing');
         }
 
         let servicePaymentAccount = cashAccount;
@@ -1060,7 +1104,50 @@ export class TransactionsService {
           );
         }
 
+        let servicePartnerPaymentAccount = null;
+        if (
+          serviceFulfillmentMode === 'PARTNER' &&
+          servicePartnerPaymentTiming === 'PAID_NOW'
+        ) {
+          const partnerPaymentAccountId = dto.servicePartnerPaymentAccountId!;
+          if (partnerPaymentAccountId !== cashAccount.id) {
+            await this.validation.lockAccount(tx, partnerPaymentAccountId);
+          }
+          servicePartnerPaymentAccount = await this.validation.account(
+            tx,
+            partnerPaymentAccountId,
+            {
+              label: 'Partner payment account',
+              nature: AccountNature.ASSET,
+              types: [
+                AccountType.CASH,
+                AccountType.BANK,
+                AccountType.UPI,
+                AccountType.PROVIDER_WALLET,
+              ],
+            },
+          );
+          if (
+            servicePartnerPaymentAccount.accountType === AccountType.CASH &&
+            servicePartnerPaymentAccount.id !== cashAccount.id
+          ) {
+            throw new BadRequestException(
+              'Partner cash payment must use the current open cash drawer',
+            );
+          }
+          if (
+            actorRole === RoleName.STAFF &&
+            servicePartnerPaymentAccount.accountName === 'Main Cash Reserve'
+          ) {
+            throw new ForbiddenException('Main Cash Reserve is owner-only');
+          }
+        }
+
         const serviceName = dto.serviceName!.trim();
+        const servicePartnerName =
+          serviceFulfillmentMode === 'PARTNER'
+            ? dto.servicePartnerName!.trim()
+            : null;
         const transaction = await tx.transaction.create({
           data: {
             transactionNumber: 'SVC-' + Date.now().toString(36).toUpperCase(),
@@ -1088,23 +1175,90 @@ export class TransactionsService {
             commissionAmount: new Prisma.Decimal(0),
             servicePaymentMode,
             servicePaymentAccountId: servicePaymentMode === 'UPI' ? servicePaymentAccount.id : null,
+            serviceFulfillmentMode,
+            servicePartnerName,
+            servicePartnerCharge: new Prisma.Decimal(servicePartnerCharge),
+            servicePartnerPaymentTiming,
+            servicePartnerPaymentAccountId:
+              servicePartnerPaymentAccount?.id ?? null,
+            servicePartnerPaidAt:
+              serviceFulfillmentMode === 'PARTNER' &&
+              servicePartnerPaymentTiming === 'PAID_NOW'
+                ? new Date()
+                : null,
             completedAt: new Date(),
           },
         });
-        await this.ledger.post(tx,transaction.id,userId,'Service income · ' + serviceName,[
+        if (serviceFulfillmentMode === 'PARTNER') {
+          await tx.transactionCharge.create({
+            data: {
+              transactionId: transaction.id,
+              chargeType: 'SERVICE_PARTNER_COST',
+              calculationType: CalculationType.FIXED,
+              rate: new Prisma.Decimal(servicePartnerCharge),
+              amount: new Prisma.Decimal(servicePartnerCharge),
+              sourceAccountId:
+                servicePartnerPaymentTiming === 'PAID_NOW'
+                  ? servicePartnerPaymentAccount!.id
+                  : null,
+              notes:
+                servicePartnerName +
+                ' · ' +
+                (servicePartnerPaymentTiming === 'PAID_NOW'
+                  ? 'Paid now'
+                  : 'Pay later'),
+            },
+          });
+        }
+
+        const serviceEntries: JournalEntry[] = [
           {
             ledgerAccountId: servicePaymentAccount.ledgerAccount!.id,
             entryType: EntryType.DEBIT,
             amount,
-            description: (servicePaymentMode === 'UPI' ? 'Bank / UPI payment' : 'Cash received') + ' for ' + serviceName,
+            description:
+              (servicePaymentMode === 'UPI'
+                ? 'Bank / UPI payment'
+                : 'Cash received') +
+              ' for ' +
+              serviceName,
           },
           {
             ledgerAccountId: serviceIncomeLedger.id,
             entryType: EntryType.CREDIT,
             amount,
-            description: 'Service income · ' + serviceName,
+            description: 'Service revenue · ' + serviceName,
           },
-        ]);
+        ];
+        if (serviceFulfillmentMode === 'PARTNER') {
+          serviceEntries.push({
+            ledgerAccountId: servicePartnerCostLedger!.id,
+            entryType: EntryType.DEBIT,
+            amount: servicePartnerCharge,
+            description:
+              'Partner cost · ' + servicePartnerName + ' · ' + serviceName,
+          });
+          serviceEntries.push({
+            ledgerAccountId:
+              servicePartnerPaymentTiming === 'PAID_NOW'
+                ? servicePartnerPaymentAccount!.ledgerAccount!.id
+                : servicePartnerPayableLedger!.id,
+            entryType: EntryType.CREDIT,
+            amount: servicePartnerCharge,
+            description:
+              servicePartnerPaymentTiming === 'PAID_NOW'
+                ? 'Paid to partner · ' + servicePartnerName
+                : 'Partner payable · ' + servicePartnerName,
+          });
+        }
+
+        await this.ledger.post(
+          tx,
+          transaction.id,
+          userId,
+          'Service income · ' + serviceName,
+          serviceEntries,
+        );
         await this.auditCreated(tx, transaction, userId);
         return transaction;
       }
@@ -1768,6 +1922,159 @@ export class TransactionsService {
         transactionId: detail.transactionId,
         completionTransactionId: completion.id,
         status: TransactionStatus.COMPLETED,
+      };
+    });
+  }
+
+  async settleServicePartnerPayable(
+    transactionId: string,
+    dto: SettleServicePartnerPayableDto,
+    userId: string,
+    actorRole: RoleName,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+        include: {
+          quickCashTransfer: true,
+          journal: true,
+          charges: true,
+        },
+      });
+      if (!transaction) {
+        throw new NotFoundException('Service transaction not found');
+      }
+      if (
+        transaction.transactionType !== TransactionType.SERVICE_INCOME ||
+        !transaction.quickCashTransfer
+      ) {
+        throw new BadRequestException('This is not a service income transaction');
+      }
+      if (transaction.status === TransactionStatus.REVERSED) {
+        throw new BadRequestException('Reversed service transactions cannot be paid');
+      }
+
+      const detail = transaction.quickCashTransfer;
+      if (detail.serviceFulfillmentMode !== 'PARTNER') {
+        throw new BadRequestException('This service was not fulfilled by a partner');
+      }
+      if (detail.servicePartnerPaymentTiming !== 'PAY_LATER') {
+        throw new BadRequestException('This partner cost was not recorded as pay later');
+      }
+      if (detail.servicePartnerPaidAt) {
+        throw new BadRequestException('This partner payable has already been settled');
+      }
+
+      const amount = this.money(Number(detail.servicePartnerCharge));
+      if (amount <= 0) {
+        throw new BadRequestException('Partner payable amount is invalid');
+      }
+
+      await this.validation.lockAccount(tx, dto.paymentAccountId);
+      const paymentAccount = await this.validation.account(
+        tx,
+        dto.paymentAccountId,
+        {
+          label: 'Partner payment account',
+          nature: AccountNature.ASSET,
+          types: [
+            AccountType.CASH,
+            AccountType.BANK,
+            AccountType.UPI,
+            AccountType.PROVIDER_WALLET,
+          ],
+        },
+      );
+      if (
+        actorRole === RoleName.STAFF &&
+        paymentAccount.accountName === 'Main Cash Reserve'
+      ) {
+        throw new ForbiddenException('Main Cash Reserve is owner-only');
+      }
+      await this.validation.ensureSufficientFunds(tx, paymentAccount, amount);
+
+      const partnerPayableLedger = await tx.ledgerAccount.findUnique({
+        where: { ledgerCode: 'SYS-SERVICE-PARTNER-PAYABLE' },
+      });
+      if (!partnerPayableLedger || !transaction.journal) {
+        throw new NotFoundException('Partner payable ledger or journal is missing');
+      }
+
+      const paidAt = new Date();
+      await tx.ledgerEntry.createMany({
+        data: [
+          {
+            journalId: transaction.journal.id,
+            ledgerAccountId: partnerPayableLedger.id,
+            entryType: EntryType.DEBIT,
+            amount: new Prisma.Decimal(amount),
+            description:
+              'Clear partner payable · ' +
+              (detail.servicePartnerName ?? 'Service partner'),
+          },
+          {
+            journalId: transaction.journal.id,
+            ledgerAccountId: paymentAccount.ledgerAccount!.id,
+            entryType: EntryType.CREDIT,
+            amount: new Prisma.Decimal(amount),
+            description:
+              'Partner payment · ' +
+              (detail.servicePartnerName ?? 'Service partner'),
+          },
+        ],
+      });
+
+      await tx.quickCashTransferDetail.update({
+        where: { id: detail.id },
+        data: {
+          servicePartnerPaymentAccountId: paymentAccount.id,
+          servicePartnerPaidAt: paidAt,
+        },
+      });
+      await tx.transactionCharge.updateMany({
+        where: {
+          transactionId,
+          chargeType: 'SERVICE_PARTNER_COST',
+        },
+        data: {
+          sourceAccountId: paymentAccount.id,
+          notes:
+            (detail.servicePartnerName ?? 'Service partner') +
+            ' · Pay later · settled' +
+            (dto.notes?.trim() ? ' · ' + dto.notes.trim() : ''),
+        },
+      });
+      await tx.transaction.update({
+        where: { id: transactionId },
+        data: { updatedById: userId },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entityType: 'TRANSACTION',
+          entityId: transactionId,
+          action: 'SETTLE_SERVICE_PARTNER_PAYABLE',
+          oldValues: {
+            servicePartnerPaymentTiming: detail.servicePartnerPaymentTiming,
+            servicePartnerPaidAt: null,
+            servicePartnerPaymentAccountId: null,
+          },
+          newValues: {
+            servicePartnerName: detail.servicePartnerName,
+            servicePartnerCharge: amount,
+            servicePartnerPaymentAccountId: paymentAccount.id,
+            servicePartnerPaidAt: paidAt.toISOString(),
+            notes: dto.notes?.trim() || null,
+          },
+        },
+      });
+
+      return {
+        transactionId,
+        partnerName: detail.servicePartnerName,
+        amount,
+        paymentAccountId: paymentAccount.id,
+        paidAt,
       };
     });
   }
@@ -3607,6 +3914,7 @@ export class TransactionsService {
             sourceAccount: true,
             commissionAccount: true,
             servicePaymentAccount: true,
+            servicePartnerPaymentAccount: true,
             sourceAllocations: { include: { sourceAccount: true } },
           },
         },
@@ -3910,6 +4218,14 @@ export class TransactionsService {
       original.transactionType === TransactionType.REVERSAL
     ) {
       throw new BadRequestException('Reversed transactions cannot be corrected');
+    }
+    if (
+      original.quickCashTransfer?.servicePartnerPaymentTiming === 'PAY_LATER' &&
+      original.quickCashTransfer.servicePartnerPaidAt
+    ) {
+      throw new BadRequestException(
+        'This service amount cannot be corrected after its deferred partner payment was settled. Reverse the service transaction and record the corrected service instead.',
+      );
     }
 
     const managedElsewhere = new Set<TransactionType>([
@@ -4274,6 +4590,14 @@ export class TransactionsService {
             beneficiaryDetails: d.beneficiaryDetails ?? undefined,
             servicePaymentMode: d.servicePaymentMode as 'CASH' | 'UPI',
             servicePaymentAccountId: d.servicePaymentAccountId ?? undefined,
+            serviceFulfillmentMode:
+              d.serviceFulfillmentMode as 'INTERNAL' | 'PARTNER',
+            servicePartnerName: d.servicePartnerName ?? undefined,
+            servicePartnerCharge: Number(d.servicePartnerCharge ?? 0),
+            servicePartnerPaymentTiming:
+              d.servicePartnerPaymentTiming as 'PAID_NOW' | 'PAY_LATER' | undefined,
+            servicePartnerPaymentAccountId:
+              d.servicePartnerPaymentAccountId ?? undefined,
           },
           userId,
           actorRole,

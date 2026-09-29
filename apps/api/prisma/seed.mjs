@@ -37,6 +37,8 @@ try {
     ['SYS-RECEIVABLE-ADJUSTMENT', 'Receivable Opening Adjustments', LedgerType.EQUITY, 'RECEIVABLE_ADJUSTMENT'],
     ['SYS-COMMISSION', 'Commission Income', LedgerType.INCOME, 'COMMISSION_INCOME'],
     ['SYS-SERVICE-INCOME', 'Service Income', LedgerType.INCOME, 'SERVICE_INCOME'],
+    ['SYS-SERVICE-PARTNER-COST', 'External Service / Partner Cost', LedgerType.EXPENSE, 'SERVICE_PARTNER_COST'],
+    ['SYS-SERVICE-PARTNER-PAYABLE', 'Service Partner Payables', LedgerType.LIABILITY, 'SERVICE_PARTNER_PAYABLE'],
     ['SYS-PROVIDER-CHARGE', 'Provider Charges', LedgerType.EXPENSE, 'PROVIDER_CHARGE'],
     ['SYS-BANK-CHARGE', 'Bank Charges', LedgerType.EXPENSE, 'BANK_CHARGE'],
     ['SYS-ATM-CHARGE', 'ATM Charges', LedgerType.EXPENSE, 'ATM_CHARGE'],

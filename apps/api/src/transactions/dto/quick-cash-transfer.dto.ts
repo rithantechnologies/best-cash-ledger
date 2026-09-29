@@ -98,6 +98,27 @@ export class CreateQuickCashTransferDto {
   @IsOptional()
   @IsString()
   servicePaymentAccountId?: string;
+
+  @IsOptional()
+  @IsIn(['INTERNAL', 'PARTNER'])
+  serviceFulfillmentMode?: 'INTERNAL' | 'PARTNER';
+
+  @IsOptional()
+  @IsString()
+  servicePartnerName?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  servicePartnerCharge?: number;
+
+  @IsOptional()
+  @IsIn(['PAID_NOW', 'PAY_LATER'])
+  servicePartnerPaymentTiming?: 'PAID_NOW' | 'PAY_LATER';
+
+  @IsOptional()
+  @IsString()
+  servicePartnerPaymentAccountId?: string;
 }
 
 class QuickCashSourceAllocationDto {
@@ -111,6 +132,15 @@ class QuickCashSourceAllocationDto {
   @IsOptional()
   @IsString()
   referenceNumber?: string;
+}
+
+export class SettleServicePartnerPayableDto {
+  @IsString()
+  paymentAccountId!: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class CompleteQuickCashTransferDto {

@@ -13,7 +13,7 @@ type ProviderCommissionRule={id:string;minAmount:string;maxAmount:string|null;ca
 type Provider={id:string;name:string;providerType:string;supportsAeps:boolean;aepsCommissionRate:string;aepsProviderChargeRate:string;aepsProviderCommissionRules:ProviderCommissionRule[];payoutChargeRules:ProviderCommissionRule[];isActive:boolean;gateways:Gateway[]};
 type Term={id:string;name:string;durationValue:number;durationUnit:string;defaultCommissionType:string;defaultCommissionRate:string;isActive:boolean};
 type Category={id:string;name:string;expenseUsage:string;isActive:boolean};
-type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;isActive:boolean};
+type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;allowPartnerFulfillment:boolean;defaultPartnerName:string|null;defaultPartnerCharge:string|number|null;isActive:boolean};
 type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";defaultCommissionRate:string|number;isActive:boolean};
 type CardNetworkConfig={id:string;name:string;isActive:boolean};
 type Customer={id:string;fullName:string};
@@ -71,7 +71,7 @@ export default function SettingsPage(){
  const [ruleCustomer,setRuleCustomer]=useState(""),[ruleProvider,setRuleProvider]=useState(""),[ruleGateway,setRuleGateway]=useState(""),[ruleTerm,setRuleTerm]=useState(""),[ruleType,setRuleType]=useState("CARD_SWIPE"),[ruleCalc,setRuleCalc]=useState("PERCENTAGE"),[ruleRate,setRuleRate]=useState("");
  const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState(""),[e5,setE5]=useState(""),[e6,setE6]=useState(""),[e7,setE7]=useState("");
  const [serviceName,setServiceName]=useState(""),[serviceDefaultAmount,setServiceDefaultAmount]=useState("");
- const [serviceEdit,setServiceEdit]=useState<ServiceConfig|null>(null),[serviceEditName,setServiceEditName]=useState(""),[serviceEditAmount,setServiceEditAmount]=useState("");
+ const [serviceEdit,setServiceEdit]=useState<ServiceConfig|null>(null),[serviceEditName,setServiceEditName]=useState(""),[serviceEditAmount,setServiceEditAmount]=useState(""),[serviceEditPartnerEnabled,setServiceEditPartnerEnabled]=useState(false),[serviceEditPartnerName,setServiceEditPartnerName]=useState(""),[serviceEditPartnerCharge,setServiceEditPartnerCharge]=useState("");
  const [cardNetworkName,setCardNetworkName]=useState("");
  const [transferTypeName,setTransferTypeName]=useState(""),[transferTypeMode,setTransferTypeMode]=useState<"UPI"|"BANK">("UPI"),[transferTypeRate,setTransferTypeRate]=useState("2");
  const [transferTypeEdit,setTransferTypeEdit]=useState<CashInTransferTypeConfig|null>(null),[transferTypeEditName,setTransferTypeEditName]=useState(""),[transferTypeEditMode,setTransferTypeEditMode]=useState<"UPI"|"BANK">("UPI"),[transferTypeEditRate,setTransferTypeEditRate]=useState("");
@@ -109,10 +109,10 @@ export default function SettingsPage(){
   const name=serviceName.trim();if(!name)return;
   try{await run(()=>apiFetch("/settings/services",{method:"POST",body:JSON.stringify({name,defaultAmount:serviceDefaultAmount.trim()===""?undefined:Number(serviceDefaultAmount)})}),()=>{setServiceName("");setServiceDefaultAmount("");},"Service added.");}catch{}
  }
- function beginServiceEdit(item:ServiceConfig){setServiceEdit(item);setServiceEditName(item.name);setServiceEditAmount(item.defaultAmount===null||item.defaultAmount===undefined?"":String(Number(item.defaultAmount)));}
+ function beginServiceEdit(item:ServiceConfig){setServiceEdit(item);setServiceEditName(item.name);setServiceEditAmount(item.defaultAmount===null||item.defaultAmount===undefined?"":String(Number(item.defaultAmount)));setServiceEditPartnerEnabled(Boolean(item.allowPartnerFulfillment));setServiceEditPartnerName(item.defaultPartnerName||"");setServiceEditPartnerCharge(item.defaultPartnerCharge===null||item.defaultPartnerCharge===undefined?"":String(Number(item.defaultPartnerCharge)));}
  async function saveServiceEdit(e:FormEvent){
   e.preventDefault();if(!serviceEdit)return;
-  try{await run(()=>apiFetch("/settings/services/"+serviceEdit.id,{method:"PATCH",body:JSON.stringify({name:serviceEditName.trim(),defaultAmount:serviceEditAmount.trim()===""?null:Number(serviceEditAmount)})}),()=>setServiceEdit(null),"Service updated.");}catch{}
+  try{await run(()=>apiFetch("/settings/services/"+serviceEdit.id,{method:"PATCH",body:JSON.stringify({name:serviceEditName.trim(),defaultAmount:serviceEditAmount.trim()===""?null:Number(serviceEditAmount),allowPartnerFulfillment:serviceEditPartnerEnabled,defaultPartnerName:serviceEditPartnerEnabled?(serviceEditPartnerName.trim()||null):null,defaultPartnerCharge:serviceEditPartnerEnabled&&serviceEditPartnerCharge.trim()!==""?Number(serviceEditPartnerCharge):null})}),()=>setServiceEdit(null),"Service updated.");}catch{}
  }
  async function toggleService(item:ServiceConfig){
   try{await run(()=>apiFetch("/settings/services/"+item.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:!item.isActive})}),()=>{},item.isActive?"Service retired.":"Service activated.");}catch{}
@@ -190,7 +190,7 @@ export default function SettingsPage(){
     </div>
     <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3">
       {services.map(item=><div key={item.id} className={"rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4 "+(!item.isActive?"opacity-55":"")}>
-        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-black">{item.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{item.defaultAmount!==null&&Number(item.defaultAmount)>0?"Default ₹"+Number(item.defaultAmount).toLocaleString("en-IN"):"Amount entered at sale"}</p></div><span className={"h-2.5 w-2.5 shrink-0 rounded-full "+(item.isActive?"bg-emerald-500":"bg-slate-300")}/></div>
+        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-black">{item.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{item.defaultAmount!==null&&Number(item.defaultAmount)>0?"Default ₹"+Number(item.defaultAmount).toLocaleString("en-IN"):"Amount entered at sale"}</p>{item.allowPartnerFulfillment?<p className="mt-1 text-[11px] font-bold text-violet-700">Partner enabled{item.defaultPartnerCharge!==null?" · default ₹"+Number(item.defaultPartnerCharge).toLocaleString("en-IN"):""}{item.defaultPartnerName?" · "+item.defaultPartnerName:""}</p>:null}</div><span className={"h-2.5 w-2.5 shrink-0 rounded-full "+(item.isActive?"bg-emerald-500":"bg-slate-300")}/></div>
         <div className="mt-4 flex gap-2"><button type="button" onClick={()=>beginServiceEdit(item)} className={secondary}>Edit</button><button type="button" onClick={()=>toggleService(item)} className={secondary}>{item.isActive?"Retire":"Activate"}</button></div>
       </div>)}
       {!services.length?<p className="p-3 text-sm text-[var(--text-muted)]">No services configured yet.</p>:null}
@@ -249,6 +249,10 @@ export default function SettingsPage(){
     <form onSubmit={saveServiceEdit} className="space-y-3">
       <input className={input} value={serviceEditName} onChange={e=>setServiceEditName(e.target.value)} placeholder="Service name" required/>
       <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default amount</span><input className={input} value={serviceEditAmount} onChange={e=>setServiceEditAmount(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" placeholder="Leave blank to enter each time"/></label>
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+        <label className="flex cursor-pointer items-center justify-between gap-3"><span><strong className="block text-sm">Allow partner fulfilment</strong><span className="mt-0.5 block text-xs text-[var(--text-muted)]">For services that can be handed to a friend / outside company.</span></span><input type="checkbox" checked={serviceEditPartnerEnabled} onChange={e=>setServiceEditPartnerEnabled(e.target.checked)} className="h-5 w-5 accent-[var(--accent)]"/></label>
+        {serviceEditPartnerEnabled?<div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Default partner <span className="font-normal text-[var(--text-muted)]">(optional)</span></span><input className={input} value={serviceEditPartnerName} onChange={e=>setServiceEditPartnerName(e.target.value)} placeholder="Friend company"/></label><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-600">Typical partner charge</span><input className={input} value={serviceEditPartnerCharge} onChange={e=>setServiceEditPartnerCharge(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" placeholder="₹0"/></label></div>:null}
+      </div>
       <div className="flex justify-end gap-2"><button type="button" onClick={()=>setServiceEdit(null)} className={secondary}>Cancel</button><button className={primary}>Save service</button></div>
     </form>
   </Modal>

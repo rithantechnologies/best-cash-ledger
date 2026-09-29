@@ -18,7 +18,7 @@ import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto
 import { CompleteExpenseDto, CreateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
-import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto } from './dto/quick-cash-transfer.dto.js';
+import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleServicePartnerPayableDto } from './dto/quick-cash-transfer.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 import { CardDueClearingService } from './card-due-clearing.service.js';
@@ -151,6 +151,20 @@ export class TransactionsController {
     @Req() req: any,
   ) {
     return this.transactions.completeQuickCash(
+      id,
+      dto,
+      req.user.userId,
+      req.user.role,
+    );
+  }
+
+  @Post(':id/service-partner-payment')
+  settleServicePartnerPayable(
+    @Param('id') id: string,
+    @Body() dto: SettleServicePartnerPayableDto,
+    @Req() req: any,
+  ) {
+    return this.transactions.settleServicePartnerPayable(
       id,
       dto,
       req.user.userId,
