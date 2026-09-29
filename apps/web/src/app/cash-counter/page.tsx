@@ -250,6 +250,7 @@ export default function CashCounterPage(){
   const [qty,setQty]=useState<Record<number,string>>({});
   const [remarks,setRemarks]=useState("");
   const [closing,setClosing]=useState(false);
+  const [pendingCloseConfirm,setPendingCloseConfirm]=useState(false);
   const [error,setError]=useState("");
   const [saving,setSaving]=useState(false);
   const [loading,setLoading]=useState(true);
@@ -453,11 +454,11 @@ export default function CashCounterPage(){
     if(typeof window!=="undefined")localStorage.setItem("cashledger_daily_cash_columns",JSON.stringify(txColumns));
   },[txColumns]);
   useEffect(()=>{
-    if(!portalReady||(!quickDirection&&!completePendingId))return;
+    if(!portalReady||(!quickDirection&&!completePendingId&&!pendingCloseConfirm))return;
     const previous=document.body.style.overflow;
     document.body.style.overflow="hidden";
     return()=>{document.body.style.overflow=previous;};
-  },[portalReady,quickDirection,completePendingId]);
+  },[portalReady,quickDirection,completePendingId,pendingCloseConfirm]);
   useEffect(()=>{
     if(quickDirection!=="OUT"||quickCashOutType==="UPI_QR"||quickCustomerId){
       setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);return;
@@ -673,18 +674,8 @@ export default function CashCounterPage(){
     finally{setSaving(false);}
   }
 
-  async function closeCounter(event:FormEvent){
-    event.preventDefault();if(!today||today.status!=="OPEN")return;
-    if(Math.abs(previewDifference)>.005){
-      setError("Cash cannot be closed until Counted and Expected match. Review the cash ledger for a missing or incorrect transaction.");return;
-    }
-    if(pendingQuickCash.length){
-      const confirmed=window.confirm(pendingQuickCash.length+" transaction"+(pendingQuickCash.length===1?"":"s")+" still need completion. Closing this cash session will leave them pending. Close anyway?");
-      if(!confirmed){
-        requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}));
-        return;
-      }
-    }
+  async function performCloseCounter(){
+    if(!today||today.status!=="OPEN")return;
     setSaving(true);setError("");
     try{
       const handoverToUserId=handoverTarget.startsWith("user:")?handoverTarget.slice(5):undefined;
@@ -695,9 +686,17 @@ export default function CashCounterPage(){
         handoverToUserId,
         handoverToCashAccountId,
       })});
-      setQty({});setRemarks("");setHandoverTarget("");setClosing(false);setRange("today");await load(cashAccountId);
+      setPendingCloseConfirm(false);setQty({});setRemarks("");setHandoverTarget("");setClosing(false);setRange("today");await load(cashAccountId);
     }catch(err){setError(err instanceof Error?err.message:"Failed to close today's cash desk");}
     finally{setSaving(false);}
+  }
+  function closeCounter(event:FormEvent){
+    event.preventDefault();if(!today||today.status!=="OPEN")return;
+    if(Math.abs(previewDifference)>.005){
+      setError("Cash cannot be closed until Counted and Expected match. Review the cash ledger for a missing or incorrect transaction.");return;
+    }
+    if(pendingQuickCash.length){setPendingCloseConfirm(true);return;}
+    void performCloseCounter();
   }
 
   function resetQuickCash(){
@@ -971,7 +970,6 @@ export default function CashCounterPage(){
               <h3 className="text-sm font-extrabold">Cash book</h3>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {pendingQuickCash.length?<button type="button" onClick={()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"})} className="min-h-9 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-black text-amber-800">Pending {pendingQuickCash.length}</button>:null}
               <label className="flex min-h-9 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-bold text-[var(--text-muted)]">
                 <span className="hidden sm:inline">Rows</span>
                 <select aria-label="Cash book rows per page" className="bg-transparent font-black text-[var(--text)] outline-none" value={cashBookPageSize} onChange={(event)=>changeCashBookPageSize(Number(event.target.value) as 30|50)}>
@@ -1295,6 +1293,23 @@ export default function CashCounterPage(){
         </Surface>
       </div>
     </>:null}
+
+    {portalReady&&pendingCloseConfirm?createPortal(<div className="fixed inset-0 z-[120] grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="pending-close-title">
+      <div className="w-full max-w-[440px] overflow-hidden rounded-[24px] border border-amber-200 bg-[var(--surface)] shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4">
+          <div><span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-[.08em] text-amber-800">Pending work</span><h3 id="pending-close-title" className="mt-2 text-xl font-black tracking-[-.03em]">{pendingQuickCash.length} transaction{pendingQuickCash.length===1?"":"s"} still need completion</h3></div>
+          <button type="button" onClick={()=>setPendingCloseConfirm(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface-soft)] text-lg font-black text-[var(--text-muted)]" aria-label="Cancel close">×</button>
+        </div>
+        <div className="px-5 py-4">
+          <p className="text-sm font-semibold leading-6 text-[var(--text-muted)]">You can close this cash session, but these transactions will stay pending until their wallet, bank, beneficiary, or settlement details are completed.</p>
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] font-bold text-amber-900">Recommended: review pending work before closing whenever possible.</div>
+        </div>
+        <div className="grid gap-2 border-t border-[var(--border)] bg-[var(--surface-soft)] p-4 sm:grid-cols-2">
+          <button type="button" onClick={()=>{setPendingCloseConfirm(false);requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}));}} className="min-h-11 rounded-xl bg-amber-500 px-4 text-sm font-black text-white">Review pending</button>
+          <button type="button" disabled={saving} onClick={()=>{setPendingCloseConfirm(false);void performCloseCounter();}} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-black text-[var(--text)] disabled:opacity-40">{saving?"Closing…":"Close anyway"}</button>
+        </div>
+      </div>
+    </div>,document.body):null}
 
     {portalReady&&quickDirection?createPortal(<div className="fixed inset-0 z-[100] grid place-items-end bg-black/45 p-0 sm:place-items-center sm:p-5" role="dialog" aria-modal="true">
       <form onSubmit={saveQuickCash} className="cash-quick-sheet flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-[var(--surface)] shadow-2xl sm:max-h-[86dvh] sm:max-w-[520px] sm:rounded-[26px]">

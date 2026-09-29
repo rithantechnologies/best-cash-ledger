@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
@@ -11,9 +11,9 @@ type CashOutType="UPI_QR"|"AEPS"|"MICRO_ATM";
 type CommissionMode="CASH"|"UPI"|"SPLIT";
 type BeneficiaryMode="UPI"|"BANK";
 type RowStatus="READY"|"SAVING"|"SAVED"|"ERROR";
-type RowFilter="ALL"|"UNSAVED"|"PENDING"|"COMPLETE";
+type RowFilter="ACTIVE"|"UNSAVED"|"PENDING"|"COMPLETE";
 const COMPLETE_AUTO_HIDE_THRESHOLD=25;
-const RECENT_COMPLETE_ROWS_IN_ALL=10;
+const RECENT_COMPLETE_ROWS_IN_ACTIVE=10;
 type Account={id:string;accountName:string;accountType:string;isActive?:boolean;currentBalance?:string|number};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;allowPartnerFulfillment:boolean;defaultPartnerName:string|null;defaultPartnerCharge:string|number|null;isActive:boolean};
 type TransferType={id:string;name:string;transferMode:BeneficiaryMode;defaultCommissionRate:string|number;isActive:boolean};
@@ -21,7 +21,7 @@ type SavedTransaction={id:string;transactionNumber:string;status:string};
 type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null};
 
 type RushRow={
-  key:string;direction:Direction;purpose:Purpose;amount:string;customerId:string;customerLookup:string;customerSuggestions:CustomerSuggestion[];customerSearchLoading:boolean;customerName:string;mobileNumber:string;commission:string;commissionOverridden:boolean;
+  key:string;direction:Direction;purpose:Purpose;amount:string;customerId:string;customerLookup:string;customerSuggestions:CustomerSuggestion[];customerSuggestionIndex:number;customerSearchLoading:boolean;customerName:string;mobileNumber:string;commission:string;commissionOverridden:boolean;
   commissionMode:CommissionMode;commissionCash:string;cashReceived:string;transferTypeId:string;beneficiaryMode:BeneficiaryMode;beneficiaryUpi:string;
   bankAccountHolder:string;bankAccountNumber:string;bankIfsc:string;cashOutType:CashOutType;successful:boolean;aadhaarLastFour:string;
   customerBankName:string;cardLastFour:string;serviceName:string;servicePaymentMode:"CASH"|"UPI";servicePaymentAccountId:string;
@@ -36,7 +36,7 @@ function newKey(){
 }
 function emptyRow(direction:Direction="IN"):RushRow{
   return {
-    key:newKey(),direction,purpose:"TRANSFER",amount:"",customerId:"",customerLookup:"",customerSuggestions:[],customerSearchLoading:false,customerName:"",mobileNumber:"",commission:"",commissionOverridden:false,
+    key:newKey(),direction,purpose:"TRANSFER",amount:"",customerId:"",customerLookup:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerName:"",mobileNumber:"",commission:"",commissionOverridden:false,
     commissionMode:"CASH",commissionCash:"",cashReceived:"",transferTypeId:"",beneficiaryMode:"UPI",beneficiaryUpi:"",
     bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",cashOutType:"UPI_QR",successful:true,aadhaarLastFour:"",
     customerBankName:"",cardLastFour:"",serviceName:"",servicePaymentMode:"CASH",servicePaymentAccountId:"",
@@ -100,7 +100,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   const [open,setOpen]=useState(false);
   const [minimized,setMinimized]=useState(false);
   const [maximized,setMaximized]=useState(false);
-  const [rowFilter,setRowFilter]=useState<RowFilter>("ALL");
+  const [rowFilter,setRowFilter]=useState<RowFilter>("ACTIVE");
   const [rows,setRows]=useState<RushRow[]>([]);
   const [accounts,setAccounts]=useState<Account[]>([]);
   const [services,setServices]=useState<ServiceConfig[]>([]);
@@ -162,7 +162,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     setOpen(false);setMinimized(false);setMaximized(false);
     if(savedSinceRefresh){await onSaved?.();setSavedSinceRefresh(false);}
   }
-  function minimizeRush(){setMinimized(true);setRowFilter("ALL");}
+  function minimizeRush(){setMinimized(true);setRowFilter("ACTIVE");}
   function restoreRush(){setMinimized(false);setOpen(true);}
 
   function updateRow(key:string,patch:Partial<RushRow>){
@@ -221,18 +221,46 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     const query=value.trim();
     const digits=query.replace(/\D/g,"");
     const looksLikePhone=query.length>0&&/^[+\d\s()-]+$/.test(query);
-    updateRow(row.key,{customerLookup:value,customerId:"",customerSuggestions:[],customerSearchLoading:query.length>=2,
+    updateRow(row.key,{customerLookup:value,customerId:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:query.length>=2,
       customerName:looksLikePhone?"":value.toUpperCase(),mobileNumber:looksLikePhone?digits:(row.customerId?"":row.mobileNumber)});
     if(customerSearchTimers.current[row.key])window.clearTimeout(customerSearchTimers.current[row.key]);
     if(query.length<2)return;
     customerSearchTimers.current[row.key]=window.setTimeout(()=>{
       apiFetch<CustomerSuggestion[]>("/search/customers?q="+encodeURIComponent(query))
-        .then((results)=>setRows((current)=>current.map((item)=>item.key===row.key&&!item.customerId&&item.customerLookup.trim()===query?{...item,customerSuggestions:results.slice(0,6),customerSearchLoading:false}:item)))
-        .catch(()=>setRows((current)=>current.map((item)=>item.key===row.key?{...item,customerSuggestions:[],customerSearchLoading:false}:item)));
+        .then((results)=>setRows((current)=>current.map((item)=>item.key===row.key&&!item.customerId&&item.customerLookup.trim()===query?{...item,customerSuggestions:results.slice(0,6),customerSuggestionIndex:results.length?0:-1,customerSearchLoading:false}:item)))
+        .catch(()=>setRows((current)=>current.map((item)=>item.key===row.key?{...item,customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false}:item)));
     },180);
   }
   function selectExistingCustomer(key:string,customer:CustomerSuggestion){
-    updateRow(key,{customerId:customer.id,customerLookup:customer.fullName+(customer.mobile?" · "+customer.mobile:""),customerSuggestions:[],customerSearchLoading:false,customerName:customer.fullName,mobileNumber:customer.mobile||""});
+    updateRow(key,{customerId:customer.id,customerLookup:customer.fullName+(customer.mobile?" · "+customer.mobile:""),customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerName:customer.fullName,mobileNumber:customer.mobile||""});
+  }
+  function handleCustomerKeyDown(row:RushRow,event:KeyboardEvent<HTMLInputElement>){
+    const hasSuggestions=row.customerSuggestions.length>0&&!row.customerId;
+    if(event.key==="ArrowDown"&&hasSuggestions){
+      event.preventDefault();
+      updateRow(row.key,{customerSuggestionIndex:(row.customerSuggestionIndex+1+row.customerSuggestions.length)%row.customerSuggestions.length});
+      return;
+    }
+    if(event.key==="ArrowUp"&&hasSuggestions){
+      event.preventDefault();
+      updateRow(row.key,{customerSuggestionIndex:(row.customerSuggestionIndex-1+row.customerSuggestions.length)%row.customerSuggestions.length});
+      return;
+    }
+    if(event.key==="Escape"&&(hasSuggestions||row.customerSearchLoading)){
+      event.preventDefault();
+      updateRow(row.key,{customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false});
+      return;
+    }
+    if(event.key==="Enter"){
+      event.preventDefault();
+      if(row.customerSearchLoading)return;
+      if(hasSuggestions){
+        const index=row.customerSuggestionIndex>=0?row.customerSuggestionIndex:0;
+        selectExistingCustomer(row.key,row.customerSuggestions[index]);
+        return;
+      }
+      void saveRow(row.key);
+    }
   }
   function addRow(direction:Direction=lastDirection.current){
     const row=readyRow(direction);
@@ -322,11 +350,11 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   const completeRows=rows.filter((row)=>row.status==="SAVED"&&!pendingRows.includes(row));
   const readyTotal=enteredRows.reduce((sum,row)=>sum+Number(row.amount||0),0);
   const unsavedCount=rows.filter((row)=>row.status!=="SAVED"&&hasDraft(row)).length;
-  const collapseOlderComplete=rowFilter==="ALL"&&savedRows.length>=COMPLETE_AUTO_HIDE_THRESHOLD&&completeRows.length>RECENT_COMPLETE_ROWS_IN_ALL;
-  const recentCompleteKeys=new Set(collapseOlderComplete?completeRows.slice(-RECENT_COMPLETE_ROWS_IN_ALL).map((row)=>row.key):[]);
+  const collapseOlderComplete=rowFilter==="ACTIVE"&&savedRows.length>=COMPLETE_AUTO_HIDE_THRESHOLD&&completeRows.length>RECENT_COMPLETE_ROWS_IN_ACTIVE;
+  const recentCompleteKeys=new Set(collapseOlderComplete?completeRows.slice(-RECENT_COMPLETE_ROWS_IN_ACTIVE).map((row)=>row.key):[]);
   const hiddenCompleteCount=collapseOlderComplete?completeRows.length-recentCompleteKeys.size:0;
   const visibleRows=rows.map((row,index)=>({row,index})).filter(({row})=>{
-    if(rowFilter==="UNSAVED")return row.status!=="SAVED";
+    if(rowFilter==="UNSAVED")return row.status!=="SAVED"&&hasDraft(row);
     if(rowFilter==="PENDING")return pendingRows.includes(row);
     if(rowFilter==="COMPLETE")return completeRows.includes(row);
     if(!collapseOlderComplete)return true;
@@ -338,24 +366,24 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
       className="flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-slate-900 px-3 text-[12px] font-black text-white shadow-[0_6px_18px_rgba(15,23,42,.22)] transition hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40">
       <span className="text-sm">▦</span><span>Rush / Bulk</span>
     </button>
-    {open&&minimized&&typeof document!=="undefined"?createPortal(<div className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-[90] flex min-w-[340px] items-center gap-3 rounded-2xl border border-violet-200 bg-white px-4 py-3 shadow-2xl"><div className="min-w-0 flex-1"><p className="text-xs font-black">Rush Cash Entry</p><p className="mt-0.5 text-[10px] font-bold text-[var(--text-muted)]">{savedRows.length} saved · {pendingRows.length} pending · {unsavedCount} unsaved</p></div><button type="button" onClick={restoreRush} className="min-h-9 rounded-lg bg-violet-600 px-3 text-[10px] font-black text-white">Restore</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] font-black text-[var(--text-muted)]">×</button></div>,document.body):null}
+    {open&&minimized&&typeof document!=="undefined"?createPortal(<div className="fixed bottom-[calc(.75rem+env(safe-area-inset-bottom))] left-3 right-3 z-[90] flex items-center gap-2 rounded-2xl border border-violet-200 bg-[var(--surface)] px-3 py-2.5 shadow-2xl sm:left-auto sm:right-4 sm:w-[420px] sm:gap-3 sm:px-4 sm:py-3"><div className="min-w-0 flex-1"><p className="truncate text-xs font-black">Rush Cash Entry</p><p className="mt-0.5 truncate text-[10px] font-bold text-[var(--text-muted)]">{savedRows.length} saved · {pendingRows.length} pending · {unsavedCount} unsaved</p></div><button type="button" onClick={restoreRush} className="min-h-9 shrink-0 rounded-lg bg-violet-600 px-3 text-[10px] font-black text-white">Restore</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--surface-soft)] font-black text-[var(--text-muted)]">×</button></div>,document.body):null}
     {open&&!minimized&&typeof document!=="undefined"?createPortal(
       <div className="fixed inset-0 z-[105] flex flex-col bg-black/45 p-0 sm:p-3" role="dialog" aria-modal="true" aria-label="Rush cash entry">
         <div className={"m-auto flex w-full flex-col overflow-hidden bg-[var(--surface)] shadow-2xl "+(maximized?"h-[100dvh] max-h-[100dvh] max-w-none rounded-none":"max-h-[97dvh] max-w-[1480px] rounded-none sm:rounded-[22px]")}>
-          <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-1.5 sm:px-4">
-            <div className="flex min-w-0 items-center gap-2"><h2 className="truncate text-[17px] font-black tracking-[-.03em]">Rush Cash Entry</h2><span className="rounded-full bg-slate-900 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">Counter</span></div>
-            <div className="flex items-center gap-1 rounded-lg bg-[var(--surface-soft)] p-0.5">{(["ALL","UNSAVED","PENDING","COMPLETE"] as RowFilter[]).map((filter)=><button key={filter} type="button" onClick={()=>setRowFilter(filter)} className={"min-h-7 rounded-md px-2 text-[9px] font-black "+(rowFilter===filter?"bg-white text-violet-700 shadow-sm":"text-[var(--text-muted)]")}>{filter==="ALL"?"All":filter==="UNSAVED"?"Unsaved "+unsavedCount:filter==="PENDING"?"Pending "+pendingRows.length:"Complete "+completeRows.length}</button>)}</div>
-            <div className="flex items-center gap-1">{pendingTransactionIds.length&&onShowPending?<button type="button" onClick={()=>{setOpen(false);setMinimized(false);onShowPending();}} className="min-h-8 rounded-lg bg-amber-50 px-2.5 text-[9px] font-black text-amber-800">Daily pending {pendingTransactionIds.length}</button>:null}<button type="button" onClick={minimizeRush} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-sm font-black text-[var(--text-muted)]" aria-label="Minimize">—</button><button type="button" onClick={()=>setMaximized((value)=>!value)} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-xs font-black text-[var(--text-muted)]" aria-label={maximized?"Restore size":"Maximize"}>{maximized?"❐":"□"}</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-lg font-bold text-[var(--text-muted)]" aria-label="Close rush entry">×</button></div>
+          <header className="grid min-h-12 shrink-0 items-center gap-2 border-b border-[var(--border)] px-3 py-1.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:px-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2"><h2 className="truncate text-[17px] font-black tracking-[-.03em]">Rush Cash Entry</h2><span className="rounded-full bg-slate-900 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">Counter</span>{pendingTransactionIds.length&&onShowPending?<button type="button" onClick={()=>{setOpen(false);setMinimized(false);onShowPending();}} className="min-h-7 shrink-0 rounded-full bg-amber-100 px-2.5 text-[9px] font-black text-amber-800">⚠ {pendingTransactionIds.length} need completion</button>:null}</div>
+            <div className="flex items-center gap-1 rounded-lg bg-[var(--surface-soft)] p-0.5">{(["ACTIVE","UNSAVED","PENDING","COMPLETE"] as RowFilter[]).map((filter)=><button key={filter} type="button" onClick={()=>setRowFilter(filter)} className={"min-h-7 rounded-md px-2 text-[9px] font-black "+(rowFilter===filter?"bg-white text-violet-700 shadow-sm":"text-[var(--text-muted)]")}>{filter==="ACTIVE"?"Active":filter==="UNSAVED"?"Unsaved "+unsavedCount:filter==="PENDING"?"Pending "+pendingRows.length:"Complete "+completeRows.length}</button>)}</div>
+            <div className="flex items-center justify-end gap-1 sm:border-l sm:border-[var(--border)] sm:pl-2"><button type="button" onClick={minimizeRush} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-sm font-black text-[var(--text-muted)]" aria-label="Minimize">—</button><button type="button" onClick={()=>setMaximized((value)=>!value)} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-xs font-black text-[var(--text-muted)]" aria-label={maximized?"Restore size":"Maximize"}>{maximized?"❐":"□"}</button><button type="button" onClick={()=>void closeRush()} className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--surface-soft)] text-lg font-bold text-[var(--text-muted)]" aria-label="Close rush entry">×</button></div>
           </header>
           {configError?<div className="shrink-0 border-b border-amber-200 bg-amber-50 px-5 py-1.5 text-[10px] font-bold text-amber-800">{configError}</div>:null}
 
           <div className="min-h-0 flex-1 overflow-auto" onKeyDown={(event)=>{if((event.ctrlKey||event.metaKey)&&event.key==="Enter"){event.preventDefault();void saveAll();}}}>
             <div className="min-w-[1080px]">
               <div className="sticky top-0 z-20 grid grid-cols-[34px_118px_175px_125px_92px_110px_minmax(210px,1fr)_168px] gap-2 border-b border-[var(--border)] bg-[var(--surface-soft)] px-3 py-1.5 text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">
-                <span>#</span><span>Type</span><span>Mode <b className="text-rose-500">*</b></span><span>Amount <b className="text-rose-500">*</b></span><span>Fee</span><span>Due</span><span className="opacity-70">Customer · optional</span><span className="text-right">Action</span>
+                <span>#</span><span>Type</span><span>Mode <b className="text-rose-500">*</b></span><span>Amount <b className="text-rose-500">*</b></span><span>Fee</span><span>Due / Payout</span><span className="opacity-70">Customer · optional</span><span className="text-right">Action</span>
               </div>
-              {rowFilter==="ALL"&&hiddenCompleteCount>0?<button type="button" onClick={()=>setRowFilter("COMPLETE")} className="flex w-full items-center justify-between border-b border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-[10px] font-black text-emerald-800 hover:bg-emerald-100">
-                <span>{hiddenCompleteCount} older completed rows hidden to keep Rush fast</span><span>View Complete →</span>
+              {rowFilter==="ACTIVE"&&hiddenCompleteCount>0?<button type="button" onClick={()=>setRowFilter("COMPLETE")} className="flex w-full items-center justify-between border-b border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-[10px] font-black text-emerald-800 hover:bg-emerald-100">
+                <span>{hiddenCompleteCount} older completed rows hidden from Active</span><span>View Complete →</span>
               </button>:null}
               <div className="divide-y divide-[var(--border)]">
                 {visibleRows.map(({row,index})=>{
@@ -366,7 +394,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                   const dueWord=row.direction==="OUT"?"payout":row.purpose==="SERVICE"?"charge":"due";
                   const customerValue=row.customerLookup||row.customerName;
                   const isPending=row.status==="SAVED"&&row.savedStatus==="PENDING"&&Boolean(row.transactionId)&&!completedSet.has(row.transactionId!);
-                  return <div key={row.key} className={row.expanded?"bg-violet-50/20":row.status==="SAVED"?(isPending?"bg-amber-50/30":"bg-emerald-50/30"):""}>
+                  return <div key={row.key} className={"group "+(row.expanded?"bg-violet-50/20":row.status==="SAVED"?(isPending?"bg-amber-50/30":"bg-emerald-50/30"):"")}>
                     <div className="grid grid-cols-[34px_118px_175px_125px_92px_110px_minmax(210px,1fr)_168px] items-center gap-2 px-3 py-1.5">
                       <span className="text-center text-[10px] font-black text-[var(--text-muted)]">{index+1}</span>
                       <select value={row.direction} disabled={row.status==="SAVED"||row.status==="SAVING"} onChange={(event)=>setDirection(row.key,event.target.value as Direction)}
@@ -388,16 +416,16 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                           onChange={(event)=>updateRow(row.key,{commission:event.target.value.replace(/[^0-9.]/g,""),commissionOverridden:true})}
                           onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();void saveRow(row.key);}}}
                           className="min-w-0 flex-1 bg-transparent text-right text-[12px] font-black tabular-nums outline-none disabled:opacity-40" placeholder="0"/></div>
-                      <div className="rounded-lg bg-emerald-50 px-2 py-1.5 text-right">
-                        <strong className="money block text-[12px] font-black text-emerald-800">{money(primaryDue)}</strong>
-                        <span className="block text-[8px] font-black uppercase tracking-wide text-emerald-600">{dueWord}</span>
+                      <div className={"rounded-lg px-2 py-1.5 text-right "+(row.direction==="OUT"?"bg-rose-50":"bg-emerald-50")}>
+                        <strong className={"money block text-[12px] font-black "+(row.direction==="OUT"?"text-rose-800":"text-emerald-800")}>{money(primaryDue)}</strong>
+                        <span className={"block text-[8px] font-black uppercase tracking-wide "+(row.direction==="OUT"?"text-rose-600":"text-emerald-600")}>{dueWord}</span>
                       </div>
                       <div className="relative">
                         <input value={customerValue} disabled={row.status==="SAVED"||row.status==="SAVING"} onChange={(event)=>searchCustomer(row,event.target.value)}
-                          onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();void saveRow(row.key);}}}
+                          onKeyDown={(event)=>handleCustomerKeyDown(row,event)}
                           className="h-9 w-full rounded-lg border border-transparent bg-[var(--surface-soft)] px-2.5 text-[11px] font-bold outline-none placeholder:text-[var(--text-muted)]/70 focus:border-[var(--border)] focus:bg-white disabled:opacity-60" placeholder="Name / mobile"/>
                         {!row.customerId&&row.customerLookup.trim().length>=2?<div className="absolute inset-x-0 top-[calc(100%+4px)] z-40 max-h-44 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
-                          {row.customerSearchLoading?<p className="px-2 py-1.5 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer)=><button key={customer.id} type="button" onClick={()=>selectExistingCustomer(row.key,customer)} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-[var(--surface-soft)]"><span className="min-w-0"><strong className="block truncate text-[10px]">{customer.fullName}</strong><span className="block truncate text-[9px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span></span><span className="text-[9px] font-black text-violet-600">Use</span></button>):<p className="px-2 py-1.5 text-[10px] text-[var(--text-muted)]">No match · will save as entered</p>}
+                          {row.customerSearchLoading?<p className="px-2 py-1.5 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer,suggestionIndex)=><button key={customer.id} type="button" onMouseEnter={()=>updateRow(row.key,{customerSuggestionIndex:suggestionIndex})} onClick={()=>selectExistingCustomer(row.key,customer)} className={"flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left "+(suggestionIndex===row.customerSuggestionIndex?"bg-violet-50":"hover:bg-[var(--surface-soft)]")}><span className="min-w-0"><strong className="block truncate text-[10px]">{customer.fullName}</strong><span className="block truncate text-[9px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span></span><span className="text-[9px] font-black text-violet-600">Use</span></button>):<p className="px-2 py-1.5 text-[10px] text-[var(--text-muted)]">No match · Enter saves as entered</p>}
                         </div>:null}
                       </div>
                       <div className="flex items-center justify-end gap-1.5">
@@ -405,27 +433,27 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                         <>{row.status==="SAVING"?<span className="mr-1 text-[9px] font-black text-violet-700">Saving…</span>:row.status==="ERROR"?<span title={row.message} className="grid h-6 w-6 place-items-center rounded-full bg-rose-50 text-[10px] font-black text-rose-600">!</span>:null}
                           <button type="button" disabled={row.status==="SAVING"} onClick={()=>toggleExpanded(row.key)} className={"min-h-8 rounded-lg px-2.5 text-[10px] font-black "+(row.expanded?"bg-violet-100 text-violet-700":"bg-[var(--surface-soft)] text-violet-700")}>{row.expanded?"Hide":"Details"}</button>
                           <button type="button" disabled={row.status==="SAVING"||!hasDraft(row)} onClick={()=>void saveRow(row.key)} className="min-h-8 rounded-lg bg-violet-600 px-3 text-[10px] font-black text-white shadow-sm disabled:opacity-25">Save</button>
-                          <button type="button" disabled={row.status==="SAVING"} onClick={()=>removeRow(row.key)} className="grid h-8 w-7 place-items-center rounded-lg text-sm font-black text-[var(--text-muted)] opacity-35 transition hover:bg-rose-50 hover:text-rose-600 hover:opacity-100" aria-label={"Remove row "+(index+1)}>×</button></>}
+                          <button type="button" disabled={row.status==="SAVING"} onClick={()=>removeRow(row.key)} className="grid h-8 w-7 place-items-center rounded-lg text-sm font-black text-[var(--text-muted)] opacity-0 transition hover:bg-rose-50 hover:text-rose-600 hover:opacity-100 focus:opacity-100 group-hover:opacity-35 group-focus-within:opacity-35" aria-label={"Remove row "+(index+1)}>×</button></>}
                       </div>
                     </div>
 
                     {row.expanded&&row.status!=="SAVED"?<div className="border-t border-violet-100 bg-white px-3 py-1.5">
                       <div className="overflow-x-auto pb-0.5">
                         {row.direction==="IN"&&row.purpose==="TRANSFER"?<div className="flex min-w-max items-stretch gap-2">
-                          <div className="w-[220px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
+                          <div className="order-2 w-[220px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
                             <span className="block text-[8px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Fee paid by</span>
                             <div className="mt-1 grid grid-cols-3 rounded-md bg-white p-0.5">{(["CASH","UPI","SPLIT"] as CommissionMode[]).map((mode)=><button key={mode} type="button" onClick={()=>updateRow(row.key,{commissionMode:mode,commissionCash:mode==="SPLIT"?row.commissionCash:""})} className={"min-h-7 rounded-[6px] px-1 text-[9px] font-black "+(row.commissionMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":mode==="UPI"?"Bank / UPI":"Both"}</button>)}</div>
                             {row.commissionMode==="SPLIT"?<div className="mt-1 flex h-7 items-center rounded-md bg-white px-2"><span className="text-[9px] font-bold text-[var(--text-muted)]">Cash ₹</span><input inputMode="decimal" value={row.commissionCash} onChange={(event)=>updateRow(row.key,{commissionCash:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-right text-[10px] font-black outline-none" placeholder="0"/></div>:null}
                           </div>
-                          <div className="w-[430px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
+                          <div className="order-1 w-[430px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
                             <div className="flex items-center justify-between gap-2"><span className="text-[8px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Beneficiary</span><span className="text-[8px] font-bold text-[var(--text-muted)]">{activeTransferTypes.find((item)=>item.id===row.transferTypeId)?.name||""}</span></div>
                             {row.beneficiaryMode==="UPI"?<input value={row.beneficiaryUpi} onChange={(event)=>updateRow(row.key,{beneficiaryUpi:event.target.value})} className="mt-1 h-8 w-full rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none" placeholder="UPI ID / mobile"/>:
                             <div className="mt-1 grid grid-cols-3 gap-1"><input value={row.bankAccountHolder} onChange={(event)=>updateRow(row.key,{bankAccountHolder:event.target.value})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none" placeholder="Account holder"/><input value={row.bankAccountNumber} onChange={(event)=>updateRow(row.key,{bankAccountNumber:event.target.value.replace(/\s/g,"")})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none" placeholder="Account number"/><input value={row.bankIfsc} onChange={(event)=>updateRow(row.key,{bankIfsc:event.target.value.toUpperCase().replace(/\s/g,"")})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold uppercase outline-none" placeholder="IFSC"/></div>}
                           </div>
-                          <label className="w-[145px] shrink-0 rounded-lg bg-emerald-50 px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-emerald-700">Cash received</span><div className="mt-1 flex h-8 items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" value={row.cashReceived} onChange={(event)=>updateRow(row.key,{cashReceived:event.target.value.replace(/[^0-9.]/g,"")})} placeholder={String(due||0)} className="min-w-0 flex-1 bg-transparent text-[11px] font-black outline-none"/></div></label>
-                          <div className="w-[105px] shrink-0 rounded-lg bg-emerald-100 px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-emerald-700">Give back</span><strong className="money mt-1 block text-[14px] text-emerald-700">{money(change)}</strong></div>
+                          <label className="order-3 w-[145px] shrink-0 rounded-lg bg-emerald-50 px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-emerald-700">Cash received</span><div className="mt-1 flex h-8 items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" value={row.cashReceived} onChange={(event)=>updateRow(row.key,{cashReceived:event.target.value.replace(/[^0-9.]/g,"")})} placeholder={String(due||0)} className="min-w-0 flex-1 bg-transparent text-[11px] font-black outline-none"/></div></label>
+                          <div className="order-4 w-[105px] shrink-0 rounded-lg bg-emerald-100 px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-emerald-700">Give back</span><strong className="money mt-1 block text-[14px] text-emerald-700">{money(change)}</strong></div>
                           <label className="w-[145px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Mobile · optional</span><input type="tel" value={row.mobileNumber} onChange={(event)=>updateRow(row.key,{mobileNumber:event.target.value})} className="mt-1 h-8 w-full rounded-md bg-white px-2 text-[10px] font-bold outline-none" placeholder="Mobile"/></label>
-                          <label className="w-[185px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Note · optional</span><input value={row.remarks} onChange={(event)=>updateRow(row.key,{remarks:event.target.value})} className="mt-1 h-8 w-full rounded-md bg-white px-2 text-[10px] font-bold outline-none" placeholder="Reference / note"/></label>
+                          <label className="order-6 w-[185px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Note · optional</span><input value={row.remarks} onChange={(event)=>updateRow(row.key,{remarks:event.target.value})} className="mt-1 h-8 w-full rounded-md bg-white px-2 text-[10px] font-bold outline-none" placeholder="Reference / note"/></label>
                         </div>:null}
                         {row.direction==="IN"&&row.purpose==="SERVICE"?<div className="flex min-w-max items-stretch gap-2">
                           <label className="w-[210px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Service <b className="text-rose-500">*</b></span><select value={row.serviceName} onChange={(event)=>selectService(row,event.target.value)} className="mt-1 h-8 w-full cursor-pointer rounded-md border border-violet-200 bg-white px-2 text-[10px] font-black outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"><option value="">Select service</option>{activeServices.map((item)=><option key={item.id} value={item.name}>{item.name}</option>)}</select></label>
@@ -467,7 +495,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                 <button type="button" onClick={()=>addRow("OUT")} className="min-h-9 rounded-lg bg-rose-50 px-3 text-[10px] font-black text-rose-700">+ Cash Out</button>
               </div>
               <div className="flex items-center gap-3">
-                <div className="hidden text-right sm:block"><p className="text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{enteredRows.length} entered · {savedRows.length} saved · {unsavedCount} unsaved</p><p className="money mt-0.5 text-[12px] font-black">{money(readyTotal)} total</p></div>
+                <div className="hidden text-right sm:block"><p className="text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{savedRows.length} saved · <span className={pendingRows.length?"text-amber-700":"text-[var(--text-muted)]"}>{pendingRows.length} pending</span> · {unsavedCount} unsaved</p><p className="money mt-0.5 text-[12px] font-black">{money(readyTotal)} total</p></div>
                 <button type="button" onClick={()=>void saveAll()} disabled={savingAll||enteredRows.every((row)=>row.status==="SAVED")} className="min-h-9 rounded-lg bg-violet-600 px-4 text-[11px] font-black text-white shadow-sm disabled:opacity-30">{savingAll?"Saving…":"Save all"}</button>
               </div>
             </div>
