@@ -678,6 +678,13 @@ export default function CashCounterPage(){
     if(Math.abs(previewDifference)>.005){
       setError("Cash cannot be closed until Counted and Expected match. Review the cash ledger for a missing or incorrect transaction.");return;
     }
+    if(pendingQuickCash.length){
+      const confirmed=window.confirm(pendingQuickCash.length+" transaction"+(pendingQuickCash.length===1?"":"s")+" still need completion. Closing this cash session will leave them pending. Close anyway?");
+      if(!confirmed){
+        requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}));
+        return;
+      }
+    }
     setSaving(true);setError("");
     try{
       const handoverToUserId=handoverTarget.startsWith("user:")?handoverTarget.slice(5):undefined;
@@ -922,6 +929,10 @@ export default function CashCounterPage(){
     </Surface>:null}
 
     {today?<>
+      {!isClosed&&pendingQuickCash.length?<div className="sticky top-2 z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-[0_10px_24px_rgba(245,158,11,.12)]">
+        <div className="min-w-0"><p className="text-sm font-black text-amber-900">{pendingQuickCash.length} transaction{pendingQuickCash.length===1?"":"s"} need completion</p><p className="mt-0.5 text-[12px] font-semibold text-amber-800">Finish wallet / bank / beneficiary details before end of day when possible.</p></div>
+        <button type="button" onClick={()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"})} className="min-h-9 rounded-xl bg-amber-500 px-3 text-xs font-black text-white">Review pending</button>
+      </div>:null}
       <Surface className="cash-desk-hero overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5">
           <p className="truncate text-sm font-bold">{today.cashAccount.accountName}{today.openedBy?.fullName?" · "+today.openedBy.fullName:""}</p>
@@ -1269,6 +1280,9 @@ export default function CashCounterPage(){
                 <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Counted</p><p className="money mt-1 text-sm font-black">{money(countedTotal)}</p></div>
                 <div className={"rounded-xl p-3 "+(Math.abs(previewDifference)>.005?"bg-rose-50":"bg-emerald-50")}><p className={"text-xs font-bold uppercase "+(Math.abs(previewDifference)>.005?"text-rose-600":"text-emerald-700")}>Difference</p><p className={"money mt-1 text-sm font-black "+(Math.abs(previewDifference)>.005?"text-rose-700":"text-emerald-700")}>{money(previewDifference)}</p></div>
               </div>
+              {pendingQuickCash.length?<div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+                <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black text-amber-900">{pendingQuickCash.length} transaction{pendingQuickCash.length===1?"":"s"} still need completion</p><p className="mt-0.5 text-[12px] font-semibold text-amber-800">You can close anyway, but these transactions will remain pending.</p></div><button type="button" onClick={()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"})} className="min-h-9 shrink-0 rounded-lg bg-amber-500 px-3 text-[10px] font-black text-white">Review</button></div>
+              </div>:null}
               {Math.abs(previewDifference)>.005?<div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
                 <p className="text-sm font-black text-rose-700">NOT READY TO CLOSE</p>
                 <p className="mt-1 text-[13px] font-semibold text-rose-700">{previewDifference>0?"Over":"Short"} by {money(Math.abs(previewDifference))}. Check the ledger before closing.</p>

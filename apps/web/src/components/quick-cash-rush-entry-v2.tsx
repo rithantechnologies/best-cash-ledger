@@ -12,6 +12,8 @@ type CommissionMode="CASH"|"UPI"|"SPLIT";
 type BeneficiaryMode="UPI"|"BANK";
 type RowStatus="READY"|"SAVING"|"SAVED"|"ERROR";
 type RowFilter="ALL"|"UNSAVED"|"PENDING"|"COMPLETE";
+const COMPLETE_AUTO_HIDE_THRESHOLD=25;
+const RECENT_COMPLETE_ROWS_IN_ALL=10;
 type Account={id:string;accountName:string;accountType:string;isActive?:boolean;currentBalance?:string|number};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;allowPartnerFulfillment:boolean;defaultPartnerName:string|null;defaultPartnerCharge:string|number|null;isActive:boolean};
 type TransferType={id:string;name:string;transferMode:BeneficiaryMode;defaultCommissionRate:string|number;isActive:boolean};
@@ -320,7 +322,16 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   const completeRows=rows.filter((row)=>row.status==="SAVED"&&!pendingRows.includes(row));
   const readyTotal=enteredRows.reduce((sum,row)=>sum+Number(row.amount||0),0);
   const unsavedCount=rows.filter((row)=>row.status!=="SAVED"&&hasDraft(row)).length;
-  const visibleRows=rows.map((row,index)=>({row,index})).filter(({row})=>rowFilter==="ALL"||(rowFilter==="UNSAVED"&&row.status!=="SAVED")||(rowFilter==="PENDING"&&pendingRows.includes(row))||(rowFilter==="COMPLETE"&&completeRows.includes(row)));
+  const collapseOlderComplete=rowFilter==="ALL"&&savedRows.length>=COMPLETE_AUTO_HIDE_THRESHOLD&&completeRows.length>RECENT_COMPLETE_ROWS_IN_ALL;
+  const recentCompleteKeys=new Set(collapseOlderComplete?completeRows.slice(-RECENT_COMPLETE_ROWS_IN_ALL).map((row)=>row.key):[]);
+  const hiddenCompleteCount=collapseOlderComplete?completeRows.length-recentCompleteKeys.size:0;
+  const visibleRows=rows.map((row,index)=>({row,index})).filter(({row})=>{
+    if(rowFilter==="UNSAVED")return row.status!=="SAVED";
+    if(rowFilter==="PENDING")return pendingRows.includes(row);
+    if(rowFilter==="COMPLETE")return completeRows.includes(row);
+    if(!collapseOlderComplete)return true;
+    return !completeRows.includes(row)||recentCompleteKeys.has(row.key);
+  });
 
   return <>
     <button type="button" onClick={openRush} disabled={disabled||!cashAccountId}
@@ -343,6 +354,9 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
               <div className="sticky top-0 z-20 grid grid-cols-[34px_118px_175px_125px_92px_110px_minmax(210px,1fr)_168px] gap-2 border-b border-[var(--border)] bg-[var(--surface-soft)] px-3 py-1.5 text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">
                 <span>#</span><span>Type</span><span>Mode <b className="text-rose-500">*</b></span><span>Amount <b className="text-rose-500">*</b></span><span>Fee</span><span>Due</span><span className="opacity-70">Customer · optional</span><span className="text-right">Action</span>
               </div>
+              {rowFilter==="ALL"&&hiddenCompleteCount>0?<button type="button" onClick={()=>setRowFilter("COMPLETE")} className="flex w-full items-center justify-between border-b border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-[10px] font-black text-emerald-800 hover:bg-emerald-100">
+                <span>{hiddenCompleteCount} older completed rows hidden to keep Rush fast</span><span>View Complete →</span>
+              </button>:null}
               <div className="divide-y divide-[var(--border)]">
                 {visibleRows.map(({row,index})=>{
                   const modeValue=row.direction==="OUT"?row.cashOutType:row.purpose==="SERVICE"?"SERVICE":row.transferTypeId?"TR:"+row.transferTypeId:"";
