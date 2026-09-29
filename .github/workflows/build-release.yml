@@ -29,6 +29,10 @@ jobs:
           npm ci --prefix apps/api
           npm ci --prefix apps/web
 
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: npx prisma generate --schema=prisma/schema.prisma
+
       - name: Build API
         run: npm --prefix apps/api run build
 
