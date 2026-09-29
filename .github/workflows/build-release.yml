@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm ci --prefix apps/api
-          npm ci --prefix apps/web
+          npm ci --workspaces=false --prefix apps/web
 
       - name: Generate Prisma client
         working-directory: apps/api
