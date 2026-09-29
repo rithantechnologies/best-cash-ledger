@@ -74,6 +74,7 @@ function rowError(row:RushRow,services:ServiceConfig[]){
     const cashPart=Number(row.commissionCash||0);
     if(!Number.isFinite(cashPart)||cashPart<=0||cashPart>=fee)return "Split fee cash part must be greater than 0 and less than the total fee.";
   }
+  if(row.direction==="IN"&&row.purpose==="TRANSFER"&&!row.transferTypeId)return "Choose a Cash In mode.";
   if(row.direction==="IN"&&row.purpose==="TRANSFER"&&row.cashReceived.trim()&&Number(row.cashReceived)<cashDue(row))return "Cash received is less than amount + cash fee.";
   if(row.direction==="OUT"&&row.cashOutType==="AEPS"&&!/^\d{4}$/.test(row.aadhaarLastFour))return "Enter Aadhaar last 4 digits.";
   if(row.direction==="OUT"&&row.cashOutType==="MICRO_ATM"&&!/^\d{4}$/.test(row.cardLastFour))return "Enter card last 4 digits.";
@@ -91,10 +92,6 @@ function rowError(row:RushRow,services:ServiceConfig[]){
   }
   return "";
 }
-function outLabel(type:CashOutType){
-  return type==="AEPS"?"AEPS":type==="MICRO_ATM"?"Micro ATM":"UPI / QR";
-}
-
 export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cashAccountId:string;disabled?:boolean;onSaved?:()=>void|Promise<void>}){
   const router=useRouter();
   const [open,setOpen]=useState(false);
@@ -122,13 +119,23 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
         apiFetch<TransferType[]>("/settings/cash-in-transfer-types"),
       ]);
       setAccounts(accountRows);setServices(serviceRows);setTransferTypes(transferRows);setConfigError("");
-    }catch(error){setConfigError(error instanceof Error?error.message:"Could not load detailed options. Fast entry still works.");}
+      return transferRows;
+    }catch(error){
+      setConfigError(error instanceof Error?error.message:"Could not load detailed options.");
+      return [] as TransferType[];
+    }
   }
-  function openRush(){
+  async function openRush(){
     if(disabled||!cashAccountId)return;
-    const initial=Array.from({length:7},()=>emptyRow(lastDirection.current));
-    amountRefs.current={};setRows(initial);setSavedSinceRefresh(false);setSavingAll(false);setOpen(true);
-    void loadConfig();
+    setSavedSinceRefresh(false);setSavingAll(false);setOpen(true);amountRefs.current={};
+    const transferRows=await loadConfig();
+    const defaultType=transferRows.find((item)=>item.isActive!==false);
+    const initial=Array.from({length:7},()=>{
+      const row=emptyRow(lastDirection.current);
+      if(row.direction==="IN"&&defaultType){row.transferTypeId=defaultType.id;row.beneficiaryMode=defaultType.transferMode;}
+      return row;
+    });
+    setRows(initial);
     window.setTimeout(()=>amountRefs.current[initial[0].key]?.focus(),60);
   }
   async function closeRush(){
@@ -150,7 +157,13 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
     }));
   }
   function setDirection(key:string,direction:Direction){
-    setRows((current)=>current.map((row)=>row.key===key&&row.status!=="SAVED"?{...emptyRow(direction),key:row.key,expanded:row.expanded}:row));
+    const defaultType=activeTransferTypes[0];
+    setRows((current)=>current.map((row)=>{
+      if(row.key!==key||row.status==="SAVED")return row;
+      const next={...emptyRow(direction),key:row.key,expanded:row.expanded};
+      if(direction==="IN"&&defaultType){next.transferTypeId=defaultType.id;next.beneficiaryMode=defaultType.transferMode;}
+      return next;
+    }));
   }
   function toggleExpanded(key:string){
     setRows((current)=>current.map((row)=>row.key===key?{...row,expanded:!row.expanded}:row.expanded?{...row,expanded:false}:row));
@@ -170,7 +183,6 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
       return;
     }
     if(value==="SERVICE"){updateRow(row.key,{purpose:"SERVICE",expanded:true,commission:"",commissionCash:"",commissionOverridden:false});return;}
-    if(value==="QUICK"){updateRow(row.key,{purpose:"TRANSFER",transferTypeId:"",beneficiaryMode:"UPI",commissionOverridden:true});return;}
     if(value.startsWith("TR:"))setTransferType(row.key,value.slice(3));
   }
   function selectService(row:RushRow,name:string){
@@ -199,7 +211,10 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
     updateRow(key,{customerId:customer.id,customerLookup:customer.fullName+(customer.mobile?" · "+customer.mobile:""),customerSuggestions:[],customerSearchLoading:false,customerName:customer.fullName,mobileNumber:customer.mobile||""});
   }
   function addRow(direction:Direction=lastDirection.current){
-    const row=emptyRow(direction);setRows((current)=>[...current,row]);
+    const row=emptyRow(direction);
+    const defaultType=activeTransferTypes[0];
+    if(direction==="IN"&&defaultType){row.transferTypeId=defaultType.id;row.beneficiaryMode=defaultType.transferMode;}
+    setRows((current)=>[...current,row]);
     requestAnimationFrame(()=>amountRefs.current[row.key]?.focus());
   }
   function removeRow(key:string){setRows((current)=>current.length<=1?current:current.filter((row)=>row.key!==key));}
@@ -285,26 +300,14 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
     {open&&typeof document!=="undefined"?createPortal(
       <div className="fixed inset-0 z-[105] flex flex-col bg-black/45 p-0 sm:p-3" role="dialog" aria-modal="true" aria-label="Rush cash entry">
         <div className="m-auto flex max-h-[97dvh] w-full max-w-[1480px] flex-col overflow-hidden rounded-none bg-[var(--surface)] shadow-2xl sm:rounded-[26px]">
-          <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-black tracking-[-.035em]">Rush Cash Entry 2.0</h2>
-                <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">Counter grid mode</span></div>
-              <p className="mt-1 text-[12px] font-semibold text-[var(--text-muted)]">Type fast like Excel. Expand only the row that needs the full Cash In / Cash Out options.</p>
-            </div>
-            <div className="hidden shrink-0 items-center gap-5 xl:flex">
-              <div className="text-[11px]"><strong className="block">⚡ 1. Type fast</strong><span className="text-[var(--text-muted)]">Tab / Enter across rows</span></div>
-              <div className="text-[11px]"><strong className="block">☷ 2. Expand when needed</strong><span className="text-[var(--text-muted)]">Full options inline</span></div>
-              <div className="text-[11px]"><strong className="block">✓ 3. Save together</strong><span className="text-[var(--text-muted)]">One counter workspace</span></div>
+          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[var(--border)] px-4 py-3 sm:px-5">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="text-xl font-black tracking-[-.035em]">Rush Cash Entry</h2>
+              <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">Counter mode</span>
             </div>
             <button type="button" onClick={()=>void closeRush()} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)]" aria-label="Close rush entry">×</button>
           </header>
           {configError?<div className="shrink-0 border-b border-amber-200 bg-amber-50 px-5 py-2 text-[11px] font-bold text-amber-800">{configError}</div>:null}
-          <div className="shrink-0 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 sm:px-5">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-bold text-[var(--text-muted)]">
-              <span><strong className="text-[var(--text)]">Enter</strong> saves row</span><span><strong className="text-[var(--text)]">Tab</strong> moves across</span>
-              <span><strong className="text-[var(--text)]">↑ / ↓</strong> amount cells</span><span><strong className="text-[var(--text)]">Ctrl/⌘ + Enter</strong> saves all</span>
-            </div>
-          </div>
 
           <div className="min-h-0 flex-1 overflow-auto" onKeyDown={(event)=>{if((event.ctrlKey||event.metaKey)&&event.key==="Enter"){event.preventDefault();void saveAll();}}}>
             <div className="min-w-[1160px]">
@@ -313,7 +316,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
               </div>
               <div className="divide-y divide-[var(--border)]">
                 {rows.map((row,index)=>{
-                  const modeValue=row.direction==="OUT"?row.cashOutType:row.purpose==="SERVICE"?"SERVICE":row.transferTypeId?"TR:"+row.transferTypeId:"QUICK";
+                  const modeValue=row.direction==="OUT"?row.cashOutType:row.purpose==="SERVICE"?"SERVICE":row.transferTypeId?"TR:"+row.transferTypeId:"";
                   const selectedService=activeServices.find((item)=>item.name.toLowerCase()===row.serviceName.trim().toLowerCase());
                   const due=cashDue(row),given=row.cashReceived.trim()?Number(row.cashReceived):due,change=Math.max(0,given-due);
                   return <div key={row.key} className={row.expanded?"bg-violet-50/25":row.status==="SAVED"?"bg-emerald-50/35":""}>
@@ -325,7 +328,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
                       </select>
                       <select value={modeValue} disabled={row.status==="SAVED"||row.status==="SAVING"} onChange={(event)=>setGridMode(row,event.target.value)}
                         className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 text-xs font-black outline-none focus:border-[var(--accent)]">
-                        {row.direction==="IN"?<><option value="QUICK">Quick transfer</option>{activeTransferTypes.map((item)=><option key={item.id} value={"TR:"+item.id}>{item.name}</option>)}<option value="SERVICE">Service</option></>:<>
+                        {row.direction==="IN"?<><option value="" disabled>Select mode</option>{activeTransferTypes.map((item)=><option key={item.id} value={"TR:"+item.id}>{item.name}</option>)}<option value="SERVICE">Service</option></>:<>
                           <option value="UPI_QR">UPI / QR</option><option value="AEPS">AEPS</option><option value="MICRO_ATM">Micro ATM</option></>}
                       </select>
                       <div className="flex h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 focus-within:border-[var(--accent)]">
@@ -346,111 +349,64 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
                         className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none focus:border-[var(--accent)] disabled:opacity-60" placeholder="Optional mobile"/>
                       <div className="min-w-0">{row.status==="SAVED"?<><p className="truncate text-[11px] font-black text-emerald-700">Saved · {row.savedStatus==="COMPLETED"?"Complete":"Pending"}</p><p className="truncate text-[9px] font-semibold text-[var(--text-muted)]">{row.transactionNumber}</p></>:
                         row.status==="SAVING"?<p className="text-[11px] font-black text-violet-700">Saving…</p>:row.status==="ERROR"?<p className="line-clamp-2 text-[10px] font-bold leading-3 text-rose-600">{row.message}</p>:
-                        <p className="text-[11px] font-bold text-[var(--text-muted)]">{hasDraft(row)?"Ready":"Ready"}</p>}</div>
+                        <span className="block h-3" aria-hidden="true"/>}</div>
                       <div className="flex justify-end gap-1">
                         {row.status==="SAVED"?<button type="button" onClick={()=>void openTransaction(row)} className="min-h-8 rounded-lg bg-emerald-600 px-2 text-[10px] font-black text-white">Open</button>:<>
-                          <button type="button" onClick={()=>toggleExpanded(row.key)} className={"grid h-8 w-8 place-items-center rounded-lg text-xs font-black "+(row.expanded?"bg-violet-100 text-violet-700":"bg-[var(--surface-soft)] text-[var(--accent)]")} aria-label="Toggle row details">{row.expanded?"⌃":"⌄"}</button>
+                          <button type="button" onClick={()=>toggleExpanded(row.key)} className={"min-h-8 rounded-lg px-2 text-[10px] font-black "+(row.expanded?"bg-violet-100 text-violet-700":"bg-[var(--surface-soft)] text-[var(--accent)]")} aria-label="Toggle row details">{row.expanded?"Less":"More"}</button>
                           <button type="button" disabled={row.status==="SAVING"||!hasDraft(row)} onClick={()=>void saveRow(row.key)} className="min-h-8 rounded-lg bg-[var(--accent)] px-2 text-[10px] font-black text-white disabled:opacity-30">Save</button>
                           <button type="button" disabled={row.status==="SAVING"} onClick={()=>removeRow(row.key)} className="grid h-8 w-8 place-items-center rounded-lg text-sm font-black text-[var(--text-muted)] hover:bg-rose-50 hover:text-rose-600" aria-label={"Remove row "+(index+1)}>×</button>
                         </>}
                       </div>
                     </div>
 
-                    {row.expanded&&row.status!=="SAVED"?<div className="mx-3 mb-3 rounded-2xl border border-violet-200 bg-[var(--surface)] p-3 shadow-[0_8px_26px_rgba(76,29,149,.06)]">
-                      {row.direction==="IN"?<div className="grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1">
-                        <button type="button" onClick={()=>updateRow(row.key,{purpose:"TRANSFER"})} className={"min-h-9 rounded-lg text-xs font-black "+(row.purpose==="TRANSFER"?"bg-[var(--surface)] shadow-sm":"text-[var(--text-muted)]")}>Transfer</button>
-                        <button type="button" onClick={()=>updateRow(row.key,{purpose:"SERVICE",commission:"",commissionCash:""})} className={"min-h-9 rounded-lg text-xs font-black "+(row.purpose==="SERVICE"?"bg-[var(--surface)] shadow-sm":"text-[var(--text-muted)]")}>Service</button>
-                      </div>:<div className="grid grid-cols-3 rounded-xl bg-[var(--surface-soft)] p-1">
-                        {(["UPI_QR","AEPS","MICRO_ATM"] as CashOutType[]).map((kind)=><button key={kind} type="button" onClick={()=>updateRow(row.key,{cashOutType:kind,successful:true,commissionMode:kind==="MICRO_ATM"?"UPI":"CASH",commissionCash:""})} className={"min-h-9 rounded-lg text-xs font-black "+(row.cashOutType===kind?"bg-[var(--surface)] shadow-sm":"text-[var(--text-muted)]")}>{outLabel(kind)}</button>)}
-                      </div>}
-                      {row.direction==="IN"&&row.purpose==="TRANSFER"?<div className="mt-3 grid gap-3 xl:grid-cols-[1.15fr_.8fr_1.05fr]">
-                        <section className="rounded-xl bg-[var(--surface-soft)] p-3">
-                          <p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Transfer mode</p>
-                          <div className="mt-2 flex flex-wrap gap-1.5"><button type="button" onClick={()=>setGridMode(row,"QUICK")} className={"min-h-8 rounded-lg px-2.5 text-[10px] font-black "+(!row.transferTypeId?"bg-slate-900 text-white":"bg-[var(--surface)] text-[var(--text-muted)]")}>Quick pending</button>
-                            {activeTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>setTransferType(row.key,item.id)} className={"min-h-8 rounded-lg px-2.5 text-[10px] font-black "+(row.transferTypeId===item.id?"bg-blue-100 text-blue-700":"bg-[var(--surface)] text-[var(--text-muted)]")}>{item.name}</button>)}</div>
-                          <p className="mt-2 text-[10px] font-semibold text-[var(--text-muted)]">Quick pending keeps counter entry minimal. Choose a configured mode when beneficiary details are known now.</p>
-                        </section>
-                        <section className="rounded-xl bg-[var(--surface-soft)] p-3">
-                          <p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Fee paid by</p>
-                          <div className="mt-2 grid grid-cols-3 rounded-lg bg-[var(--surface)] p-1">{(["CASH","UPI","SPLIT"] as CommissionMode[]).map((mode)=><button key={mode} type="button" onClick={()=>updateRow(row.key,{commissionMode:mode,commissionCash:mode==="SPLIT"?row.commissionCash:""})} className={"min-h-8 rounded-md text-[10px] font-black "+(row.commissionMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":mode==="UPI"?"Bank / UPI":"Both"}</button>)}</div>
-                          {row.commissionMode==="SPLIT"?<label className="mt-2 flex items-center rounded-lg bg-[var(--surface)] px-2 py-1.5 text-xs"><span>Cash part ₹</span><input inputMode="decimal" value={row.commissionCash} onChange={(event)=>updateRow(row.key,{commissionCash:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-right font-black outline-none"/></label>:null}
-                        </section>
-                        <section className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
-                          <div className="grid grid-cols-3 gap-2 text-center"><div><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Transfer</span><strong className="money mt-1 block text-sm">{money(Number(row.amount||0))}</strong></div>
-                            <div><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">+ Cash fee</span><strong className="money mt-1 block text-sm">{money(cashCommission(row))}</strong></div>
-                            <div><span className="block text-[9px] font-black uppercase text-emerald-700">Total</span><strong className="money mt-1 block text-lg text-emerald-700">{money(due)}</strong></div></div>
-                          <div className="mt-2 grid grid-cols-[1fr_150px] gap-2"><label className="rounded-lg bg-white px-2.5 py-2"><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Cash given by customer</span><div className="mt-1 flex items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" value={row.cashReceived} onChange={(event)=>updateRow(row.key,{cashReceived:event.target.value.replace(/[^0-9.]/g,"")})} placeholder={String(due||0)} className="min-w-0 flex-1 bg-transparent font-black outline-none"/></div></label>
-                            <div className="rounded-lg bg-emerald-100 px-2.5 py-2"><span className="block text-[9px] font-black uppercase text-emerald-700">Give back</span><strong className="money mt-1 block text-lg text-emerald-700">{money(change)}</strong></div></div>
-                        </section>
+                    {row.expanded&&row.status!=="SAVED"?<div className="mx-3 mb-2 rounded-xl border border-violet-200 bg-[var(--surface)] px-3 py-2.5 shadow-[0_6px_18px_rgba(76,29,149,.05)]">
+                      {row.direction==="IN"&&row.purpose==="TRANSFER"?<div className="grid gap-2 xl:grid-cols-[240px_minmax(420px,1fr)_170px_120px_minmax(180px,.7fr)]">
+                        <div className="rounded-lg bg-[var(--surface-soft)] p-2">
+                          <span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Fee paid by</span>
+                          <div className="mt-1 grid grid-cols-3 rounded-lg bg-[var(--surface)] p-1">
+                            {(["CASH","UPI","SPLIT"] as CommissionMode[]).map((mode)=><button key={mode} type="button" onClick={()=>updateRow(row.key,{commissionMode:mode,commissionCash:mode==="SPLIT"?row.commissionCash:""})} className={"min-h-8 rounded-md px-1 text-[10px] font-black "+(row.commissionMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":mode==="UPI"?"Bank / UPI":"Both"}</button>)}
+                          </div>
+                          {row.commissionMode==="SPLIT"?<div className="mt-1.5 flex h-8 items-center rounded-lg bg-[var(--surface)] px-2"><span className="text-[10px] font-bold text-[var(--text-muted)]">Cash ₹</span><input inputMode="decimal" value={row.commissionCash} onChange={(event)=>updateRow(row.key,{commissionCash:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-right text-xs font-black outline-none" placeholder="0"/></div>:null}
+                        </div>
+                        <div className="rounded-lg bg-[var(--surface-soft)] p-2">
+                          <div className="flex items-center justify-between gap-2"><span className="text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Beneficiary</span><span className="text-[9px] font-bold text-[var(--text-muted)]">{activeTransferTypes.find((item)=>item.id===row.transferTypeId)?.name||""}</span></div>
+                          {row.beneficiaryMode==="UPI"?<input value={row.beneficiaryUpi} onChange={(event)=>updateRow(row.key,{beneficiaryUpi:event.target.value})} className="mt-1 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-bold outline-none" placeholder="UPI ID / mobile"/>:
+                          <div className="mt-1 grid grid-cols-3 gap-1.5"><input value={row.bankAccountHolder} onChange={(event)=>updateRow(row.key,{bankAccountHolder:event.target.value})} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-xs font-bold outline-none" placeholder="Account holder"/><input value={row.bankAccountNumber} onChange={(event)=>updateRow(row.key,{bankAccountNumber:event.target.value.replace(/\s/g,"")})} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-xs font-bold outline-none" placeholder="Account number"/><input value={row.bankIfsc} onChange={(event)=>updateRow(row.key,{bankIfsc:event.target.value.toUpperCase().replace(/\s/g,"")})} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-xs font-bold uppercase outline-none" placeholder="IFSC"/></div>}
+                        </div>
+                        <label className="rounded-lg bg-emerald-50 px-2.5 py-2"><span className="block text-[9px] font-black uppercase text-emerald-700">Cash received</span><div className="mt-1 flex items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" value={row.cashReceived} onChange={(event)=>updateRow(row.key,{cashReceived:event.target.value.replace(/[^0-9.]/g,"")})} placeholder={String(due||0)} className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none"/></div></label>
+                        <div className="rounded-lg bg-emerald-100 px-2.5 py-2"><span className="block text-[9px] font-black uppercase text-emerald-700">Give back</span><strong className="money mt-1 block text-lg text-emerald-700">{money(change)}</strong></div>
+                        <label className="rounded-lg bg-[var(--surface-soft)] px-2.5 py-2"><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Note</span><input value={row.remarks} onChange={(event)=>updateRow(row.key,{remarks:event.target.value})} className="mt-1 w-full bg-transparent text-xs font-bold outline-none" placeholder="Optional"/></label>
                       </div>:null}
 
-                      {row.direction==="IN"&&row.purpose==="TRANSFER"&&row.transferTypeId?<section className="mt-3 rounded-xl bg-[var(--surface-soft)] p-3">
-                        <div className="flex items-center justify-between"><p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary details</p><span className="text-[10px] font-bold text-[var(--text-muted)]">{row.beneficiaryMode==="BANK"?"Bank transfer":"UPI / GPay"}</span></div>
-                        {row.beneficiaryMode==="UPI"?<input value={row.beneficiaryUpi} onChange={(event)=>updateRow(row.key,{beneficiaryUpi:event.target.value})} className="mt-2 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none" placeholder="UPI ID / mobile"/>:
-                        <div className="mt-2 grid grid-cols-3 gap-2"><input value={row.bankAccountHolder} onChange={(event)=>updateRow(row.key,{bankAccountHolder:event.target.value})} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none" placeholder="Account holder"/>
-                          <input value={row.bankAccountNumber} onChange={(event)=>updateRow(row.key,{bankAccountNumber:event.target.value.replace(/\s/g,"")})} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none" placeholder="Account number"/>
-                          <input value={row.bankIfsc} onChange={(event)=>updateRow(row.key,{bankIfsc:event.target.value.toUpperCase().replace(/\s/g,"")})} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold uppercase outline-none" placeholder="IFSC"/></div>}
-                      </section>:null}
-
-                      {row.direction==="IN"&&row.purpose==="SERVICE"?<section className="mt-3 rounded-xl bg-[var(--surface-soft)] p-3">
-                        <div className="grid gap-3 xl:grid-cols-[1.1fr_.8fr_1.1fr]">
-                          <div><p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Service</p>
-                            <input list={"rush-service-"+row.key} value={row.serviceName} onChange={(event)=>selectService(row,event.target.value)} className="mt-1.5 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black outline-none" placeholder="Choose / type service"/>
-                            <datalist id={"rush-service-"+row.key}>{activeServices.map((item)=><option key={item.id} value={item.name}/>)}</datalist>
-                            <div className="mt-2 flex flex-wrap gap-1">{activeServices.slice(0,5).map((item)=><button type="button" key={item.id} onClick={()=>selectService(row,item.name)} className="rounded-full bg-[var(--surface)] px-2 py-1 text-[9px] font-black text-[var(--text-muted)]">{item.name}</button>)}</div>
-                          </div>
-                          <div><p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Customer paid by</p><div className="mt-1.5 grid grid-cols-2 rounded-xl bg-[var(--surface)] p-1">
-                            {(["CASH","UPI"] as const).map((mode)=><button type="button" key={mode} onClick={()=>updateRow(row.key,{servicePaymentMode:mode,servicePaymentAccountId:mode==="CASH"?"":row.servicePaymentAccountId})} className={"min-h-9 rounded-lg text-[10px] font-black "+(row.servicePaymentMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":"Bank / UPI"}</button>)}</div>
-                            {row.servicePaymentMode==="UPI"?<select value={row.servicePaymentAccountId} onChange={(event)=>updateRow(row.key,{servicePaymentAccountId:event.target.value})} className="mt-2 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 text-xs font-bold"><option value="">Received in…</option>{servicePaymentAccounts.map((item)=><option key={item.id} value={item.id}>{item.accountName}</option>)}</select>:null}
-                          </div>
-                          <div><p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Fulfilled by</p><div className="mt-1.5 grid grid-cols-2 rounded-xl bg-[var(--surface)] p-1">
-                            <button type="button" onClick={()=>updateRow(row.key,{serviceFulfillmentMode:"INTERNAL"})} className={"min-h-9 rounded-lg text-[10px] font-black "+(row.serviceFulfillmentMode==="INTERNAL"?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>✓ Done by us</button>
-                            <button type="button" disabled={Boolean(selectedService&&!selectedService.allowPartnerFulfillment)} onClick={()=>updateRow(row.key,{serviceFulfillmentMode:"PARTNER",servicePartnerName:row.servicePartnerName||selectedService?.defaultPartnerName||"",servicePartnerCharge:row.servicePartnerCharge||(selectedService?.defaultPartnerCharge!==null&&selectedService?.defaultPartnerCharge!==undefined?String(Number(selectedService.defaultPartnerCharge)):""),servicePartnerPaymentAccountId:row.servicePartnerPaymentAccountId||cashAccountId})} className={"min-h-9 rounded-lg text-[10px] font-black disabled:opacity-30 "+(row.serviceFulfillmentMode==="PARTNER"?"bg-violet-50 text-violet-700":"text-[var(--text-muted)]")}>Partner</button></div>
-                          </div>
+                      {row.direction==="IN"&&row.purpose==="SERVICE"?<div className="grid gap-2 xl:grid-cols-[minmax(230px,1fr)_220px_220px_minmax(300px,1.15fr)]">
+                        <div className="rounded-lg bg-[var(--surface-soft)] p-2">
+                          <span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Service</span>
+                          <input list={"rush-service-"+row.key} value={row.serviceName} onChange={(event)=>selectService(row,event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-black outline-none" placeholder="Choose / type service"/>
+                          <datalist id={"rush-service-"+row.key}>{activeServices.map((item)=><option key={item.id} value={item.name}/>)}</datalist>
                         </div>
-                        {row.serviceFulfillmentMode==="PARTNER"?<div className="mt-3 grid gap-2 lg:grid-cols-[1fr_150px_190px_1fr]">
-                          <input value={row.servicePartnerName} onChange={(event)=>updateRow(row.key,{servicePartnerName:event.target.value})} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold" placeholder="Partner / company"/>
-                          <div className="flex h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2"><span className="font-black">₹</span><input inputMode="decimal" value={row.servicePartnerCharge} onChange={(event)=>updateRow(row.key,{servicePartnerCharge:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-right text-sm font-black outline-none" placeholder="Partner cost"/></div>
-                          <div className="grid grid-cols-2 rounded-xl bg-[var(--surface)] p-1"><button type="button" onClick={()=>updateRow(row.key,{servicePartnerPaymentTiming:"PAID_NOW",servicePartnerPaymentAccountId:row.servicePartnerPaymentAccountId||cashAccountId})} className={"rounded-lg text-[9px] font-black "+(row.servicePartnerPaymentTiming==="PAID_NOW"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Paid now</button><button type="button" onClick={()=>updateRow(row.key,{servicePartnerPaymentTiming:"PAY_LATER"})} className={"rounded-lg text-[9px] font-black "+(row.servicePartnerPaymentTiming==="PAY_LATER"?"bg-amber-50 text-amber-700":"text-[var(--text-muted)]")}>Pay later</button></div>
-                          {row.servicePartnerPaymentTiming==="PAID_NOW"?<select value={row.servicePartnerPaymentAccountId} onChange={(event)=>updateRow(row.key,{servicePartnerPaymentAccountId:event.target.value})} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 text-xs font-bold"><option value="">Paid from…</option>{partnerPaymentAccounts.map((item)=><option key={item.id} value={item.id}>{item.accountName}</option>)}</select>:<div className="flex h-10 items-center rounded-xl bg-amber-50 px-3 text-[10px] font-bold text-amber-800">Creates partner payable</div>}
-                        </div>:null}
-                        {row.serviceFulfillmentMode==="PARTNER"?<div className="mt-2 flex justify-end gap-3 rounded-lg bg-[var(--surface)] px-3 py-2 text-xs"><span>Customer <strong>{money(Number(row.amount||0))}</strong></span><span>− Partner <strong>{money(Number(row.servicePartnerCharge||0))}</strong></span><span>= Our earning <strong className="text-emerald-700">{money(Number(row.amount||0)-Number(row.servicePartnerCharge||0))}</strong></span></div>:null}
-                      </section>:null}
-
-                      {row.direction==="OUT"&&row.cashOutType!=="UPI_QR"?<section className="mt-3 rounded-xl bg-[var(--surface-soft)] p-3">
-                        <div className="grid gap-3 lg:grid-cols-[220px_1fr]"><div><p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Attempt status</p><div className="mt-1.5 grid grid-cols-2 rounded-xl bg-[var(--surface)] p-1">
-                          <button type="button" onClick={()=>updateRow(row.key,{successful:true})} className={"min-h-9 rounded-lg text-[10px] font-black "+(row.successful?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>Successful</button>
-                          <button type="button" onClick={()=>updateRow(row.key,{successful:false,commission:"",commissionCash:""})} className={"min-h-9 rounded-lg text-[10px] font-black "+(!row.successful?"bg-rose-50 text-rose-700":"text-[var(--text-muted)]")}>Failed</button></div></div>
-                          {row.cashOutType==="AEPS"?<label><span className="text-[9px] font-black uppercase text-[var(--text-muted)]">Aadhaar last 4 *</span><input inputMode="numeric" maxLength={4} value={row.aadhaarLastFour} onChange={(event)=>updateRow(row.key,{aadhaarLastFour:event.target.value.replace(/\D/g,"").slice(0,4)})} className="mt-1.5 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black tracking-widest" placeholder="1234"/></label>:
-                          <div className="grid grid-cols-2 gap-2"><label><span className="text-[9px] font-black uppercase text-[var(--text-muted)]">Card last 4 *</span><input inputMode="numeric" maxLength={4} value={row.cardLastFour} onChange={(event)=>updateRow(row.key,{cardLastFour:event.target.value.replace(/\D/g,"").slice(0,4)})} className="mt-1.5 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black tracking-widest" placeholder="1234"/></label>
-                            <label><span className="text-[9px] font-black uppercase text-[var(--text-muted)]">Customer bank</span><input value={row.customerBankName} onChange={(event)=>updateRow(row.key,{customerBankName:event.target.value})} className="mt-1.5 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" placeholder="Bank name"/></label></div>}
+                        <div className="rounded-lg bg-[var(--surface-soft)] p-2">
+                          <span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Customer paid by</span>
+                          <div className="mt-1 grid grid-cols-2 rounded-lg bg-[var(--surface)] p-1">{(["CASH","UPI"] as const).map((mode)=><button type="button" key={mode} onClick={()=>updateRow(row.key,{servicePaymentMode:mode,servicePaymentAccountId:mode==="CASH"?"":row.servicePaymentAccountId})} className={"min-h-8 rounded-md text-[10px] font-black "+(row.servicePaymentMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":"Bank / UPI"}</button>)}</div>
+                          {row.servicePaymentMode==="UPI"?<select value={row.servicePaymentAccountId} onChange={(event)=>updateRow(row.key,{servicePaymentAccountId:event.target.value})} className="mt-1.5 h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-[10px] font-bold"><option value="">Received in…</option>{servicePaymentAccounts.map((item)=><option key={item.id} value={item.id}>{item.accountName}</option>)}</select>:null}
                         </div>
-                      </section>:null}
-
-                      {row.direction==="OUT"&&row.commission&&Number(row.commission)>0&&row.successful?<section className="mt-3 rounded-xl bg-[var(--surface-soft)] p-3">
-                        <div className="flex items-center justify-between gap-3"><p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Commission received in</p>{row.cashOutType==="MICRO_ATM"?<span className="rounded-full bg-blue-50 px-2 py-1 text-[9px] font-black text-blue-700">Bank / UPI</span>:null}</div>
-                        {row.cashOutType==="MICRO_ATM"?<p className="mt-2 text-[10px] font-semibold text-[var(--text-muted)]">Micro ATM commission is treated as digital. Settlement account can be completed later from Pending.</p>:<>
-                          <div className="mt-2 grid grid-cols-3 rounded-xl bg-[var(--surface)] p-1">{(["CASH","UPI","SPLIT"] as CommissionMode[]).map((mode)=><button key={mode} type="button" onClick={()=>updateRow(row.key,{commissionMode:mode,commissionCash:mode==="SPLIT"?row.commissionCash:""})} className={"min-h-9 rounded-lg text-[10px] font-black "+(row.commissionMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":mode==="UPI"?"Bank / UPI":"Split"}</button>)}</div>
-                          {row.commissionMode==="SPLIT"?<div className="mt-2 grid grid-cols-2 gap-2"><label className="rounded-xl bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Cash part</span><div className="mt-1 flex items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" value={row.commissionCash} onChange={(event)=>updateRow(row.key,{commissionCash:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none" placeholder="0"/></div></label><div className="rounded-xl bg-blue-50 px-3 py-2"><span className="block text-[9px] font-black uppercase text-blue-700">Bank / UPI part</span><strong className="money mt-1 block text-sm text-blue-700">{money(Math.max(0,Number(row.commission||0)-Number(row.commissionCash||0)))}</strong></div></div>:null}
-                        </>}
-                      </section>:null}
-
-                      {row.direction==="OUT"&&row.cashOutType!=="UPI_QR"?<section className="relative mt-3 rounded-xl bg-[var(--surface-soft)] p-3">
-                        <div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Existing customer</p><p className="mt-0.5 text-[10px] font-semibold text-[var(--text-muted)]">Optional · search by name or mobile</p></div>{row.customerId?<button type="button" onClick={()=>updateRow(row.key,{customerId:"",customerLookup:"",customerSuggestions:[]})} className="text-[10px] font-black text-[var(--accent)]">Change</button>:null}</div>
-                        <input inputMode="search" value={row.customerLookup} onChange={(event)=>searchCustomer(row,event.target.value)} disabled={Boolean(row.customerId)}
-                          className="mt-2 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none disabled:opacity-60" placeholder="Search name or mobile"/>
-                        {!row.customerId&&row.customerLookup.trim().length>=2?<div className="absolute inset-x-3 top-[calc(100%-.15rem)] z-30 max-h-48 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
-                          {row.customerSearchLoading?<p className="px-3 py-2 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer)=><button key={customer.id} type="button" onClick={()=>selectExistingCustomer(row.key,customer)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left hover:bg-[var(--surface-soft)]"><span className="min-w-0"><strong className="block truncate text-xs">{customer.fullName}</strong><span className="block truncate text-[10px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span></span><span className="shrink-0 text-[10px] font-black text-[var(--accent)]">Use</span></button>):<p className="px-3 py-2 text-[10px] font-semibold text-[var(--text-muted)]">No matching customer. Continue without selecting one.</p>}
-                        </div>:null}
-                      </section>:null}
-
-                      <section className="mt-3 grid gap-2 md:grid-cols-[1fr_180px_1.2fr]">
-                        <label className="rounded-xl bg-[var(--surface-soft)] px-3 py-2"><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Customer</span><input value={row.customerName} onChange={(event)=>updateRow(row.key,{customerName:event.target.value.toUpperCase()})} className="mt-1 w-full bg-transparent text-sm font-black uppercase outline-none" placeholder="Optional name"/></label>
-                        <label className="rounded-xl bg-[var(--surface-soft)] px-3 py-2"><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Mobile</span><input type="tel" value={row.mobileNumber} onChange={(event)=>updateRow(row.key,{mobileNumber:event.target.value})} className="mt-1 w-full bg-transparent text-sm font-black outline-none" placeholder="Optional"/></label>
-                        <label className="rounded-xl bg-[var(--surface-soft)] px-3 py-2"><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Note</span><input value={row.remarks} onChange={(event)=>updateRow(row.key,{remarks:event.target.value})} className="mt-1 w-full bg-transparent text-sm font-bold outline-none" placeholder="Reference / note"/></label>
-                      </section>
-                      {row.direction==="OUT"?<div className="mt-2 flex justify-end"><label className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-muted)]"><span>Date & time (optional)</span><input type="datetime-local" value={row.transactionAt} onChange={(event)=>updateRow(row.key,{transactionAt:event.target.value})} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-[11px] font-bold"/></label></div>:null}
-                      {row.status==="ERROR"&&row.message?<p className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700">{row.message}</p>:null}
+                        <div className="rounded-lg bg-[var(--surface-soft)] p-2">
+                          <span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Fulfilled by</span>
+                          <div className="mt-1 grid grid-cols-2 rounded-lg bg-[var(--surface)] p-1"><button type="button" onClick={()=>updateRow(row.key,{serviceFulfillmentMode:"INTERNAL"})} className={"min-h-8 rounded-md text-[10px] font-black "+(row.serviceFulfillmentMode==="INTERNAL"?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>Us</button><button type="button" disabled={Boolean(selectedService&&!selectedService.allowPartnerFulfillment)} onClick={()=>updateRow(row.key,{serviceFulfillmentMode:"PARTNER",servicePartnerName:row.servicePartnerName||selectedService?.defaultPartnerName||"",servicePartnerCharge:row.servicePartnerCharge||(selectedService?.defaultPartnerCharge!==null&&selectedService?.defaultPartnerCharge!==undefined?String(Number(selectedService.defaultPartnerCharge)):""),servicePartnerPaymentAccountId:row.servicePartnerPaymentAccountId||cashAccountId})} className={"min-h-8 rounded-md text-[10px] font-black disabled:opacity-30 "+(row.serviceFulfillmentMode==="PARTNER"?"bg-violet-50 text-violet-700":"text-[var(--text-muted)]")}>Partner</button></div>
+                        </div>
+                        <div className="rounded-lg bg-[var(--surface-soft)] p-2">
+                          {row.serviceFulfillmentMode==="PARTNER"?<><div className="grid grid-cols-[1fr_105px] gap-1.5"><input value={row.servicePartnerName} onChange={(event)=>updateRow(row.key,{servicePartnerName:event.target.value})} className="h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-[10px] font-bold" placeholder="Partner / company"/><div className="flex h-8 items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2"><span className="text-[10px] font-black">₹</span><input inputMode="decimal" value={row.servicePartnerCharge} onChange={(event)=>updateRow(row.key,{servicePartnerCharge:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-right text-[10px] font-black outline-none" placeholder="Cost"/></div></div>
+                            <div className="mt-1.5 grid grid-cols-[150px_1fr] gap-1.5"><div className="grid grid-cols-2 rounded-lg bg-[var(--surface)] p-1"><button type="button" onClick={()=>updateRow(row.key,{servicePartnerPaymentTiming:"PAID_NOW",servicePartnerPaymentAccountId:row.servicePartnerPaymentAccountId||cashAccountId})} className={"rounded-md text-[9px] font-black "+(row.servicePartnerPaymentTiming==="PAID_NOW"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Paid now</button><button type="button" onClick={()=>updateRow(row.key,{servicePartnerPaymentTiming:"PAY_LATER"})} className={"rounded-md text-[9px] font-black "+(row.servicePartnerPaymentTiming==="PAY_LATER"?"bg-amber-50 text-amber-700":"text-[var(--text-muted)]")}>Later</button></div>{row.servicePartnerPaymentTiming==="PAID_NOW"?<select value={row.servicePartnerPaymentAccountId} onChange={(event)=>updateRow(row.key,{servicePartnerPaymentAccountId:event.target.value})} className="h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-[10px] font-bold"><option value="">Paid from…</option>{partnerPaymentAccounts.map((item)=><option key={item.id} value={item.id}>{item.accountName}</option>)}</select>:<div className="flex h-8 items-center rounded-lg bg-amber-50 px-2 text-[9px] font-bold text-amber-800">Payable {money(Number(row.servicePartnerCharge||0))}</div>}</div>
+                            <div className="mt-1.5 flex items-center gap-2"><span className="text-[9px] font-bold text-[var(--text-muted)]">Our earning</span><strong className="money text-[10px] text-emerald-700">{money(Number(row.amount||0)-Number(row.servicePartnerCharge||0))}</strong><input value={row.remarks} onChange={(event)=>updateRow(row.key,{remarks:event.target.value})} className="ml-auto h-7 min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-[9px] font-bold outline-none" placeholder="Note"/></div></>:<label><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Note</span><input value={row.remarks} onChange={(event)=>updateRow(row.key,{remarks:event.target.value})} className="mt-1 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-bold outline-none" placeholder="Optional"/></label>}
+                        </div>
+                      </div>:null}
+                      {row.direction==="OUT"?<div className="flex flex-wrap gap-2">
+                        {row.cashOutType!=="UPI_QR"?<div className="min-w-[250px] flex-1 rounded-lg bg-[var(--surface-soft)] p-2"><div className="flex items-center gap-2"><div className="grid flex-1 grid-cols-2 rounded-lg bg-[var(--surface)] p-1"><button type="button" onClick={()=>updateRow(row.key,{successful:true})} className={"min-h-8 rounded-md text-[10px] font-black "+(row.successful?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>Successful</button><button type="button" onClick={()=>updateRow(row.key,{successful:false,commission:"",commissionCash:""})} className={"min-h-8 rounded-md text-[10px] font-black "+(!row.successful?"bg-rose-50 text-rose-700":"text-[var(--text-muted)]")}>Failed</button></div>
+                          {row.cashOutType==="AEPS"?<input inputMode="numeric" maxLength={4} value={row.aadhaarLastFour} onChange={(event)=>updateRow(row.key,{aadhaarLastFour:event.target.value.replace(/\D/g,"").slice(0,4)})} className="h-10 w-[118px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-xs font-black tracking-widest" placeholder="Aadhaar 4"/>:<><input inputMode="numeric" maxLength={4} value={row.cardLastFour} onChange={(event)=>updateRow(row.key,{cardLastFour:event.target.value.replace(/\D/g,"").slice(0,4)})} className="h-10 w-[100px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-xs font-black tracking-widest" placeholder="Card 4"/><input value={row.customerBankName} onChange={(event)=>updateRow(row.key,{customerBankName:event.target.value})} className="h-10 min-w-[120px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-xs font-bold" placeholder="Bank"/></>}</div></div>:null}
+                        {row.commission&&Number(row.commission)>0&&row.successful?<div className="min-w-[220px] rounded-lg bg-[var(--surface-soft)] p-2"><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Commission in</span>{row.cashOutType==="MICRO_ATM"?<div className="mt-1.5 flex h-8 items-center rounded-lg bg-blue-50 px-2 text-[10px] font-black text-blue-700">Bank / UPI</div>:<div className="mt-1 grid grid-cols-3 rounded-lg bg-[var(--surface)] p-1">{(["CASH","UPI","SPLIT"] as CommissionMode[]).map((mode)=><button key={mode} type="button" onClick={()=>updateRow(row.key,{commissionMode:mode,commissionCash:mode==="SPLIT"?row.commissionCash:""})} className={"min-h-8 rounded-md px-1 text-[9px] font-black "+(row.commissionMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":mode==="UPI"?"UPI":"Split"}</button>)}</div>}{row.commissionMode==="SPLIT"&&row.cashOutType!=="MICRO_ATM"?<div className="mt-1 flex h-8 items-center rounded-lg bg-[var(--surface)] px-2"><span className="text-[9px] font-bold">Cash ₹</span><input inputMode="decimal" value={row.commissionCash} onChange={(event)=>updateRow(row.key,{commissionCash:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-right text-[10px] font-black outline-none"/></div>:null}</div>:null}
+                        {row.cashOutType!=="UPI_QR"?<div className="relative min-w-[260px] flex-1 rounded-lg bg-[var(--surface-soft)] p-2"><div className="flex items-center justify-between gap-2"><span className="text-[9px] font-black uppercase text-[var(--text-muted)]">Existing customer</span>{row.customerId?<button type="button" onClick={()=>updateRow(row.key,{customerId:"",customerLookup:"",customerSuggestions:[]})} className="text-[9px] font-black text-[var(--accent)]">Change</button>:null}</div><input inputMode="search" value={row.customerLookup} onChange={(event)=>searchCustomer(row,event.target.value)} disabled={Boolean(row.customerId)} className="mt-1 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-bold outline-none disabled:opacity-60" placeholder="Name or mobile"/>{!row.customerId&&row.customerLookup.trim().length>=2?<div className="absolute inset-x-2 top-[calc(100%-.1rem)] z-30 max-h-44 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">{row.customerSearchLoading?<p className="px-2 py-1.5 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer)=><button key={customer.id} type="button" onClick={()=>selectExistingCustomer(row.key,customer)} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-[var(--surface-soft)]"><span className="min-w-0"><strong className="block truncate text-[10px]">{customer.fullName}</strong><span className="block truncate text-[9px] text-[var(--text-muted)]">{customer.mobile||"No mobile"}</span></span><span className="text-[9px] font-black text-[var(--accent)]">Use</span></button>):<p className="px-2 py-1.5 text-[10px] text-[var(--text-muted)]">No match</p>}</div>:null}</div>:null}
+                        <div className="min-w-[280px] flex-1 rounded-lg bg-[var(--surface-soft)] p-2"><div className="grid grid-cols-[1fr_175px] gap-1.5"><input value={row.remarks} onChange={(event)=>updateRow(row.key,{remarks:event.target.value})} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-bold outline-none" placeholder="Note / reference"/><input type="datetime-local" value={row.transactionAt} onChange={(event)=>updateRow(row.key,{transactionAt:event.target.value})} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-[10px] font-bold"/></div></div>
+                      </div>:null}
+                      {row.status==="ERROR"&&row.message?<p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-700">{row.message}</p>:null}
                     </div>:null}
                   </div>;
                 })}
