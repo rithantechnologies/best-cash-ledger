@@ -1,0 +1,63 @@
+name: Build production release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            apps/api/package-lock.json
+            apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefix apps/api
+          npm ci --workspaces=false --prefix apps/web
+
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: npx prisma generate --schema=prisma/schema.prisma
+
+      - name: Build API
+        run: npm --prefix apps/api run build
+
+      - name: Build standalone web
+        run: npm --prefix apps/web run build
+        env:
+          CASHLEDGER_STANDALONE: "1"
+
+      - name: Stage release
+        shell: bash
+        run: |
+          mkdir -p release/api release/web
+          cp -a apps/api/dist apps/api/prisma apps/api/package.json apps/api/package-lock.json release/api/
+          server_dir="apps/web/.next/standalone/apps/web"
+          test -f "$server_dir/server.js"
+          mkdir -p "$server_dir/.next"
+          cp -a apps/web/.next/static "$server_dir/.next/static"
+          cp -a apps/web/public "$server_dir/public"
+          cp -a apps/web/.next/standalone/. release/web/
+          printf '%s\n' "$GITHUB_SHA" > release/REVISION
+
+      - name: Upload production release
+        uses: actions/upload-artifact@v4
+        with:
+          name: cash-ledger-${{ github.sha }}
+          path: release
+          retention-days: 3
+          if-no-files-found: error

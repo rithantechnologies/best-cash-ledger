@@ -1,0 +1,24 @@
+[Unit]
+Description=Cash Ledger Web standalone (client VPS)
+After=network-online.target cashledger-api-client.service
+Wants=network-online.target
+Requires=cashledger-api-client.service
+
+[Service]
+Type=simple
+User=cashledger
+Group=cashledger
+WorkingDirectory=/var/www/cashledger/current/web/apps/web
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3200
+Environment=NODE_OPTIONS=--max-old-space-size=384
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

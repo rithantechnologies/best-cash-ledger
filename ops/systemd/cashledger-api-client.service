@@ -1,0 +1,22 @@
+[Unit]
+Description=Cash Ledger API (client VPS)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cashledger
+Group=cashledger
+WorkingDirectory=/var/www/cashledger/current/api
+EnvironmentFile=/etc/cashledger/cashledger.env
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=384
+ExecStart=/usr/bin/node dist/main.js
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
