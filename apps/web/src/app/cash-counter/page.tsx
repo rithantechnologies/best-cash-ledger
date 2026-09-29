@@ -387,6 +387,20 @@ export default function CashCounterPage(){
   useEffect(()=>{load().catch(()=>setError("Failed to load cash desk")).finally(()=>setLoading(false));},[]);
   useEffect(()=>{setPortalReady(true);},[]);
   useEffect(()=>{
+    const openQuickCash=(event:Event)=>{
+      const requested=(event as CustomEvent<QuickCashDirection>).detail;
+      if(requested!=="IN"&&requested!=="OUT")return;
+      if(!today||today.status==="CLOSED"){
+        setError("Open or reopen the cash session to record "+(requested==="IN"?"Cash In":"Cash Out"));
+        window.scrollTo({top:0,behavior:"smooth"});
+        return;
+      }
+      setError("");setQuickError("");setQuickFieldErrors({});setQuickDirection(requested);
+    };
+    window.addEventListener("cashledger:open-quick-cash",openQuickCash);
+    return()=>window.removeEventListener("cashledger:open-quick-cash",openQuickCash);
+  },[today?.id,today?.status]);
+  useEffect(()=>{
     if(selectedQuickTransferType)setQuickBeneficiaryMode(selectedQuickTransferType.transferMode);
   },[selectedQuickTransferType]);
   useEffect(()=>{
