@@ -15,9 +15,10 @@ type Account={id:string;accountName:string;accountType:string;isActive?:boolean;
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;allowPartnerFulfillment:boolean;defaultPartnerName:string|null;defaultPartnerCharge:string|number|null;isActive:boolean};
 type TransferType={id:string;name:string;transferMode:BeneficiaryMode;defaultCommissionRate:string|number;isActive:boolean};
 type SavedTransaction={id:string;transactionNumber:string;status:string};
+type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null};
 
 type RushRow={
-  key:string;direction:Direction;purpose:Purpose;amount:string;customerName:string;mobileNumber:string;commission:string;commissionOverridden:boolean;
+  key:string;direction:Direction;purpose:Purpose;amount:string;customerId:string;customerLookup:string;customerSuggestions:CustomerSuggestion[];customerSearchLoading:boolean;customerName:string;mobileNumber:string;commission:string;commissionOverridden:boolean;
   commissionMode:CommissionMode;commissionCash:string;cashReceived:string;transferTypeId:string;beneficiaryMode:BeneficiaryMode;beneficiaryUpi:string;
   bankAccountHolder:string;bankAccountNumber:string;bankIfsc:string;cashOutType:CashOutType;successful:boolean;aadhaarLastFour:string;
   customerBankName:string;cardLastFour:string;serviceName:string;servicePaymentMode:"CASH"|"UPI";servicePaymentAccountId:string;
@@ -32,7 +33,7 @@ function newKey(){
 }
 function emptyRow(direction:Direction="IN"):RushRow{
   return {
-    key:newKey(),direction,purpose:"TRANSFER",amount:"",customerName:"",mobileNumber:"",commission:"",commissionOverridden:false,
+    key:newKey(),direction,purpose:"TRANSFER",amount:"",customerId:"",customerLookup:"",customerSuggestions:[],customerSearchLoading:false,customerName:"",mobileNumber:"",commission:"",commissionOverridden:false,
     commissionMode:"CASH",commissionCash:"",cashReceived:"",transferTypeId:"",beneficiaryMode:"UPI",beneficiaryUpi:"",
     bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",cashOutType:"UPI_QR",successful:true,aadhaarLastFour:"",
     customerBankName:"",cardLastFour:"",serviceName:"",servicePaymentMode:"CASH",servicePaymentAccountId:"",
@@ -105,6 +106,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
   const [savingAll,setSavingAll]=useState(false);
   const [savedSinceRefresh,setSavedSinceRefresh]=useState(false);
   const amountRefs=useRef<Record<string,HTMLInputElement|null>>({});
+  const customerSearchTimers=useRef<Record<string,number>>({});
   const lastDirection=useRef<Direction>("IN");
 
   const activeServices=services.filter((item)=>item.isActive!==false);
@@ -182,6 +184,20 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
       servicePartnerPaymentTiming:"PAID_NOW",servicePartnerPaymentAccountId:cashAccountId,
     });
   }
+  function searchCustomer(row:RushRow,value:string){
+    const query=value.trim();
+    updateRow(row.key,{customerLookup:value,customerId:"",customerSuggestions:[],customerSearchLoading:query.length>=2});
+    if(customerSearchTimers.current[row.key])window.clearTimeout(customerSearchTimers.current[row.key]);
+    if(query.length<2)return;
+    customerSearchTimers.current[row.key]=window.setTimeout(()=>{
+      apiFetch<CustomerSuggestion[]>("/search/customers?q="+encodeURIComponent(query))
+        .then((results)=>setRows((current)=>current.map((item)=>item.key===row.key&&!item.customerId&&item.customerLookup.trim()===query?{...item,customerSuggestions:results.slice(0,6),customerSearchLoading:false}:item)))
+        .catch(()=>setRows((current)=>current.map((item)=>item.key===row.key?{...item,customerSuggestions:[],customerSearchLoading:false}:item)));
+    },180);
+  }
+  function selectExistingCustomer(key:string,customer:CustomerSuggestion){
+    updateRow(key,{customerId:customer.id,customerLookup:customer.fullName+(customer.mobile?" · "+customer.mobile:""),customerSuggestions:[],customerSearchLoading:false,customerName:customer.fullName,mobileNumber:customer.mobile||""});
+  }
   function addRow(direction:Direction=lastDirection.current){
     const row=emptyRow(direction);setRows((current)=>[...current,row]);
     requestAnimationFrame(()=>amountRefs.current[row.key]?.focus());
@@ -212,6 +228,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
           serviceName:purpose==="SERVICE"?row.serviceName.trim():(row.direction==="IN"&&selectedType?selectedType.name:undefined),
           cashOutType:row.direction==="OUT"?row.cashOutType:undefined,
           successful:row.direction==="OUT"&&row.cashOutType!=="UPI_QR"?row.successful:undefined,
+          customerId:row.customerId||undefined,
           aadhaarLastFour:row.direction==="OUT"&&row.cashOutType==="AEPS"?row.aadhaarLastFour:undefined,
           customerBankName:row.direction==="OUT"&&row.cashOutType==="MICRO_ATM"?row.customerBankName.trim()||undefined:undefined,
           cardLastFour:row.direction==="OUT"&&row.cashOutType==="MICRO_ATM"?row.cardLastFour:undefined,
@@ -416,6 +433,15 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved}:{cas
                           <div className="mt-2 grid grid-cols-3 rounded-xl bg-[var(--surface)] p-1">{(["CASH","UPI","SPLIT"] as CommissionMode[]).map((mode)=><button key={mode} type="button" onClick={()=>updateRow(row.key,{commissionMode:mode,commissionCash:mode==="SPLIT"?row.commissionCash:""})} className={"min-h-9 rounded-lg text-[10px] font-black "+(row.commissionMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":mode==="UPI"?"Bank / UPI":"Split"}</button>)}</div>
                           {row.commissionMode==="SPLIT"?<div className="mt-2 grid grid-cols-2 gap-2"><label className="rounded-xl bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase text-[var(--text-muted)]">Cash part</span><div className="mt-1 flex items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" value={row.commissionCash} onChange={(event)=>updateRow(row.key,{commissionCash:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-sm font-black outline-none" placeholder="0"/></div></label><div className="rounded-xl bg-blue-50 px-3 py-2"><span className="block text-[9px] font-black uppercase text-blue-700">Bank / UPI part</span><strong className="money mt-1 block text-sm text-blue-700">{money(Math.max(0,Number(row.commission||0)-Number(row.commissionCash||0)))}</strong></div></div>:null}
                         </>}
+                      </section>:null}
+
+                      {row.direction==="OUT"&&row.cashOutType!=="UPI_QR"?<section className="relative mt-3 rounded-xl bg-[var(--surface-soft)] p-3">
+                        <div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Existing customer</p><p className="mt-0.5 text-[10px] font-semibold text-[var(--text-muted)]">Optional · search by name or mobile</p></div>{row.customerId?<button type="button" onClick={()=>updateRow(row.key,{customerId:"",customerLookup:"",customerSuggestions:[]})} className="text-[10px] font-black text-[var(--accent)]">Change</button>:null}</div>
+                        <input inputMode="search" value={row.customerLookup} onChange={(event)=>searchCustomer(row,event.target.value)} disabled={Boolean(row.customerId)}
+                          className="mt-2 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none disabled:opacity-60" placeholder="Search name or mobile"/>
+                        {!row.customerId&&row.customerLookup.trim().length>=2?<div className="absolute inset-x-3 top-[calc(100%-.15rem)] z-30 max-h-48 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
+                          {row.customerSearchLoading?<p className="px-3 py-2 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer)=><button key={customer.id} type="button" onClick={()=>selectExistingCustomer(row.key,customer)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left hover:bg-[var(--surface-soft)]"><span className="min-w-0"><strong className="block truncate text-xs">{customer.fullName}</strong><span className="block truncate text-[10px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span></span><span className="shrink-0 text-[10px] font-black text-[var(--accent)]">Use</span></button>):<p className="px-3 py-2 text-[10px] font-semibold text-[var(--text-muted)]">No matching customer. Continue without selecting one.</p>}
+                        </div>:null}
                       </section>:null}
 
                       <section className="mt-3 grid gap-2 md:grid-cols-[1fr_180px_1.2fr]">
