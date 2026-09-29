@@ -1255,7 +1255,7 @@ export default function CashCounterPage(){
 
             {(!selectedQuickService||selectedQuickService.allowPartnerFulfillment)?<div className="mt-3 rounded-[15px] border border-[var(--border)] bg-[var(--surface)] p-3">
               <div className="flex items-center justify-between gap-3">
-                <div><p className="text-[10px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Fulfilled by</p><p className="mt-0.5 text-[10px] font-semibold text-[var(--text-muted)]">Customer price and partner cost stay separate.</p></div>
+                <div><p className="text-[10px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Fulfilled by</p></div>
                 {selectedQuickService?.allowPartnerFulfillment&&selectedQuickService.defaultPartnerCharge!==null?<span className="rounded-full bg-violet-50 px-2 py-1 text-[10px] font-black text-violet-700">Default {money(Number(selectedQuickService.defaultPartnerCharge||0))}</span>:null}
               </div>
               <fieldset className="mt-2 grid grid-cols-2 rounded-[11px] bg-[var(--surface-soft)] p-1" aria-label="Service fulfillment">
@@ -1288,7 +1288,7 @@ export default function CashCounterPage(){
                   </SearchableSelect>
                   {quickFieldErrors.servicePartnerPaymentAccount?<p className="mt-1.5 text-[11px] font-bold text-rose-600">{quickFieldErrors.servicePartnerPaymentAccount}</p>:null}
                 </div>:<p className="rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">No cash leaves now. {money(quickServicePartnerCost)} is recorded as partner payable.</p>}
-              </div>:<div className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-800">Done internally · full service amount is business service earning.</div>}
+              </div>:null}
             </div>:selectedQuickService?<div className="mt-3 rounded-xl bg-[var(--surface)] px-3 py-2 text-[11px] font-semibold text-[var(--text-muted)]">This service is configured as done by us. Enable partner fulfilment in Settings when needed.</div>:null}
           </div>}
 
