@@ -1123,15 +1123,6 @@ export default function CashCounterPage(){
       </div>
     </>:null}
 
-    {portalReady&&!loading&&!quickDirection&&!completePendingId?createPortal(<div className="fixed right-3 z-[70] flex flex-col items-end gap-2 bottom-[calc(5.35rem+env(safe-area-inset-bottom))] lg:bottom-5 lg:right-5">
-      <button type="button" aria-label="Cash in" onClick={()=>{if(!today||today.status==="CLOSED"){setError("Open or reopen the cash session to record Cash In");window.scrollTo({top:0,behavior:"smooth"});return;}setError("");setQuickError("");setQuickFieldErrors({});setQuickDirection("IN");}} className="flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-600 px-3 text-[12px] font-black text-white shadow-[0_6px_18px_rgba(5,150,105,.20)] transition hover:-translate-y-0.5 active:translate-y-0">
-        <span className="text-sm">↓</span><span>Cash In</span>
-      </button>
-      <button type="button" aria-label="Cash out" onClick={()=>{if(!today||today.status==="CLOSED"){setError("Open or reopen the cash session to record Cash Out");window.scrollTo({top:0,behavior:"smooth"});return;}setError("");setQuickError("");setQuickFieldErrors({});setQuickDirection("OUT");}} className="flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-rose-600 px-3 text-[12px] font-black text-white shadow-[0_6px_18px_rgba(225,29,72,.18)] transition hover:-translate-y-0.5 active:translate-y-0">
-        <span className="text-sm">↑</span><span>Cash Out</span>
-      </button>
-    </div>,document.body):null}
-
     {portalReady&&quickDirection?createPortal(<div className="fixed inset-0 z-[100] grid place-items-end bg-black/45 p-0 sm:place-items-center sm:p-5" role="dialog" aria-modal="true">
       <form onSubmit={saveQuickCash} className="cash-quick-sheet flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-[var(--surface)] shadow-2xl sm:max-h-[86dvh] sm:max-w-[520px] sm:rounded-[26px]">
         <div className="flex items-center justify-between px-5 pb-1.5 pt-4">
