@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
@@ -109,6 +109,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   const [savingAll,setSavingAll]=useState(false);
   const [savedSinceRefresh,setSavedSinceRefresh]=useState(false);
   const amountRefs=useRef<Record<string,HTMLInputElement|null>>({});
+  const openRushRef=useRef<(()=>Promise<void>)|null>(null);
   const customerSearchTimers=useRef<Record<string,number>>({});
   const lastDirection=useRef<Direction>("IN");
 
@@ -158,12 +159,18 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     setRows(initial);
     window.setTimeout(()=>amountRefs.current[initial[0].key]?.focus(),60);
   }
+  useEffect(()=>{openRushRef.current=openRush;});
   async function closeRush(){
     setOpen(false);setMinimized(false);setMaximized(false);
     if(savedSinceRefresh){await onSaved?.();setSavedSinceRefresh(false);}
   }
   function minimizeRush(){setMinimized(true);setRowFilter("ACTIVE");}
   function restoreRush(){setMinimized(false);setOpen(true);}
+  useEffect(()=>{
+    const openFromDailyCash=()=>{void openRushRef.current?.();};
+    window.addEventListener("cashledger:open-rush-cash",openFromDailyCash);
+    return()=>window.removeEventListener("cashledger:open-rush-cash",openFromDailyCash);
+  },[]);
 
   function updateRow(key:string,patch:Partial<RushRow>){
     setRows((current)=>keepTrailingBlank(current.map((row)=>row.key===key&&row.status!=="SAVED"?{...row,...patch,status:"READY",message:undefined}:row)));

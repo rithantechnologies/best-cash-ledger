@@ -2930,7 +2930,7 @@ html[data-theme="dark"] .cash-desk-now {
   font-weight: 850;
 }
 @media (max-width: 639px) {
-  .cash-desk-page { padding-bottom: 5.5rem; }
+  .cash-desk-page { padding-bottom: 10.5rem; }
   .cash-desk-page .app-section-heading h2 { font-size: 1.55rem; }
   .cash-desk-page .app-section-heading p { font-size: .78rem; }
   .cash-chart-svg { min-width: 520px; }
@@ -2965,10 +2965,10 @@ html[data-theme="dark"] .cash-desk-page {
   line-height: 1.45;
 }
 .cash-desk-page .app-surface {
-  border-radius: 24px;
+  border-radius: 20px;
   box-shadow:
     0 1px 2px color-mix(in srgb, #0f172a 4%, transparent),
-    0 12px 30px color-mix(in srgb, #0f172a 5%, transparent);
+    0 8px 22px color-mix(in srgb, #0f172a 4%, transparent);
 }
 .cash-desk-page h3 {
 
@@ -2976,9 +2976,6 @@ html[data-theme="dark"] .cash-desk-page {
   line-height: 1.2;
   font-weight: 780;
   letter-spacing: -.025em;
-}
-.cash-desk-page button {
-  font-size: 14px;
 }
 .cash-desk-page .cash-desk-hero {
   border-color: #244b7d !important;
@@ -2998,7 +2995,7 @@ html[data-theme="dark"] .cash-desk-page {
   color: #a9bfd5;
 }
 .cash-desk-page .cash-desk-now {
-  min-height: 220px;
+  min-height: 150px;
   display: flex;
 
   flex-direction: column;
@@ -3007,24 +3004,12 @@ html[data-theme="dark"] .cash-desk-page {
     radial-gradient(circle at 0 0, rgba(85, 214, 165, .10), transparent 20rem),
     transparent;
 }
-.cash-desk-page .cash-desk-now > div:first-child > span:first-child {
-  color: #a9bfd5 !important;
-  font-size: 13px;
-  letter-spacing: .08em;
-}
 .cash-desk-page .cash-desk-now-money {
   color: #f8fbff !important;
-  font-size: clamp(3rem, 6vw, 4.65rem);
-  line-height: .9;
+  font-size: clamp(2.8rem, 5vw, 4.05rem);
+  line-height: .92;
   font-weight: 770;
-  letter-spacing: -.07em;
-}
-.cash-desk-page .cash-desk-now > div:last-child {
-  color: #9fb5cc !important;
-  font-size: 14px;
-}
-.cash-desk-page .cash-desk-now > div:last-child strong {
-  color: #f8fbff !important;
+  letter-spacing: -.065em;
 }
 .cash-desk-page .cash-desk-metric-card {
   min-height: 108px;
@@ -3108,7 +3093,7 @@ html[data-theme="dark"] .cash-desk-page .app-surface:not(.cash-desk-hero) {
 }
 @media (max-width: 1023px) {
   .cash-desk-page .cash-desk-now {
-    min-height: 190px;
+    min-height: 145px;
   }
   .cash-service-donut-frame {
     width: min(100%, 265px) !important;
@@ -3126,14 +3111,15 @@ html[data-theme="dark"] .cash-desk-page .app-surface:not(.cash-desk-hero) {
     font-size: 14px;
   }
   .cash-desk-page .app-surface {
-    border-radius: 21px;
+    border-radius: 16px;
+    box-shadow: 0 1px 2px color-mix(in srgb, #0f172a 4%, transparent);
   }
   .cash-desk-page .cash-desk-now {
-    min-height: 180px;
-    padding: 20px !important;
+    min-height: 138px;
+    padding: 16px !important;
   }
   .cash-desk-page .cash-desk-now-money {
-    font-size: clamp(2.8rem, 14vw, 3.65rem);
+    font-size: clamp(2.55rem, 13vw, 3.35rem);
   }
   .cash-desk-page .cash-desk-now > div:last-child {
     font-size: 13px;
