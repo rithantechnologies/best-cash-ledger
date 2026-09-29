@@ -1566,14 +1566,6 @@ export class TransactionsService {
         sourceAccounts.set(accountId, account);
       }
       const sourceAccount = sourceAccounts.get(sourceAccountIds[0]);
-      if (
-        detail.direction === 'IN' &&
-        beneficiaryMode === 'UPI' &&
-        sourceAccount.accountType !== AccountType.BANK
-      ) {
-        throw new BadRequestException('UPI cash-in transfers must be sent from a bank account');
-      }
-
       const commissionAmount = Number(detail.commissionAmount);
       const commissionMode = detail.commissionMode ?? 'CASH';
       const commissionCashAmount =

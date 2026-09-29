@@ -387,6 +387,7 @@ export class CashCounterService {
       },
       select: {
         transactionId: true,
+        completionTransactionId: true,
         direction: true,
         purpose: true,
         cashOutType: true,
@@ -420,6 +421,21 @@ export class CashCounterService {
     const quickCashByTransactionId = new Map(
       quickCashDetails.map((detail) => [detail.transactionId, detail]),
     );
+    const completionTransactionIds = quickCashDetails
+      .map((detail) => detail.completionTransactionId)
+      .filter((id): id is string => Boolean(id));
+    const completionCharges = completionTransactionIds.length
+      ? await tx.transactionCharge.findMany({
+          where: { transactionId: { in: completionTransactionIds } },
+          select: { transactionId: true, amount: true, chargeType: true },
+        })
+      : [];
+    const completionChargesByTransactionId = new Map<string, typeof completionCharges>();
+    for (const charge of completionCharges) {
+      const rows = completionChargesByTransactionId.get(charge.transactionId) ?? [];
+      rows.push(charge);
+      completionChargesByTransactionId.set(charge.transactionId, rows);
+    }
 
     let expected = Number(session.openingTotal);
     let totalIn = 0;
@@ -442,9 +458,16 @@ export class CashCounterService {
       const providerFeeAmount = (origin.charges ?? [])
         .filter((charge) => !charge.chargeType.startsWith('PAYOUT'))
         .reduce((sum, charge) => sum + Number(charge.amount), 0);
-      const payoutChargeAmount = (origin.charges ?? [])
-        .filter((charge) => charge.chargeType.startsWith('PAYOUT'))
-        .reduce((sum, charge) => sum + Number(charge.amount), 0);
+      const completionPayoutCharges = quickCashDetail?.completionTransactionId
+        ? completionChargesByTransactionId.get(quickCashDetail.completionTransactionId) ?? []
+        : [];
+      const payoutChargeAmount =
+        (origin.charges ?? [])
+          .filter((charge) => charge.chargeType.startsWith('PAYOUT'))
+          .reduce((sum, charge) => sum + Number(charge.amount), 0) +
+        completionPayoutCharges
+          .filter((charge) => charge.chargeType.startsWith('PAYOUT'))
+          .reduce((sum, charge) => sum + Number(charge.amount), 0);
       const serviceIncomeAmount =
         origin.transactionType === TransactionType.SERVICE_INCOME
           ? Number(origin.grossAmount)

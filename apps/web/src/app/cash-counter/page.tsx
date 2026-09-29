@@ -12,7 +12,9 @@ import { EmptyState, PageLoader, SectionHeading, Surface } from "@/components/ui
 import { apiFetch } from "@/lib/api";
 import { useRememberedValues } from "@/lib/remembered-values";
 
-type Account={id:string;accountName:string;accountType:string;isActive?:boolean;currentBalance?:string|number};
+type Account={id:string;accountName:string;accountType:string;providerId?:string|null;isActive?:boolean;currentBalance?:string|number};
+type PayoutChargeRule={minAmount:string;maxAmount:string|null;calculationType:"PERCENTAGE"|"FIXED";value:string};
+type Provider={id:string;name:string;payoutChargeRules:PayoutChargeRule[]};
 type Count={countType:string;denomination:string;quantity:number;totalAmount:string};
 type Movement={
   id:string;activityId?:string;transactionId?:string;direction:"IN"|"OUT";amount:number;runningBalance:number;
@@ -98,6 +100,14 @@ const defaultTxColumns:TxColumn[]=txColumnDefs.map((column)=>column.id);
 
 const denominations=[500,200,100,50,20,10,5,2,1];
 const money=(value:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(value||0));
+const configuredPayoutCharge=(providers:Provider[],account:Account|undefined,amount:number)=>{
+  if(!account||account.accountType!=="PROVIDER_WALLET"||!account.providerId||amount<=0)return 0;
+  const rules=providers.find((provider)=>provider.id===account.providerId)?.payoutChargeRules??[];
+  const rule=rules.find((item)=>amount+0.001>=Number(item.minAmount)&&(item.maxAmount===null||amount<=Number(item.maxAmount)+0.001));
+  if(!rule)return 0;
+  const value=Number(rule.value||0);
+  return Math.round((rule.calculationType==="PERCENTAGE"?amount*value/100:value)*100)/100;
+};
 const words=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(letter)=>letter.toUpperCase());
 const commissionCashPart=(total:number,mode?:string|null,cash?:number|string|null)=>{
   if(cash!==null&&cash!==undefined)return Number(cash||0);
@@ -298,6 +308,7 @@ export default function CashCounterPage(){
   const [quickTransactionAt,setQuickTransactionAt]=useState("");
   const [serviceCatalog,setServiceCatalog]=useState<ServiceConfig[]>([]);
   const [cashInTransferTypes,setCashInTransferTypes]=useState<CashInTransferTypeConfig[]>([]);
+  const [providers,setProviders]=useState<Provider[]>([]);
   const [quickFieldErrors,setQuickFieldErrors]=useState<QuickCashFieldErrors>({});
   const [quickError,setQuickError]=useState("");
   const [quickSaving,setQuickSaving]=useState(false);
@@ -337,9 +348,8 @@ export default function CashCounterPage(){
   const completionWalletAccounts=useMemo(()=>completionAccounts.filter((account)=>account.accountType==="PROVIDER_WALLET"),[completionAccounts]);
   const paySwitchCompletionAccountId=useMemo(()=>completionWalletAccounts.find((account)=>account.accountName.toUpperCase().includes("PAYSWITCH"))?.id??"",[completionWalletAccounts]);
   const digiSevaCompletionAccountId=useMemo(()=>completionAccounts.find((account)=>account.accountName.toUpperCase().includes("DIGISEVA"))?.id??"",[completionAccounts]);
-  const cashInUpiCompletion=Boolean(completingQuickCash?.direction==="IN"&&completeBeneficiaryMode==="UPI");
   const bankTransferSplitCompletion=Boolean(completingQuickCash?.direction==="IN"&&completeBeneficiaryMode==="BANK");
-  const completionSourceAccounts=useMemo(()=>cashInUpiCompletion?completionAccounts.filter((account)=>account.accountType==="BANK"):completionAccounts,[cashInUpiCompletion,completionAccounts]);
+  const completionSourceAccounts=completionAccounts;
   const completeAllocatedAmount=useMemo(()=>completeSourceAllocations.reduce((sum,row)=>sum+Number(row.amount||0),0),[completeSourceAllocations]);
   const completeAllocationRemaining=Number(completingQuickCash?.amount||0)-completeAllocatedAmount;
   const completeAllocationValid=!bankTransferSplitCompletion||(
@@ -347,6 +357,19 @@ export default function CashCounterPage(){
     completeSourceAllocations.every((row)=>Boolean(row.sourceAccountId)&&Number(row.amount)>0)&&
     Math.abs(completeAllocationRemaining)<0.005
   );
+  const completePayoutChargeBreakdown=useMemo(()=>{
+    if(completingQuickCash?.direction!=="IN")return [] as Array<{accountName:string;amount:number}>;
+    if(bankTransferSplitCompletion){
+      return completeSourceAllocations.map((row)=>{
+        const account=completionAccounts.find((item)=>item.id===row.sourceAccountId);
+        return {accountName:account?.accountName??"Wallet",amount:configuredPayoutCharge(providers,account,Number(row.amount||0))};
+      }).filter((row)=>row.amount>0);
+    }
+    const account=completionAccounts.find((item)=>item.id===completeSourceAccountId);
+    const amount=configuredPayoutCharge(providers,account,Number(completingQuickCash?.amount||0));
+    return amount>0?[{accountName:account?.accountName??"Wallet",amount}]:[];
+  },[bankTransferSplitCompletion,completeSourceAccountId,completeSourceAllocations,completingQuickCash?.amount,completingQuickCash?.direction,completionAccounts,providers]);
+  const completePayoutChargeTotal=completePayoutChargeBreakdown.reduce((sum,row)=>sum+row.amount,0);
   const roinetCompletionAccountId=useMemo(()=>{
     const roinetAccounts=completionAccounts.filter((account)=>account.accountName.toUpperCase().includes("ROINET"));
     if(roinetAccounts.length<=1)return roinetAccounts[0]?.id??"";
@@ -357,13 +380,14 @@ export default function CashCounterPage(){
   },[completionAccounts,currentUser.id,currentUser.userId,operators]);
 
   const load=async(preferredCashAccountId?:string)=>{
-    const [accountRows,balanceRows,historyRows,operatorRows,serviceRows,transferTypeRows]=await Promise.all([
+    const [accountRows,balanceRows,historyRows,operatorRows,serviceRows,transferTypeRows,providerRows]=await Promise.all([
       apiFetch<Account[]>("/accounts"),
       apiFetch<Account[]>("/dashboard/accounts"),
       apiFetch<Session[]>("/cash-counter/history"),
       apiFetch<Operator[]>("/cash-counter/operators"),
       apiFetch<ServiceConfig[]>("/settings/services"),
       apiFetch<CashInTransferTypeConfig[]>("/settings/cash-in-transfer-types"),
+      apiFetch<Provider[]>("/providers"),
     ]);
     const balanceMap=new Map(balanceRows.map((account)=>[account.id,account]));
     const mergedAccounts=accountRows.map((account)=>({
@@ -378,7 +402,7 @@ export default function CashCounterPage(){
     const pending=targetId
       ?await apiFetch<QuickCashPending[]>("/transactions/quick-cash/pending?cashAccountId="+encodeURIComponent(targetId))
       :[];
-    setAccounts(mergedAccounts);setToday(session);setHistory(historyRows);setOperators(operatorRows);setPendingQuickCash(pending);setServiceCatalog(serviceRows);setCashInTransferTypes(transferTypeRows);
+    setAccounts(mergedAccounts);setToday(session);setHistory(historyRows);setOperators(operatorRows);setPendingQuickCash(pending);setServiceCatalog(serviceRows);setCashInTransferTypes(transferTypeRows);setProviders(providerRows);
     if(targetId)setCashAccountId(targetId);
     const me=currentUser.id??currentUser.userId??"";
     if(!responsibleUserId)setResponsibleUserId(me||operatorRows[0]?.id||"");
@@ -730,7 +754,7 @@ export default function CashCounterPage(){
       if(!completeSourceAllocations.length){setCompleteError("Add at least one wallet source.");return;}
       if(completeSourceAllocations.some((row)=>!row.sourceAccountId||!Number.isFinite(Number(row.amount))||Number(row.amount)<=0)){setCompleteError("Choose a wallet and enter an amount greater than zero for every source.");return;}
       if(Math.abs(completeAllocationRemaining)>=0.005){setCompleteError("Wallet allocations must equal "+money(Number(completingQuickCash?.amount||0))+".");return;}
-    }else if(!completeSourceAccountId){setCompleteError(completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Select the provider / settlement account.":"Select the bank / UPI account that received the customer payment."):"Select the bank account to send the UPI transfer from.");return;}
+    }else if(!completeSourceAccountId){setCompleteError(completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Select the provider / settlement account.":"Select the bank / UPI account that received the customer payment."):"Select the bank / UPI / wallet account sending the beneficiary transfer.");return;}
     if(commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0&&!completeCommissionAccountId){setCompleteError("Select the account that received the bank / UPI commission.");return;}
     setQuickSaving(true);setCompleteError("");setError("");
     try{
@@ -759,7 +783,7 @@ export default function CashCounterPage(){
     const mode=item.beneficiaryMode==="BANK"?"BANK":"UPI";
     const bank=mode==="BANK"?parseBankBeneficiary(item.beneficiaryDetails):emptyBankBeneficiary();
     const defaultSourceAccountId=item.direction==="IN"
-      ?""
+      ?mode==="UPI"?paySwitchCompletionAccountId:""
       :item.cashOutType==="MICRO_ATM"?roinetCompletionAccountId
         :item.cashOutType==="AEPS"?digiSevaCompletionAccountId:"";
     const defaultAllocations=item.direction==="IN"&&mode==="BANK"
@@ -1421,8 +1445,8 @@ export default function CashCounterPage(){
                   <div className="text-right text-xs font-bold"><span className="text-[var(--text-muted)]">Allocated {money(completeAllocatedAmount)}</span><span className={"ml-2 "+(Math.abs(completeAllocationRemaining)<0.005?"text-emerald-700":"text-amber-700")}>{Math.abs(completeAllocationRemaining)<0.005?"Fully allocated":(completeAllocationRemaining>0?money(completeAllocationRemaining)+" remaining":money(Math.abs(completeAllocationRemaining))+" over")}</span></div>
                 </div>
               </div>:<>
-                <SearchableSelect mobileSheet aria-label={completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI or bank received in"):"Money transferred from"} searchPlaceholder={cashInUpiCompletion?"Search bank account":"Search bank / UPI / wallet"} className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeSourceAccountId} onChange={(event)=>{const value=event.target.value;setCompleteSourceAccountId(value);if(mirrorsCompletionCommissionAccount(completingQuickCash,completeBeneficiaryMode)&&!completeCommissionAccountOverridden)setCompleteCommissionAccountId(value);setCompleteError("");}}>
-                  <option value="">{cashInUpiCompletion?"Select bank account":"Select Bank / UPI / Wallet"}</option>
+                <SearchableSelect mobileSheet aria-label={completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI or bank received in"):"Money transferred from"} searchPlaceholder="Search bank / UPI / wallet" className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-black text-[var(--text)] outline-none" value={completeSourceAccountId} onChange={(event)=>{const value=event.target.value;setCompleteSourceAccountId(value);if(mirrorsCompletionCommissionAccount(completingQuickCash,completeBeneficiaryMode)&&!completeCommissionAccountOverridden)setCompleteCommissionAccountId(value);setCompleteError("");}}>
+                  <option value="">Select Bank / UPI / Wallet</option>
                   {completionSourceAccounts.map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
                 </SearchableSelect>
                 {completeSourceAccountId?<div className="mt-3 flex items-center justify-between rounded-xl bg-[var(--surface)] px-3 py-2.5 text-[13px] font-bold">
@@ -1431,6 +1455,11 @@ export default function CashCounterPage(){
                 </div>:null}
               </>}
             </div>
+
+            {completePayoutChargeTotal>0?<div className="rounded-[20px] border border-rose-200 bg-rose-50/60 p-4">
+              <div className="flex items-center justify-between gap-3"><div><span className="block text-[10px] font-black uppercase tracking-[.11em] text-rose-700">Wallet payout charge</span><p className="mt-1 text-[11px] font-semibold text-rose-700/80">Automatically deducted in addition to the beneficiary payout.</p></div><strong className="money text-lg font-black text-rose-700">−{money(completePayoutChargeTotal)}</strong></div>
+              <div className="mt-2 space-y-1">{completePayoutChargeBreakdown.map((row,index)=><div key={row.accountName+"-"+index} className="flex items-center justify-between text-[11px] font-bold text-rose-800"><span>{row.accountName}</span><span>{money(row.amount)}</span></div>)}</div>
+            </div>:null}
 
             {commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0?<label className="block rounded-[20px] border border-blue-200 bg-blue-50/55 p-4 transition focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
               <div className="flex items-center justify-between gap-3">
@@ -1453,7 +1482,7 @@ export default function CashCounterPage(){
           {completingQuickCash?.direction==="IN"?<div className="mt-4 rounded-[18px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary destination</span>
-              <div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>{setCompleteBeneficiaryMode("UPI");setCompleteSourceAllocations([]);if(completingQuickCash?.direction==="IN"){const currentIsBank=accounts.find((account)=>account.id===completeSourceAccountId)?.accountType==="BANK";if(!currentIsBank){setCompleteSourceAccountId("");if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId("");}else if(mirrorsCompletionCommissionAccount(completingQuickCash,"UPI")&&!completeCommissionAccountOverridden)setCompleteCommissionAccountId(completeSourceAccountId);}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>{setCompleteBeneficiaryMode("BANK");if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId("");setCompleteSourceAllocations([{sourceAccountId:paySwitchCompletionAccountId,amount:String(Number(completingQuickCash?.amount||0)),referenceNumber:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(paySwitchCompletionAccountId);}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div>
+              <div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>{setCompleteBeneficiaryMode("UPI");setCompleteSourceAllocations([]);if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId(paySwitchCompletionAccountId);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(mirrorsCompletionCommissionAccount(completingQuickCash,"UPI")?paySwitchCompletionAccountId:"");}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>{setCompleteBeneficiaryMode("BANK");if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId("");setCompleteSourceAllocations([{sourceAccountId:paySwitchCompletionAccountId,amount:String(Number(completingQuickCash?.amount||0)),referenceNumber:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(paySwitchCompletionAccountId);}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div>
             </div>
             {completeBeneficiaryMode==="UPI"
               ?<input className="mt-3 min-h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[16px] font-extrabold text-[var(--text)] outline-none" value={completeBeneficiaryUpi} onChange={(event)=>setCompleteBeneficiaryUpi(event.target.value)} placeholder="UPI ID / mobile"/>
