@@ -14,6 +14,7 @@ import { UpdateBankAccountDto } from './dto/update-bank-account.dto.js';
 import { UpdateUpiAccountDto } from './dto/update-upi-account.dto.js';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto.js';
 import { UpdateBeneficiaryAccountDto } from './dto/update-beneficiary-account.dto.js';
+import { CreateServiceProfileDto } from './dto/create-service-profile.dto.js';
 
 @Injectable()
 export class CustomersService {
@@ -78,6 +79,253 @@ export class CustomersService {
         totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
     };
+  }
+
+  async getQuickEntryProfile(id: string) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id },
+      select: {
+        id: true, customerCode: true, fullName: true, mobile: true,
+        bankAccounts: {
+          where: { isActive: true },
+          select: { id: true, accountHolderName: true, bankName: true, accountReference: true, ifsc: true },
+          orderBy: { updatedAt: 'desc' },
+        },
+        upiAccounts: {
+          where: { isActive: true },
+          select: { id: true, accountName: true, upiId: true, mobileNumber: true, providerName: true },
+          orderBy: { updatedAt: 'desc' },
+        },
+        beneficiaries: {
+          where: { isActive: true },
+          select: {
+            id: true, beneficiaryName: true,
+            accounts: {
+              where: { isActive: true },
+              select: { id: true, accountType: true, bankName: true, accountReference: true, ifsc: true, upiId: true, mobileNumber: true },
+              orderBy: { updatedAt: 'desc' },
+            },
+          },
+          orderBy: { updatedAt: 'desc' },
+        },
+        serviceProfiles: {
+          where: { isActive: true },
+          select: { id: true, serviceName: true, nickname: true, providerName: true, referenceNumber: true, updatedAt: true },
+          orderBy: { updatedAt: 'desc' },
+        },
+      },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const recent = await this.prisma.transaction.findMany({
+      where: { customerId: id },
+      orderBy: { transactionAt: 'desc' },
+      take: 50,
+      select: {
+        transactionAt: true,
+        quickCashTransfer: {
+          select: {
+            direction: true, purpose: true, serviceName: true,
+            beneficiaryMode: true, beneficiaryDetails: true,
+            serviceProfileId: true, serviceReferenceLabel: true,
+            serviceProviderName: true, serviceReferenceNumber: true,
+          },
+        },
+        cashTransfer: {
+          select: {
+            customerBankAccount: { select: { accountHolderName: true, bankName: true, accountReference: true, ifsc: true } },
+            customerUpiAccount: { select: { accountName: true, upiId: true, mobileNumber: true, providerName: true } },
+            beneficiary: { select: { beneficiaryName: true } },
+            beneficiaryAccount: { select: { accountType: true, bankName: true, accountReference: true, ifsc: true, upiId: true, mobileNumber: true } },
+          },
+        },
+      },
+    });
+
+    const bankSignature = (holder: string, account: string, ifsc?: string | null) =>
+      'BANK|' + holder.trim().toLowerCase() + '|' + account.replace(/\s/g, '').toLowerCase() + '|' + (ifsc ?? '').trim().toLowerCase();
+    const upiSignature = (value: string) => 'UPI|' + value.trim().toLowerCase();
+    const mask = (value: string) => value ? '•••• ' + value.replace(/\s/g, '').slice(-4) : '';
+    const parseBank = (value?: string | null) => {
+      if (!value) return null;
+      try {
+        const parsed = JSON.parse(value) as { accountHolder?: string; accountNumber?: string; ifsc?: string };
+        if (!parsed.accountNumber) return null;
+        return { holder: parsed.accountHolder ?? '', account: parsed.accountNumber, ifsc: parsed.ifsc ?? '' };
+      } catch {
+        return null;
+      }
+    };
+
+    type Destination = {
+      key: string; signature: string; source: 'SAVED' | 'RECENT'; mode: 'UPI' | 'BANK';
+      title: string; subtitle: string; upi?: string; accountHolder?: string; accountNumber?: string; ifsc?: string;
+      lastUsedAt?: Date; useCount: number;
+    };
+
+    const saved: Destination[] = [];
+    for (const item of customer.upiAccounts) {
+      const value = item.upiId || item.mobileNumber || '';
+      if (!value) continue;
+      saved.push({
+        key: 'saved:upi:' + item.id, signature: upiSignature(value), source: 'SAVED', mode: 'UPI',
+        title: item.accountName || 'My UPI', subtitle: [value, item.providerName].filter(Boolean).join(' · '),
+        upi: value, useCount: 0,
+      });
+    }
+    for (const item of customer.bankAccounts) {
+      saved.push({
+        key: 'saved:bank:' + item.id, signature: bankSignature(item.accountHolderName, item.accountReference, item.ifsc), source: 'SAVED', mode: 'BANK',
+        title: item.accountHolderName || item.bankName, subtitle: [item.bankName, mask(item.accountReference), item.ifsc].filter(Boolean).join(' · '),
+        accountHolder: item.accountHolderName, accountNumber: item.accountReference, ifsc: item.ifsc ?? '', useCount: 0,
+      });
+    }
+    for (const beneficiary of customer.beneficiaries) {
+      for (const account of beneficiary.accounts) {
+        if (account.accountType === 'BANK' && account.accountReference) {
+          saved.push({
+            key: 'saved:beneficiary:' + account.id, signature: bankSignature(beneficiary.beneficiaryName, account.accountReference, account.ifsc), source: 'SAVED', mode: 'BANK',
+            title: beneficiary.beneficiaryName, subtitle: [account.bankName, mask(account.accountReference), account.ifsc].filter(Boolean).join(' · '),
+            accountHolder: beneficiary.beneficiaryName, accountNumber: account.accountReference, ifsc: account.ifsc ?? '', useCount: 0,
+          });
+        } else {
+          const value = account.upiId || account.mobileNumber || '';
+          if (!value) continue;
+          saved.push({
+            key: 'saved:beneficiary:' + account.id, signature: upiSignature(value), source: 'SAVED', mode: 'UPI',
+            title: beneficiary.beneficiaryName, subtitle: value, upi: value, useCount: 0,
+          });
+        }
+      }
+    }
+
+    const usage = new Map<string, Destination>();
+    const serviceUsage = new Map<string, { lastUsedAt: Date; useCount: number; serviceName: string; nickname?: string; providerName?: string; referenceNumber: string }>();
+    for (const row of recent) {
+      const quick = row.quickCashTransfer;
+      let candidate: Destination | null = null;
+      if (quick?.direction === 'IN' && quick.purpose === 'TRANSFER' && quick.beneficiaryDetails) {
+        if (quick.beneficiaryMode === 'BANK') {
+          const bank = parseBank(quick.beneficiaryDetails);
+          if (bank) candidate = {
+            key: '', signature: bankSignature(bank.holder, bank.account, bank.ifsc), source: 'RECENT', mode: 'BANK',
+            title: bank.holder || 'Bank beneficiary', subtitle: [mask(bank.account), bank.ifsc].filter(Boolean).join(' · '),
+            accountHolder: bank.holder, accountNumber: bank.account, ifsc: bank.ifsc, useCount: 0,
+          };
+        } else {
+          candidate = {
+            key: '', signature: upiSignature(quick.beneficiaryDetails), source: 'RECENT', mode: 'UPI',
+            title: 'UPI beneficiary', subtitle: quick.beneficiaryDetails, upi: quick.beneficiaryDetails, useCount: 0,
+          };
+        }
+      } else if (row.cashTransfer) {
+        const detail = row.cashTransfer;
+        if (detail.beneficiaryAccount?.accountType === 'BANK' && detail.beneficiaryAccount.accountReference) {
+          candidate = {
+            key: '', signature: bankSignature(detail.beneficiary?.beneficiaryName ?? '', detail.beneficiaryAccount.accountReference, detail.beneficiaryAccount.ifsc),
+            source: 'RECENT', mode: 'BANK', title: detail.beneficiary?.beneficiaryName || 'Bank beneficiary',
+            subtitle: [detail.beneficiaryAccount.bankName, mask(detail.beneficiaryAccount.accountReference), detail.beneficiaryAccount.ifsc].filter(Boolean).join(' · '),
+            accountHolder: detail.beneficiary?.beneficiaryName ?? '', accountNumber: detail.beneficiaryAccount.accountReference, ifsc: detail.beneficiaryAccount.ifsc ?? '', useCount: 0,
+          };
+        } else if (detail.beneficiaryAccount) {
+          const value = detail.beneficiaryAccount.upiId || detail.beneficiaryAccount.mobileNumber || '';
+          if (value) candidate = {
+            key: '', signature: upiSignature(value), source: 'RECENT', mode: 'UPI',
+            title: detail.beneficiary?.beneficiaryName || 'UPI beneficiary', subtitle: value, upi: value, useCount: 0,
+          };
+        } else if (detail.customerBankAccount) {
+          candidate = {
+            key: '', signature: bankSignature(detail.customerBankAccount.accountHolderName, detail.customerBankAccount.accountReference, detail.customerBankAccount.ifsc),
+            source: 'RECENT', mode: 'BANK', title: detail.customerBankAccount.accountHolderName,
+            subtitle: [detail.customerBankAccount.bankName, mask(detail.customerBankAccount.accountReference), detail.customerBankAccount.ifsc].filter(Boolean).join(' · '),
+            accountHolder: detail.customerBankAccount.accountHolderName, accountNumber: detail.customerBankAccount.accountReference, ifsc: detail.customerBankAccount.ifsc ?? '', useCount: 0,
+          };
+        } else if (detail.customerUpiAccount) {
+          const value = detail.customerUpiAccount.upiId || detail.customerUpiAccount.mobileNumber || '';
+          if (value) candidate = {
+            key: '', signature: upiSignature(value), source: 'RECENT', mode: 'UPI', title: detail.customerUpiAccount.accountName,
+            subtitle: [value, detail.customerUpiAccount.providerName].filter(Boolean).join(' · '), upi: value, useCount: 0,
+          };
+        }
+      }
+      if (candidate) {
+        const existing = usage.get(candidate.signature);
+        if (existing) existing.useCount += 1;
+        else usage.set(candidate.signature, { ...candidate, key: 'recent:' + candidate.signature, lastUsedAt: row.transactionAt, useCount: 1 });
+      }
+
+      if (quick?.purpose === 'SERVICE' && quick.serviceName && quick.serviceReferenceNumber) {
+        const signature = quick.serviceName.trim().toLowerCase() + '|' + quick.serviceReferenceNumber.trim().toLowerCase();
+        const existing = serviceUsage.get(signature);
+        if (existing) existing.useCount += 1;
+        else serviceUsage.set(signature, {
+          lastUsedAt: row.transactionAt, useCount: 1, serviceName: quick.serviceName,
+          nickname: quick.serviceReferenceLabel ?? undefined, providerName: quick.serviceProviderName ?? undefined,
+          referenceNumber: quick.serviceReferenceNumber,
+        });
+      }
+    }
+
+    const latestSignature = [...usage.values()].sort((a,b) => (b.lastUsedAt?.getTime() ?? 0) - (a.lastUsedAt?.getTime() ?? 0))[0]?.signature;
+    const savedSignatures = new Set(saved.map((item) => item.signature));
+    for (const item of saved) {
+      const historical = usage.get(item.signature);
+      if (historical) { item.lastUsedAt = historical.lastUsedAt; item.useCount = historical.useCount; }
+    }
+    saved.sort((a,b) => (b.lastUsedAt?.getTime() ?? 0) - (a.lastUsedAt?.getTime() ?? 0));
+    const recentDestinations = [...usage.values()]
+      .filter((item) => !savedSignatures.has(item.signature))
+      .sort((a,b) => (b.lastUsedAt?.getTime() ?? 0) - (a.lastUsedAt?.getTime() ?? 0))
+      .slice(0, 8);
+
+    const serviceProfiles = customer.serviceProfiles.map((item) => {
+      const signature = item.serviceName.trim().toLowerCase() + '|' + item.referenceNumber.trim().toLowerCase();
+      const historical = serviceUsage.get(signature);
+      return { ...item, lastUsedAt: historical?.lastUsedAt ?? null, useCount: historical?.useCount ?? 0 };
+    }).sort((a,b) => (b.lastUsedAt?.getTime() ?? 0) - (a.lastUsedAt?.getTime() ?? 0));
+    const serviceProfileSignatures = new Set(serviceProfiles.map((item) => item.serviceName.trim().toLowerCase() + '|' + item.referenceNumber.trim().toLowerCase()));
+    const recentServiceReferences = [...serviceUsage.entries()]
+      .filter(([signature]) => !serviceProfileSignatures.has(signature))
+      .map(([signature,item]) => ({ key: 'recent-service:' + signature, ...item }))
+      .sort((a,b) => b.lastUsedAt.getTime() - a.lastUsedAt.getTime())
+      .slice(0, 8);
+
+    return {
+      customer: { id: customer.id, customerCode: customer.customerCode, fullName: customer.fullName, mobile: customer.mobile },
+      savedDestinations: saved.map(({ signature, ...item }) => ({ ...item, isLastUsed: signature === latestSignature })),
+      recentDestinations: recentDestinations.map(({ signature, ...item }) => ({ ...item, isLastUsed: signature === latestSignature })),
+      serviceProfiles,
+      recentServiceReferences,
+    };
+  }
+
+  addServiceProfile(customerId: string, dto: CreateServiceProfileDto, userId: string) {
+    const serviceName = dto.serviceName.trim();
+    const referenceNumber = dto.referenceNumber.trim();
+    return this.prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true } });
+      if (!customer) throw new NotFoundException('Customer not found');
+      const item = await tx.customerServiceProfile.upsert({
+        where: { customerId_serviceName_referenceNumber: { customerId, serviceName, referenceNumber } },
+        create: {
+          customerId, serviceName, referenceNumber,
+          nickname: dto.nickname?.trim() || null,
+          providerName: dto.providerName?.trim() || null,
+        },
+        update: {
+          nickname: dto.nickname?.trim() || null,
+          providerName: dto.providerName?.trim() || null,
+          isActive: true,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId, entityType: 'CUSTOMER_SERVICE_PROFILE', entityId: item.id, action: 'UPSERT',
+          newValues: { customerId, serviceName, referenceNumber, nickname: item.nickname, providerName: item.providerName },
+        },
+      });
+      return item;
+    });
   }
 
   async get(id: string) {

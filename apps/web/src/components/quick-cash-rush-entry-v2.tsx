@@ -18,13 +18,16 @@ type Account={id:string;accountName:string;accountType:string;isActive?:boolean;
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;allowPartnerFulfillment:boolean;defaultPartnerName:string|null;defaultPartnerCharge:string|number|null;isActive:boolean};
 type TransferType={id:string;name:string;transferMode:BeneficiaryMode;defaultCommissionRate:string|number;isActive:boolean};
 type SavedTransaction={id:string;transactionNumber:string;status:string};
-type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null};
+type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null;savedDestinationCount?:number;savedServiceProfileCount?:number;lastUsedAt?:string|null};
+type QuickEntryDestination={key:string;source:"SAVED"|"RECENT";mode:BeneficiaryMode;title:string;subtitle:string;upi?:string;accountHolder?:string;accountNumber?:string;ifsc?:string;lastUsedAt?:string|null;useCount:number;isLastUsed?:boolean};
+type QuickServiceReference={id?:string;key?:string;serviceName:string;nickname?:string|null;providerName?:string|null;referenceNumber:string;lastUsedAt?:string|null;useCount?:number};
+type QuickEntryCustomerProfile={customer:{id:string;customerCode:string;fullName:string;mobile:string|null};savedDestinations:QuickEntryDestination[];recentDestinations:QuickEntryDestination[];serviceProfiles:QuickServiceReference[];recentServiceReferences:QuickServiceReference[]};
 
 type RushRow={
-  key:string;direction:Direction;purpose:Purpose;amount:string;customerId:string;customerLookup:string;customerSuggestions:CustomerSuggestion[];customerSuggestionIndex:number;customerSearchLoading:boolean;customerName:string;mobileNumber:string;commission:string;commissionOverridden:boolean;
+  key:string;direction:Direction;purpose:Purpose;amount:string;customerId:string;customerLookup:string;customerSuggestions:CustomerSuggestion[];customerSuggestionIndex:number;customerSearchLoading:boolean;customerProfile:QuickEntryCustomerProfile|null;customerProfileLoading:boolean;selectedDestinationKey:string;customerName:string;mobileNumber:string;commission:string;commissionOverridden:boolean;
   commissionMode:CommissionMode;commissionCash:string;cashReceived:string;cashReceivedOverridden:boolean;transferTypeId:string;beneficiaryMode:BeneficiaryMode;beneficiaryUpi:string;
   bankAccountHolder:string;bankAccountNumber:string;bankIfsc:string;cashOutType:CashOutType;successful:boolean;aadhaarLastFour:string;
-  customerBankName:string;cardLastFour:string;serviceName:string;servicePaymentMode:"CASH"|"UPI";servicePaymentAccountId:string;
+  customerBankName:string;cardLastFour:string;serviceName:string;serviceProfileId:string;serviceReferenceLabel:string;serviceProviderName:string;serviceReferenceNumber:string;rememberServiceReference:boolean;servicePaymentMode:"CASH"|"UPI";servicePaymentAccountId:string;
   serviceFulfillmentMode:"INTERNAL"|"PARTNER";servicePartnerName:string;servicePartnerCharge:string;servicePartnerPaymentTiming:"PAID_NOW"|"PAY_LATER";
   servicePartnerPaymentAccountId:string;remarks:string;transactionAt:string;expanded:boolean;status:RowStatus;message?:string;
   transactionId?:string;transactionNumber?:string;savedStatus?:string;
@@ -36,10 +39,10 @@ function newKey(){
 }
 function emptyRow(direction:Direction="IN"):RushRow{
   return {
-    key:newKey(),direction,purpose:"TRANSFER",amount:"",customerId:"",customerLookup:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerName:"",mobileNumber:"",commission:"",commissionOverridden:false,
+    key:newKey(),direction,purpose:"TRANSFER",amount:"",customerId:"",customerLookup:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerProfile:null,customerProfileLoading:false,selectedDestinationKey:"",customerName:"",mobileNumber:"",commission:"",commissionOverridden:false,
     commissionMode:"CASH",commissionCash:"",cashReceived:"",cashReceivedOverridden:false,transferTypeId:"",beneficiaryMode:"UPI",beneficiaryUpi:"",
     bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",cashOutType:"UPI_QR",successful:true,aadhaarLastFour:"",
-    customerBankName:"",cardLastFour:"",serviceName:"",servicePaymentMode:"CASH",servicePaymentAccountId:"",
+    customerBankName:"",cardLastFour:"",serviceName:"",serviceProfileId:"",serviceReferenceLabel:"",serviceProviderName:"",serviceReferenceNumber:"",rememberServiceReference:true,servicePaymentMode:"CASH",servicePaymentAccountId:"",
     serviceFulfillmentMode:"INTERNAL",servicePartnerName:"",servicePartnerCharge:"",servicePartnerPaymentTiming:"PAID_NOW",
     servicePartnerPaymentAccountId:"",remarks:"",transactionAt:"",expanded:false,status:"READY",
   };
@@ -62,6 +65,23 @@ function cashDue(row:RushRow){
 function serializeBank(row:RushRow){
   const value={accountHolder:row.bankAccountHolder.trim(),accountNumber:row.bankAccountNumber.trim(),ifsc:row.bankIfsc.trim().toUpperCase()};
   return Object.values(value).some(Boolean)?JSON.stringify(value):"";
+}
+function destinationPatch(option:QuickEntryDestination):Partial<RushRow>{
+  return option.mode==="UPI"
+    ? {beneficiaryMode:"UPI",beneficiaryUpi:option.upi||"",bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",selectedDestinationKey:option.key}
+    : {beneficiaryMode:"BANK",beneficiaryUpi:"",bankAccountHolder:option.accountHolder||"",bankAccountNumber:option.accountNumber||"",bankIfsc:option.ifsc||"",selectedDestinationKey:option.key};
+}
+function compatibleDestinations(profile:QuickEntryCustomerProfile|null,mode:BeneficiaryMode){
+  if(!profile)return [] as QuickEntryDestination[];
+  return [...profile.savedDestinations,...profile.recentDestinations].filter((item)=>item.mode===mode).sort((a,b)=>Number(Boolean(b.isLastUsed))-Number(Boolean(a.isLastUsed))||Number(b.source==="SAVED")-Number(a.source==="SAVED")||String(b.lastUsedAt||"").localeCompare(String(a.lastUsedAt||"")));
+}
+function serviceReferencePatch(option:QuickServiceReference):Partial<RushRow>{
+  return {serviceProfileId:option.id||"",serviceReferenceLabel:option.nickname||"",serviceProviderName:option.providerName||"",serviceReferenceNumber:option.referenceNumber,rememberServiceReference:Boolean(option.id)};
+}
+function usedLabel(value?:string|null){
+  if(!value)return "";
+  const date=new Date(value);if(Number.isNaN(date.getTime()))return "";
+  return date.toLocaleDateString("en-IN",{day:"numeric",month:"short"});
 }
 function transferFee(amountValue:string,type?:TransferType){
   const amount=Number(amountValue);
@@ -197,8 +217,13 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   function setTransferType(key:string,id:string){
     const type=activeTransferTypes.find((item)=>item.id===id);
     setRows((current)=>keepTrailingBlank(current.map((row)=>{
-      if(row.key===key&&row.status!=="SAVED")return {...row,purpose:"TRANSFER",transferTypeId:id,beneficiaryMode:type?.transferMode??"UPI",expanded:true,
-        commission:type?transferFee(row.amount,type):row.commission,commissionOverridden:false,cashReceivedOverridden:false,status:"READY",message:undefined};
+      if(row.key===key&&row.status!=="SAVED"){
+        const mode=type?.transferMode??"UPI";
+        const options=compatibleDestinations(row.customerProfile,mode);
+        const blank=mode==="UPI"?{beneficiaryMode:"UPI" as BeneficiaryMode,beneficiaryUpi:"",bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",selectedDestinationKey:""}:{beneficiaryMode:"BANK" as BeneficiaryMode,beneficiaryUpi:"",bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",selectedDestinationKey:""};
+        return {...row,purpose:"TRANSFER",transferTypeId:id,...blank,...(options.length===1?destinationPatch(options[0]):{}),expanded:true,
+          commission:type?transferFee(row.amount,type):row.commission,commissionOverridden:false,cashReceivedOverridden:false,status:"READY",message:undefined};
+      }
       return row.expanded?{...row,expanded:false}:row;
     })));
   }
@@ -220,8 +245,11 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   function selectService(row:RushRow,name:string){
     const service=activeServices.find((item)=>item.name.toLowerCase()===name.trim().toLowerCase());
     if(!service){updateRow(row.key,{serviceName:name});return;}
+    const references=row.customerProfile?[...row.customerProfile.serviceProfiles,...row.customerProfile.recentServiceReferences].filter((item)=>item.serviceName.trim().toLowerCase()===name.trim().toLowerCase()):[];
     updateRow(row.key,{
       serviceName:name,
+      serviceProfileId:"",serviceReferenceLabel:"",serviceProviderName:"",serviceReferenceNumber:"",rememberServiceReference:true,
+      ...(references.length===1?serviceReferencePatch(references[0]):{}),
       amount:service.defaultAmount!==null&&service.defaultAmount!==undefined&&Number(service.defaultAmount)>0?String(Number(service.defaultAmount)):row.amount,
       serviceFulfillmentMode:"INTERNAL",servicePartnerName:service.defaultPartnerName??"",
       servicePartnerCharge:service.defaultPartnerCharge!==null&&service.defaultPartnerCharge!==undefined?String(Number(service.defaultPartnerCharge)):"",
@@ -232,7 +260,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     const query=value.trim();
     const digits=query.replace(/\D/g,"");
     const looksLikePhone=query.length>0&&/^[+\d\s()-]+$/.test(query);
-    updateRow(row.key,{customerLookup:value,customerId:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:query.length>=2,
+    updateRow(row.key,{customerLookup:value,customerId:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:query.length>=2,customerProfile:null,customerProfileLoading:false,selectedDestinationKey:"",
       customerName:looksLikePhone?"":value.toUpperCase(),mobileNumber:looksLikePhone?digits:(row.customerId?"":row.mobileNumber)});
     if(customerSearchTimers.current[row.key])window.clearTimeout(customerSearchTimers.current[row.key]);
     if(query.length<2)return;
@@ -243,7 +271,17 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     },180);
   }
   function selectExistingCustomer(key:string,customer:CustomerSuggestion){
-    updateRow(key,{customerId:customer.id,customerLookup:customer.fullName+(customer.mobile?" · "+customer.mobile:""),customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerName:customer.fullName,mobileNumber:customer.mobile||""});
+    updateRow(key,{customerId:customer.id,customerLookup:customer.fullName+(customer.mobile?" · "+customer.mobile:""),customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerProfile:null,customerProfileLoading:true,selectedDestinationKey:"",customerName:customer.fullName,mobileNumber:customer.mobile||""});
+    apiFetch<QuickEntryCustomerProfile>("/customers/"+customer.id+"/quick-entry-profile").then((profile)=>{
+      setRows((current)=>current.map((row)=>{
+        if(row.key!==key||row.customerId!==customer.id||row.status==="SAVED")return row;
+        const options=compatibleDestinations(profile,row.beneficiaryMode);
+        const destination=options.length===1?destinationPatch(options[0]):{};
+        const serviceMatches=[...profile.serviceProfiles,...profile.recentServiceReferences].filter((item)=>item.serviceName.trim().toLowerCase()===row.serviceName.trim().toLowerCase());
+        const serviceReference=row.purpose==="SERVICE"&&serviceMatches.length===1?serviceReferencePatch(serviceMatches[0]):{};
+        return {...row,customerProfile:profile,customerProfileLoading:false,...destination,...serviceReference};
+      }));
+    }).catch(()=>updateRow(key,{customerProfile:null,customerProfileLoading:false}));
   }
   function handleCustomerKeyDown(row:RushRow,event:KeyboardEvent<HTMLInputElement>){
     const hasSuggestions=row.customerSuggestions.length>0&&!row.customerId;
@@ -308,6 +346,11 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
           direction:row.direction,cashAccountId,amount,purpose,
           cashReceivedAmount:row.direction==="IN"&&purpose==="TRANSFER"?(row.cashReceivedOverridden?Number(row.cashReceived||0):cashDue(row)):undefined,
           serviceName:purpose==="SERVICE"?row.serviceName.trim():(row.direction==="IN"&&selectedType?selectedType.name:undefined),
+          serviceProfileId:purpose==="SERVICE"&&row.serviceProfileId?row.serviceProfileId:undefined,
+          serviceReferenceLabel:purpose==="SERVICE"&&row.serviceReferenceLabel.trim()?row.serviceReferenceLabel.trim():undefined,
+          serviceProviderName:purpose==="SERVICE"&&row.serviceProviderName.trim()?row.serviceProviderName.trim():undefined,
+          serviceReferenceNumber:purpose==="SERVICE"&&row.serviceReferenceNumber.trim()?row.serviceReferenceNumber.trim():undefined,
+          rememberServiceReference:purpose==="SERVICE"&&Boolean(row.customerId)&&Boolean(row.serviceReferenceNumber.trim())?row.rememberServiceReference:undefined,
           cashOutType:row.direction==="OUT"?row.cashOutType:undefined,
           successful:row.direction==="OUT"&&row.cashOutType!=="UPI_QR"?row.successful:undefined,
           customerId:row.customerId||undefined,
@@ -400,6 +443,8 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                 {visibleRows.map(({row,index})=>{
                   const modeValue=row.direction==="OUT"?row.cashOutType:row.purpose==="SERVICE"?"SERVICE":row.transferTypeId?"TR:"+row.transferTypeId:"";
                   const selectedService=activeServices.find((item)=>item.name.toLowerCase()===row.serviceName.trim().toLowerCase());
+                  const destinationOptions=compatibleDestinations(row.customerProfile,row.beneficiaryMode);
+                  const serviceReferenceOptions=row.customerProfile?[...row.customerProfile.serviceProfiles,...row.customerProfile.recentServiceReferences].filter((item)=>item.serviceName.trim().toLowerCase()===row.serviceName.trim().toLowerCase()).sort((a,b)=>String(b.lastUsedAt||"").localeCompare(String(a.lastUsedAt||""))):[];
                   const due=cashDue(row),given=row.cashReceivedOverridden?Number(row.cashReceived||0):due,short=Math.max(0,due-given),change=Math.max(0,given-due);
                   const primaryDue=row.direction==="IN"&&row.purpose==="TRANSFER"?due:Number(row.amount||0);
                   const dueWord=row.direction==="OUT"?"payout":row.purpose==="SERVICE"?"charge":"due";
@@ -436,7 +481,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                           onKeyDown={(event)=>handleCustomerKeyDown(row,event)}
                           className="h-9 w-full rounded-lg border border-transparent bg-[var(--surface-soft)] px-2.5 text-[11px] font-bold outline-none placeholder:text-[var(--text-muted)]/70 focus:border-[var(--border)] focus:bg-white disabled:opacity-60" placeholder="Name / mobile"/>
                         {!row.customerId&&row.customerLookup.trim().length>=2?<div className="absolute inset-x-0 top-[calc(100%+4px)] z-40 max-h-44 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
-                          {row.customerSearchLoading?<p className="px-2 py-1.5 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer,suggestionIndex)=><button key={customer.id} type="button" onMouseEnter={()=>updateRow(row.key,{customerSuggestionIndex:suggestionIndex})} onClick={()=>selectExistingCustomer(row.key,customer)} className={"flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left "+(suggestionIndex===row.customerSuggestionIndex?"bg-violet-50":"hover:bg-[var(--surface-soft)]")}><span className="min-w-0"><strong className="block truncate text-[10px]">{customer.fullName}</strong><span className="block truncate text-[9px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span></span><span className="text-[9px] font-black text-violet-600">Use</span></button>):<p className="px-2 py-1.5 text-[10px] text-[var(--text-muted)]">No match · Enter saves as entered</p>}
+                          {row.customerSearchLoading?<p className="px-2 py-1.5 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer,suggestionIndex)=><button key={customer.id} type="button" onMouseEnter={()=>updateRow(row.key,{customerSuggestionIndex:suggestionIndex})} onClick={()=>selectExistingCustomer(row.key,customer)} className={"flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left "+(suggestionIndex===row.customerSuggestionIndex?"bg-violet-50 ring-1 ring-violet-100":"hover:bg-[var(--surface-soft)]")}><span className="min-w-0"><strong className="block truncate text-[11px]">{customer.fullName}</strong><span className="mt-0.5 block truncate text-[9px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span><span className="mt-1 flex flex-wrap gap-1 text-[8px] font-black">{customer.savedDestinationCount?<b className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">{customer.savedDestinationCount} saved</b>:null}{customer.savedServiceProfileCount?<b className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">{customer.savedServiceProfileCount} service ref</b>:null}{customer.lastUsedAt?<b className="rounded bg-[var(--surface)] px-1.5 py-0.5 text-[var(--text-muted)]">Used {usedLabel(customer.lastUsedAt)}</b>:null}</span></span><span className="shrink-0 rounded-full bg-violet-100 px-2 py-1 text-[9px] font-black text-violet-700">Use</span></button>):<p className="px-2 py-1.5 text-[10px] text-[var(--text-muted)]">No match · Enter saves as entered</p>}
                         </div>:null}
                       </div>
                       <div className="flex items-center justify-end gap-1.5">
@@ -452,9 +497,10 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                       <div className="overflow-x-auto pb-0.5">
                         {row.direction==="IN"&&row.purpose==="TRANSFER"?<div className="grid min-w-[1080px] grid-cols-[minmax(330px,2.2fr)_175px_135px_115px_145px_minmax(160px,1fr)] items-stretch gap-2">
                           <div className="rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
-                            <div className="flex items-center justify-between gap-2"><span className="block text-[8px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Beneficiary · optional</span><span className="text-[8px] font-bold text-[var(--text-muted)]">{activeTransferTypes.find((item)=>item.id===row.transferTypeId)?.name||""}</span></div>
-                            {row.beneficiaryMode==="UPI"?<input ref={(element)=>{detailRefs.current[row.key]=element;}} value={row.beneficiaryUpi} onChange={(event)=>updateRow(row.key,{beneficiaryUpi:event.target.value})} className="mt-1 h-8 w-full rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="UPI ID / mobile"/>:
-                            <div className="mt-1 grid grid-cols-3 gap-1"><input ref={(element)=>{detailRefs.current[row.key]=element;}} value={row.bankAccountHolder} onChange={(event)=>updateRow(row.key,{bankAccountHolder:event.target.value})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="Account holder"/><input inputMode="numeric" value={row.bankAccountNumber} onChange={(event)=>updateRow(row.key,{bankAccountNumber:event.target.value.replace(/\s/g,"")})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="Account number"/><input value={row.bankIfsc} onChange={(event)=>updateRow(row.key,{bankIfsc:event.target.value.toUpperCase().replace(/\s/g,"")})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold uppercase outline-none focus:border-violet-400" placeholder="IFSC"/></div>}
+                            <div className="flex items-center justify-between gap-2"><span className="block text-[8px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Beneficiary · optional</span><span className="text-[8px] font-bold text-[var(--text-muted)]">{row.customerProfileLoading?"Loading customer history…":activeTransferTypes.find((item)=>item.id===row.transferTypeId)?.name||""}</span></div>
+                            {destinationOptions.length?<div className="mt-1 flex max-w-full gap-1 overflow-x-auto pb-1">{destinationOptions.slice(0,6).map((option)=><button key={option.key} type="button" onClick={()=>updateRow(row.key,destinationPatch(option))} className={"min-w-[132px] max-w-[180px] rounded-md border px-2 py-1.5 text-left transition "+(row.selectedDestinationKey===option.key?"border-violet-400 bg-violet-50 shadow-sm":"border-[var(--border)] bg-white hover:border-violet-200")}><span className="flex items-center gap-1"><strong className="min-w-0 flex-1 truncate text-[9px]">{option.title}</strong>{option.isLastUsed?<b className="shrink-0 rounded bg-amber-100 px-1 py-0.5 text-[7px] font-black text-amber-800">LAST</b>:option.source==="SAVED"?<b className="shrink-0 rounded bg-emerald-100 px-1 py-0.5 text-[7px] font-black text-emerald-700">SAVED</b>:<b className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[7px] font-black text-slate-600">RECENT</b>}</span><span className="mt-0.5 block truncate text-[8px] font-semibold text-[var(--text-muted)]">{option.subtitle}{option.lastUsedAt?" · "+usedLabel(option.lastUsedAt):""}{option.useCount>1?" · "+option.useCount+"×":""}</span></button>)}</div>:row.customerId&&!row.customerProfileLoading?<p className="mt-1 text-[8px] font-semibold text-[var(--text-muted)]">No saved {row.beneficiaryMode==="UPI"?"UPI":"bank"} destination yet · enter new details below</p>:null}
+                            {row.beneficiaryMode==="UPI"?<input ref={(element)=>{detailRefs.current[row.key]=element;}} value={row.beneficiaryUpi} onChange={(event)=>updateRow(row.key,{beneficiaryUpi:event.target.value,selectedDestinationKey:""})} className="mt-1 h-8 w-full rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="UPI ID / mobile"/>:
+                            <div className="mt-1 grid grid-cols-3 gap-1"><input ref={(element)=>{detailRefs.current[row.key]=element;}} value={row.bankAccountHolder} onChange={(event)=>updateRow(row.key,{bankAccountHolder:event.target.value,selectedDestinationKey:""})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="Account holder"/><input inputMode="numeric" value={row.bankAccountNumber} onChange={(event)=>updateRow(row.key,{bankAccountNumber:event.target.value.replace(/\s/g,""),selectedDestinationKey:""})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="Account number"/><input value={row.bankIfsc} onChange={(event)=>updateRow(row.key,{bankIfsc:event.target.value.toUpperCase().replace(/\s/g,""),selectedDestinationKey:""})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold uppercase outline-none focus:border-violet-400" placeholder="IFSC"/></div>}
                           </div>
                           <div className="rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
                             <span className="block text-[8px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Fee paid by</span>
@@ -467,6 +513,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                         </div>:null}
                         {row.direction==="IN"&&row.purpose==="SERVICE"?<div className="flex min-w-max items-stretch gap-2">
                           <label className="w-[210px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Service <b className="text-rose-500">*</b></span><select ref={(element)=>{detailRefs.current[row.key]=element;}} value={row.serviceName} onChange={(event)=>selectService(row,event.target.value)} className="mt-1 h-8 w-full cursor-pointer rounded-md border border-violet-200 bg-white px-2 text-[10px] font-black outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"><option value="">Select service</option>{activeServices.map((item)=><option key={item.id} value={item.name}>{item.name}</option>)}</select></label>
+                          {row.serviceName?<div className="w-[360px] shrink-0 rounded-lg bg-blue-50/70 px-2 py-1.5"><div className="flex items-center justify-between gap-2"><span className="text-[8px] font-black uppercase text-blue-700">Customer reference · optional</span><span className="text-[8px] font-bold text-blue-600">{row.customerProfileLoading?"Loading history…":row.customerId?(serviceReferenceOptions.length?serviceReferenceOptions.length+" available":"New reference"):"Select customer to reuse"}</span></div>{serviceReferenceOptions.length?<div className="mt-1 flex gap-1 overflow-x-auto pb-1">{serviceReferenceOptions.slice(0,4).map((option,optionIndex)=>{const selected=option.id?row.serviceProfileId===option.id:!row.serviceProfileId&&row.serviceReferenceNumber===option.referenceNumber&&row.serviceProviderName===(option.providerName||"");return <button key={option.id||option.key||option.referenceNumber+optionIndex} type="button" onClick={()=>updateRow(row.key,serviceReferencePatch(option))} className={"min-w-[120px] rounded-md border px-2 py-1 text-left "+(selected?"border-blue-400 bg-white shadow-sm":"border-blue-100 bg-white/70")}><span className="flex items-center gap-1"><strong className="min-w-0 flex-1 truncate text-[8px]">{option.nickname||option.providerName||"Reference"}</strong>{optionIndex===0&&option.lastUsedAt?<b className="rounded bg-amber-100 px-1 text-[6px] font-black text-amber-800">LAST</b>:option.id?<b className="rounded bg-emerald-100 px-1 text-[6px] font-black text-emerald-700">SAVED</b>:<b className="rounded bg-slate-100 px-1 text-[6px] font-black text-slate-600">RECENT</b>}</span><span className="mt-0.5 block truncate text-[8px] text-[var(--text-muted)]">{option.referenceNumber}{option.providerName?" · "+option.providerName:""}{option.useCount&&option.useCount>1?" · "+option.useCount+"×":""}</span></button>})}</div>:null}<div className="mt-1 grid grid-cols-[1.25fr_.8fr] gap-1"><input value={row.serviceReferenceNumber} onChange={(event)=>updateRow(row.key,{serviceProfileId:"",serviceReferenceNumber:event.target.value,rememberServiceReference:Boolean(row.customerId)})} className="h-8 rounded-md border border-blue-100 bg-white px-2 text-[10px] font-bold outline-none focus:border-blue-400" placeholder="Consumer / account no."/><input value={row.serviceProviderName} onChange={(event)=>updateRow(row.key,{serviceProfileId:"",serviceProviderName:event.target.value,rememberServiceReference:Boolean(row.customerId)})} className="h-8 rounded-md border border-blue-100 bg-white px-2 text-[10px] font-bold outline-none focus:border-blue-400" placeholder="Provider"/></div><div className="mt-1 flex items-center gap-1"><input value={row.serviceReferenceLabel} onChange={(event)=>updateRow(row.key,{serviceProfileId:"",serviceReferenceLabel:event.target.value,rememberServiceReference:Boolean(row.customerId)})} className="h-7 min-w-0 flex-1 rounded-md border border-blue-100 bg-white px-2 text-[9px] font-bold outline-none" placeholder="Nickname e.g. Home EB"/>{row.customerId&&row.serviceReferenceNumber?<label className="flex shrink-0 items-center gap-1 text-[8px] font-black text-blue-700"><input type="checkbox" checked={row.rememberServiceReference} onChange={(event)=>updateRow(row.key,{rememberServiceReference:event.target.checked})}/>Remember</label>:null}</div></div>:null}
                           <div className="w-[190px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Customer paid by</span><div className="mt-1 grid grid-cols-2 rounded-md bg-white p-0.5">{(["CASH","UPI"] as const).map((mode)=><button type="button" key={mode} onClick={()=>updateRow(row.key,{servicePaymentMode:mode,servicePaymentAccountId:mode==="CASH"?"":row.servicePaymentAccountId})} className={"min-h-7 rounded-[6px] text-[9px] font-black "+(row.servicePaymentMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":"Bank / UPI"}</button>)}</div></div>
                           {row.servicePaymentMode==="UPI"?<label className="w-[180px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Received in <b className="text-rose-500">*</b></span><select value={row.servicePaymentAccountId} onChange={(event)=>updateRow(row.key,{servicePaymentAccountId:event.target.value})} className="mt-1 h-8 w-full rounded-md border border-violet-200 bg-white px-2 text-[10px] font-bold"><option value="">Select account</option>{servicePaymentAccounts.map((item)=><option key={item.id} value={item.id}>{item.accountName}</option>)}</select></label>:null}
                           <div className="w-[170px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Fulfilled by</span><div className="mt-1 grid grid-cols-2 rounded-md bg-white p-0.5"><button type="button" onClick={()=>updateRow(row.key,{serviceFulfillmentMode:"INTERNAL"})} className={"min-h-7 rounded-[6px] text-[9px] font-black "+(row.serviceFulfillmentMode==="INTERNAL"?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>Us</button><button type="button" disabled={Boolean(selectedService&&!selectedService.allowPartnerFulfillment)} onClick={()=>updateRow(row.key,{serviceFulfillmentMode:"PARTNER",servicePartnerName:row.servicePartnerName||selectedService?.defaultPartnerName||"",servicePartnerCharge:row.servicePartnerCharge||(selectedService?.defaultPartnerCharge!==null&&selectedService?.defaultPartnerCharge!==undefined?String(Number(selectedService.defaultPartnerCharge)):""),servicePartnerPaymentAccountId:row.servicePartnerPaymentAccountId||cashAccountId})} className={"min-h-7 rounded-[6px] text-[9px] font-black disabled:opacity-30 "+(row.serviceFulfillmentMode==="PARTNER"?"bg-violet-50 text-violet-700":"text-[var(--text-muted)]")}>Partner</button></div></div>

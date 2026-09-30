@@ -51,15 +51,33 @@ export class SearchService {
           select: { id: true, bankName: true, cardType: true, cardNetworkId: true, cardNetwork: { select: { id: true, name: true } }, lastFourDigits: true, nickname: true, isActive: true },
           orderBy: { updatedAt: 'desc' },
         },
+        bankAccounts: { where: { isActive: true }, select: { id: true } },
+        upiAccounts: { where: { isActive: true }, select: { id: true } },
+        beneficiaries: {
+          where: { isActive: true },
+          select: { accounts: { where: { isActive: true }, select: { id: true } } },
+        },
+        serviceProfiles: { where: { isActive: true }, select: { id: true } },
+        transactions: { orderBy: { transactionAt: 'desc' }, take: 1, select: { transactionAt: true } },
       },
       orderBy: { updatedAt: 'desc' },
       take: 8,
     });
 
-    const history = digits.length === 4 && customers.length
+    const normalizedName = query.toLowerCase();
+    const rankedCustomers = [...customers].sort((a, b) => {
+      const mobileScore = (customer: typeof customers[number]) => digits.length >= 3 && (customer.mobile ?? "").replace(/\D/g, "") === digits ? 0 : 1;
+      const nameScore = (customer: typeof customers[number]) => {
+        const name = customer.fullName.toLowerCase();
+        return name === normalizedName ? 0 : name.startsWith(normalizedName) ? 1 : 2;
+      };
+      return mobileScore(a) - mobileScore(b) || nameScore(a) - nameScore(b);
+    });
+
+    const history = digits.length === 4 && rankedCustomers.length
       ? await this.prisma.transaction.findMany({
           where: {
-            customerId: { in: customers.map((customer) => customer.id) },
+            customerId: { in: rankedCustomers.map((customer) => customer.id) },
             OR: [
               { aeps: { is: { aadhaarLastFour: { contains: digits } } } },
               { microAtm: { is: { cardLastFour: { contains: digits } } } },
@@ -83,11 +101,19 @@ export class SearchService {
       });
     }
 
-    return customers.map((customer) => {
+    return rankedCustomers.map((customer) => {
       const card = digits ? customer.cards.find((item) => item.lastFourDigits.includes(digits)) : undefined;
       const historical = historyByCustomer.get(customer.id);
+      const savedDestinationCount =
+        customer.bankAccounts.length +
+        customer.upiAccounts.length +
+        customer.beneficiaries.reduce((sum, item) => sum + item.accounts.length, 0);
+      const { bankAccounts, upiAccounts, beneficiaries, serviceProfiles, transactions, ...identity } = customer;
       return {
-        ...customer,
+        ...identity,
+        savedDestinationCount,
+        savedServiceProfileCount: serviceProfiles.length,
+        lastUsedAt: transactions[0]?.transactionAt ?? null,
         match: {
           cardLastFour: card?.lastFourDigits ?? null,
           aadhaarLastFour: historical?.aadhaarLastFour ?? null,

@@ -13,6 +13,7 @@ import { UpdateBankAccountDto } from './dto/update-bank-account.dto.js';
 import { UpdateUpiAccountDto } from './dto/update-upi-account.dto.js';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto.js';
 import { UpdateBeneficiaryAccountDto } from './dto/update-beneficiary-account.dto.js';
+import { CreateServiceProfileDto } from './dto/create-service-profile.dto.js';
 import { SetCustomerItemActiveDto } from './dto/set-customer-item-active.dto.js';
 import { CustomersService } from './customers.service.js';
 
@@ -38,6 +39,16 @@ export class CustomersController {
       sortDir,
       includeInactive: includeInactive === 'true',
     });
+  }
+
+  @Get(':id/quick-entry-profile')
+  quickEntryProfile(@Param('id') id: string) {
+    return this.customers.getQuickEntryProfile(id);
+  }
+
+  @Post(':id/service-profiles')
+  addServiceProfile(@Param('id') id: string, @Body() dto: CreateServiceProfileDto, @Req() req: any) {
+    return this.customers.addServiceProfile(id, dto, req.user.userId);
   }
 
   @Get(':id')

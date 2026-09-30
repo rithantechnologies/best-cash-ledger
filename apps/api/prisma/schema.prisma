@@ -185,6 +185,7 @@ model Customer {
   bankAccounts  CustomerBankAccount[]
   upiAccounts   CustomerUpiAccount[]
   beneficiaries Beneficiary[]
+  serviceProfiles CustomerServiceProfile[]
   transactions  Transaction[]
   payables      CustomerPayable[]
   receivables   CustomerReceivable[]
@@ -271,6 +272,25 @@ model BeneficiaryAccount {
   cashTransfers    CashTransferDetail[]
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
+}
+
+
+
+model CustomerServiceProfile {
+  id              String   @id @default(uuid())
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  serviceName     String
+  nickname        String?
+  providerName    String?
+  referenceNumber String
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  quickCashTransfers QuickCashTransferDetail[] @relation("QuickCashServiceProfile")
+
+  @@unique([customerId, serviceName, referenceNumber])
+  @@index([customerId, serviceName, isActive])
 }
 
 model Provider {
@@ -794,6 +814,11 @@ model QuickCashTransferDetail {
   direction               String
   purpose                 String                      @default("TRANSFER")
   serviceName             String?
+  serviceProfileId        String?
+  serviceProfile          CustomerServiceProfile? @relation("QuickCashServiceProfile", fields: [serviceProfileId], references: [id], onDelete: SetNull)
+  serviceReferenceLabel   String?
+  serviceProviderName     String?
+  serviceReferenceNumber  String?
   cashOutType             String                      @default("UPI_QR")
   aadhaarLastFour         String?
   customerBankName        String?
@@ -831,6 +856,7 @@ model QuickCashTransferDetail {
   updatedAt               DateTime                    @updatedAt
 
   @@index([cashAccountId, direction])
+  @@index([serviceProfileId])
   @@index([sourceAccountId])
   @@index([commissionAccountId])
   @@index([servicePaymentAccountId])

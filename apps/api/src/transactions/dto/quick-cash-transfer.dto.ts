@@ -36,6 +36,26 @@ export class CreateQuickCashTransferDto {
   serviceName?: string;
 
   @IsOptional()
+  @IsString()
+  serviceProfileId?: string;
+
+  @IsOptional()
+  @IsString()
+  serviceReferenceLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  serviceProviderName?: string;
+
+  @IsOptional()
+  @IsString()
+  serviceReferenceNumber?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  rememberServiceReference?: boolean;
+
+  @IsOptional()
   @IsIn(['UPI_QR', 'AEPS', 'MICRO_ATM'])
   cashOutType?: 'UPI_QR' | 'AEPS' | 'MICRO_ATM';
 

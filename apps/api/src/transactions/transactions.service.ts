@@ -1091,6 +1091,75 @@ export class TransactionsService {
         dto.mobileNumber?.trim() || linkedCustomer?.mobile || null;
 
       if (purpose === 'SERVICE') {
+        const serviceName = dto.serviceName!.trim();
+        let serviceProfileId: string | null = null;
+        let serviceReferenceLabel = dto.serviceReferenceLabel?.trim() || null;
+        let serviceProviderName = dto.serviceProviderName?.trim() || null;
+        let serviceReferenceNumber = dto.serviceReferenceNumber?.trim() || null;
+
+        if (dto.serviceProfileId) {
+          if (!linkedCustomer) {
+            throw new BadRequestException('Choose the customer before using a saved service reference');
+          }
+          const profile = await tx.customerServiceProfile.findFirst({
+            where: { id: dto.serviceProfileId, customerId: linkedCustomer.id, isActive: true },
+          });
+          if (!profile) throw new BadRequestException('Saved service reference is no longer available');
+          if (profile.serviceName.trim().toLowerCase() !== serviceName.toLowerCase()) {
+            throw new BadRequestException('Saved service reference does not match the selected service');
+          }
+          serviceProfileId = profile.id;
+          serviceReferenceLabel = profile.nickname;
+          serviceProviderName = profile.providerName;
+          serviceReferenceNumber = profile.referenceNumber;
+        } else if (serviceReferenceNumber && dto.rememberServiceReference && linkedCustomer) {
+          const where = {
+            customerId_serviceName_referenceNumber: {
+              customerId: linkedCustomer.id,
+              serviceName,
+              referenceNumber: serviceReferenceNumber,
+            },
+          };
+          const before = await tx.customerServiceProfile.findUnique({ where });
+          const profile = await tx.customerServiceProfile.upsert({
+            where,
+            create: {
+              customerId: linkedCustomer.id,
+              serviceName,
+              referenceNumber: serviceReferenceNumber,
+              nickname: serviceReferenceLabel,
+              providerName: serviceProviderName,
+            },
+            update: {
+              nickname: serviceReferenceLabel,
+              providerName: serviceProviderName,
+              isActive: true,
+            },
+          });
+          serviceProfileId = profile.id;
+          await tx.auditLog.create({
+            data: {
+              userId,
+              entityType: 'CUSTOMER_SERVICE_PROFILE',
+              entityId: profile.id,
+              action: before ? 'UPDATE' : 'CREATE',
+              oldValues: before ? {
+                serviceName: before.serviceName,
+                referenceNumber: before.referenceNumber,
+                nickname: before.nickname,
+                providerName: before.providerName,
+              } : undefined,
+              newValues: {
+                customerId: linkedCustomer.id,
+                serviceName: profile.serviceName,
+                referenceNumber: profile.referenceNumber,
+                nickname: profile.nickname,
+                providerName: profile.providerName,
+              },
+            },
+          });
+        }
+
         const serviceIncomeLedger = await tx.ledgerAccount.findUnique({
           where: { ledgerCode: 'SYS-SERVICE-INCOME' },
         });
@@ -1176,7 +1245,6 @@ export class TransactionsService {
           }
         }
 
-        const serviceName = dto.serviceName!.trim();
         const servicePartnerName =
           serviceFulfillmentMode === 'PARTNER'
             ? dto.servicePartnerName!.trim()
@@ -1201,6 +1269,10 @@ export class TransactionsService {
             direction: 'IN',
             purpose: 'SERVICE',
             serviceName,
+            serviceProfileId,
+            serviceReferenceLabel,
+            serviceProviderName,
+            serviceReferenceNumber,
             cashAccountId: cashAccount.id,
             customerName: resolvedCustomerName,
             mobileNumber: resolvedMobile,
@@ -4603,6 +4675,10 @@ export class TransactionsService {
             commissionCashAmount,
             purpose: d.purpose as 'TRANSFER' | 'SERVICE',
             serviceName: d.serviceName ?? undefined,
+            serviceReferenceLabel: d.serviceReferenceLabel ?? undefined,
+            serviceProviderName: d.serviceProviderName ?? undefined,
+            serviceReferenceNumber: d.serviceReferenceNumber ?? undefined,
+            rememberServiceReference: false,
             cashOutType: d.cashOutType as 'UPI_QR' | 'AEPS' | 'MICRO_ATM',
             successful: true,
             customerId: original.customerId ?? undefined,
