@@ -2945,29 +2945,42 @@ html[data-theme="dark"] .cash-desk-now {
 /* Daily Cash premium finance treatment */
 .cash-desk-page {
   width: min(100%, 1600px);
-  --money-in: #047857;
-  --money-out: #c83d57;
+  --money-in: #15803d;
+  --money-out: #dc2626;
+  --cash-warning: #b45309;
+  --cash-warning-soft: #fffbeb;
+  --cash-hero-text: #0f172a;
+  --cash-hero-muted: #64748b;
+  --cash-hero-border: #dbe4ef;
   color: var(--text);
-  font-size: 15px;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 html[data-theme="dark"] .cash-desk-page {
-  --money-in: #55d6a5;
-  --money-out: #fb7185;
+  --money-in: #4ade80;
+  --money-out: #f87171;
+  --cash-warning: #fbbf24;
+  --cash-warning-soft: rgba(245,158,11,.12);
+  --cash-hero-text: #f8fafc;
+  --cash-hero-muted: #94a3b8;
+  --cash-hero-border: #334155;
 }
 .cash-desk-page .app-section-heading {
   align-items: center;
   margin-bottom: 2px;
 }
 .cash-desk-page .app-section-heading h2 {
-  font-size: clamp(2rem, 2.8vw, 2.5rem);
-  line-height: 1;
-  font-weight: 760;
-  letter-spacing: -.055em;
+  font-size: clamp(1.5rem, 2.2vw, 1.75rem);
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -.035em;
 }
 .cash-desk-page .app-section-heading p {
   max-width: 760px;
-  font-size: 15px;
-  line-height: 1.45;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 .cash-desk-page .app-surface {
   border-radius: 20px;
@@ -2976,76 +2989,99 @@ html[data-theme="dark"] .cash-desk-page {
     0 8px 22px color-mix(in srgb, #0f172a 4%, transparent);
 }
 .cash-desk-page h3 {
-
-  font-size: 17px;
-  line-height: 1.2;
-  font-weight: 780;
-  letter-spacing: -.025em;
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -.018em;
 }
 .cash-desk-page .cash-desk-hero {
-  border-color: #244b7d !important;
+  border-color: var(--cash-hero-border) !important;
   background:
-    radial-gradient(circle at 86% -8%, rgba(64, 133, 255, .36), transparent 31rem),
-    linear-gradient(145deg, #0b1729 0%, #102b4f 58%, #143a68 100%);
-  color: #f8fbff;
+    radial-gradient(circle at 86% -8%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 30rem),
+    linear-gradient(145deg, #ffffff 0%, #f8fafc 58%, #f1f5f9 100%);
+  color: var(--cash-hero-text);
+  box-shadow: 0 10px 28px rgba(15,23,42,.06);
+}
+html[data-theme="dark"] .cash-desk-page .cash-desk-hero {
+  background:
+    radial-gradient(circle at 86% -8%, rgba(96,165,250,.16), transparent 30rem),
+    linear-gradient(145deg, #0b1120 0%, #111827 58%, #172033 100%);
   box-shadow: none;
 }
 .cash-desk-page .cash-desk-hero > div:first-child {
-  border-color: rgba(255,255,255,.10) !important;
+  border-color: color-mix(in srgb, var(--cash-hero-border) 85%, transparent) !important;
 }
 .cash-desk-page .cash-desk-hero > div:first-child p:first-child {
-  color: #f8fbff;
+  color: var(--cash-hero-text);
+  font-weight: 600;
 }
 .cash-desk-page .cash-desk-hero > div:first-child p:last-child {
-  color: #a9bfd5;
+  color: var(--cash-hero-muted);
 }
 .cash-desk-page .cash-desk-now {
   min-height: 150px;
   display: flex;
-
   flex-direction: column;
   justify-content: center;
   background:
-    radial-gradient(circle at 0 0, rgba(85, 214, 165, .10), transparent 20rem),
+    radial-gradient(circle at 0 0, color-mix(in srgb, var(--money-in) 8%, transparent), transparent 20rem),
     transparent;
 }
-.cash-desk-page .cash-desk-now-money {
-  color: #f8fbff !important;
-  font-size: clamp(2.8rem, 5vw, 4.05rem);
-  line-height: .92;
-  font-weight: 770;
-  letter-spacing: -.065em;
-}
-.cash-desk-page .cash-desk-metric-card {
-  min-height: 108px;
-  display: flex;
-
-  flex-direction: column;
-  justify-content: center;
-  background: #112b4a !important;
-}
-.cash-desk-page .cash-desk-metric-card > p:first-child {
-  color: #c5d4e4 !important;
+.cash-desk-page .cash-desk-now > span:first-child {
+  color: var(--cash-hero-muted) !important;
   font-size: 12px;
+  font-weight: 600;
   letter-spacing: .08em;
 }
+.cash-desk-page .cash-desk-now-money {
+  color: var(--cash-hero-text) !important;
+  font-size: clamp(2rem, 4.2vw, 3.25rem);
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -.05em;
+}
+.cash-desk-page .cash-desk-now > div:last-child {
+  color: var(--cash-hero-muted) !important;
+  font-weight: 500;
+}
+.cash-desk-page .cash-desk-now > div:last-child .text-white {
+  color: var(--cash-hero-text) !important;
+}
+.cash-desk-page .cash-desk-metric-card {
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--surface) !important;
+}
+.cash-desk-page .cash-desk-metric-card > p:first-child {
+  color: var(--text-muted) !important;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .055em;
+}
 .cash-desk-page .cash-desk-metric-card .money {
-  color: #f8fbff;
-  font-size: clamp(1.35rem, 2vw, 1.65rem);
+  color: var(--text);
+  font-size: clamp(1.35rem, 2vw, 1.6rem);
   line-height: 1.05;
+  font-weight: 700;
 }
 .cash-desk-page .cash-desk-metric-card[data-tone="in"] .money {
-  color: #8ef0d0;
+  color: var(--money-in);
 }
 .cash-desk-page .cash-desk-metric-card[data-tone="out"] .money {
-  color: #ffafbd;
+  color: var(--money-out);
+}
+.cash-desk-page .cash-desk-metric-card[data-tone="accent"] {
+  background: color-mix(in srgb, var(--accent-soft) 38%, var(--surface)) !important;
 }
 .cash-desk-page .cash-desk-metric-card[data-tone="accent"] .money {
-  color: #bed6ff;
+  color: var(--accent);
 }
 .cash-desk-page .cash-desk-metric-card > p:last-child:not(:first-child) {
-  color: #c5d4e4 !important;
+  color: var(--text-muted) !important;
   font-size: 12px;
+  font-weight: 500;
 }
 .cash-service-mix {
 
@@ -3096,6 +3132,33 @@ html[data-theme="dark"] .cash-desk-page {
 html[data-theme="dark"] .cash-desk-page .app-surface:not(.cash-desk-hero) {
   box-shadow: none;
 }
+
+/* Keep Daily Cash semantic status colors readable in both system themes. */
+html[data-theme="dark"] .cash-desk-page .bg-emerald-50 { background-color: rgba(34,197,94,.12) !important; }
+html[data-theme="dark"] .cash-desk-page .bg-emerald-100 { background-color: rgba(34,197,94,.16) !important; }
+html[data-theme="dark"] .cash-desk-page .text-emerald-700,
+html[data-theme="dark"] .cash-desk-page .text-emerald-800 { color: #4ade80 !important; }
+html[data-theme="dark"] .cash-desk-page .border-emerald-200,
+html[data-theme="dark"] .cash-desk-page .border-emerald-300 { border-color: rgba(74,222,128,.28) !important; }
+
+html[data-theme="dark"] .cash-desk-page .bg-rose-50 { background-color: rgba(239,68,68,.12) !important; }
+html[data-theme="dark"] .cash-desk-page .bg-rose-100 { background-color: rgba(239,68,68,.16) !important; }
+html[data-theme="dark"] .cash-desk-page .text-rose-500,
+html[data-theme="dark"] .cash-desk-page .text-rose-600,
+html[data-theme="dark"] .cash-desk-page .text-rose-700 { color: #f87171 !important; }
+html[data-theme="dark"] .cash-desk-page .border-rose-200 { border-color: rgba(248,113,113,.28) !important; }
+
+html[data-theme="dark"] .cash-desk-page .bg-amber-50,
+html[data-theme="dark"] .cash-desk-page .bg-amber-100 { background-color: rgba(245,158,11,.12) !important; }
+html[data-theme="dark"] .cash-desk-page .text-amber-700,
+html[data-theme="dark"] .cash-desk-page .text-amber-800,
+html[data-theme="dark"] .cash-desk-page .text-amber-900 { color: #fbbf24 !important; }
+html[data-theme="dark"] .cash-desk-page .border-amber-200,
+html[data-theme="dark"] .cash-desk-page .border-amber-300 { border-color: rgba(251,191,36,.28) !important; }
+
+html[data-theme="dark"] .cash-desk-page .bg-violet-50 { background-color: rgba(139,92,246,.12) !important; }
+html[data-theme="dark"] .cash-desk-page .text-violet-700 { color: #c4b5fd !important; }
+
 @media (max-width: 1023px) {
   .cash-desk-page .cash-desk-now {
     min-height: 145px;
@@ -3110,10 +3173,10 @@ html[data-theme="dark"] .cash-desk-page .app-surface:not(.cash-desk-hero) {
     font-size: 15px;
   }
   .cash-desk-page .app-section-heading h2 {
-    font-size: 2rem;
+    font-size: 1.5rem;
   }
   .cash-desk-page .app-section-heading p {
-    font-size: 14px;
+    font-size: 13px;
   }
   .cash-desk-page .app-surface {
     border-radius: 16px;
