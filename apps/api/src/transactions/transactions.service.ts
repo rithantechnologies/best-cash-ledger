@@ -1702,7 +1702,9 @@ export class TransactionsService {
         data: {
           transactionNumber: 'QCC-' + Date.now().toString(36).toUpperCase(),
           transactionType: TransactionType.CASH_TRANSFER,
-          transactionAt: new Date(),
+          // Completion only fills in the missing settlement/source details. Keep
+          // the accounting movement on the original customer transaction date.
+          transactionAt: detail.transaction.transactionAt,
           grossAmount: new Prisma.Decimal(settlementAmount + payoutChargeTotal),
           netAmount: new Prisma.Decimal(settlementAmount),
           status: TransactionStatus.COMPLETED,
@@ -1818,6 +1820,7 @@ export class TransactionsService {
         userId,
         'Complete ' + detail.transaction.transactionNumber,
         completionEntries,
+        detail.transaction.transactionAt,
       );
 
       if (splitWalletTransfer) {
