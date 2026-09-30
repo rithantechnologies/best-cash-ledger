@@ -212,7 +212,19 @@ export class TransactionsService {
 
     const page = Math.max(1, options.page);
     const pageSize = Math.min(Math.max(options.pageSize ?? 25, 5), 100);
-    const [items, total] = await Promise.all([
+    const serviceRevenueWhere: Prisma.TransactionWhereInput = {
+      AND: [where, { transactionType: TransactionType.SERVICE_INCOME }],
+    };
+    const providerCommissionWhere: Prisma.TransactionCommissionWhereInput = {
+      transaction: where,
+      commissionType: { endsWith: '_PROVIDER' },
+    };
+    const customerCommissionWhere: Prisma.TransactionCommissionWhereInput = {
+      transaction: where,
+      NOT: { commissionType: { endsWith: '_PROVIDER' } },
+    };
+
+    const [items, total, processed, serviceRevenue, customerCommission, providerIncome, providerCost] = await Promise.all([
       this.prisma.transaction.findMany({
         where,
         include: activityInclude,
@@ -221,7 +233,19 @@ export class TransactionsService {
         take: pageSize,
       }),
       this.prisma.transaction.count({ where }),
+      this.prisma.transaction.aggregate({ where, _sum: { grossAmount: true } }),
+      this.prisma.transaction.aggregate({ where: serviceRevenueWhere, _sum: { grossAmount: true } }),
+      this.prisma.transactionCommission.aggregate({ where: customerCommissionWhere, _sum: { amount: true } }),
+      this.prisma.transactionCommission.aggregate({ where: providerCommissionWhere, _sum: { amount: true } }),
+      this.prisma.transactionCharge.aggregate({ where: { transaction: where }, _sum: { amount: true } }),
     ]);
+
+    const processedAmount = Number(processed._sum.grossAmount ?? 0);
+    const serviceRevenueAmount = Number(serviceRevenue._sum.grossAmount ?? 0);
+    const customerCommissionAmount = Number(customerCommission._sum.amount ?? 0);
+    const providerIncomeAmount = Number(providerIncome._sum.amount ?? 0);
+    const providerCostAmount = Number(providerCost._sum.amount ?? 0);
+    const totalIncomeAmount = customerCommissionAmount + providerIncomeAmount + serviceRevenueAmount;
 
     return {
       items: await this.withCreators(items),
@@ -230,6 +254,15 @@ export class TransactionsService {
         pageSize,
         total,
         totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+      aggregates: {
+        processed: this.money(processedAmount),
+        customerCommission: this.money(customerCommissionAmount),
+        providerIncome: this.money(providerIncomeAmount),
+        serviceRevenue: this.money(serviceRevenueAmount),
+        totalIncome: this.money(totalIncomeAmount),
+        providerCost: this.money(providerCostAmount),
+        profit: this.money(totalIncomeAmount - providerCostAmount),
       },
     };
   }
