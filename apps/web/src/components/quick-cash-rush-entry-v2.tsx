@@ -22,7 +22,7 @@ type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:st
 
 type RushRow={
   key:string;direction:Direction;purpose:Purpose;amount:string;customerId:string;customerLookup:string;customerSuggestions:CustomerSuggestion[];customerSuggestionIndex:number;customerSearchLoading:boolean;customerName:string;mobileNumber:string;commission:string;commissionOverridden:boolean;
-  commissionMode:CommissionMode;commissionCash:string;cashReceived:string;transferTypeId:string;beneficiaryMode:BeneficiaryMode;beneficiaryUpi:string;
+  commissionMode:CommissionMode;commissionCash:string;cashReceived:string;cashReceivedOverridden:boolean;transferTypeId:string;beneficiaryMode:BeneficiaryMode;beneficiaryUpi:string;
   bankAccountHolder:string;bankAccountNumber:string;bankIfsc:string;cashOutType:CashOutType;successful:boolean;aadhaarLastFour:string;
   customerBankName:string;cardLastFour:string;serviceName:string;servicePaymentMode:"CASH"|"UPI";servicePaymentAccountId:string;
   serviceFulfillmentMode:"INTERNAL"|"PARTNER";servicePartnerName:string;servicePartnerCharge:string;servicePartnerPaymentTiming:"PAID_NOW"|"PAY_LATER";
@@ -37,7 +37,7 @@ function newKey(){
 function emptyRow(direction:Direction="IN"):RushRow{
   return {
     key:newKey(),direction,purpose:"TRANSFER",amount:"",customerId:"",customerLookup:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerName:"",mobileNumber:"",commission:"",commissionOverridden:false,
-    commissionMode:"CASH",commissionCash:"",cashReceived:"",transferTypeId:"",beneficiaryMode:"UPI",beneficiaryUpi:"",
+    commissionMode:"CASH",commissionCash:"",cashReceived:"",cashReceivedOverridden:false,transferTypeId:"",beneficiaryMode:"UPI",beneficiaryUpi:"",
     bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",cashOutType:"UPI_QR",successful:true,aadhaarLastFour:"",
     customerBankName:"",cardLastFour:"",serviceName:"",servicePaymentMode:"CASH",servicePaymentAccountId:"",
     serviceFulfillmentMode:"INTERNAL",servicePartnerName:"",servicePartnerCharge:"",servicePartnerPaymentTiming:"PAID_NOW",
@@ -78,7 +78,7 @@ function rowError(row:RushRow,services:ServiceConfig[]){
     if(!Number.isFinite(cashPart)||cashPart<=0||cashPart>=fee)return "Split fee cash part must be greater than 0 and less than the total fee.";
   }
   if(row.direction==="IN"&&row.purpose==="TRANSFER"&&!row.transferTypeId)return "Choose a Cash In mode.";
-  if(row.direction==="IN"&&row.purpose==="TRANSFER"&&row.cashReceived.trim()&&Number(row.cashReceived)<cashDue(row))return "Cash received is less than amount + cash fee.";
+  if(row.direction==="IN"&&row.purpose==="TRANSFER"&&row.cashReceivedOverridden&&Number(row.cashReceived||0)<cashDue(row))return "Cash received is less than amount + cash fee.";
   if(row.direction==="OUT"&&row.cashOutType==="AEPS"&&!/^\d{4}$/.test(row.aadhaarLastFour))return "Enter Aadhaar last 4 digits.";
   if(row.direction==="OUT"&&row.cashOutType==="MICRO_ATM"&&!/^\d{4}$/.test(row.cardLastFour))return "Enter card last 4 digits.";
   if(row.direction==="IN"&&row.purpose==="SERVICE"){
@@ -109,6 +109,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   const [savingAll,setSavingAll]=useState(false);
   const [savedSinceRefresh,setSavedSinceRefresh]=useState(false);
   const amountRefs=useRef<Record<string,HTMLInputElement|null>>({});
+  const detailRefs=useRef<Record<string,HTMLElement|null>>({});
   const customerSearchTimers=useRef<Record<string,number>>({});
   const lastDirection=useRef<Direction>("IN");
 
@@ -164,6 +165,11 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   }
   function minimizeRush(){setMinimized(true);setRowFilter("ACTIVE");}
   function restoreRush(){setMinimized(false);setOpen(true);}
+  function rowNeedsDetails(row:RushRow){return row.direction==="IN"||(row.direction==="OUT"&&row.cashOutType!=="UPI_QR");}
+  function expandForEntry(key:string,focusDetail=false){
+    setRows((current)=>current.map((row)=>row.key===key&&row.status!=="SAVED"?{...row,expanded:true}:row.expanded?{...row,expanded:false}:row));
+    if(focusDetail)window.setTimeout(()=>detailRefs.current[key]?.focus(),30);
+  }
   function updateRow(key:string,patch:Partial<RushRow>){
     setRows((current)=>keepTrailingBlank(current.map((row)=>row.key===key&&row.status!=="SAVED"?{...row,...patch,status:"READY",message:undefined}:row)));
   }
@@ -191,18 +197,24 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   function setTransferType(key:string,id:string){
     const type=activeTransferTypes.find((item)=>item.id===id);
     setRows((current)=>keepTrailingBlank(current.map((row)=>{
-      if(row.key!==key||row.status==="SAVED")return row;
-      return {...row,purpose:"TRANSFER",transferTypeId:id,beneficiaryMode:type?.transferMode??"UPI",expanded:false,
-        commission:type?transferFee(row.amount,type):row.commission,commissionOverridden:false,status:"READY",message:undefined};
+      if(row.key===key&&row.status!=="SAVED")return {...row,purpose:"TRANSFER",transferTypeId:id,beneficiaryMode:type?.transferMode??"UPI",expanded:true,
+        commission:type?transferFee(row.amount,type):row.commission,commissionOverridden:false,cashReceivedOverridden:false,status:"READY",message:undefined};
+      return row.expanded?{...row,expanded:false}:row;
     })));
   }
   function setGridMode(row:RushRow,value:string){
     if(row.direction==="OUT"){
-      updateRow(row.key,{cashOutType:value as CashOutType,expanded:value!=="UPI_QR",successful:true,
-        commissionMode:value==="MICRO_ATM"?"UPI":"CASH",commissionCash:""});
+      setRows((current)=>keepTrailingBlank(current.map((item)=>{
+        if(item.key===row.key&&item.status!=="SAVED")return {...item,cashOutType:value as CashOutType,expanded:value!=="UPI_QR",successful:true,
+          commissionMode:value==="MICRO_ATM"?"UPI":"CASH",commissionCash:"",status:"READY",message:undefined};
+        return item.expanded?{...item,expanded:false}:item;
+      })));
       return;
     }
-    if(value==="SERVICE"){updateRow(row.key,{purpose:"SERVICE",expanded:true,commission:"",commissionCash:"",commissionOverridden:false});return;}
+    if(value==="SERVICE"){
+      setRows((current)=>keepTrailingBlank(current.map((item)=>item.key===row.key&&item.status!=="SAVED"?{...item,purpose:"SERVICE",expanded:true,commission:"",commissionCash:"",commissionOverridden:false,status:"READY",message:undefined}:item.expanded?{...item,expanded:false}:item)));
+      return;
+    }
     if(value.startsWith("TR:"))setTransferType(row.key,value.slice(3));
   }
   function selectService(row:RushRow,name:string){
@@ -294,7 +306,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
         method:"POST",headers:{"idempotency-key":"cash-rush-v2-"+row.key},
         body:JSON.stringify({
           direction:row.direction,cashAccountId,amount,purpose,
-          cashReceivedAmount:row.direction==="IN"&&purpose==="TRANSFER"?(row.cashReceived.trim()?Number(row.cashReceived):cashDue(row)):undefined,
+          cashReceivedAmount:row.direction==="IN"&&purpose==="TRANSFER"?(row.cashReceivedOverridden?Number(row.cashReceived||0):cashDue(row)):undefined,
           serviceName:purpose==="SERVICE"?row.serviceName.trim():(row.direction==="IN"&&selectedType?selectedType.name:undefined),
           cashOutType:row.direction==="OUT"?row.cashOutType:undefined,
           successful:row.direction==="OUT"&&row.cashOutType!=="UPI_QR"?row.successful:undefined,
@@ -388,7 +400,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                 {visibleRows.map(({row,index})=>{
                   const modeValue=row.direction==="OUT"?row.cashOutType:row.purpose==="SERVICE"?"SERVICE":row.transferTypeId?"TR:"+row.transferTypeId:"";
                   const selectedService=activeServices.find((item)=>item.name.toLowerCase()===row.serviceName.trim().toLowerCase());
-                  const due=cashDue(row),given=row.cashReceived.trim()?Number(row.cashReceived):due,change=Math.max(0,given-due);
+                  const due=cashDue(row),given=row.cashReceivedOverridden?Number(row.cashReceived||0):due,short=Math.max(0,due-given),change=Math.max(0,given-due);
                   const primaryDue=row.direction==="IN"&&row.purpose==="TRANSFER"?due:Number(row.amount||0);
                   const dueWord=row.direction==="OUT"?"payout":row.purpose==="SERVICE"?"charge":"due";
                   const customerValue=row.customerLookup||row.customerName;
@@ -407,13 +419,13 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                       </select>
                       <div className="flex h-9 items-center rounded-lg border border-violet-200 bg-white px-2 focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-100">
                         <span className="mr-1 text-xs font-black">₹</span><input ref={(element)=>{amountRefs.current[row.key]=element;}} inputMode="decimal" value={row.amount}
-                          disabled={row.status==="SAVED"||row.status==="SAVING"} onChange={(event)=>updateAmount(row.key,event.target.value)}
-                          onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();void saveRow(row.key);}else if(event.key==="ArrowDown"){event.preventDefault();focusRelative(row.key,1);}else if(event.key==="ArrowUp"){event.preventDefault();focusRelative(row.key,-1);}}}
+                          disabled={row.status==="SAVED"||row.status==="SAVING"} onFocus={()=>{if(rowNeedsDetails(row)&&!row.expanded)expandForEntry(row.key);}} onChange={(event)=>updateAmount(row.key,event.target.value)}
+                          onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();if(rowNeedsDetails(row))expandForEntry(row.key,true);else void saveRow(row.key);}else if(event.key==="ArrowDown"){event.preventDefault();focusRelative(row.key,1);}else if(event.key==="ArrowUp"){event.preventDefault();focusRelative(row.key,-1);}}}
                           className="min-w-0 flex-1 bg-transparent text-right text-[15px] font-black tabular-nums outline-none disabled:opacity-60" placeholder="0"/></div>
                       <div className="flex h-9 items-center rounded-lg border border-[var(--border)] bg-white px-2 focus-within:border-violet-400">
                         <span className="mr-1 text-[10px] font-black text-[var(--text-muted)]">₹</span><input inputMode="decimal" value={row.commission} disabled={row.status==="SAVED"||row.status==="SAVING"||row.purpose==="SERVICE"}
-                          onChange={(event)=>updateRow(row.key,{commission:event.target.value.replace(/[^0-9.]/g,""),commissionOverridden:true})}
-                          onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();void saveRow(row.key);}}}
+                          onChange={(event)=>updateRow(row.key,{commission:event.target.value.replace(/[^0-9.]/g,""),commissionOverridden:true,cashReceivedOverridden:false})}
+                          onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();if(rowNeedsDetails(row))expandForEntry(row.key,true);else void saveRow(row.key);}}}
                           className="min-w-0 flex-1 bg-transparent text-right text-[12px] font-black tabular-nums outline-none disabled:opacity-40" placeholder="0"/></div>
                       <div className={"rounded-lg px-2 py-1.5 text-right "+(row.direction==="OUT"?"bg-rose-50":"bg-emerald-50")}>
                         <strong className={"money block text-[12px] font-black "+(row.direction==="OUT"?"text-rose-800":"text-emerald-800")}>{money(primaryDue)}</strong>
@@ -438,24 +450,23 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
 
                     {row.expanded&&row.status!=="SAVED"?<div className="border-t border-violet-100 bg-white px-3 py-1.5">
                       <div className="overflow-x-auto pb-0.5">
-                        {row.direction==="IN"&&row.purpose==="TRANSFER"?<div className="flex min-w-max items-stretch gap-2">
-                          <div className="order-2 w-[220px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
+                        {row.direction==="IN"&&row.purpose==="TRANSFER"?<div className="grid min-w-[1080px] grid-cols-[minmax(330px,2.2fr)_175px_135px_115px_145px_minmax(160px,1fr)] items-stretch gap-2">
+                          <div className="rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
+                            <div className="flex items-center justify-between gap-2"><span className="block text-[8px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Beneficiary · optional</span><span className="text-[8px] font-bold text-[var(--text-muted)]">{activeTransferTypes.find((item)=>item.id===row.transferTypeId)?.name||""}</span></div>
+                            {row.beneficiaryMode==="UPI"?<input ref={(element)=>{detailRefs.current[row.key]=element;}} value={row.beneficiaryUpi} onChange={(event)=>updateRow(row.key,{beneficiaryUpi:event.target.value})} className="mt-1 h-8 w-full rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="UPI ID / mobile"/>:
+                            <div className="mt-1 grid grid-cols-3 gap-1"><input ref={(element)=>{detailRefs.current[row.key]=element;}} value={row.bankAccountHolder} onChange={(event)=>updateRow(row.key,{bankAccountHolder:event.target.value})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="Account holder"/><input inputMode="numeric" value={row.bankAccountNumber} onChange={(event)=>updateRow(row.key,{bankAccountNumber:event.target.value.replace(/\s/g,"")})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="Account number"/><input value={row.bankIfsc} onChange={(event)=>updateRow(row.key,{bankIfsc:event.target.value.toUpperCase().replace(/\s/g,"")})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold uppercase outline-none focus:border-violet-400" placeholder="IFSC"/></div>}
+                          </div>
+                          <div className="rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
                             <span className="block text-[8px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Fee paid by</span>
-                            <div className="mt-1 grid grid-cols-3 rounded-md bg-white p-0.5">{(["CASH","UPI","SPLIT"] as CommissionMode[]).map((mode)=><button key={mode} type="button" onClick={()=>updateRow(row.key,{commissionMode:mode,commissionCash:mode==="SPLIT"?row.commissionCash:""})} className={"min-h-7 rounded-[6px] px-1 text-[9px] font-black "+(row.commissionMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":mode==="UPI"?"Bank / UPI":"Both"}</button>)}</div>
-                            {row.commissionMode==="SPLIT"?<div className="mt-1 flex h-7 items-center rounded-md bg-white px-2"><span className="text-[9px] font-bold text-[var(--text-muted)]">Cash ₹</span><input inputMode="decimal" value={row.commissionCash} onChange={(event)=>updateRow(row.key,{commissionCash:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-right text-[10px] font-black outline-none" placeholder="0"/></div>:null}
+                            {Number(row.commission||0)>0?<><select value={row.commissionMode} onChange={(event)=>updateRow(row.key,{commissionMode:event.target.value as CommissionMode,commissionCash:event.target.value==="SPLIT"?row.commissionCash:""})} className="mt-1 h-8 w-full rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-black outline-none focus:border-violet-400"><option value="CASH">Cash</option><option value="UPI">Bank / UPI</option><option value="SPLIT">Both</option></select>{row.commissionMode==="SPLIT"?<div className="mt-1 flex h-7 items-center rounded-md bg-white px-2"><span className="text-[9px] font-bold text-[var(--text-muted)]">Cash ₹</span><input inputMode="decimal" value={row.commissionCash} onChange={(event)=>updateRow(row.key,{commissionCash:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-right text-[10px] font-black outline-none" placeholder="0"/></div>:null}</>:<div className="mt-1 flex h-8 items-center rounded-md bg-white px-2 text-[10px] font-black text-[var(--text-muted)]">No fee</div>}
                           </div>
-                          <div className="order-1 w-[430px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
-                            <div className="flex items-center justify-between gap-2"><span className="text-[8px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Beneficiary</span><span className="text-[8px] font-bold text-[var(--text-muted)]">{activeTransferTypes.find((item)=>item.id===row.transferTypeId)?.name||""}</span></div>
-                            {row.beneficiaryMode==="UPI"?<input value={row.beneficiaryUpi} onChange={(event)=>updateRow(row.key,{beneficiaryUpi:event.target.value})} className="mt-1 h-8 w-full rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none" placeholder="UPI ID / mobile"/>:
-                            <div className="mt-1 grid grid-cols-3 gap-1"><input value={row.bankAccountHolder} onChange={(event)=>updateRow(row.key,{bankAccountHolder:event.target.value})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none" placeholder="Account holder"/><input value={row.bankAccountNumber} onChange={(event)=>updateRow(row.key,{bankAccountNumber:event.target.value.replace(/\s/g,"")})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold outline-none" placeholder="Account number"/><input value={row.bankIfsc} onChange={(event)=>updateRow(row.key,{bankIfsc:event.target.value.toUpperCase().replace(/\s/g,"")})} className="h-8 rounded-md border border-[var(--border)] bg-white px-2 text-[10px] font-bold uppercase outline-none" placeholder="IFSC"/></div>}
-                          </div>
-                          <label className="order-3 w-[145px] shrink-0 rounded-lg bg-emerald-50 px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-emerald-700">Cash received</span><div className="mt-1 flex h-8 items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" value={row.cashReceived} onChange={(event)=>updateRow(row.key,{cashReceived:event.target.value.replace(/[^0-9.]/g,"")})} placeholder={String(due||0)} className="min-w-0 flex-1 bg-transparent text-[11px] font-black outline-none"/></div></label>
-                          <div className="order-4 w-[105px] shrink-0 rounded-lg bg-emerald-100 px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-emerald-700">Give back</span><strong className="money mt-1 block text-[14px] text-emerald-700">{money(change)}</strong></div>
-                          <label className="w-[145px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Mobile · optional</span><input type="tel" value={row.mobileNumber} onChange={(event)=>updateRow(row.key,{mobileNumber:event.target.value})} className="mt-1 h-8 w-full rounded-md bg-white px-2 text-[10px] font-bold outline-none" placeholder="Mobile"/></label>
-                          <label className="order-6 w-[185px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Note · optional</span><input value={row.remarks} onChange={(event)=>updateRow(row.key,{remarks:event.target.value})} className="mt-1 h-8 w-full rounded-md bg-white px-2 text-[10px] font-bold outline-none" placeholder="Reference / note"/></label>
+                          <label className="rounded-lg bg-emerald-50 px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-emerald-700">Customer gave</span><div className="mt-1 flex h-8 items-center gap-1"><span className="font-black">₹</span><input inputMode="decimal" value={row.cashReceivedOverridden?row.cashReceived:String(due||"")} onChange={(event)=>{const value=event.target.value.replace(/[^0-9.]/g,"");updateRow(row.key,{cashReceived:value,cashReceivedOverridden:Boolean(value)});}} placeholder={String(due||0)} className="min-w-0 flex-1 bg-transparent text-[11px] font-black outline-none"/>{row.cashReceivedOverridden?<button type="button" onClick={()=>updateRow(row.key,{cashReceived:"",cashReceivedOverridden:false})} className="rounded bg-white px-1.5 py-1 text-[8px] font-black text-emerald-700">Exact</button>:null}</div></label>
+                          <div className={"rounded-lg px-2 py-1.5 "+(short>0?"bg-rose-100":"bg-emerald-100")}><span className={"block text-[8px] font-black uppercase "+(short>0?"text-rose-700":"text-emerald-700")}>{short>0?"Ask more":"Give back"}</span><strong className={"money mt-1 block text-[14px] "+(short>0?"text-rose-700":"text-emerald-700")}>{money(short>0?short:change)}</strong></div>
+                          <label className="rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Mobile · optional</span><input type="tel" value={row.mobileNumber} onChange={(event)=>updateRow(row.key,{mobileNumber:event.target.value})} className="mt-1 h-8 w-full rounded-md bg-white px-2 text-[10px] font-bold outline-none" placeholder="Mobile"/></label>
+                          <label className="rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Note · optional</span><input value={row.remarks} onChange={(event)=>updateRow(row.key,{remarks:event.target.value})} onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();void saveRow(row.key);}}} className="mt-1 h-8 w-full rounded-md bg-white px-2 text-[10px] font-bold outline-none" placeholder="Reference / note"/></label>
                         </div>:null}
                         {row.direction==="IN"&&row.purpose==="SERVICE"?<div className="flex min-w-max items-stretch gap-2">
-                          <label className="w-[210px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Service <b className="text-rose-500">*</b></span><select value={row.serviceName} onChange={(event)=>selectService(row,event.target.value)} className="mt-1 h-8 w-full cursor-pointer rounded-md border border-violet-200 bg-white px-2 text-[10px] font-black outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"><option value="">Select service</option>{activeServices.map((item)=><option key={item.id} value={item.name}>{item.name}</option>)}</select></label>
+                          <label className="w-[210px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Service <b className="text-rose-500">*</b></span><select ref={(element)=>{detailRefs.current[row.key]=element;}} value={row.serviceName} onChange={(event)=>selectService(row,event.target.value)} className="mt-1 h-8 w-full cursor-pointer rounded-md border border-violet-200 bg-white px-2 text-[10px] font-black outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"><option value="">Select service</option>{activeServices.map((item)=><option key={item.id} value={item.name}>{item.name}</option>)}</select></label>
                           <div className="w-[190px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Customer paid by</span><div className="mt-1 grid grid-cols-2 rounded-md bg-white p-0.5">{(["CASH","UPI"] as const).map((mode)=><button type="button" key={mode} onClick={()=>updateRow(row.key,{servicePaymentMode:mode,servicePaymentAccountId:mode==="CASH"?"":row.servicePaymentAccountId})} className={"min-h-7 rounded-[6px] text-[9px] font-black "+(row.servicePaymentMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":"Bank / UPI"}</button>)}</div></div>
                           {row.servicePaymentMode==="UPI"?<label className="w-[180px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Received in <b className="text-rose-500">*</b></span><select value={row.servicePaymentAccountId} onChange={(event)=>updateRow(row.key,{servicePaymentAccountId:event.target.value})} className="mt-1 h-8 w-full rounded-md border border-violet-200 bg-white px-2 text-[10px] font-bold"><option value="">Select account</option>{servicePaymentAccounts.map((item)=><option key={item.id} value={item.id}>{item.accountName}</option>)}</select></label>:null}
                           <div className="w-[170px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Fulfilled by</span><div className="mt-1 grid grid-cols-2 rounded-md bg-white p-0.5"><button type="button" onClick={()=>updateRow(row.key,{serviceFulfillmentMode:"INTERNAL"})} className={"min-h-7 rounded-[6px] text-[9px] font-black "+(row.serviceFulfillmentMode==="INTERNAL"?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>Us</button><button type="button" disabled={Boolean(selectedService&&!selectedService.allowPartnerFulfillment)} onClick={()=>updateRow(row.key,{serviceFulfillmentMode:"PARTNER",servicePartnerName:row.servicePartnerName||selectedService?.defaultPartnerName||"",servicePartnerCharge:row.servicePartnerCharge||(selectedService?.defaultPartnerCharge!==null&&selectedService?.defaultPartnerCharge!==undefined?String(Number(selectedService.defaultPartnerCharge)):""),servicePartnerPaymentAccountId:row.servicePartnerPaymentAccountId||cashAccountId})} className={"min-h-7 rounded-[6px] text-[9px] font-black disabled:opacity-30 "+(row.serviceFulfillmentMode==="PARTNER"?"bg-violet-50 text-violet-700":"text-[var(--text-muted)]")}>Partner</button></div></div>
@@ -469,8 +480,8 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                         </div>:null}
                         {row.direction==="OUT"?<div className="flex min-w-max items-stretch gap-2">
                           {row.cashOutType!=="UPI_QR"?<><div className="w-[155px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Attempt</span><div className="mt-1 grid grid-cols-2 rounded-md bg-white p-0.5"><button type="button" onClick={()=>updateRow(row.key,{successful:true})} className={"min-h-7 rounded-[6px] text-[9px] font-black "+(row.successful?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>Success</button><button type="button" onClick={()=>updateRow(row.key,{successful:false,commission:"",commissionCash:""})} className={"min-h-7 rounded-[6px] text-[9px] font-black "+(!row.successful?"bg-rose-50 text-rose-700":"text-[var(--text-muted)]")}>Failed</button></div></div>
-                            {row.cashOutType==="AEPS"?<label className="w-[120px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Aadhaar last 4 <b className="text-rose-500">*</b></span><input inputMode="numeric" maxLength={4} value={row.aadhaarLastFour} onChange={(event)=>updateRow(row.key,{aadhaarLastFour:event.target.value.replace(/\D/g,"").slice(0,4)})} className="mt-1 h-8 w-full rounded-md border border-violet-200 bg-white px-2 text-[10px] font-black tracking-widest outline-none" placeholder="1234"/></label>:<>
-                              <label className="w-[105px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Card last 4 <b className="text-rose-500">*</b></span><input inputMode="numeric" maxLength={4} value={row.cardLastFour} onChange={(event)=>updateRow(row.key,{cardLastFour:event.target.value.replace(/\D/g,"").slice(0,4)})} className="mt-1 h-8 w-full rounded-md border border-violet-200 bg-white px-2 text-[10px] font-black tracking-widest outline-none" placeholder="1234"/></label>
+                            {row.cashOutType==="AEPS"?<label className="w-[120px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Aadhaar last 4 <b className="text-rose-500">*</b></span><input ref={(element)=>{detailRefs.current[row.key]=element;}} inputMode="numeric" maxLength={4} value={row.aadhaarLastFour} onChange={(event)=>updateRow(row.key,{aadhaarLastFour:event.target.value.replace(/\D/g,"").slice(0,4)})} className="mt-1 h-8 w-full rounded-md border border-violet-200 bg-white px-2 text-[10px] font-black tracking-widest outline-none" placeholder="1234"/></label>:<>
+                              <label className="w-[105px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Card last 4 <b className="text-rose-500">*</b></span><input ref={(element)=>{detailRefs.current[row.key]=element;}} inputMode="numeric" maxLength={4} value={row.cardLastFour} onChange={(event)=>updateRow(row.key,{cardLastFour:event.target.value.replace(/\D/g,"").slice(0,4)})} className="mt-1 h-8 w-full rounded-md border border-violet-200 bg-white px-2 text-[10px] font-black tracking-widest outline-none" placeholder="1234"/></label>
                               <label className="w-[145px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Customer bank</span><input value={row.customerBankName} onChange={(event)=>updateRow(row.key,{customerBankName:event.target.value})} className="mt-1 h-8 w-full rounded-md bg-white px-2 text-[10px] font-bold outline-none" placeholder="Bank"/></label></>}
                           </>:null}
                           {row.commission&&Number(row.commission)>0&&row.successful?<div className="w-[205px] shrink-0 rounded-lg bg-[var(--surface-soft)] px-2 py-1.5"><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Commission in</span>{row.cashOutType==="MICRO_ATM"?<div className="mt-1 flex h-8 items-center rounded-md bg-blue-50 px-2 text-[9px] font-black text-blue-700">Bank / UPI</div>:<div className="mt-1 grid grid-cols-3 rounded-md bg-white p-0.5">{(["CASH","UPI","SPLIT"] as CommissionMode[]).map((mode)=><button key={mode} type="button" onClick={()=>updateRow(row.key,{commissionMode:mode,commissionCash:mode==="SPLIT"?row.commissionCash:""})} className={"min-h-7 rounded-[6px] px-1 text-[9px] font-black "+(row.commissionMode===mode?"bg-emerald-50 text-emerald-700":"text-[var(--text-muted)]")}>{mode==="CASH"?"Cash":mode==="UPI"?"UPI":"Split"}</button>)}</div>}{row.commissionMode==="SPLIT"&&row.cashOutType!=="MICRO_ATM"?<div className="mt-1 flex h-7 items-center rounded-md bg-white px-2"><span className="text-[9px] font-bold">Cash ₹</span><input inputMode="decimal" value={row.commissionCash} onChange={(event)=>updateRow(row.key,{commissionCash:event.target.value.replace(/[^0-9.]/g,"")})} className="min-w-0 flex-1 bg-transparent text-right text-[10px] font-black outline-none"/></div>:null}</div>:null}
@@ -494,7 +505,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                 <button type="button" onClick={()=>addRow("OUT")} className="min-h-9 rounded-lg bg-rose-50 px-3 text-[10px] font-black text-rose-700">+ Cash Out</button>
               </div>
               <div className="flex items-center gap-3">
-                <div className="hidden text-right sm:block"><p className="text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{savedRows.length} saved · <span className={pendingRows.length?"text-amber-700":"text-[var(--text-muted)]"}>{pendingRows.length} pending</span> · {unsavedCount} unsaved</p><p className="money mt-0.5 text-[12px] font-black">{money(readyTotal)} total</p></div>
+                <div className="hidden text-right sm:block"><p className="text-[9px] font-black uppercase tracking-wide text-[var(--text-muted)]">{savedRows.length} saved · <span className={pendingRows.length?"text-amber-700":"text-[var(--text-muted)]"}>{pendingRows.length} pending</span> · {unsavedCount} unsaved</p><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Enter opens details · Tab moves fields · Enter on Note saves</p><p className="money mt-0.5 text-[12px] font-black">{money(readyTotal)} total</p></div>
                 <button type="button" onClick={()=>void saveAll()} disabled={savingAll||enteredRows.every((row)=>row.status==="SAVED")} className="min-h-9 rounded-lg bg-violet-600 px-4 text-[11px] font-black text-white shadow-sm disabled:opacity-30">{savingAll?"Saving…":"Save all"}</button>
               </div>
             </div>
