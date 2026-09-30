@@ -261,6 +261,8 @@ export default function CashCounterPage(){
   const [cashBookMobileDirection,setCashBookMobileDirection]=useState<QuickCashDirection>("IN");
   const [cashBookPageSize,setCashBookPageSize]=useState<30|50>(30);
   const [cashBookPages,setCashBookPages]=useState<Record<QuickCashDirection,number>>({IN:1,OUT:1});
+  const [transactionPageSize,setTransactionPageSize]=useState<30|50|100>(30);
+  const [transactionPage,setTransactionPage]=useState(1);
   const [direction,setDirection]=useState<DirectionFilter>("ALL");
   const [serviceFilter,setServiceFilter]=useState<string|null>(null);
   const [txColumns,setTxColumns]=useState<TxColumn[]>(()=>{
@@ -605,6 +607,21 @@ export default function CashCounterPage(){
       return directionMatch&&serviceMatch;
     }).reverse();
   },[today?.activities,direction,serviceFilter]);
+  const transactionPageCount=Math.max(1,Math.ceil(visibleActivities.length/transactionPageSize));
+  const currentTransactionPage=Math.min(transactionPage,transactionPageCount);
+  const pagedVisibleActivities=useMemo(()=>{
+    const start=(currentTransactionPage-1)*transactionPageSize;
+    return visibleActivities.slice(start,start+transactionPageSize);
+  },[visibleActivities,currentTransactionPage,transactionPageSize]);
+  const transactionRange=visibleActivities.length
+    ?{start:(currentTransactionPage-1)*transactionPageSize+1,end:Math.min(currentTransactionPage*transactionPageSize,visibleActivities.length)}
+    :{start:0,end:0};
+  const changeTransactionPageSize=(size:30|50|100)=>{
+    setTransactionPageSize(size);
+    setTransactionPage(1);
+  };
+  const goToTransactionPage=(page:number)=>setTransactionPage(Math.max(1,Math.min(page,transactionPageCount)));
+
   const transactionServices=useMemo(()=>{
     return Array.from(new Set((today?.activities??[]).map((activity)=>activity.serviceType))).sort((a,b)=>friendlyService(a).localeCompare(friendlyService(b)));
   },[today?.activities]);
@@ -1040,14 +1057,23 @@ export default function CashCounterPage(){
       <Surface className="overflow-hidden">
         <div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><h3 className="text-sm font-extrabold">Transactions</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{visibleActivities.length} of {today.activities?.length??0}</p></div>
+            <div><h3 className="text-sm font-extrabold">Transactions</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{visibleActivities.length?`Showing ${transactionRange.start}–${transactionRange.end} of ${visibleActivities.length}`:"0 transactions"}</p></div>
             <div className="flex flex-wrap items-center gap-1.5">
+              <label className="flex min-h-9 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-bold text-[var(--text-muted)]">
+                <span className="hidden sm:inline">Rows</span>
+                <select aria-label="Transaction rows per page" className="bg-transparent font-black text-[var(--text)] outline-none" value={transactionPageSize} onChange={(event)=>changeTransactionPageSize(Number(event.target.value) as 30|50|100)}>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>/ page</span>
+              </label>
               <div className="mr-1 grid grid-cols-2 rounded-xl bg-[var(--surface-soft)] p-1">
                 <button type="button" onClick={()=>setLedgerView("CASHBOOK")} className="min-h-8 rounded-lg px-3 text-xs font-black text-[var(--text-muted)]">Cash Book</button>
                 <button type="button" className="min-h-8 rounded-lg bg-[var(--surface)] px-3 text-xs font-black text-[var(--text)] shadow-sm">Detailed</button>
               </div>
-              {([["ALL","All"],["IN","Cash In"],["OUT","Cash Out"],["COMMISSION","Income"],["REVERSAL","Reversal"],["ADJUSTMENT","Adjust"]] as Array<[DirectionFilter,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>setDirection(id)} className={"min-h-9 rounded-xl border px-3 text-sm font-extrabold "+(direction===id?"border-[var(--accent)] bg-[var(--accent)] text-white":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{label}</button>)}
-              <SearchableSelect className="min-h-9 min-w-[150px] rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm font-bold text-[var(--text)]" value={serviceFilter??""} onChange={(event)=>setServiceFilter(event.target.value||null)}>
+              {([["ALL","All"],["IN","Cash In"],["OUT","Cash Out"],["COMMISSION","Income"],["REVERSAL","Reversal"],["ADJUSTMENT","Adjust"]] as Array<[DirectionFilter,string]>).map(([id,label])=><button key={id} type="button" onClick={()=>{setDirection(id);setTransactionPage(1);}} className={"min-h-9 rounded-xl border px-3 text-sm font-extrabold "+(direction===id?"border-[var(--accent)] bg-[var(--accent)] text-white":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{label}</button>)}
+              <SearchableSelect className="min-h-9 min-w-[150px] rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm font-bold text-[var(--text)]" value={serviceFilter??""} onChange={(event)=>{setServiceFilter(event.target.value||null);setTransactionPage(1);}}>
                 <option value="">All services</option>
                 {transactionServices.map((service)=><option key={service} value={service}>{friendlyService(service)}</option>)}
               </SearchableSelect>
@@ -1067,7 +1093,7 @@ export default function CashCounterPage(){
                 </details>}
             </div>
           </div>
-          {(direction!=="ALL"||serviceFilter)?<div className="mt-2 flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]"><span>Filtered view</span><button type="button" onClick={()=>{setDirection("ALL");setServiceFilter(null);}} className="font-black text-[var(--accent)]">Clear filters</button></div>:null}
+          {(direction!=="ALL"||serviceFilter)?<div className="mt-2 flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]"><span>Filtered view</span><button type="button" onClick={()=>{setDirection("ALL");setServiceFilter(null);setTransactionPage(1);}} className="font-black text-[var(--accent)]">Clear filters</button></div>:null}
         </div>
         {visibleActivities.length?<div className="overflow-x-auto overscroll-x-contain [scrollbar-gutter:stable]">
           <div className="cash-ledger-header hidden gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-3 text-xs font-extrabold uppercase tracking-[.05em] text-[var(--text-muted)] xl:grid" style={{gridTemplateColumns:txGridTemplate,minWidth:txTableMinWidth}}>
@@ -1083,7 +1109,7 @@ export default function CashCounterPage(){
             {displayedTxColumns.includes("DRAWER")?<span className="text-right">Drawer</span>:null}
           </div>
           <div className="divide-y divide-[var(--border)]">
-          {visibleActivities.map((activity)=>{
+          {pagedVisibleActivities.map((activity)=>{
             const selected=activity.id===selectedActivityId;
             return <button id={"cash-activity-"+activity.id} key={activity.id} type="button" onClick={()=>{setSelectedActivityId(activity.id);router.push("/transactions/"+activity.transactionId);}} className={"cash-activity-row w-full px-4 py-4 text-left transition sm:px-5 "+(selected?"bg-[var(--accent-soft)]":"hover:bg-[var(--surface-soft)]")}>
               <div className="hidden items-center gap-4 xl:grid" style={{gridTemplateColumns:txGridTemplate,minWidth:txTableMinWidth-40}}>
@@ -1123,6 +1149,14 @@ export default function CashCounterPage(){
                 </div>}
             </button>;
           })}
+          </div>
+          <div className="flex flex-col gap-2 border-t border-[var(--border)] px-4 py-3 text-xs font-semibold text-[var(--text-muted)] sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <span>Showing {transactionRange.start}–{transactionRange.end} of {visibleActivities.length}</span>
+            <div className="flex items-center gap-1.5">
+              <button type="button" disabled={currentTransactionPage<=1} onClick={()=>goToTransactionPage(currentTransactionPage-1)} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 font-black text-[var(--text)] disabled:opacity-35">Previous</button>
+              <span className="min-w-[82px] text-center font-black text-[var(--text)]">Page {currentTransactionPage} / {transactionPageCount}</span>
+              <button type="button" disabled={currentTransactionPage>=transactionPageCount} onClick={()=>goToTransactionPage(currentTransactionPage+1)} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 font-black text-[var(--text)] disabled:opacity-35">Next</button>
+            </div>
           </div>
         </div>:<div className="p-5 sm:p-7"><EmptyState title="No transactions yet" description="Cash movements and income earned during this session will appear here."/></div>}
       </Surface>
