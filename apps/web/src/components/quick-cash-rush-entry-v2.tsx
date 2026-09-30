@@ -24,7 +24,7 @@ type QuickServiceReference={id?:string;key?:string;serviceName:string;nickname?:
 type QuickEntryCustomerProfile={customer:{id:string;customerCode:string;fullName:string;mobile:string|null};savedDestinations:QuickEntryDestination[];recentDestinations:QuickEntryDestination[];serviceProfiles:QuickServiceReference[];recentServiceReferences:QuickServiceReference[]};
 
 type RushRow={
-  key:string;direction:Direction;purpose:Purpose;amount:string;customerId:string;customerLookup:string;customerSuggestions:CustomerSuggestion[];customerSuggestionIndex:number;customerSearchLoading:boolean;customerProfile:QuickEntryCustomerProfile|null;customerProfileLoading:boolean;selectedDestinationKey:string;customerName:string;mobileNumber:string;commission:string;commissionOverridden:boolean;
+  key:string;direction:Direction;purpose:Purpose;amount:string;customerId:string;customerLookup:string;customerSuggestions:CustomerSuggestion[];customerSuggestionIndex:number;customerSearchLoading:boolean;customerProfile:QuickEntryCustomerProfile|null;customerProfileLoading:boolean;selectedDestinationKey:string;customerName:string;mobileNumber:string;newCustomerOpen:boolean;newCustomerName:string;newCustomerMobile:string;newCustomerType:"REGULAR"|"WALK_IN";newCustomerNotes:string;newCustomerSaving:boolean;newCustomerError?:string;commission:string;commissionOverridden:boolean;
   commissionMode:CommissionMode;commissionCash:string;cashReceived:string;cashReceivedOverridden:boolean;transferTypeId:string;beneficiaryMode:BeneficiaryMode;beneficiaryUpi:string;
   bankAccountHolder:string;bankAccountNumber:string;bankIfsc:string;cashOutType:CashOutType;successful:boolean;aadhaarLastFour:string;
   customerBankName:string;cardLastFour:string;serviceName:string;serviceProfileId:string;serviceReferenceLabel:string;serviceProviderName:string;serviceReferenceNumber:string;rememberServiceReference:boolean;servicePaymentMode:"CASH"|"UPI";servicePaymentAccountId:string;
@@ -39,7 +39,7 @@ function newKey(){
 }
 function emptyRow(direction:Direction="IN"):RushRow{
   return {
-    key:newKey(),direction,purpose:"TRANSFER",amount:"",customerId:"",customerLookup:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerProfile:null,customerProfileLoading:false,selectedDestinationKey:"",customerName:"",mobileNumber:"",commission:"",commissionOverridden:false,
+    key:newKey(),direction,purpose:"TRANSFER",amount:"",customerId:"",customerLookup:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerProfile:null,customerProfileLoading:false,selectedDestinationKey:"",customerName:"",mobileNumber:"",newCustomerOpen:false,newCustomerName:"",newCustomerMobile:"",newCustomerType:"REGULAR",newCustomerNotes:"",newCustomerSaving:false,commission:"",commissionOverridden:false,
     commissionMode:"CASH",commissionCash:"",cashReceived:"",cashReceivedOverridden:false,transferTypeId:"",beneficiaryMode:"UPI",beneficiaryUpi:"",
     bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",cashOutType:"UPI_QR",successful:true,aadhaarLastFour:"",
     customerBankName:"",cardLastFour:"",serviceName:"",serviceProfileId:"",serviceReferenceLabel:"",serviceProviderName:"",serviceReferenceNumber:"",rememberServiceReference:true,servicePaymentMode:"CASH",servicePaymentAccountId:"",
@@ -90,6 +90,7 @@ function transferFee(amountValue:string,type?:TransferType){
   return String(Math.round((amount*Number(type.defaultCommissionRate||0)/100)*100)/100);
 }
 function rowError(row:RushRow,services:ServiceConfig[]){
+  if(row.newCustomerOpen)return "Create or cancel the new customer details first.";
   const amount=Number(row.amount),fee=Number(row.commission||0);
   if(!row.amount.trim()||!Number.isFinite(amount)||amount<=0)return "Enter an amount greater than 0.";
   if(row.purpose==="TRANSFER"&&(!Number.isFinite(fee)||fee<0))return "Fee / commission cannot be negative.";
@@ -130,6 +131,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   const [savedSinceRefresh,setSavedSinceRefresh]=useState(false);
   const amountRefs=useRef<Record<string,HTMLInputElement|null>>({});
   const detailRefs=useRef<Record<string,HTMLElement|null>>({});
+  const newCustomerRefs=useRef<Record<string,HTMLInputElement|null>>({});
   const customerSearchTimers=useRef<Record<string,number>>({});
   const lastDirection=useRef<Direction>("IN");
 
@@ -260,7 +262,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     const query=value.trim();
     const digits=query.replace(/\D/g,"");
     const looksLikePhone=query.length>0&&/^[+\d\s()-]+$/.test(query);
-    updateRow(row.key,{customerLookup:value,customerId:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:query.length>=2,customerProfile:null,customerProfileLoading:false,selectedDestinationKey:"",
+    updateRow(row.key,{customerLookup:value,customerId:"",customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:query.length>=2,customerProfile:null,customerProfileLoading:false,selectedDestinationKey:"",newCustomerOpen:false,newCustomerSaving:false,newCustomerError:undefined,
       customerName:looksLikePhone?"":value.toUpperCase(),mobileNumber:looksLikePhone?digits:(row.customerId?"":row.mobileNumber)});
     if(customerSearchTimers.current[row.key])window.clearTimeout(customerSearchTimers.current[row.key]);
     if(query.length<2)return;
@@ -271,7 +273,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     },180);
   }
   function selectExistingCustomer(key:string,customer:CustomerSuggestion){
-    updateRow(key,{customerId:customer.id,customerLookup:customer.fullName+(customer.mobile?" · "+customer.mobile:""),customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerProfile:null,customerProfileLoading:true,selectedDestinationKey:"",customerName:customer.fullName,mobileNumber:customer.mobile||""});
+    updateRow(key,{customerId:customer.id,customerLookup:customer.fullName+(customer.mobile?" · "+customer.mobile:""),customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false,customerProfile:null,customerProfileLoading:true,selectedDestinationKey:"",customerName:customer.fullName,mobileNumber:customer.mobile||"",newCustomerOpen:false,newCustomerSaving:false,newCustomerError:undefined});
     apiFetch<QuickEntryCustomerProfile>("/customers/"+customer.id+"/quick-entry-profile").then((profile)=>{
       setRows((current)=>current.map((row)=>{
         if(row.key!==key||row.customerId!==customer.id||row.status==="SAVED")return row;
@@ -282,6 +284,32 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
         return {...row,customerProfile:profile,customerProfileLoading:false,...destination,...serviceReference};
       }));
     }).catch(()=>updateRow(key,{customerProfile:null,customerProfileLoading:false}));
+  }
+  function openNewCustomer(row:RushRow){
+    const query=row.customerLookup.trim();
+    const digits=query.replace(/\D/g,"");
+    const looksLikePhone=query.length>0&&/^[+\d\s()-]+$/.test(query);
+    const normalizedMobile=digits.length>10&&digits.startsWith("91")?digits.slice(-10):digits;
+    const rowDigits=row.mobileNumber.replace(/\D/g,"");
+    const initialMobile=rowDigits.length>10&&rowDigits.startsWith("91")?rowDigits.slice(-10):(rowDigits||normalizedMobile).slice(0,10);
+    setRows((current)=>keepTrailingBlank(current.map((item)=>{
+      if(item.key===row.key&&item.status!=="SAVED")return {...item,expanded:true,newCustomerOpen:true,newCustomerName:looksLikePhone?"":(item.customerName||query).trim().toUpperCase(),newCustomerMobile:initialMobile,newCustomerType:"REGULAR",newCustomerNotes:"",newCustomerSaving:false,newCustomerError:undefined,customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false};
+      return item.expanded?{...item,expanded:false}:item;
+    })));
+    window.setTimeout(()=>newCustomerRefs.current[row.key]?.focus(),30);
+  }
+  async function createNewCustomer(row:RushRow){
+    const name=row.newCustomerName.trim().toUpperCase();
+    const mobile=row.newCustomerMobile.replace(/\D/g,"");
+    if(!name){updateRow(row.key,{newCustomerError:"Enter customer name."});newCustomerRefs.current[row.key]?.focus();return;}
+    if(mobile&&!/^[6-9]\d{9}$/.test(mobile)){updateRow(row.key,{newCustomerError:"Mobile must be a valid 10-digit Indian number."});return;}
+    markRow(row.key,{newCustomerSaving:true,newCustomerError:undefined});
+    try{
+      const customer=await apiFetch<CustomerSuggestion>("/customers",{method:"POST",body:JSON.stringify({customerType:row.newCustomerType,fullName:name,mobile:mobile||undefined,notes:row.newCustomerNotes.trim()||undefined})});
+      selectExistingCustomer(row.key,customer);
+    }catch(error){
+      markRow(row.key,{newCustomerSaving:false,newCustomerError:error instanceof Error?error.message:"Could not create customer."});
+    }
   }
   function handleCustomerKeyDown(row:RushRow,event:KeyboardEvent<HTMLInputElement>){
     const hasSuggestions=row.customerSuggestions.length>0&&!row.customerId;
@@ -308,6 +336,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
         selectExistingCustomer(row.key,row.customerSuggestions[index]);
         return;
       }
+      if(row.customerLookup.trim()){openNewCustomer(row);return;}
       void saveRow(row.key);
     }
   }
@@ -481,19 +510,31 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
                           onKeyDown={(event)=>handleCustomerKeyDown(row,event)}
                           className="h-9 w-full rounded-lg border border-transparent bg-[var(--surface-soft)] px-2.5 text-[11px] font-bold outline-none placeholder:text-[var(--text-muted)]/70 focus:border-[var(--border)] focus:bg-white disabled:opacity-60" placeholder="Name / mobile"/>
                         {!row.customerId&&row.customerLookup.trim().length>=2?<div className="absolute inset-x-0 top-[calc(100%+4px)] z-40 max-h-44 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
-                          {row.customerSearchLoading?<p className="px-2 py-1.5 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer,suggestionIndex)=><button key={customer.id} type="button" onMouseEnter={()=>updateRow(row.key,{customerSuggestionIndex:suggestionIndex})} onClick={()=>selectExistingCustomer(row.key,customer)} className={"flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left "+(suggestionIndex===row.customerSuggestionIndex?"bg-violet-50 ring-1 ring-violet-100":"hover:bg-[var(--surface-soft)]")}><span className="min-w-0"><strong className="block truncate text-[11px]">{customer.fullName}</strong><span className="mt-0.5 block truncate text-[9px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span><span className="mt-1 flex flex-wrap gap-1 text-[8px] font-black">{customer.savedDestinationCount?<b className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">{customer.savedDestinationCount} saved</b>:null}{customer.savedServiceProfileCount?<b className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">{customer.savedServiceProfileCount} service ref</b>:null}{customer.lastUsedAt?<b className="rounded bg-[var(--surface)] px-1.5 py-0.5 text-[var(--text-muted)]">Used {usedLabel(customer.lastUsedAt)}</b>:null}</span></span><span className="shrink-0 rounded-full bg-violet-100 px-2 py-1 text-[9px] font-black text-violet-700">Use</span></button>):<p className="px-2 py-1.5 text-[10px] text-[var(--text-muted)]">No match · Enter saves as entered</p>}
+                          {row.customerSearchLoading?<p className="px-2 py-1.5 text-[10px] font-semibold text-[var(--text-muted)]">Searching…</p>:row.customerSuggestions.length?row.customerSuggestions.map((customer,suggestionIndex)=><button key={customer.id} type="button" onMouseEnter={()=>updateRow(row.key,{customerSuggestionIndex:suggestionIndex})} onClick={()=>selectExistingCustomer(row.key,customer)} className={"flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left "+(suggestionIndex===row.customerSuggestionIndex?"bg-violet-50 ring-1 ring-violet-100":"hover:bg-[var(--surface-soft)]")}><span className="min-w-0"><strong className="block truncate text-[11px]">{customer.fullName}</strong><span className="mt-0.5 block truncate text-[9px] text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span><span className="mt-1 flex flex-wrap gap-1 text-[8px] font-black">{customer.savedDestinationCount?<b className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">{customer.savedDestinationCount} saved</b>:null}{customer.savedServiceProfileCount?<b className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">{customer.savedServiceProfileCount} service ref</b>:null}{customer.lastUsedAt?<b className="rounded bg-[var(--surface)] px-1.5 py-0.5 text-[var(--text-muted)]">Used {usedLabel(customer.lastUsedAt)}</b>:null}</span></span><span className="shrink-0 rounded-full bg-violet-100 px-2 py-1 text-[9px] font-black text-violet-700">Use</span></button>):<button type="button" onClick={()=>openNewCustomer(row)} className="flex w-full items-center justify-between rounded-lg bg-violet-50 px-2.5 py-2 text-left"><span><strong className="block text-[10px] text-violet-800">No existing customer found</strong><span className="mt-0.5 block text-[9px] text-violet-600">Enter or click to add customer details</span></span><span className="rounded-full bg-violet-600 px-2 py-1 text-[9px] font-black text-white">Add</span></button>}
+                          {!row.customerSearchLoading&&row.customerSuggestions.length?<button type="button" onClick={()=>openNewCustomer(row)} className="mt-1 flex w-full items-center justify-between rounded-lg border border-dashed border-violet-200 px-2.5 py-1.5 text-left text-[9px] font-black text-violet-700 hover:bg-violet-50"><span>+ Add a different new customer</span><span>New →</span></button>:null}
                         </div>:null}
                       </div>
                       <div className="flex items-center justify-end gap-1.5">
                         {row.status==="SAVED"?isPending?<><span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-800">Pending</span><button type="button" onClick={()=>{setMinimized(true);if(row.transactionId)void onCompleteTransaction?.(row.transactionId);}} className="min-h-8 rounded-lg bg-amber-500 px-2.5 text-[10px] font-black text-white">Complete</button></>:<><span className="rounded-full bg-emerald-100 px-2 py-1 text-[9px] font-black text-emerald-700">✓ Complete</span><button type="button" onClick={()=>void openTransaction(row)} className="min-h-8 rounded-lg bg-emerald-600 px-2.5 text-[10px] font-black text-white">Open</button></>:
                         <>{row.status==="SAVING"?<span className="mr-1 text-[9px] font-black text-violet-700">Saving…</span>:row.status==="ERROR"?<span title={row.message} className="grid h-6 w-6 place-items-center rounded-full bg-rose-50 text-[10px] font-black text-rose-600">!</span>:null}
-                          <button type="button" disabled={row.status==="SAVING"} onClick={()=>toggleExpanded(row.key)} className={"min-h-8 rounded-lg px-2.5 text-[10px] font-black "+(row.expanded?"bg-violet-100 text-violet-700":"bg-[var(--surface-soft)] text-violet-700")}>{row.expanded?"Hide":"Details"}</button>
-                          <button type="button" disabled={row.status==="SAVING"||!hasDraft(row)} onClick={()=>void saveRow(row.key)} className="min-h-8 rounded-lg bg-violet-600 px-3 text-[10px] font-black text-white shadow-sm disabled:opacity-25">Save</button>
+                          <button type="button" disabled={row.status==="SAVING"||row.newCustomerOpen} onClick={()=>toggleExpanded(row.key)} className={"min-h-8 rounded-lg px-2.5 text-[10px] font-black disabled:opacity-50 "+(row.expanded?"bg-violet-100 text-violet-700":"bg-[var(--surface-soft)] text-violet-700")}>{row.newCustomerOpen?"Adding customer":row.expanded?"Hide":"Details"}</button>
+                          <button type="button" disabled={row.status==="SAVING"||row.newCustomerOpen||!hasDraft(row)} onClick={()=>void saveRow(row.key)} className="min-h-8 rounded-lg bg-violet-600 px-3 text-[10px] font-black text-white shadow-sm disabled:opacity-25">Save</button>
                           <button type="button" disabled={row.status==="SAVING"} onClick={()=>removeRow(row.key)} className="grid h-8 w-7 place-items-center rounded-lg text-sm font-black text-[var(--text-muted)] opacity-0 transition hover:bg-rose-50 hover:text-rose-600 hover:opacity-100 focus:opacity-100 group-hover:opacity-35 group-focus-within:opacity-35" aria-label={"Remove row "+(index+1)}>×</button></>}
                       </div>
                     </div>
 
-                    {row.expanded&&row.status!=="SAVED"?<div className="border-t border-violet-100 bg-white px-3 py-1.5">
+                    {row.newCustomerOpen&&row.status!=="SAVED"?<form onSubmit={(event)=>{event.preventDefault();void createNewCustomer(row);}} className="border-t border-violet-100 bg-gradient-to-r from-violet-50 via-white to-violet-50 px-3 py-2">
+                      <div className="flex min-w-[960px] items-end gap-2">
+                        <div className="w-[220px] shrink-0"><div className="mb-1 flex items-center gap-1.5"><span className="rounded-full bg-violet-600 px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-white">New customer</span><span className="text-[8px] font-semibold text-violet-700">Create once · reuse next time</span></div><input ref={(element)=>{newCustomerRefs.current[row.key]=element;}} value={row.newCustomerName} onChange={(event)=>updateRow(row.key,{newCustomerName:event.target.value.toUpperCase(),newCustomerError:undefined})} className="h-9 w-full rounded-lg border border-violet-200 bg-white px-2.5 text-[11px] font-black uppercase outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100" placeholder="Customer name *"/></div>
+                        <label className="w-[160px] shrink-0"><span className="mb-1 block text-[8px] font-black uppercase tracking-wide text-[var(--text-muted)]">Mobile</span><input type="tel" inputMode="numeric" value={row.newCustomerMobile} onChange={(event)=>updateRow(row.key,{newCustomerMobile:event.target.value.replace(/\D/g,"").slice(0,10),newCustomerError:undefined})} className="h-9 w-full rounded-lg border border-[var(--border)] bg-white px-2.5 text-[11px] font-bold outline-none focus:border-violet-400" placeholder="Optional"/></label>
+                        <label className="w-[130px] shrink-0"><span className="mb-1 block text-[8px] font-black uppercase tracking-wide text-[var(--text-muted)]">Customer type</span><select value={row.newCustomerType} onChange={(event)=>updateRow(row.key,{newCustomerType:event.target.value as "REGULAR"|"WALK_IN"})} className="h-9 w-full rounded-lg border border-[var(--border)] bg-white px-2 text-[10px] font-black outline-none"><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></select></label>
+                        <label className="min-w-[220px] flex-1"><span className="mb-1 block text-[8px] font-black uppercase tracking-wide text-[var(--text-muted)]">Note</span><input value={row.newCustomerNotes} onChange={(event)=>updateRow(row.key,{newCustomerNotes:event.target.value,newCustomerError:undefined})} className="h-9 w-full rounded-lg border border-[var(--border)] bg-white px-2.5 text-[10px] font-bold outline-none focus:border-violet-400" placeholder="Area / relation / identifying note · optional"/></label>
+                        <div className="flex shrink-0 items-center gap-1.5"><button type="button" disabled={row.newCustomerSaving} onClick={()=>updateRow(row.key,{newCustomerOpen:false,newCustomerSaving:false,newCustomerError:undefined})} className="min-h-9 rounded-lg border border-[var(--border)] bg-white px-3 text-[9px] font-black text-[var(--text-muted)]">Cancel</button><button type="submit" disabled={row.newCustomerSaving||!row.newCustomerName.trim()} className="min-h-9 rounded-lg bg-violet-600 px-4 text-[10px] font-black text-white shadow-sm disabled:opacity-40">{row.newCustomerSaving?"Creating…":"Create & Use"}</button></div>
+                      </div>
+                      {row.newCustomerError?<p className="mt-1.5 text-[9px] font-bold text-rose-600">{row.newCustomerError}</p>:<p className="mt-1.5 text-[8px] font-semibold text-[var(--text-muted)]">After creation this customer stays linked to the row, so saved bank / UPI / service references can be reused on future visits.</p>}
+                    </form>:null}
+
+                    {row.expanded&&!row.newCustomerOpen&&row.status!=="SAVED"?<div className="border-t border-violet-100 bg-white px-3 py-1.5">
                       <div className="overflow-x-auto pb-0.5">
                         {row.direction==="IN"&&row.purpose==="TRANSFER"?<div className="grid min-w-[1080px] grid-cols-[minmax(330px,2.2fr)_175px_135px_115px_145px_minmax(160px,1fr)] items-stretch gap-2">
                           <div className="rounded-lg bg-[var(--surface-soft)] px-2 py-1.5">
