@@ -224,7 +224,7 @@ export class TransactionsService {
       NOT: { commissionType: { endsWith: '_PROVIDER' } },
     };
 
-    const [items, total, processed, serviceRevenue, customerCommission, providerIncome, providerCost] = await Promise.all([
+    const [items, total, processed, serviceRevenue, customerCommission, providerIncome, providerCost, partnerCost] = await Promise.all([
       this.prisma.transaction.findMany({
         where,
         include: activityInclude,
@@ -238,6 +238,10 @@ export class TransactionsService {
       this.prisma.transactionCommission.aggregate({ where: customerCommissionWhere, _sum: { amount: true } }),
       this.prisma.transactionCommission.aggregate({ where: providerCommissionWhere, _sum: { amount: true } }),
       this.prisma.transactionCharge.aggregate({ where: { transaction: where }, _sum: { amount: true } }),
+      this.prisma.quickCashTransferDetail.aggregate({
+        where: { transaction: where, purpose: 'SERVICE' },
+        _sum: { servicePartnerCharge: true },
+      }),
     ]);
 
     const processedAmount = Number(processed._sum.grossAmount ?? 0);
@@ -245,6 +249,7 @@ export class TransactionsService {
     const customerCommissionAmount = Number(customerCommission._sum.amount ?? 0);
     const providerIncomeAmount = Number(providerIncome._sum.amount ?? 0);
     const providerCostAmount = Number(providerCost._sum.amount ?? 0);
+    const partnerCostAmount = Number(partnerCost._sum.servicePartnerCharge ?? 0);
     const totalIncomeAmount = customerCommissionAmount + providerIncomeAmount + serviceRevenueAmount;
 
     return {
@@ -262,7 +267,8 @@ export class TransactionsService {
         serviceRevenue: this.money(serviceRevenueAmount),
         totalIncome: this.money(totalIncomeAmount),
         providerCost: this.money(providerCostAmount),
-        profit: this.money(totalIncomeAmount - providerCostAmount),
+        partnerCost: this.money(partnerCostAmount),
+        profit: this.money(totalIncomeAmount - providerCostAmount - partnerCostAmount),
       },
     };
   }

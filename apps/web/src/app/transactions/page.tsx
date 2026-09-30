@@ -16,7 +16,7 @@ type Tx={
  cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
  microAtm:{customerBankName:string|null;cardLastFour:string}|null;
  aeps:{customerBankName:string;aadhaarLastFour:string}|null;
- quickCashTransfer:{purpose:string;serviceName:string|null;servicePaymentMode:string;cashAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
+ quickCashTransfer:{purpose:string;serviceName:string|null;servicePaymentMode:string;serviceFulfillmentMode?:string;servicePartnerName?:string|null;servicePartnerCharge?:string;cashAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
  providerSettlementReceipt:{settlement:{sourceTransaction:{
    transactionNumber:string;transactionType:string;customer:{fullName:string}|null;createdBy:{id:string;fullName:string}|null;
    cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
@@ -27,13 +27,13 @@ type Tx={
  payable:{originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string}|null;
  receivableSource:{originalAmount?:string;receivedAmount?:string;remainingAmount:string;dueAt:string|null;status:string}|null;
 };
-type TransactionAggregates={processed:number;customerCommission:number;providerIncome:number;serviceRevenue:number;totalIncome:number;providerCost:number;profit:number};
+type TransactionAggregates={processed:number;customerCommission:number;providerIncome:number;serviceRevenue:number;totalIncome:number;providerCost:number;partnerCost:number;profit:number};
 type Paged={items:Tx[];pagination:{page:number;pageSize:number;total:number;totalPages:number};aggregates:TransactionAggregates};
 type Range="today"|"yesterday"|"week"|"all";
 const money=(v:string|number|null)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(v??0));
 const statusTone=(s:string)=>s==="COMPLETED"?"emerald":s==="PENDING"?"amber":s==="REVERSED"?"rose":"slate";
 const label=(t:string)=>t.replaceAll("_"," ").toLowerCase().replace(/w/g,c=>c.toUpperCase());
-type DesktopColumnKey="transactionId"|"date"|"service"|"customer"|"source"|"user"|"processed"|"customerFee"|"providerIncome"|"serviceIncome"|"totalIncome"|"providerFee"|"profit"|"net"|"payout"|"dueDate"|"status";
+type DesktopColumnKey="transactionId"|"date"|"service"|"customer"|"source"|"user"|"processed"|"customerFee"|"providerIncome"|"serviceIncome"|"partnerCost"|"netServiceEarning"|"totalIncome"|"providerFee"|"profit"|"net"|"payout"|"dueDate"|"status";
 const DEFAULT_DESKTOP_COLUMNS:DesktopColumnKey[]=["transactionId","date","service","customer","processed","totalIncome","profit","payout","status"];
 const LOCKED_DESKTOP_COLUMNS=new Set<DesktopColumnKey>(["transactionId","date","service","processed","status"]);
 const DESKTOP_COLUMN_STORAGE_KEY="cashledger.transactions.desktop-columns.v3";
@@ -41,7 +41,8 @@ const DESKTOP_COLUMN_META:Record<DesktopColumnKey,{label:string;width:number;rig
  transactionId:{label:"Transaction ID",width:170},date:{label:"Date & time",width:165},service:{label:"Service",width:185},
  customer:{label:"Customer",width:155},source:{label:"Source / settlement",width:315},user:{label:"User",width:115},
  processed:{label:"Processed",width:135,right:true},customerFee:{label:"Customer commission",width:155,right:true},
- providerIncome:{label:"Provider income",width:140,right:true},serviceIncome:{label:"Service revenue",width:140,right:true},totalIncome:{label:"Total income",width:135,right:true},
+ providerIncome:{label:"Provider income",width:140,right:true},serviceIncome:{label:"Service revenue",width:140,right:true},
+ partnerCost:{label:"Partner cost",width:130,right:true},netServiceEarning:{label:"Net service earning",width:160,right:true},totalIncome:{label:"Total income",width:135,right:true},
  providerFee:{label:"Provider / bank cost",width:155,right:true},profit:{label:"Business profit",width:140,right:true},
  net:{label:"Customer gets / net",width:155,right:true},payout:{label:"Payout / Pay-in",width:150},
  dueDate:{label:"Due date",width:115},status:{label:"Status",width:150},
@@ -110,7 +111,7 @@ function activityContext(tx:Tx){
 export default function TransactionsPage(){
  const [items,setItems]=useState<Tx[]>([]);
  const [pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
- const [aggregates,setAggregates]=useState<TransactionAggregates>({processed:0,customerCommission:0,providerIncome:0,serviceRevenue:0,totalIncome:0,providerCost:0,profit:0});
+ const [aggregates,setAggregates]=useState<TransactionAggregates>({processed:0,customerCommission:0,providerIncome:0,serviceRevenue:0,totalIncome:0,providerCost:0,partnerCost:0,profit:0});
  const [q,setQ]=useState(""),[type,setType]=useState(""),[status,setStatus]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState(""),[range,setRange]=useState<Range>("today");
  const [error,setError]=useState(""),[loading,setLoading]=useState(true),[mobileFiltersOpen,setMobileFiltersOpen]=useState(false);
  const [desktopFiltersOpen,setDesktopFiltersOpen]=useState(false),[columnsOpen,setColumnsOpen]=useState(false),[desktopSearchOpen,setDesktopSearchOpen]=useState(false);
@@ -226,16 +227,18 @@ export default function TransactionsPage(){
      ["Provider income",money(aggregates.providerIncome),"text-[var(--money-in)]"],
      ["Service revenue",money(aggregates.serviceRevenue),"text-[var(--money-in)]"],
      ["Provider / bank cost",money(aggregates.providerCost),"text-[var(--money-out)]"],
+     ["Partner cost",money(aggregates.partnerCost),"text-[var(--money-out)]"],
     ].map(([name,value,tone])=><Surface key={name} className="w-[145px] shrink-0 p-3"><p className="text-[9px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">{name}</p><p className={"money mt-1 truncate text-base font-black "+tone}>{value}</p></Surface>)}
    </div>
   </div>
-  <div className="hidden gap-2.5 md:grid md:grid-cols-3 xl:grid-cols-7">
+  <div className="hidden gap-2.5 md:grid md:grid-cols-4 xl:grid-cols-8">
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Processed</p><p className="money mt-1.5 truncate text-lg font-bold">{money(aggregates.processed)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Total income</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-in)]">{money(aggregates.totalIncome)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Customer commission</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-in)]">{money(aggregates.customerCommission)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Provider income</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-in)]">{money(aggregates.providerIncome)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Service revenue</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-in)]">{money(aggregates.serviceRevenue)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Provider / bank cost</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-out)]">{money(aggregates.providerCost)}</p></Surface>
+   <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Partner cost</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-out)]">{money(aggregates.partnerCost)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Transactions</p><p className="money mt-1.5 text-lg font-bold">{pagination.total}</p></Surface>
   </div>
 
@@ -266,7 +269,7 @@ export default function TransactionsPage(){
        {sortKey?<button type="button" onClick={()=>changeSort(key)} className={"inline-flex items-center gap-1 font-bold uppercase tracking-wide hover:text-[var(--text)] "+(meta.right?"ml-auto":"")}>{meta.label}{sortBy===sortKey?<span aria-hidden>{sortDir==="asc"?"↑":"↓"}</span>:null}</button>:meta.label}
       </th>;
     })}</tr></thead>
-    <tbody>{items.map(tx=>{const providerFees=sum(tx.charges),customerCommission=customerCommissionIncome(tx),providerEarn=providerIncome(tx),service=serviceRevenue(tx),income=customerCommission+providerEarn+service,profit=income-providerFees,direction=activityDirection(tx),source=settlementSource(tx),mStatus=moneyStatus(tx);
+    <tbody>{items.map(tx=>{const providerFees=sum(tx.charges),customerCommission=customerCommissionIncome(tx),providerEarn=providerIncome(tx),service=serviceRevenue(tx),partnerCost=tx.transactionType==="SERVICE_INCOME"?Number(tx.quickCashTransfer?.servicePartnerCharge??0):0,netServiceEarning=service-partnerCost,income=customerCommission+providerEarn+service,profit=income-providerFees-partnerCost,direction=activityDirection(tx),source=settlementSource(tx),mStatus=moneyStatus(tx);
       const content=(key:DesktopColumnKey)=>{
        if(key==="transactionId")return <Link className="font-bold text-[var(--accent)] whitespace-nowrap" href={txHref(tx)}>{tx.transactionNumber}</Link>;
        if(key==="date")return <span className="text-xs whitespace-nowrap">{new Date(tx.transactionAt).toLocaleString("en-IN")}</span>;
@@ -278,6 +281,8 @@ export default function TransactionsPage(){
        if(key==="customerFee")return <span className="money font-bold text-[var(--money-in)] whitespace-nowrap">{customerCommission?"+"+money(customerCommission):"—"}</span>;
        if(key==="providerIncome")return <span className="money font-bold text-[var(--money-in)] whitespace-nowrap">{providerEarn?"+"+money(providerEarn):"—"}</span>;
        if(key==="serviceIncome")return <span className="money font-bold text-[var(--money-in)] whitespace-nowrap">{service?"+"+money(service):"—"}</span>;
+       if(key==="partnerCost")return <span className="money text-[var(--money-out)] whitespace-nowrap">{partnerCost?"−"+money(partnerCost):"—"}</span>;
+       if(key==="netServiceEarning")return <span className="money font-bold whitespace-nowrap">{service?money(netServiceEarning):"—"}</span>;
        if(key==="totalIncome")return <span className="money font-black text-[var(--money-in)] whitespace-nowrap">{income?"+"+money(income):"—"}</span>;
        if(key==="providerFee")return <span className="money text-[var(--money-out)] whitespace-nowrap">{providerFees?"−"+money(providerFees):"—"}</span>;
        if(key==="profit")return <span className={"money font-bold whitespace-nowrap "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{income||providerFees?money(profit):"—"}</span>;
