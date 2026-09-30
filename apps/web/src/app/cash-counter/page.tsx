@@ -323,6 +323,8 @@ export default function CashCounterPage(){
   const quickServiceRef=useRef<HTMLInputElement>(null);
   const [portalReady,setPortalReady]=useState(false);
   const [pendingQuickCash,setPendingQuickCash]=useState<QuickCashPending[]>([]);
+  const pendingPageSize=30;
+  const [pendingPage,setPendingPage]=useState(1);
   const [completedQuickCashIds,setCompletedQuickCashIds]=useState<string[]>([]);
   const [completePendingId,setCompletePendingId]=useState<string|null>(null);
   const [completeSourceAccountId,setCompleteSourceAccountId]=useState("");
@@ -341,6 +343,16 @@ export default function CashCounterPage(){
   const [completeError,setCompleteError]=useState("");
   const [currentUser]=useState<{id?:string;userId?:string;role?:string}>(()=>{if(typeof window==="undefined")return {};try{return JSON.parse(localStorage.getItem("cashledger_user")||"{}");}catch{return {};}});
   const role=currentUser.role??"";
+  const pendingPageCount=Math.max(1,Math.ceil(pendingQuickCash.length/pendingPageSize));
+  const currentPendingPage=Math.min(pendingPage,pendingPageCount);
+  const pagedPendingQuickCash=useMemo(()=>{
+    const start=(currentPendingPage-1)*pendingPageSize;
+    return pendingQuickCash.slice(start,start+pendingPageSize);
+  },[pendingQuickCash,currentPendingPage]);
+  const pendingRange=pendingQuickCash.length
+    ?{start:(currentPendingPage-1)*pendingPageSize+1,end:Math.min(currentPendingPage*pendingPageSize,pendingQuickCash.length)}
+    :{start:0,end:0};
+  const goToPendingPage=(page:number)=>setPendingPage(Math.max(1,Math.min(page,pendingPageCount)));
   const completingQuickCash=useMemo(()=>pendingQuickCash.find((item)=>item.id===completePendingId)??null,[pendingQuickCash,completePendingId]);
   const selectedQuickTransferType=useMemo(()=>cashInTransferTypes.find((item)=>item.id===quickTransferTypeId)??null,[cashInTransferTypes,quickTransferTypeId]);
   const quickCommissionValue=Number(quickCommission||0);
@@ -1154,11 +1166,14 @@ export default function CashCounterPage(){
       </>}
 
       {pendingQuickCash.length?<Surface className="scroll-mt-24 overflow-hidden">
-        <div id="pending-cash" className="scroll-mt-24 flex items-center gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
+        <div id="pending-cash" className="scroll-mt-24 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5">
+          <div className="flex items-center gap-2"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
+          <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]"><span>Showing {pendingRange.start}–{pendingRange.end} of {pendingQuickCash.length}</span>{pendingQuickCash.length>pendingPageSize?<><button type="button" disabled={currentPendingPage<=1} onClick={()=>goToPendingPage(currentPendingPage-1)} className="min-h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 font-black text-[var(--text)] disabled:opacity-35">Previous</button><span className="min-w-[76px] text-center font-black text-[var(--text)]">Page {currentPendingPage} / {pendingPageCount}</span><button type="button" disabled={currentPendingPage>=pendingPageCount} onClick={()=>goToPendingPage(currentPendingPage+1)} className="min-h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 font-black text-[var(--text)] disabled:opacity-35">Next</button></>:null}</div>
+        </div>
         <div className="overflow-x-auto">
           <div className="min-w-[760px]">
             <div className="grid grid-cols-[100px_minmax(210px,1fr)_110px_150px_90px_100px] items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 text-[9px] font-black uppercase tracking-[.06em] text-[var(--text-muted)]"><span>Type</span><span>Customer / Ref</span><span className="text-right">Amount</span><span className="text-right">Fee / Income</span><span className="text-right">Time</span><span className="text-right">Action</span></div>
-            <div className="divide-y divide-[var(--border)]">{pendingQuickCash.map((item)=><div key={item.id} className="grid min-h-[54px] grid-cols-[100px_minmax(210px,1fr)_110px_150px_90px_100px] items-center gap-3 px-4 py-2">
+            <div className="divide-y divide-[var(--border)]">{pagedPendingQuickCash.map((item)=><div key={item.id} className="grid min-h-[54px] grid-cols-[100px_minmax(210px,1fr)_110px_150px_90px_100px] items-center gap-3 px-4 py-2">
               <span><span className={"inline-flex rounded-full px-2.5 py-1 text-[10px] font-black "+(item.direction==="IN"?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700")}>{item.direction==="IN"?"Cash In":cashOutTypeLabel(item.cashOutType)}</span></span>
               <span className="min-w-0"><strong className="block truncate text-[13px]">{item.customerName||item.mobileNumber||"Walk-in customer"}</strong><span className="mt-0.5 block truncate text-[10px] font-semibold text-[var(--text-muted)]">{item.transaction.transactionNumber}{item.customerBankName?" · "+item.customerBankName:""}</span></span>
               <strong className="money text-right text-[13px]">{money(item.amount)}</strong>
@@ -1168,6 +1183,7 @@ export default function CashCounterPage(){
             </div>)}</div>
           </div>
         </div>
+        {pendingQuickCash.length>pendingPageSize?<div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] px-4 py-3 text-xs font-semibold text-[var(--text-muted)] sm:px-5"><span>Showing {pendingRange.start}–{pendingRange.end} of {pendingQuickCash.length}</span><div className="flex items-center gap-1.5"><button type="button" disabled={currentPendingPage<=1} onClick={()=>goToPendingPage(currentPendingPage-1)} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 font-black text-[var(--text)] disabled:opacity-35">Previous</button><span className="min-w-[82px] text-center font-black text-[var(--text)]">Page {currentPendingPage} / {pendingPageCount}</span><button type="button" disabled={currentPendingPage>=pendingPageCount} onClick={()=>goToPendingPage(currentPendingPage+1)} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 font-black text-[var(--text)] disabled:opacity-35">Next</button></div></div>:null}
       </Surface>:null}
 
       <div className="grid gap-3 lg:grid-cols-2">
