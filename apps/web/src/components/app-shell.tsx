@@ -242,7 +242,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
     </aside>
 
-    <div className={(desktopCollapsed?"lg:pl-[72px]":"lg:pl-[288px]")+" transition-[padding-left] duration-200 ease-out"}>
+    <div className={"app-shell-content transition-[padding-left] duration-200 ease-out "+(desktopCollapsed?"is-collapsed":"")}>
       <header className="app-topbar sticky top-0 z-30 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_90%,transparent)] backdrop-blur-xl">
         <div className="flex h-15 items-center gap-3 px-3 sm:px-5 lg:px-6">
           <button onClick={()=>isTaskFlow?router.push("/transactions"):setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm lg:hidden" aria-label={isTaskFlow?"Back to transactions":"Open navigation"}><Icon name={isTaskFlow?"back":"menu"} className="h-[19px] w-[19px]"/></button>

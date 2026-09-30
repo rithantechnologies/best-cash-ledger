@@ -150,6 +150,11 @@ button:active, a:active { transform: translateY(1px); }
 .app-control:hover { border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%); }
 .app-control::placeholder { color: color-mix(in srgb, var(--text-muted) 72%, transparent); }
 
+@media (min-width: 1024px) {
+  .app-shell-content { padding-left: 288px; }
+  .app-shell-content.is-collapsed { padding-left: 72px; }
+}
+
 .app-main {
   min-height: calc(100vh - 60px);
   background:
