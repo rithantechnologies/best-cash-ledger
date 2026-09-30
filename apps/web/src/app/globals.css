@@ -3366,6 +3366,63 @@ a.app-metric:hover { border-color: var(--border-strong); }
   min-height: 48px;
   border-radius: 10px;
 }
+.rush-pos .rush-transfer-grid {
+  align-items: stretch;
+}
+.rush-pos .rush-transfer-grid > * {
+  min-width: 0;
+}
+.rush-pos .rush-detail-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(145deg, #ffffff 0%, #fbfaff 100%);
+  border-color: color-mix(in srgb, #8b5cf6 12%, var(--border));
+  box-shadow: 0 8px 24px rgba(76,29,149,.045);
+}
+.rush-pos .rush-detail-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #8b5cf6, #c4b5fd);
+  opacity: .72;
+}
+.rush-pos .rush-detail-payment::before {
+  background: linear-gradient(180deg, #10b981, #86efac);
+}
+.rush-pos .rush-detail-optional::before {
+  background: linear-gradient(180deg, #64748b, #cbd5e1);
+}
+.rush-pos .rush-payment-grid > * {
+  min-width: 0;
+}
+.rush-pos .rush-detail-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+  align-items: stretch;
+  gap: 10px;
+}
+.rush-pos .rush-detail-flow > * {
+  width: auto !important;
+  min-width: 0 !important;
+}
+.rush-pos .rush-detail-flow .rush-work-group {
+  min-height: 112px;
+  background: linear-gradient(145deg, #fff 0%, #fafafa 100%);
+  border-color: color-mix(in srgb, #8b5cf6 10%, var(--border));
+  box-shadow: 0 6px 18px rgba(15,23,42,.035);
+}
+.rush-pos .rush-detail-flow input,
+.rush-pos .rush-detail-flow select {
+  width: 100%;
+  max-width: 100%;
+}
+.rush-pos .rush-cashout-flow {
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+}
+.rush-pos .rush-workspace {
+  overflow-x: clip;
+}
 .rush-pos .rush-pos-row-active input:focus,
 .rush-pos .rush-pos-row-active select:focus {
   outline: none;
