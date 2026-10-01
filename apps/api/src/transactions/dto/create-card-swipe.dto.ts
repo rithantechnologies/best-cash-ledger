@@ -48,7 +48,7 @@ export class CreateCardSwipeDto {
   @IsString() gatewayId!: string;
   @IsNumber() @Min(0) @Max(100) providerChargeRate!: number;
   @IsNumber() @Min(0) @Max(100) commissionRate!: number;
-  @IsString() paymentTermId!: string;
+  @IsOptional() @IsString() paymentTermId?: string;
   @IsDateString() dueAt!: string;
   @IsOptional() @IsString() settlementAccountId?: string;
   @IsOptional() @IsBoolean() settledNow?: boolean;

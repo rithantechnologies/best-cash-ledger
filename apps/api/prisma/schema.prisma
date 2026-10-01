@@ -558,8 +558,8 @@ model CardSwipeDetail {
   commissionRate        Decimal          @db.Decimal(10, 4)
   commissionAmount      Decimal          @db.Decimal(18, 2)
   customerPayableAmount Decimal          @db.Decimal(18, 2)
-  paymentTermId         String
-  paymentTerm           PaymentTerm      @relation(fields: [paymentTermId], references: [id])
+  paymentTermId         String?
+  paymentTerm           PaymentTerm?     @relation(fields: [paymentTermId], references: [id])
   dueAt                 DateTime
   settlementAccountId   String
   settlementAccount     FinancialAccount @relation(fields: [settlementAccountId], references: [id])

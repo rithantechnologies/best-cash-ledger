@@ -24,7 +24,7 @@ type HistoryPayment={id:string;amount:string;status:string;sourceAccount:Account
 type CustomerSwipeHistory={
   id:string;transactionNumber:string;transactionAt:string;status:string;grossAmount:string;netAmount:string|null;
   charges:HistoryCharge[];commissions:{amount:string;rate:string|null}[];
-  cardSwipe:{swipeAmount:string;providerId:string;gatewayId:string;providerChargeRate:string;providerChargeAmount:string;commissionRate:string;commissionAmount:string;customerPayableAmount:string;paymentTermId:string;customerCard:{id:string;bankName:string;cardNetworkId?:string|null;lastFourDigits:string}|null;paymentTerm:{id:string;name:string}|null}|null;
+  cardSwipe:{swipeAmount:string;providerId:string;gatewayId:string;providerChargeRate:string;providerChargeAmount:string;commissionRate:string;commissionAmount:string;customerPayableAmount:string;paymentTermId:string|null;customerCard:{id:string;bankName:string;cardNetworkId?:string|null;lastFourDigits:string}|null;paymentTerm:{id:string;name:string}|null}|null;
   payable:{id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;payments:HistoryPayment[]}|null;
   providerSettlementSource:{status:string;provider:{name:string}|null;gateway:{gatewayName:string}|null}|null;
 };
@@ -46,9 +46,13 @@ function money(v:number|string){
   }).format(value);
 }
 
+const CUSTOM_PAYMENT_DATE="__CUSTOM_DATE__";
 function dateTimeLocal(date:Date){
   return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);
 }
+function dateInputValue(date:Date){return dateTimeLocal(date).slice(0,10);}
+function tomorrowDateInput(){const date=new Date();date.setDate(date.getDate()+1);return dateInputValue(date);}
+function customDueDateTime(value:string){return dateTimeLocal(new Date(value+"T23:59:59.999"));}
 function formatAmountInput(value:string){
   if(!value)return "";
   const [whole="",dec] = value.split(".");
@@ -279,6 +283,7 @@ export default function CardSwipePage(){
   const [usualProviderId,setUsualProviderId]=useState("");
   const [usualCardId,setUsualCardId]=useState("");
   const [termId,setTermId]=useState("");
+  const [customPaymentDate,setCustomPaymentDate]=useState("");
   const [dueAt,setDueAt]=useState(dateTimeLocal(new Date()));
   const [settledNow,setSettledNow]=useState(true);
   const [recordCustomerPayment,setRecordCustomerPayment]=useState(false);
@@ -381,6 +386,8 @@ export default function CardSwipePage(){
   const gateway=provider?.gateways.find(g=>g.id===gatewayId);
   const providerWallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId);
   const selectedTerm=terms.find(t=>t.id===termId);
+  const customPayment=termId===CUSTOM_PAYMENT_DATE;
+  const minCustomPaymentDate=tomorrowDateInput();
   const instantTerm=selectedTerm?.name.toLowerCase().includes("instant")??false;
   const swipe=Number(amount||0);
   const pRate=Number(providerRate||0);
@@ -464,7 +471,7 @@ export default function CardSwipePage(){
       setProviderRate(rateText(Number(selectedCardSetup.providerChargeRate)));
       setRoutingOpen(false);
     }
-    if(terms.some(item=>item.id===selectedCardSetup.paymentTermId))setTermId(selectedCardSetup.paymentTermId);
+    if(selectedCardSetup.paymentTermId&&terms.some(item=>item.id===selectedCardSetup.paymentTermId))setTermId(selectedCardSetup.paymentTermId);
     const previousCommission=Number(selectedCardSetup.commissionRate);
     if(Number.isFinite(previousCommission)){
       setCommissionRate(rateText(previousCommission));
@@ -530,11 +537,12 @@ export default function CardSwipePage(){
     if(customerId)q.set("customerId",customerId);
     if(providerId)q.set("providerId",providerId);
     if(gatewayId)q.set("gatewayId",gatewayId);
-    if(termId)q.set("paymentTermId",termId);
+    if(termId&&!customPayment)q.set("paymentTermId",termId);
     apiFetch<CommissionRule>("/settings/commission-rules/resolve?"+q.toString())
       .then(rule=>{
         if(cancelled)return;
         if(!rule){
+          if(customPayment)return;
           const termDefault=Number(terms.find(t=>t.id===termId)?.defaultCommissionRate||0);
           setSuggestedCommission(termDefault);
           setCommissionRate(rateText(termDefault));
@@ -545,7 +553,7 @@ export default function CardSwipePage(){
         setCommissionRate(rateText(resolved));
       }).catch(()=>{});
     return()=>{cancelled=true;};
-  },[customerId,providerId,gatewayId,termId,terms,selectedCardSetup]);
+  },[customerId,providerId,gatewayId,termId,terms,selectedCardSetup,customPayment]);
 
   useEffect(()=>{
     if(!recordCustomerPayment||payoutTouched||paymentLegs.length!==1)return;
@@ -571,6 +579,7 @@ export default function CardSwipePage(){
     setCommissionRate(rateText(Number(instant?.defaultCommissionRate||0)));
     setSuggestedCommission(Number(instant?.defaultCommissionRate||0));
     setTermId(instant?.id??"");
+    setCustomPaymentDate("");
     setDueAt(dateTimeLocal(new Date()));
     setSettledNow(true);
     resetCustomerPayoutState();
@@ -721,7 +730,7 @@ export default function CardSwipePage(){
       const nextRates=[cRate,...recentRates].filter((rate,index,list)=>rate>=0&&rate<=100&&list.findIndex(x=>Math.abs(x-rate)<.0001)===index).slice(0,3);
       localStorage.setItem("cashledger_card_commission_recent",JSON.stringify(nextRates));
       setRecentRates(nextRates);
-      if(targetCustomerId)localStorage.setItem("cashledger_card_customer_pref_"+targetCustomerId,JSON.stringify({providerId,gatewayId,termId,cardId:targetCardId||cardId||undefined} satisfies CustomerPreference));
+      if(targetCustomerId)localStorage.setItem("cashledger_card_customer_pref_"+targetCustomerId,JSON.stringify({providerId,gatewayId,termId:customPayment?"":termId,cardId:targetCardId||cardId||undefined} satisfies CustomerPreference));
     }catch{}
   }
 
@@ -741,7 +750,7 @@ export default function CardSwipePage(){
           },
         }:{customerId,customerCardId:cardId}),
         swipeAmount:swipe,providerId,gatewayId,
-        providerChargeRate:pRate,commissionRate:cRate,paymentTermId:termId,
+        providerChargeRate:pRate,commissionRate:cRate,paymentTermId:customPayment?undefined:termId,
         dueAt:new Date(dueAt).toISOString(),
         settledNow,
         customerPayments:recordCustomerPayment?paymentLegs.map(leg=>({
@@ -842,7 +851,8 @@ export default function CardSwipePage(){
   const routingReady=!!provider&&!!gateway&&!!providerWallet;
   const payoutReady=swipe>0&&routingReady&&customerReady;
   const calculationReady=swipe>0&&routingReady;
-  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&!!termId&&!!providerId&&!!gatewayId&&!!providerWallet&&payoutValid;
+  const paymentDateReady=customPayment?!!customPaymentDate&&customPaymentDate>=minCustomPaymentDate:!!termId;
+  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&paymentDateReady&&!!providerId&&!!gatewayId&&!!providerWallet&&payoutValid;
   const displayCustomerName=customer?.fullName??(customerMode==="new"?quickName.trim():"");
   const normalSaveLabel=swipe<=0?"Save card swipe":recordCustomerPayment
     ? (remainingAmount<=.001?"Save & pay "+money(payable):"Save & record "+money(paidAmount))
@@ -892,7 +902,7 @@ export default function CardSwipePage(){
                 {activeCards.map(card=>{const selected=card.id===cardId;const usual=card.id===usualCardId;const network=networks.find(item=>item.id===card.cardNetworkId);const last=customerHistory.find(row=>row.cardSwipe?.customerCard?.id===card.id);return <button key={card.id} type="button" onClick={()=>setCardId(card.id)} className={"swipe-card-choice min-w-[168px] rounded-xl border px-3 py-2.5 text-left "+(selected?"swipe-card-choice-selected border-[var(--accent)] bg-[var(--accent-soft)]":"border-[var(--border)] bg-[var(--surface)]")}><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-bold">{card.bankName}</span>{selected?<span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[8px] font-semibold text-white">Selected</span>:usual?<span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700">Usual</span>:null}</div><p className="mt-1 font-mono text-xs font-bold tracking-[.08em]">•••• {card.lastFourDigits}</p><p className="mt-1 truncate text-[9px] font-semibold text-[var(--text-muted)]">{[network?.name,"CREDIT"].filter(Boolean).join(" · ")}{last?" · Used "+new Date(last.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"}):""}</p></button>;})}
                 <button type="button" onClick={openAddCard} className="flex min-w-[110px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] px-3 text-xs font-semibold text-[var(--accent)]">+ Add card</button>
               </div>
-              {cardId?<div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,180px)_minmax(0,220px)_1fr]"><Field label="Card type"><div className={control+" flex items-center bg-[var(--surface-soft)] font-bold text-[var(--text)]"}>CREDIT</div></Field><Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field><div className="self-end pb-1">{historyLoading?<p className="text-[10px] font-semibold text-[var(--text-muted)]">Loading this card's last setup…</p>:selectedCardSetup?<p className="rounded-lg bg-[var(--accent-soft)] px-2.5 py-2 text-[10px] font-bold text-[var(--accent)]">Last setup loaded: {selectedCardHistoryProvider?.name||"Provider"} · {selectedCardHistoryGateway?.gatewayName||"Gateway"} · {selectedCardHistoryTerm?.name||"Term"} · gateway {rateText(Number(selectedCardSetup.providerChargeRate))}% · commission {rateText(Number(selectedCardSetup.commissionRate))}%</p>:<p className="text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Choose the setup once and it will be reused next time.</p>}</div></div>:null}
+              {cardId?<div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,180px)_minmax(0,220px)_1fr]"><Field label="Card type"><div className={control+" flex items-center bg-[var(--surface-soft)] font-bold text-[var(--text)]"}>CREDIT</div></Field><Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field><div className="self-end pb-1">{historyLoading?<p className="text-[10px] font-semibold text-[var(--text-muted)]">Loading this card's last setup…</p>:selectedCardSetup?<p className="rounded-lg bg-[var(--accent-soft)] px-2.5 py-2 text-[10px] font-bold text-[var(--accent)]">Last setup loaded: {selectedCardHistoryProvider?.name||"Provider"} · {selectedCardHistoryGateway?.gatewayName||"Gateway"} · {selectedCardHistoryTerm?.name||(selectedCardSetup.paymentTermId?"Term":"Custom date")} · gateway {rateText(Number(selectedCardSetup.providerChargeRate))}% · commission {rateText(Number(selectedCardSetup.commissionRate))}%</p>:<p className="text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Choose the setup once and it will be reused next time.</p>}</div></div>:null}
             </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" name="cashledger_customer_search" autoComplete="off" list="cashledger-card-swipe-remembered-names" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, mobile or card last 4" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
             <datalist id="cashledger-card-swipe-remembered-names">{rememberedCustomerNames.map(name=><option key={name} value={name}/>)}</datalist>
             {customer?<CustomerCardSwipeHistory rows={customerHistory} loading={historyLoading}/>:null}
@@ -905,8 +915,9 @@ export default function CardSwipePage(){
               <p className="mt-1.5 truncate text-xs font-medium text-[var(--text-muted)]">{amountWords||"Enter swipe amount"}</p>
             </div>
             <div className="mt-4 border-t border-[var(--border)] pt-3">
-              <div className="flex items-center justify-between gap-3"><h3 className="operational-label">Payment term</h3>{instantTerm?<span className="status-chip status-chip-blue">Due now</span>:selectedTerm?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(dueAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:null}</div>
-              <div className="payment-term-strip mt-2 grid grid-cols-5 gap-1.5">{quickTerms.map(term=><button key={term.id} type="button" onClick={()=>setTermId(term.id)} className={"payment-term-pill min-w-0 "+(term.id===termId?"payment-term-pill-active":"")}>{termLabel(term)}</button>)}</div>
+              <div className="flex items-center justify-between gap-3"><h3 className="operational-label">Payment term</h3>{instantTerm?<span className="status-chip status-chip-blue">Due now</span>:customPayment&&customPaymentDate?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(customPaymentDate+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:selectedTerm?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(dueAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:customPayment?<span className="text-xs font-semibold text-[var(--text-muted)]">Choose date</span>:null}</div>
+              <div className="payment-term-strip mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">{quickTerms.map(term=><button key={term.id} type="button" onClick={()=>{setTermId(term.id);setCustomPaymentDate("");}} className={"payment-term-pill min-w-0 "+(term.id===termId?"payment-term-pill-active":"")}>{termLabel(term)}</button>)}<button type="button" onClick={()=>setTermId(CUSTOM_PAYMENT_DATE)} className={"payment-term-pill min-w-0 "+(customPayment?"payment-term-pill-active":"")}>Pick date</button></div>
+              {customPayment?<div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-2.5"><label className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Exact payment date</label><input aria-label="Exact payment date" className={control+" mt-1 w-full bg-[var(--surface)] font-semibold"} type="date" min={minCustomPaymentDate} value={customPaymentDate} onChange={e=>{const value=e.target.value;setCustomPaymentDate(value);if(value)setDueAt(customDueDateTime(value));}} required/><p className="mt-1 text-[10px] font-medium text-[var(--text-muted)]">Choose any future date.</p></div>:null}
             </div>
           </section>
 

@@ -499,7 +499,14 @@ export class TransactionsService {
         dto.gatewayId,
         true,
       );
-      await this.validation.paymentTerm(tx, dto.paymentTermId);
+      if (dto.paymentTermId) {
+        await this.validation.paymentTerm(tx, dto.paymentTermId);
+      } else if (
+        !providedIdempotencyKey?.startsWith('CORRECTION:') &&
+        new Date(dto.dueAt).getTime() <= Date.now()
+      ) {
+        throw new BadRequestException('Custom payment date must be in the future');
+      }
       const settlementAccount = await tx.financialAccount.findFirst({
         where: {
           providerId: dto.providerId,
@@ -635,7 +642,7 @@ export class TransactionsService {
           commissionRate: new Prisma.Decimal(dto.commissionRate),
           commissionAmount: new Prisma.Decimal(commissionAmount),
           customerPayableAmount: new Prisma.Decimal(customerPayableAmount),
-          paymentTermId: dto.paymentTermId,
+          paymentTermId: dto.paymentTermId ?? null,
           dueAt: new Date(dto.dueAt),
           settlementAccountId: settlementAccount.id,
           settlementAmount: new Prisma.Decimal(settlementAmount),
@@ -672,7 +679,7 @@ export class TransactionsService {
         data: {
           customerId: customerId,
           sourceTransactionId: transaction.id,
-          paymentTermId: dto.paymentTermId,
+          paymentTermId: dto.paymentTermId ?? null,
           originalAmount: new Prisma.Decimal(customerPayableAmount),
           paidAmount: new Prisma.Decimal(0),
           remainingAmount: new Prisma.Decimal(customerPayableAmount),
@@ -4554,7 +4561,7 @@ export class TransactionsService {
             gatewayId: d.gatewayId,
             providerChargeRate: Number(d.providerChargeRate),
             commissionRate: Number(d.commissionRate),
-            paymentTermId: d.paymentTermId,
+            paymentTermId: d.paymentTermId ?? undefined,
             dueAt: d.dueAt.toISOString(),
             settledNow: false,
             settlementDueAt:
