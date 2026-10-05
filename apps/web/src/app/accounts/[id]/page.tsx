@@ -14,12 +14,12 @@ import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 import { MoneyFlowIcon } from "@/components/money-flow-icon";
 
 type Account={
-  accountName:string;accountType:string;accountNature:"ASSET"|"LIABILITY";usageType:string;
+  id:string;accountName:string;accountType:string;accountNature:"ASSET"|"LIABILITY";usageType:string;
   bankName:string|null;accountReference:string|null;lastFourDigits:string|null;creditLimit:string|null;
 };
 type MoneyRef={payable:{status:string;dueAt:string|null;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null};
 type BusinessTx=MoneyRef&{
-  id?:string;transactionNumber:string;transactionType:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;createdBy:{fullName:string}|null;
+  id?:string;transactionNumber:string;transactionType:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;createdBy:{fullName:string}|null;charges:Charge[];
   cardSwipe:{swipeAmount:string;commissionAmount:string;customerCard:{bankName:string;lastFourDigits:string}}|null;
   quickCashTransfer:{direction:string;purpose:string;serviceName:string|null;cashOutType:string;aadhaarLastFour:string|null;customerBankName:string|null;cardLastFour:string|null;customerName:string|null;mobileNumber:string|null;beneficiaryMode:string|null;beneficiaryDetails:string|null;servicePaymentMode:string;cashAccount:{accountName:string}|null;sourceAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
   expense:{expenseType:string;amount:string;description:string;expenseCategory:{name:string};paymentAccount:{accountName:string}}|null;
@@ -40,7 +40,7 @@ type Row={
   journal:{postingDate:string;transaction:RowTx};
 };
 type Ledger={account:Account;openingBalance:number;openingBalanceIntroducedInRange:number;rows:Row[]};
-type Charge={amount:string;rate:string|null;chargeType:string;calculationType:string;notes:string|null;sourceAccount:TxAccount|null};
+type Charge={id:string;amount:string;rate:string|null;chargeType:string;calculationType:string;notes:string|null;sourceAccount:TxAccount|null};
 type Commission={amount:string;rate:string;commissionType:string};
 type TxAccount={id:string;accountName:string};
 type SourceRef={id:string;transactionNumber:string};
@@ -78,6 +78,31 @@ const nice=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w
 const total=(items:{amount:string}[])=>items.reduce((sum,item)=>sum+Number(item.amount),0);
 const ledgerBusinessSource=(tx:RowTx):BusinessTx=>tx.quickCashCompletionSource??tx.providerSettlementReceipt?.settlement.sourceTransaction??tx.payablePayment?.payable.sourceTransaction??tx;
 const ledgerMoneySource=(tx:RowTx):MoneyRef=>ledgerBusinessSource(tx);
+const cleanAccountName=(value:string|null|undefined)=>String(value??"").trim().toLowerCase();
+function payoutChargesForAccount(account:Account,tx:RowTx){
+  if(account.accountType!=="PROVIDER_WALLET")return [];
+  const charges=(tx.charges??[]).filter((charge)=>charge.chargeType==="PAYOUT");
+  if(!charges.length)return [];
+  const accountName=cleanAccountName(account.accountName);
+  const source=ledgerBusinessSource(tx);
+  const directSourceNames=[
+    tx.payablePayment?.sourceAccount.accountName,
+    source.quickCashTransfer?.sourceAccount?.accountName,
+    source.expense?.paymentAccount.accountName,
+    source.cashTransfer?.sourceAccount.accountName,
+    source.internalTransfer?.sourceAccount.accountName,
+    source.atmWithdrawal?.bankAccount.accountName,
+    source.creditCardPayment?.sourceAccount.accountName,
+  ].map(cleanAccountName).filter(Boolean);
+  return charges.filter((charge)=>{
+    if(charge.sourceAccount?.id)return charge.sourceAccount.id===account.id;
+    if(charge.notes&&cleanAccountName(charge.notes).includes(accountName))return true;
+    return charges.length===1&&directSourceNames.includes(accountName);
+  });
+}
+function payoutChargeForAccount(account:Account,tx:RowTx){
+  return total(payoutChargesForAccount(account,tx));
+}
 function businessSummary(tx:BusinessTx,row:Row){
   if(tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer){
     const receivedIn=tx.quickCashTransfer.servicePaymentMode==="UPI"
@@ -243,13 +268,16 @@ function movementSummary(tx:RowTx,row:Row){
 function DetailStat({label,value,tone=""}:{label:string;value:string;tone?:string}){
   return <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p><p className={"mt-1 text-sm font-black "+tone}>{value}</p></div>;
 }
-function AccountMovementDetail({detail}:{detail:DrillDetail}){
+function AccountMovementDetail({detail,account}:{detail:DrillDetail;account:Account}){
   const {movement,source,row,isIn}=detail;
   const tx=source??movement;
   const summary=movementSummary(row.journal.transaction,row);
   const card=tx.cardSwipe;
   const gatewayFees=total(tx.charges);
-  const movementPayoutFees=total((movement.charges??[]).filter((charge)=>charge.chargeType==="PAYOUT"));
+  const movementPayoutFees=total((movement.charges??[]).filter((charge)=>charge.chargeType==="PAYOUT"&&(
+    charge.sourceAccount?.id===account.id||(!charge.sourceAccount&&charge.notes&&cleanAccountName(charge.notes).includes(cleanAccountName(account.accountName)))
+  )));
+  const movementPrincipal=Math.max(0,Number(row.amount)-movementPayoutFees);
   const customerFees=total(tx.commissions);
   const payoutFees=tx.payable?.payments.filter((p)=>p.status==="COMPLETED").reduce((sum,p)=>sum+total(p.transaction.charges),0)??0;
   const profit=customerFees-gatewayFees-payoutFees;
@@ -257,7 +285,7 @@ function AccountMovementDetail({detail}:{detail:DrillDetail}){
   const gateway=tx.providerSettlementSource?.gateway?.gatewayName??movement.providerSettlementReceipt?.settlement.gateway?.gatewayName??null;
   return <div className="space-y-4">
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
-      <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[var(--text-muted)]">{isIn?"Money in":"Money out"}</p><p className={"money mt-1 text-2xl font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Balance after</p><p className="money mt-1 text-sm font-black">{money(row.runningBalance)}</p></div></div>
+      <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[var(--text-muted)]">{isIn?"Money in":"Money out"}</p><p className={"money mt-1 text-2xl font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>{movementPayoutFees>0?<p className="mt-1 text-[11px] font-black text-rose-700">Payout {money(movementPrincipal)} · Fee {money(movementPayoutFees)}</p>:null}</div><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Balance after</p><p className="money mt-1 text-sm font-black">{money(row.runningBalance)}</p></div></div>
       <p className="mt-2 text-xs font-semibold text-[var(--text)]">{summary.primary}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{summary.secondary} · {new Date(movement.transactionAt).toLocaleString("en-IN")}</p>
     </div>
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -370,6 +398,20 @@ export default function AccountLedgerPage(){
     if(increases(data.account,row))totals.in+=amount;else totals.out+=amount;
     return totals;
   },{in:0,out:0})??{in:0,out:0};
+  const payoutChargeTotal=data&&data.account.accountType==="PROVIDER_WALLET"?(()=>{
+    const seen=new Set<string>();
+    let sum=0;
+    for(const row of data.rows){
+      if(increases(data.account,row))continue;
+      for(const charge of payoutChargesForAccount(data.account,row.journal.transaction)){
+        if(seen.has(charge.id))continue;
+        seen.add(charge.id);
+        sum+=Number(charge.amount);
+      }
+    }
+    return sum;
+  })():0;
+  const showPayoutCharges=account?.accountType==="PROVIDER_WALLET";
   const isCard=account?.accountType==="OWNER_CREDIT_CARD";
   const creditLimit=isCard?Math.max(0,Number(account?.creditLimit||0)):0;
   const availableCredit=isCard&&creditLimit>0?Math.max(0,creditLimit-closing):0;
@@ -412,11 +454,16 @@ export default function AccountLedgerPage(){
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100"><i className="block h-full rounded-full bg-rose-400" style={{width:utilisation+"%"}}/></div>
           </div>:null}
 
-          <div className="mt-4 grid grid-cols-3 divide-x divide-[var(--border)] border-t border-[var(--border)] pt-4">
+          {showPayoutCharges?<div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--border)] pt-4 sm:grid-cols-4">
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-[var(--text-muted)]">Period opening</p><p className="money mt-1 truncate text-sm font-black">{money(periodOpening)}</p></div>
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-emerald-700">Money in</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Money out</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(movement.out)}</p></div>
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Payout charges</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(payoutChargeTotal)}</p><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Included in Money out</p></div>
+          </div>:<div className="mt-4 grid grid-cols-3 divide-x divide-[var(--border)] border-t border-[var(--border)] pt-4">
             <div className="min-w-0 pr-2.5 sm:pr-4"><p className="text-[11px] font-semibold text-[var(--text-muted)]">Period opening</p><p className="money mt-1 truncate text-sm font-black">{money(periodOpening)}</p></div>
             <div className="min-w-0 px-2.5 sm:px-4"><p className="text-[11px] font-semibold text-emerald-700">{isCard?"Added":"Money in"}</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>
             <div className="min-w-0 pl-2.5 sm:pl-4"><p className="text-[11px] font-semibold text-rose-600">{isCard?"Paid / reduced":"Money out"}</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(movement.out)}</p></div>
-          </div>
+          </div>}
         </div>
       </Surface>
 
@@ -441,6 +488,8 @@ export default function AccountLedgerPage(){
             const isIn=increases(data.account,row);
             const tx=row.journal.transaction;
             const ms=moneyStatus(ledgerMoneySource(tx));
+            const rowPayoutCharge=isIn?0:payoutChargeForAccount(data.account,tx);
+            const rowPrincipal=Math.max(0,Number(row.amount)-rowPayoutCharge);
             const summary=movementSummary(tx,row);
             const presentation=activityPresentation(tx,row,summary);
             return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>openMovement(row,isIn)} className="w-full text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent">
@@ -458,6 +507,7 @@ export default function AccountLedgerPage(){
                     <MoneyFlowIcon direction={isIn?"IN":"OUT"}/>
                     <div className="text-right">
                       <p className={"money text-base font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>
+                      {rowPayoutCharge>0?<p className="mt-1 whitespace-nowrap text-[10px] font-black text-rose-600">Payout {money(rowPrincipal)} · Fee {money(rowPayoutCharge)}</p>:null}
                       <p className="mt-1 text-[10px] font-semibold text-[var(--text-muted)]">Bal. {money(row.runningBalance)}</p>
                     </div>
                   </div>
@@ -490,7 +540,7 @@ export default function AccountLedgerPage(){
                     {tx.id?<span className="shrink-0 font-bold text-[var(--accent)]">View details</span>:null}
                   </div>
                 </div>
-                <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div>
+                <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/><div className="text-right"><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>{rowPayoutCharge>0?<p className="mt-0.5 whitespace-nowrap text-[9px] font-black text-rose-600">Payout {money(rowPrincipal)} · Fee {money(rowPayoutCharge)}</p>:null}</div></div>
                 <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
               </div>
             </button>;
@@ -499,7 +549,7 @@ export default function AccountLedgerPage(){
       </Surface>
     </>:null}
     {detailOpen&&typeof document!=="undefined"?createPortal(<Modal open title="Account transaction details" description="Trace this account movement back to the customer or source transaction." onClose={()=>{setDetailOpen(false);setDetail(null);setDetailError("");}}>
-      {detailLoading?<div className="py-10 text-center text-sm font-semibold text-[var(--text-muted)]">Loading transaction details…</div>:detailError?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{detailError}</div>:detail?<AccountMovementDetail detail={detail}/>:null}
+      {detailLoading?<div className="py-10 text-center text-sm font-semibold text-[var(--text-muted)]">Loading transaction details…</div>:detailError?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{detailError}</div>:detail&&account?<AccountMovementDetail detail={detail} account={account}/>:null}
     </Modal>,document.body):null}
   </PageFrame></AppShell>;
 }
