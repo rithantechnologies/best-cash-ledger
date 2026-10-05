@@ -4132,9 +4132,17 @@ export class TransactionsService {
         cardDueClearing: { select: { id: true, nextFollowUpAt: true } },
         cardDueRecovery: { select: { id: true, recoveredAt: true } },
         cardDueCommissionCollection: { select: { id: true, collectedAt: true } },
+        quickCashTransfer: { select: { completionTransactionId: true } },
       },
     });
     if (!original) throw new NotFoundException('Transaction not found');
+
+    const quickCompletion = original.quickCashTransfer?.completionTransactionId
+      ? await this.prisma.transaction.findUnique({
+          where: { id: original.quickCashTransfer.completionTransactionId },
+          include: { journal: { select: { postingDate: true } } },
+        })
+      : null;
 
     const deltaMs = corrected.getTime() - original.transactionAt.getTime();
     const shift = (value: Date | null | undefined) =>
@@ -4153,6 +4161,8 @@ export class TransactionsService {
       cardDueNextFollowUpAt: original.cardDueClearing?.nextFollowUpAt?.toISOString() ?? null,
       cardDueRecoveredAt: original.cardDueRecovery?.recoveredAt.toISOString() ?? null,
       cardDueCommissionCollectedAt: original.cardDueCommissionCollection?.collectedAt.toISOString() ?? null,
+      quickCashCompletionTransactionAt: quickCompletion?.transactionAt.toISOString() ?? null,
+      quickCashCompletionPostingDate: quickCompletion?.journal?.postingDate.toISOString() ?? null,
     };
 
     return this.prisma.$transaction(async (tx) => {
@@ -4167,6 +4177,17 @@ export class TransactionsService {
       if (original.journal) {
         await tx.ledgerJournal.update({
           where: { id: original.journal.id },
+          data: { postingDate: corrected },
+        });
+      }
+
+      if (original.quickCashTransfer?.completionTransactionId) {
+        await tx.transaction.update({
+          where: { id: original.quickCashTransfer.completionTransactionId },
+          data: { transactionAt: corrected, updatedById: userId },
+        });
+        await tx.ledgerJournal.updateMany({
+          where: { transactionId: original.quickCashTransfer.completionTransactionId },
           data: { postingDate: corrected },
         });
       }
@@ -4281,6 +4302,8 @@ export class TransactionsService {
         cardDueNextFollowUpAt: original.cardDueClearing ? shift(original.cardDueClearing.nextFollowUpAt)?.toISOString() ?? null : null,
         cardDueRecoveredAt: original.cardDueRecovery ? corrected.toISOString() : null,
         cardDueCommissionCollectedAt: original.cardDueCommissionCollection ? corrected.toISOString() : null,
+        quickCashCompletionTransactionAt: quickCompletion ? corrected.toISOString() : null,
+        quickCashCompletionPostingDate: quickCompletion?.journal ? corrected.toISOString() : null,
       };
 
       await tx.auditLog.create({

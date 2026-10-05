@@ -19,7 +19,7 @@ type Account={
 };
 type MoneyRef={payable:{status:string;dueAt:string|null;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null};
 type BusinessTx=MoneyRef&{
-  id?:string;transactionNumber:string;transactionType:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;createdBy:{fullName:string}|null;charges:Charge[];
+  id?:string;transactionNumber:string;transactionType:string;transactionAt:string;status:string;referenceNumber?:string|null;notes?:string|null;customer:{fullName:string}|null;createdBy:{fullName:string}|null;charges:Charge[];
   cardSwipe:{swipeAmount:string;commissionAmount:string;customerCard:{bankName:string;lastFourDigits:string}}|null;
   quickCashTransfer:{direction:string;purpose:string;serviceName:string|null;cashOutType:string;aadhaarLastFour:string|null;customerBankName:string|null;cardLastFour:string|null;customerName:string|null;mobileNumber:string|null;beneficiaryMode:string|null;beneficiaryDetails:string|null;servicePaymentMode:string;cashAccount:{accountName:string}|null;sourceAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
   expense:{expenseType:string;amount:string;description:string;expenseCategory:{name:string};paymentAccount:{accountName:string}}|null;
@@ -78,6 +78,7 @@ const nice=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w
 const total=(items:{amount:string}[])=>items.reduce((sum,item)=>sum+Number(item.amount),0);
 const ledgerBusinessSource=(tx:RowTx):BusinessTx=>tx.quickCashCompletionSource??tx.providerSettlementReceipt?.settlement.sourceTransaction??tx.payablePayment?.payable.sourceTransaction??tx;
 const ledgerMoneySource=(tx:RowTx):MoneyRef=>ledgerBusinessSource(tx);
+const ledgerActivityDate=(tx:RowTx)=>tx.quickCashCompletionSource?.transactionAt??tx.transactionAt;
 const cleanAccountName=(value:string|null|undefined)=>String(value??"").trim().toLowerCase();
 function payoutChargesForAccount(account:Account,tx:RowTx){
   if(account.accountType!=="PROVIDER_WALLET")return [];
@@ -286,7 +287,7 @@ function AccountMovementDetail({detail,account}:{detail:DrillDetail;account:Acco
   return <div className="space-y-4">
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
       <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[var(--text-muted)]">{isIn?"Money in":"Money out"}</p><p className={"money mt-1 text-2xl font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>{movementPayoutFees>0?<p className="mt-1 text-[11px] font-black text-rose-700">Payout {money(movementPrincipal)} · Fee {money(movementPayoutFees)}</p>:null}</div><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Balance after</p><p className="money mt-1 text-sm font-black">{money(row.runningBalance)}</p></div></div>
-      <p className="mt-2 text-xs font-semibold text-[var(--text)]">{summary.primary}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{summary.secondary} · {new Date(movement.transactionAt).toLocaleString("en-IN")}</p>
+      <p className="mt-2 text-xs font-semibold text-[var(--text)]">{summary.primary}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{summary.secondary} · {new Date(tx.transactionAt).toLocaleString("en-IN")}</p>
     </div>
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       <DetailStat label="Customer" value={tx.customer?.fullName??"—"}/>
@@ -502,7 +503,7 @@ export default function AccountLedgerPage(){
                     <p className="text-sm font-black leading-5 text-[var(--text)]">{presentation.name}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="text-xs font-bold text-[var(--text)]">{presentation.type}</span>
-                      <span className="text-[10px] font-semibold text-[var(--text-muted)]">{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
+                      <span className="text-[10px] font-semibold text-[var(--text-muted)]">{new Date(ledgerActivityDate(tx)).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(ledgerActivityDate(tx)).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</span>
                     </div>
                     {presentation.details?<p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{presentation.details}</p>:null}
                   </div>
@@ -529,8 +530,8 @@ export default function AccountLedgerPage(){
                 <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-muted)]">
                   <MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/>
                   <div>
-                  <p>{new Date(row.journal.postingDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</p>
-                  <p className="mt-0.5">{new Date(row.journal.postingDate).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+                  <p>{new Date(ledgerActivityDate(tx)).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</p>
+                  <p className="mt-0.5">{new Date(ledgerActivityDate(tx)).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
                   </div>
                 </div>
                 <div className="min-w-0">

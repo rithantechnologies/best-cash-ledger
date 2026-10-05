@@ -225,7 +225,10 @@ export class ReportsService {
             },
           },
         },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [
+          { journal: { postingDate: 'asc' } },
+          { createdAt: 'asc' },
+        ],
       }),
       from
         ? this.prisma.ledgerEntry.findMany({
