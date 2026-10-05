@@ -55,7 +55,7 @@ const providerIncome=(tx:Tx)=>tx.commissions.filter(c=>c.commissionType.endsWith
 const customerCommissionIncome=(tx:Tx)=>tx.commissions.filter(c=>!c.commissionType.endsWith("_PROVIDER")).reduce((a,x)=>a+Number(x.amount),0);
 const serviceRevenue=(tx:Tx)=>tx.transactionType==="SERVICE_INCOME"?Number(tx.grossAmount):0;
 const totalIncome=(tx:Tx)=>customerCommissionIncome(tx)+providerIncome(tx)+serviceRevenue(tx);
-const accountEntryLabel=(kind:string)=>({LOAN_RECEIVED:"Loan received",LOAN_REPAYMENT:"Loan repayment",OWNER_FUNDING:"Owner funds added",OWNER_WITHDRAWAL:"Owner withdrawal",OTHER_NON_INCOME:"Other non-income",OTHER_NON_EXPENSE:"Other non-expense"} as Record<string,string>)[kind]??label(kind);
+const accountEntryLabel=(kind:string)=>({LOAN_RECEIVED:"Loan received",LOAN_REPAYMENT:"Loan repayment",OWNER_FUNDING:"Owner funds added",OWNER_WITHDRAWAL:"Owner withdrawal",OTHER_NON_INCOME:"Other / adjustment",OTHER_NON_EXPENSE:"Other / adjustment"} as Record<string,string>)[kind]??label(kind);
 const displayService=(tx:Tx)=>tx.accountEntry?(tx.accountEntry.entryLabel||accountEntryLabel(tx.accountEntry.entryKind)):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
 function activityDirection(tx:Tx):"IN"|"OUT"|null{
  if(tx.accountEntry)return tx.accountEntry.direction;

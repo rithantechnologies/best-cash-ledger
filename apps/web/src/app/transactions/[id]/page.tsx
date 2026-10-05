@@ -32,12 +32,13 @@ type QuickCash={direction:"IN"|"OUT";purpose:string;serviceName:string|null;serv
 type InternalTransfer={transferAmount:string;chargeAmount:string;sourceAccount:Account;destinationAccount:Account};
 type AtmWithdrawal={cashReceived:string;atmCharge:string;withdrawalAmount:string;bankAccount:Account;cashAccount:Account};
 type CreditCardPayment={paymentAmount:string;creditCardAccount:Account;sourceAccount:Account};
+type AccountEntry={direction:"IN"|"OUT";entryKind:string;amount:string;entryLabel:string|null;account:Account};
 type CorrectionLink={id:string;transactionNumber:string;status:string};
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
  status:string;referenceNumber:string|null;notes:string|null;reversalReason:string|null;correctionSourceTransactionId:string|null;correctionReason:string|null;createdById:string;createdBy:{id:string;fullName:string}|null;
  customer:{fullName:string}|null;charges:Charge[];commissions:Commission[];journal:{journalNumber:string;description:string;entries:Entry[]}|null;
- payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;internalTransfer:InternalTransfer|null;atmWithdrawal:AtmWithdrawal|null;creditCardPayment:CreditCardPayment|null;
+ payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;internalTransfer:InternalTransfer|null;atmWithdrawal:AtmWithdrawal|null;creditCardPayment:CreditCardPayment|null;accountEntry:AccountEntry|null;
  correctionSource:CorrectionLink|null;correctedTransaction:CorrectionLink|null;
 };
 
@@ -47,7 +48,8 @@ const label=(s:string)=>s.replaceAll("_"," ").toLowerCase().replace(/w/g,c=>c.t
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
 const chargeLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"Partner / external service cost"+(c.sourceAccount?.accountName?" · paid from "+c.sourceAccount.accountName:" · payable"):c.chargeType==="PAYOUT"?"Payout charge"+(c.sourceAccount?.accountName?" · "+c.sourceAccount.accountName:""):"Provider / bank fee";
 const chargeRuleLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"":c.calculationType==="PERCENTAGE"&&c.rate?Number(c.rate)+"%":c.chargeType==="PAYOUT"?"Fixed payout slab":c.rate?"₹"+Number(c.rate):"";
-const displayService=(tx:Tx)=>tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
+const accountEntryLabel=(kind:string)=>({LOAN_RECEIVED:"Loan received",LOAN_REPAYMENT:"Loan repayment",OWNER_FUNDING:"Owner funds added",OWNER_WITHDRAWAL:"Owner withdrawal",OTHER_NON_INCOME:"Other / adjustment",OTHER_NON_EXPENSE:"Other / adjustment"} as Record<string,string>)[kind]??label(kind);
+const displayService=(tx:Tx)=>tx.accountEntry?(tx.accountEntry.entryLabel||accountEntryLabel(tx.accountEntry.entryKind)):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
 const correctionBaseAmount=(tx:Tx)=>{
  if(tx.cardSwipe)return Number(tx.cardSwipe.swipeAmount);
  if(tx.cashTransfer)return Number(tx.cashTransfer.requestedAmount);
@@ -84,6 +86,11 @@ function FlowCard({label:heading,value,meta,tone="neutral",children}:{label:stri
 
 function MoneyFlow({tx}:{tx:Tx}){
  const gross=Number(tx.grossAmount),fees=sum(tx.charges),earnings=sum(tx.commissions),net=Number(tx.netAmount??tx.grossAmount);
+ if(tx.accountEntry){
+  const d=tx.accountEntry;
+  const inbound=d.direction==="IN";
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Manual account movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Audited balance movement recorded directly against this account.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label={inbound?"Money in":"Money out"} value={(inbound?"+":"−")+money(d.amount)} tone={inbound?"positive":"negative"}/><FlowCard label="Account" value={d.account.accountName}/><FlowCard label="Category" value={accountEntryLabel(d.entryKind)}/><FlowCard label="Reason / source" value={d.entryLabel||"—"} meta={tx.referenceNumber?"Ref "+tx.referenceNumber:undefined}/></div></Surface>;
+ }
  const payoutFees=tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0;
  const settlement=tx.providerSettlementSource;
  if(tx.transactionType==="SERVICE_INCOME"){

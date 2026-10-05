@@ -3445,7 +3445,10 @@ export class TransactionsService {
       const counterLedger = await tx.ledgerAccount.findUnique({ where: { ledgerCode } });
       if (!counterLedger) throw new NotFoundException('Counter ledger is not configured');
 
-      const label = dto.entryLabel?.trim() || null;
+      const label = dto.entryLabel.trim();
+      if (label.length < 2) {
+        throw new BadRequestException('Reason / source is required for a manual amount entry');
+      }
       const transaction = await tx.transaction.create({
         data: {
           transactionNumber: 'AEN-' + Date.now().toString(36).toUpperCase(),
