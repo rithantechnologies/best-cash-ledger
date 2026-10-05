@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateAccountEntryDto {
   @IsString() accountId!: string;
@@ -20,7 +20,7 @@ export class CreateAccountEntryDto {
     | 'OTHER_NON_EXPENSE';
   @IsNumber() @Min(0.01) amount!: number;
   @IsOptional() @IsDateString() transactionAt?: string;
-  @IsString() @MinLength(2) entryLabel!: string;
+  @IsOptional() @IsString() entryLabel?: string;
   @IsOptional() @IsString() referenceNumber?: string;
   @IsOptional() @IsString() notes?: string;
 }

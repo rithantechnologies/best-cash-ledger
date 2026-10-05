@@ -365,7 +365,7 @@ export default function AccountLedgerPage(){
   const [detailOpen,setDetailOpen]=useState(false),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState("");
   const [detail,setDetail]=useState<DrillDetail|null>(null);
   const [entryOpen,setEntryOpen]=useState(false),[entrySaving,setEntrySaving]=useState(false),[entryError,setEntryError]=useState("");
-  const [entryDirection,setEntryDirection]=useState<"IN"|"OUT">("IN"),[entryKind,setEntryKind]=useState("OTHER_NON_INCOME"),[entryAmount,setEntryAmount]=useState("");
+  const [entryDirection,setEntryDirection]=useState<"IN"|"OUT">("IN"),[entryAmount,setEntryAmount]=useState("");
   const [entryDate,setEntryDate]=useState(localDateValue),[entryLabel,setEntryLabel]=useState(""),[entryReference,setEntryReference]=useState(""),[entryNote,setEntryNote]=useState("");
   const load=useCallback(async(nextRange:Range)=>{
     setLoading(true);setError("");
@@ -376,16 +376,17 @@ export default function AccountLedgerPage(){
     }catch(err){setError(err instanceof Error?err.message:"Failed to load ledger");}
     finally{setLoading(false);}
   },[id]);
-  const resetAccountEntry=()=>{setEntryDirection("IN");setEntryKind("OTHER_NON_INCOME");setEntryAmount("");setEntryDate(localDateValue());setEntryLabel("");setEntryReference("");setEntryNote("");setEntryError("");};
+  const resetAccountEntry=()=>{setEntryDirection("IN");setEntryAmount("");setEntryDate(localDateValue());setEntryLabel("");setEntryReference("");setEntryNote("");setEntryError("");};
   const submitAccountEntry=async(event:FormEvent)=>{
     event.preventDefault();
     const amount=Number(entryAmount);
     if(!Number.isFinite(amount)||amount<=0){setEntryError("Enter a valid amount.");return;}
     if(!entryDate){setEntryError("Choose the entry date.");return;}
     if(entryDate>localDateValue()){setEntryError("Entry date cannot be in the future.");return;}
-    if(entryLabel.trim().length<2){setEntryError("Add a short reason or source for this amount.");return;}
+
     setEntrySaving(true);setEntryError("");
     try{
+      const entryKind=entryDirection==="IN"?"OTHER_NON_INCOME":"OTHER_NON_EXPENSE";
       await apiFetch("/transactions/account-entry",{method:"POST",body:JSON.stringify({accountId:id,direction:entryDirection,entryKind,amount,transactionAt:dateWithCurrentLocalTime(entryDate),entryLabel:entryLabel.trim()||undefined,referenceNumber:entryReference.trim()||undefined,notes:entryNote.trim()||undefined})});
       setEntryOpen(false);resetAccountEntry();await load(range);
     }catch(err){setEntryError(err instanceof Error?err.message:"Failed to save amount entry");}
@@ -589,22 +590,22 @@ export default function AccountLedgerPage(){
         </div>:search?<div className="p-5"><EmptyState title="No matching activity" description="Try a different search."/></div>:Math.abs(periodOpening)>0.005?<div className="p-4 sm:p-5"><div className="flex items-center justify-between gap-4 rounded-xl bg-[var(--surface-soft)] px-4 py-3.5"><div><p className="text-sm font-bold">Opening balance</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">No transactions in this period yet.</p></div><strong className="money shrink-0 text-sm">{money(periodOpening)}</strong></div></div>:<div className="p-5"><EmptyState title="No transactions yet" description="Activity will appear here when money moves through this account."/></div>}
       </Surface>
     </>:null}
-    {entryOpen?<Modal open title="New amount entry" onClose={()=>{if(!entrySaving){setEntryOpen(false);resetAccountEntry();}}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={entrySaving} onClick={()=>{setEntryOpen(false);resetAccountEntry();}} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold disabled:opacity-50">Cancel</button><button form="account-amount-entry" disabled={entrySaving||!entryAmount||Number(entryAmount)<=0||entryLabel.trim().length<2} className="app-primary-button min-h-11 text-sm font-black disabled:opacity-50">{entrySaving?"Saving…":"Save entry"}</button></div>}>
+    {entryOpen?<Modal open title="New amount entry" onClose={()=>{if(!entrySaving){setEntryOpen(false);resetAccountEntry();}}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={entrySaving} onClick={()=>{setEntryOpen(false);resetAccountEntry();}} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold disabled:opacity-50">Cancel</button><button form="account-amount-entry" disabled={entrySaving||!entryAmount||Number(entryAmount)<=0} className="app-primary-button min-h-11 text-sm font-black disabled:opacity-50">{entrySaving?"Saving…":"Save entry"}</button></div>}>
       <form id="account-amount-entry" onSubmit={submitAccountEntry} className="space-y-4">
         <div className="grid grid-cols-2 gap-2 rounded-xl bg-[var(--surface-soft)] p-1.5">
-          <button type="button" onClick={()=>{setEntryDirection("IN");setEntryKind("OTHER_NON_INCOME");setEntryError("");}} className={"min-h-10 rounded-lg text-sm font-black "+(entryDirection==="IN"?"bg-[var(--surface)] text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Money in</button>
-          <button type="button" onClick={()=>{setEntryDirection("OUT");setEntryKind("OTHER_NON_EXPENSE");setEntryError("");}} className={"min-h-10 rounded-lg text-sm font-black "+(entryDirection==="OUT"?"bg-[var(--surface)] text-rose-700 shadow-sm":"text-[var(--text-muted)]")}>Money out</button>
+          <button type="button" onClick={()=>{setEntryDirection("IN");setEntryError("");}} className={"min-h-10 rounded-lg text-sm font-black "+(entryDirection==="IN"?"bg-[var(--surface)] text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Money in</button>
+          <button type="button" onClick={()=>{setEntryDirection("OUT");setEntryError("");}} className={"min-h-10 rounded-lg text-sm font-black "+(entryDirection==="OUT"?"bg-[var(--surface)] text-rose-700 shadow-sm":"text-[var(--text-muted)]")}>Money out</button>
         </div>
-        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Category</span><SearchableSelect className="app-control" value={entryKind} onChange={(event)=>setEntryKind(event.target.value)}>{entryDirection==="IN"?<><option value="OTHER_NON_INCOME">Other / adjustment</option><option value="LOAN_RECEIVED">Loan received</option><option value="OWNER_FUNDING">Owner funds added</option></>:<><option value="OTHER_NON_EXPENSE">Other / adjustment</option><option value="LOAN_REPAYMENT">Loan repayment</option><option value="OWNER_WITHDRAWAL">Owner withdrawal</option></>}</SearchableSelect></label>
+
         <div className="grid grid-cols-2 gap-3">
           <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Amount</span><input className="app-control" type="number" min="0.01" step="0.01" inputMode="decimal" value={entryAmount} onChange={(event)=>{setEntryAmount(event.target.value);setEntryError("");}} placeholder="₹ 0.00" required/></label>
           <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Date</span><input className="app-control" type="date" max={localDateValue()} value={entryDate} onChange={(event)=>{setEntryDate(event.target.value);setEntryError("");}} required/></label>
         </div>
-        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason / source</span><input className="app-control" value={entryLabel} onChange={(event)=>{setEntryLabel(event.target.value);setEntryError("");}} placeholder={entryKind==="LOAN_RECEIVED"?"e.g. Gold loan credited":entryKind==="LOAN_REPAYMENT"?"e.g. Gold loan repayment":entryKind==="OWNER_FUNDING"?"e.g. Owner funds added":entryKind==="OWNER_WITHDRAWAL"?"e.g. Owner withdrawal":"e.g. Balance adjustment / refund / other source"} required/></label>
+        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason / source</span><input className="app-control" value={entryLabel} onChange={(event)=>{setEntryLabel(event.target.value);setEntryError("");}} placeholder="Optional reason or source"/></label>
         <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reference</span><input className="app-control" value={entryReference} onChange={(event)=>setEntryReference(event.target.value)} placeholder="Bank ref / UTR / document no. (optional)"/></label>
         <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Note</span><textarea className="app-control min-h-20 resize-y" value={entryNote} onChange={(event)=>setEntryNote(event.target.value)} placeholder="Optional note"/></label>
         {entryError?<p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{entryError}</p>:null}
-        {entryKind==="LOAN_RECEIVED"?<p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Loan received increases this account and the loan liability. It is not business income.</p>:entryKind==="LOAN_REPAYMENT"?<p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Loan repayment reduces this account and the loan liability. It is not a business expense.</p>:entryKind.startsWith("OTHER_")?<p className="rounded-xl bg-[var(--surface-soft)] px-3 py-2 text-xs font-semibold text-[var(--text-muted)]">Use this for balance-affecting money that should not be treated as normal business income or expense. Add the reason so the entry stays auditable.</p>:null}
+
       </form>
     </Modal>:null}
     {detailOpen&&typeof document!=="undefined"?createPortal(<Modal open title="Account transaction details" description="Trace this account movement back to the customer or source transaction." onClose={()=>{setDetailOpen(false);setDetail(null);setDetailError("");}}>
