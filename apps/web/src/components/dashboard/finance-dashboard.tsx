@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { AccountBrandIcon } from "@/components/account-brand-icon";
 import { AppShell } from "@/components/app-shell";
 import { apiFetch } from "@/lib/api";
 import { formatMoney, titleCase } from "@/lib/format";
@@ -89,14 +90,6 @@ function periodRange(period: DashboardPeriod) {
   }
 
   return { from: start.toISOString(), to: end.toISOString(), label };
-}
-
-function accountIcon(accountType: string): DashboardIconName {
-  if (accountType === "CASH") return "cash";
-  if (accountType === "UPI") return "upi";
-  if (accountType === "PROVIDER_WALLET") return "wallet";
-  if (accountType === "OWNER_CREDIT_CARD") return "card";
-  return "bank";
 }
 
 function SectionHeading({
@@ -813,7 +806,7 @@ export function FinanceDashboard() {
             <div className={styles.accountList}>
               {scopeAccounts.slice(0, 5).map((account) => (
                 <Link href={`/accounts/${account.id}`} key={account.id} className={styles.accountRow}>
-                  <span className={styles.accountIcon}><DashboardIcon name={accountIcon(account.accountType)} /></span>
+                  {account.accountType === "CASH" ? <span className={styles.accountIcon}><DashboardIcon name="cash" /></span> : <AccountBrandIcon account={account} className="!h-[38px] !w-[38px]" />}
                   <div className={styles.accountIdentity}>
                     <strong>{account.accountName}</strong>
                     <p>{titleCase(account.accountType)} · {titleCase(account.usageType)}</p>

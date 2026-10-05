@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { AccountBrandIcon } from "@/components/account-brand-icon";
 import { SearchableSelect } from "@/components/searchable-select";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -380,8 +381,13 @@ export default function AccountLedgerPage(){
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <Link href="/accounts" className="inline-flex min-h-8 items-center text-xs font-bold text-[var(--accent)]">← Accounts</Link>
-        <h1 className="mt-1 truncate text-2xl font-black tracking-[-.035em] sm:text-3xl">{account?.accountName??"Account"}</h1>
-        {account?<p className="mt-1 text-xs font-semibold text-[var(--text-muted)]">{accountMeta(account)}</p>:null}
+        <div className="mt-1 flex min-w-0 items-center gap-3">
+          {account&&account.accountType!=="CASH"?<AccountBrandIcon account={account} className="!h-11 !w-11 !rounded-2xl"/>:null}
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-black tracking-[-.035em] sm:text-3xl">{account?.accountName??"Account"}</h1>
+            {account?<p className="mt-1 text-xs font-semibold text-[var(--text-muted)]">{accountMeta(account)}</p>:null}
+          </div>
+        </div>
       </div>
       {admin?<Link href={"/accounts?edit="+id} className="inline-flex min-h-10 shrink-0 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--text)] shadow-sm">Edit</Link>:null}
     </div>

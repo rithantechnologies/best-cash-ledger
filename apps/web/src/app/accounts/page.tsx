@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
 
+import { AccountBrandIcon } from "@/components/account-brand-icon";
 import { SearchableSelect } from "@/components/searchable-select";
 import Link from "next/link";
 import { createPortal } from "react-dom";
@@ -71,7 +72,7 @@ function AccountArtwork({account}:{account:Account}){
     <span className="absolute -bottom-12 left-8 h-24 w-24 rounded-full bg-white/20 blur-2xl"/>
     <div className="relative flex items-start justify-between gap-3">
       <span className={"grid h-11 w-11 shrink-0 place-items-center rounded-2xl ring-1 backdrop-blur "+visual.icon}>
-        {bankLike?<AccountIcon type="BANK"/>:wallet?<AccountIcon type="PROVIDER_WALLET"/>:<AccountIcon type="OWNER_CREDIT_CARD"/>}
+        <AccountBrandIcon account={account} className="!h-8 !w-8 !rounded-lg" />
       </span>
       <span className={"rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-[.12em] ring-1 backdrop-blur "+visual.badge}>{credit?"Credit":wallet?"Wallet":"Bank"}</span>
     </div>
@@ -415,9 +416,7 @@ export default function AccountsPage(){
               const utilisation=limit>0?Math.min(100,(used/limit)*100):0;
               return <div key={account.id} className={"flex items-stretch "+(!account.isActive?"opacity-55":"")}>
                 <Link href={"/accounts/"+account.id} className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] sm:px-4">
-                  <span className={"grid h-10 w-10 shrink-0 place-items-center rounded-xl "+(section.key==="CASH"?"bg-amber-50 text-amber-700":section.key==="BANK"?"bg-blue-50 text-blue-700":section.key==="OWNER_CREDIT_CARD"?"bg-rose-50 text-rose-600":"bg-emerald-50 text-emerald-700")}>
-                    <AccountIcon type={section.icon}/>
-                  </span>
+                  {section.key==="CASH"?<span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-700"><AccountIcon type="CASH"/></span>:<AccountBrandIcon account={account}/>}
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
