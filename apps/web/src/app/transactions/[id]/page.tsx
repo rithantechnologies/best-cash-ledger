@@ -48,8 +48,7 @@ const label=(s:string)=>s.replaceAll("_"," ").toLowerCase().replace(/w/g,c=>c.t
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
 const chargeLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"Partner / external service cost"+(c.sourceAccount?.accountName?" · paid from "+c.sourceAccount.accountName:" · payable"):c.chargeType==="PAYOUT"?"Payout charge"+(c.sourceAccount?.accountName?" · "+c.sourceAccount.accountName:""):"Provider / bank fee";
 const chargeRuleLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"":c.calculationType==="PERCENTAGE"&&c.rate?Number(c.rate)+"%":c.chargeType==="PAYOUT"?"Fixed payout slab":c.rate?"₹"+Number(c.rate):"";
-const accountEntryLabel=(kind:string)=>({LOAN_RECEIVED:"Loan received",LOAN_REPAYMENT:"Loan repayment",OWNER_FUNDING:"Owner funds added",OWNER_WITHDRAWAL:"Owner withdrawal",OTHER_NON_INCOME:"Other / adjustment",OTHER_NON_EXPENSE:"Other / adjustment"} as Record<string,string>)[kind]??label(kind);
-const displayService=(tx:Tx)=>tx.accountEntry?(tx.accountEntry.entryLabel||accountEntryLabel(tx.accountEntry.entryKind)):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
+const displayService=(tx:Tx)=>tx.accountEntry?(tx.accountEntry.entryLabel||"Manual amount entry"):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
 const correctionBaseAmount=(tx:Tx)=>{
  if(tx.cardSwipe)return Number(tx.cardSwipe.swipeAmount);
  if(tx.cashTransfer)return Number(tx.cashTransfer.requestedAmount);
@@ -89,7 +88,7 @@ function MoneyFlow({tx}:{tx:Tx}){
  if(tx.accountEntry){
   const d=tx.accountEntry;
   const inbound=d.direction==="IN";
-  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Manual account movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Audited balance movement recorded directly against this account.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label={inbound?"Money in":"Money out"} value={(inbound?"+":"−")+money(d.amount)} tone={inbound?"positive":"negative"}/><FlowCard label="Account" value={d.account.accountName}/><FlowCard label="Category" value={accountEntryLabel(d.entryKind)}/><FlowCard label="Reason / source" value={d.entryLabel||"—"} meta={tx.referenceNumber?"Ref "+tx.referenceNumber:undefined}/></div></Surface>;
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Manual account movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Audited balance movement recorded directly against this account.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3 sm:p-4"><FlowCard label={inbound?"Money in":"Money out"} value={(inbound?"+":"−")+money(d.amount)} tone={inbound?"positive":"negative"}/><FlowCard label="Account" value={d.account.accountName}/><FlowCard label="Reason / source" value={d.entryLabel||"—"} meta={tx.referenceNumber?"Ref "+tx.referenceNumber:undefined}/></div></Surface>;
  }
  const payoutFees=tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0;
  const settlement=tx.providerSettlementSource;

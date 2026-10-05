@@ -62,7 +62,6 @@ type Range="7d"|"30d"|"90d"|"all";
 const money=(value:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(value||0));
 const localDateValue=()=>{const now=new Date(),offset=now.getTimezoneOffset()*60000;return new Date(now.getTime()-offset).toISOString().slice(0,10);};
 const dateWithCurrentLocalTime=(date:string)=>{const now=new Date(),[year,month,day]=date.split("-").map(Number);return new Date(year,month-1,day,now.getHours(),now.getMinutes(),now.getSeconds(),now.getMilliseconds()).toISOString();};
-const accountEntryLabels:Record<string,string>={LOAN_RECEIVED:"Loan received",LOAN_REPAYMENT:"Loan repayment",OWNER_FUNDING:"Owner funds added",OWNER_WITHDRAWAL:"Owner withdrawal",OTHER_NON_INCOME:"Other / adjustment",OTHER_NON_EXPENSE:"Other / adjustment"};
 const typeLabels:Record<string,string>={CASH:"Shop cash",BANK:"Bank",UPI:"Bank",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card"};
 function rangeStart(range:Range){
   if(range==="all")return "";
@@ -111,10 +110,9 @@ function payoutChargeForAccount(account:Account,tx:RowTx){
 }
 function businessSummary(tx:BusinessTx,row:Row){
   if(tx.accountEntry){
-    const label=accountEntryLabels[tx.accountEntry.entryKind]??nice(tx.accountEntry.entryKind);
     return {
-      primary:tx.accountEntry.entryLabel?.trim()||label,
-      secondary:[label,tx.transactionNumber,tx.referenceNumber?"Ref "+tx.referenceNumber:null,tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null].filter(Boolean).join(" · "),
+      primary:tx.accountEntry.entryLabel?.trim()||"Manual amount entry",
+      secondary:[tx.transactionNumber,tx.referenceNumber?"Ref "+tx.referenceNumber:null,tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null].filter(Boolean).join(" · "),
     };
   }
   if(tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer){
