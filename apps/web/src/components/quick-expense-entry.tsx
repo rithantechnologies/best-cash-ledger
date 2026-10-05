@@ -168,7 +168,6 @@ export function QuickExpenseEntry({
               <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-3 rounded-[17px] bg-[var(--surface-soft)] px-4 py-3">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Expense date <span className="text-rose-500">*</span></p>
-                  <p className="mt-0.5 text-[11px] font-semibold text-[var(--text-muted)]">Defaults to today · back-date when needed</p>
                 </div>
                 <input type="date" required max={localDateValue()} value={expenseDate} onChange={e=>{setExpenseDate(e.target.value);setError("");}}
                   className="min-h-10 max-w-[155px] rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-[13px] font-black text-[var(--text)] outline-none focus:border-violet-300"/>
