@@ -484,6 +484,9 @@ export default function AccountLedgerPage(){
           <SearchableSelect className="app-control" value={moneyStatusFilter} onChange={(event)=>setMoneyStatusFilter(event.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([value,label])=><option key={value} value={value}>{label}</option>)}</SearchableSelect>
         </div>
         {rows.length?<div className="divide-y divide-[var(--border)]">
+          {showPayoutCharges?<div className="hidden bg-[var(--surface-soft)] px-5 py-2.5 text-[10px] font-black uppercase tracking-[.06em] text-[var(--text-muted)] sm:grid sm:grid-cols-[110px_minmax(240px,1fr)_120px_110px_140px_130px] sm:items-center sm:gap-2">
+            <span>Date</span><span>Activity</span><span className="text-right">Transaction amount</span><span className="text-right">Payout charge</span><span className="text-right">Wallet movement</span><span className="text-right">Balance</span>
+          </div>:null}
           {rows.map((row)=>{
             const isIn=increases(data.account,row);
             const tx=row.journal.transaction;
@@ -507,7 +510,7 @@ export default function AccountLedgerPage(){
                     <MoneyFlowIcon direction={isIn?"IN":"OUT"}/>
                     <div className="text-right">
                       <p className={"money text-base font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>
-                      {rowPayoutCharge>0?<p className="mt-1 whitespace-nowrap text-[10px] font-black text-rose-600">Payout {money(rowPrincipal)} · Fee {money(rowPayoutCharge)}</p>:null}
+                      {showPayoutCharges?<div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[9px]"><div className="text-left"><p className="font-bold uppercase tracking-wide text-[var(--text-muted)]">Transaction</p><p className="money mt-0.5 font-black text-[var(--text)]">{money(rowPrincipal)}</p></div><div className="text-right"><p className="font-bold uppercase tracking-wide text-[var(--text-muted)]">Payout charge</p><p className={"money mt-0.5 font-black "+(rowPayoutCharge>0?"text-rose-600":"text-[var(--text-muted)]")}>{rowPayoutCharge>0?money(rowPayoutCharge):"—"}</p></div></div>:null}
                       <p className="mt-1 text-[10px] font-semibold text-[var(--text-muted)]">Bal. {money(row.runningBalance)}</p>
                     </div>
                   </div>
@@ -522,7 +525,7 @@ export default function AccountLedgerPage(){
                   {tx.id?<span className="shrink-0 text-[11px] font-black text-[var(--accent)]">View details →</span>:null}
                 </div>
               </div>
-              <div className="hidden gap-2 px-5 py-3.5 sm:grid sm:grid-cols-[110px_minmax(0,1fr)_130px_130px] sm:items-center">
+              <div className={"hidden gap-2 px-5 py-3.5 sm:grid sm:items-center "+(showPayoutCharges?"sm:grid-cols-[110px_minmax(240px,1fr)_120px_110px_140px_130px]":"sm:grid-cols-[110px_minmax(0,1fr)_130px_130px]")}>
                 <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-muted)]">
                   <MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/>
                   <div>
@@ -540,8 +543,15 @@ export default function AccountLedgerPage(){
                     {tx.id?<span className="shrink-0 font-bold text-[var(--accent)]">View details</span>:null}
                   </div>
                 </div>
-                <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/><div className="text-right"><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p>{rowPayoutCharge>0?<p className="mt-0.5 whitespace-nowrap text-[9px] font-black text-rose-600">Payout {money(rowPrincipal)} · Fee {money(rowPayoutCharge)}</p>:null}</div></div>
-                <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
+                {showPayoutCharges?<>
+                  <div className="text-right"><p className="money text-sm font-extrabold text-[var(--text)]">{money(rowPrincipal)}</p></div>
+                  <div className="text-right"><p className={"money text-sm font-extrabold "+(rowPayoutCharge>0?"text-rose-600":"text-[var(--text-muted)]")}>{rowPayoutCharge>0?money(rowPayoutCharge):"—"}</p></div>
+                  <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div>
+                  <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
+                </>:<>
+                  <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div>
+                  <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
+                </>}
               </div>
             </button>;
           })}
