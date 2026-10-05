@@ -9,6 +9,7 @@ type AccountBrandLike = {
 type AccountBrand = {
   label: string;
   image?: string;
+  imageClass?: string;
   initials?: string;
   background: string;
   foreground: string;
@@ -41,13 +42,13 @@ const brandRules: BrandRule[] = [
   { label: "Union Bank of India", image: "/account-brands/union-bank-of-india.png", background: "#f1f7ff", foreground: "#0057a8", match: (v) => token(v, "UBI") || v.includes("UNION BANK OF INDIA") },
   { label: "BANKIT", image: "/account-brands/bankit.png", background: "#eaf8ff", foreground: "#00a9e0", match: (v) => v.includes("BANKIT") },
   { label: "ROINET", image: "/account-brands/roinet.png", background: "#f4f7ff", foreground: "#194e9d", match: (v) => v.includes("ROINET") },
-  { label: "SriMoney", image: "/account-brands/srimoney.jpg", background: "#eefaff", foreground: "#149cc4", match: (v) => v.includes("SRIMONEY") || v.includes("SRI MONEY") },
-  { label: "DigiSeva", initials: "DS", background: "#eeeefe", foreground: "#3b3fa2", match: (v) => v.includes("DIGISEVA") || v.includes("DIGI SEVA") },
+  { label: "SriMoney", image: "/account-brands/srimoney.png", background: "#eefaff", foreground: "#149cc4", match: (v) => v.includes("SRIMONEY") || v.includes("SRI MONEY") },
+  { label: "DigiSeva", image: "/account-brands/digiseva.svg", imageClass: "h-6 w-8 object-contain", background: "#f6f8ff", foreground: "#3b3fa2", match: (v) => v.includes("DIGISEVA") || v.includes("DIGI SEVA") },
   { label: "PaySwitch", initials: "PS", background: "#eef6ff", foreground: "#1d4f91", match: (v) => v.includes("PAYSWITCH") || v.includes("PAY SWITCH") },
-  { label: "24PAY", initials: "24", background: "#f3efff", foreground: "#6f42c1", match: (v) => v.includes("24PAY") || v.includes("24 PAY") },
-  { label: "A2Z Suvidha", initials: "A2Z", background: "#fff4e8", foreground: "#d35b19", match: (v) => v.includes("A2Z") },
-  { label: "EasyPay", initials: "EP", background: "#eafaf2", foreground: "#178252", match: (v) => v.includes("EASYPAY") || v.includes("EASY PAY") },
-  { label: "Swift Money", initials: "SM", background: "#eef4ff", foreground: "#315da8", match: (v) => v.includes("SWIFT MONEY") },
+  { label: "24PAY", image: "/account-brands/24pay.png", imageClass: "h-6 w-8 object-contain", background: "#f4f5ff", foreground: "#5b5cf0", match: (v) => v.includes("24PAY") || v.includes("24 PAY") },
+  { label: "A2Z Suvidhaa", image: "/account-brands/a2z-suvidhaa.jpg", imageClass: "h-7 w-auto max-w-none justify-self-start -translate-x-1", background: "#fff8ef", foreground: "#e77724", match: (v) => v.includes("A2Z") },
+  { label: "Easy Pay", image: "/account-brands/easypay.png", imageClass: "h-5 w-8 object-contain", background: "#f4f7fb", foreground: "#0057a8", match: (v) => v.includes("EASYPAY") || v.includes("EASY PAY") },
+  { label: "Swift Money", image: "/account-brands/swift-money.jpg", imageClass: "h-6 w-8 object-contain", background: "#f5f8ff", foreground: "#174d8a", match: (v) => v.includes("SWIFT MONEY") },
   { label: "RD Wallet", initials: "RD", background: "#f2f4f7", foreground: "#344054", match: (v) => token(v, "RD") },
   { label: "Visa", initials: "VISA", background: "#edf2ff", foreground: "#1434cb", match: (v) => token(v, "VISA") },
   { label: "Mastercard", initials: "MC", background: "#fff1ea", foreground: "#eb001b", match: (v) => v.includes("MASTERCARD") || v.includes("MASTER CARD") },
@@ -106,7 +107,7 @@ export function AccountBrandIcon({
       aria-label={brand.label}
     >
       {brand.image ? (
-        <img src={assetBasePath + brand.image} alt="" className="h-7 w-7 object-contain" aria-hidden="true" />
+        <img src={assetBasePath + brand.image} alt="" className={brand.imageClass ?? "h-7 w-7 object-contain"} aria-hidden="true" />
       ) : (
         <span className={"font-black tracking-[-.04em] " + ((brand.initials?.length ?? 0) > 2 ? "text-[9px]" : "text-[11px]")}>
           {brand.initials}
