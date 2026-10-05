@@ -249,7 +249,7 @@ export default function TransactionDetailPage(){
 
  const cardDueType=["CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION"].includes(tx.transactionType);
  const canEditDateTime=role==="OWNER"||role==="ADMIN";
- const correctionManagedElsewhere=["CUSTOMER_PAYOUT","CUSTOMER_RECEIVABLE","CUSTOMER_RECEIPT","PROVIDER_SETTLEMENT","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_ADJUSTMENT"].includes(tx.transactionType);
+ const correctionManagedElsewhere=["CUSTOMER_PAYOUT","CUSTOMER_RECEIVABLE","CUSTOMER_RECEIPT","PROVIDER_SETTLEMENT","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_ADJUSTMENT","ACCOUNT_ENTRY"].includes(tx.transactionType);
  const canCorrect=(role==="OWNER"||role==="ADMIN")&&!correctionManagedElsewhere&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL"&&!tx.correctedTransaction;
  const canDelete=role==="OWNER"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const canReverse=role==="ADMIN"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";

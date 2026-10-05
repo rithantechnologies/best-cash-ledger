@@ -56,6 +56,7 @@ enum TransactionType {
   CARD_DUE_RECOVERY
   CARD_DUE_COMMISSION_COLLECTION
   CASH_ADJUSTMENT
+  ACCOUNT_ENTRY
   REVERSAL
 }
 
@@ -418,6 +419,7 @@ model FinancialAccount {
   providerSettlementDestinations  ProviderSettlement[]          @relation("ProviderSettlementDestination")
   providerSettlementReceipts      ProviderSettlementReceipt[]   @relation("ProviderSettlementReceiptAccount")
   transactionCharges              TransactionCharge[]           @relation("TransactionChargeSourceAccount")
+  manualAccountEntries            AccountEntryDetail[]           @relation("AccountEntryAccount")
   createdAt                       DateTime                      @default(now())
   updatedAt                       DateTime                      @updatedAt
 
@@ -488,6 +490,7 @@ model Transaction {
   expense                     ExpenseDetail?
   atmWithdrawal               AtmWithdrawalDetail?
   creditCardPayment           CreditCardPaymentDetail?
+  accountEntry                AccountEntryDetail?
   cardDueClearing             CardDueClearingDetail?
   cardDueRecovery             CardDueRecovery?
   cardDueCommissionCollection CardDueCommissionCollection?
@@ -979,6 +982,21 @@ model InternalTransferDetail {
   chargeAmount         Decimal          @default(0) @db.Decimal(18, 2)
   referenceNumber      String?
   createdAt            DateTime         @default(now())
+}
+
+model AccountEntryDetail {
+  id               String           @id @default(uuid())
+  transactionId    String           @unique
+  transaction      Transaction      @relation(fields: [transactionId], references: [id])
+  accountId        String
+  account          FinancialAccount @relation("AccountEntryAccount", fields: [accountId], references: [id])
+  direction        String
+  entryKind        String
+  amount           Decimal          @db.Decimal(18, 2)
+  entryLabel       String?
+  createdAt        DateTime         @default(now())
+
+  @@index([accountId])
 }
 
 model ExpenseDetail {

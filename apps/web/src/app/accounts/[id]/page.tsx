@@ -5,7 +5,7 @@ import { AccountBrandIcon } from "@/components/account-brand-icon";
 import { SearchableSelect } from "@/components/searchable-select";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Modal, PageFrame, StatusBadge, Surface } from "@/components/ui";
@@ -29,6 +29,7 @@ type BusinessTx=MoneyRef&{
   internalTransfer:{transferAmount:string;sourceAccount:{accountName:string};destinationAccount:{accountName:string}}|null;
   atmWithdrawal:{withdrawalAmount:string;bankAccount:{accountName:string};cashAccount:{accountName:string}}|null;
   creditCardPayment:{paymentAmount:string;creditCardAccount:{accountName:string};sourceAccount:{accountName:string}}|null;
+  accountEntry:{direction:"IN"|"OUT";entryKind:string;amount:string;entryLabel:string|null;account:{accountName:string}}|null;
 };
 type RowTx=BusinessTx&{
   quickCashCompletionSource:BusinessTx|null;
@@ -54,10 +55,14 @@ type DrillTx={
   payablePayment:{amount:string;sourceAccount:TxAccount;payable:{sourceTransaction:SourceRef}}|null;
   providerSettlementSource:{provider:{name:string}|null;gateway:{gatewayName:string}|null;destinationAccount:TxAccount}|null;
   providerSettlementReceipt:{amount:string;destinationAccount:TxAccount;settlement:{provider:{name:string}|null;gateway:{gatewayName:string}|null;destinationAccount:TxAccount;sourceTransaction:SourceRef}}|null;
+  accountEntry:{direction:"IN"|"OUT";entryKind:string;amount:string;entryLabel:string|null;account:TxAccount}|null;
 };
 type DrillDetail={movement:DrillTx;source:DrillTx|null;row:Row;isIn:boolean};
 type Range="7d"|"30d"|"90d"|"all";
 const money=(value:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(value||0));
+const localDateValue=()=>{const now=new Date(),offset=now.getTimezoneOffset()*60000;return new Date(now.getTime()-offset).toISOString().slice(0,10);};
+const dateWithCurrentLocalTime=(date:string)=>{const now=new Date(),[year,month,day]=date.split("-").map(Number);return new Date(year,month-1,day,now.getHours(),now.getMinutes(),now.getSeconds(),now.getMilliseconds()).toISOString();};
+const accountEntryLabels:Record<string,string>={LOAN_RECEIVED:"Loan received",LOAN_REPAYMENT:"Loan repayment",OWNER_FUNDING:"Owner funds added",OWNER_WITHDRAWAL:"Owner withdrawal",OTHER_NON_INCOME:"Other non-income",OTHER_NON_EXPENSE:"Other non-expense"};
 const typeLabels:Record<string,string>={CASH:"Shop cash",BANK:"Bank",UPI:"Bank",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card"};
 function rangeStart(range:Range){
   if(range==="all")return "";
@@ -105,6 +110,13 @@ function payoutChargeForAccount(account:Account,tx:RowTx){
   return total(payoutChargesForAccount(account,tx));
 }
 function businessSummary(tx:BusinessTx,row:Row){
+  if(tx.accountEntry){
+    const label=accountEntryLabels[tx.accountEntry.entryKind]??nice(tx.accountEntry.entryKind);
+    return {
+      primary:tx.accountEntry.entryLabel?.trim()||label,
+      secondary:[label,tx.transactionNumber,tx.referenceNumber?"Ref "+tx.referenceNumber:null,tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null].filter(Boolean).join(" · "),
+    };
+  }
   if(tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer){
     const receivedIn=tx.quickCashTransfer.servicePaymentMode==="UPI"
       ?tx.quickCashTransfer.servicePaymentAccount?.accountName??"Bank / UPI"
@@ -352,6 +364,9 @@ export default function AccountLedgerPage(){
   const [loading,setLoading]=useState(true),[error,setError]=useState(""),[role,setRole]=useState("");
   const [detailOpen,setDetailOpen]=useState(false),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState("");
   const [detail,setDetail]=useState<DrillDetail|null>(null);
+  const [entryOpen,setEntryOpen]=useState(false),[entrySaving,setEntrySaving]=useState(false),[entryError,setEntryError]=useState("");
+  const [entryDirection,setEntryDirection]=useState<"IN"|"OUT">("IN"),[entryKind,setEntryKind]=useState("LOAN_RECEIVED"),[entryAmount,setEntryAmount]=useState("");
+  const [entryDate,setEntryDate]=useState(localDateValue),[entryLabel,setEntryLabel]=useState(""),[entryReference,setEntryReference]=useState(""),[entryNote,setEntryNote]=useState("");
   const load=useCallback(async(nextRange:Range)=>{
     setLoading(true);setError("");
     try{
@@ -361,6 +376,20 @@ export default function AccountLedgerPage(){
     }catch(err){setError(err instanceof Error?err.message:"Failed to load ledger");}
     finally{setLoading(false);}
   },[id]);
+  const resetAccountEntry=()=>{setEntryDirection("IN");setEntryKind("LOAN_RECEIVED");setEntryAmount("");setEntryDate(localDateValue());setEntryLabel("");setEntryReference("");setEntryNote("");setEntryError("");};
+  const submitAccountEntry=async(event:FormEvent)=>{
+    event.preventDefault();
+    const amount=Number(entryAmount);
+    if(!Number.isFinite(amount)||amount<=0){setEntryError("Enter a valid amount.");return;}
+    if(!entryDate){setEntryError("Choose the entry date.");return;}
+    if(entryDate>localDateValue()){setEntryError("Entry date cannot be in the future.");return;}
+    setEntrySaving(true);setEntryError("");
+    try{
+      await apiFetch("/transactions/account-entry",{method:"POST",body:JSON.stringify({accountId:id,direction:entryDirection,entryKind,amount,transactionAt:dateWithCurrentLocalTime(entryDate),entryLabel:entryLabel.trim()||undefined,referenceNumber:entryReference.trim()||undefined,notes:entryNote.trim()||undefined})});
+      setEntryOpen(false);resetAccountEntry();await load(range);
+    }catch(err){setEntryError(err instanceof Error?err.message:"Failed to save amount entry");}
+    finally{setEntrySaving(false);}
+  };
   const openMovement=async(row:Row,isIn:boolean)=>{
     const txId=row.journal.transaction.id;
     if(!txId)return;
@@ -432,7 +461,7 @@ export default function AccountLedgerPage(){
           </div>
         </div>
       </div>
-      {admin?<Link href={"/accounts?edit="+id} className="inline-flex min-h-10 shrink-0 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--text)] shadow-sm">Edit</Link>:null}
+      {admin?<div className="flex shrink-0 items-center gap-2">{account&&["BANK","UPI"].includes(account.accountType)?<button type="button" onClick={()=>{resetAccountEntry();setEntryOpen(true);}} className="inline-flex min-h-10 items-center rounded-xl bg-[var(--accent)] px-3.5 text-xs font-black text-white shadow-sm">+ New amount entry</button>:null}<Link href={"/accounts?edit="+id} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--text)] shadow-sm">Edit</Link></div>:null}
     </div>
     {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
     {data?<>
@@ -559,6 +588,24 @@ export default function AccountLedgerPage(){
         </div>:search?<div className="p-5"><EmptyState title="No matching activity" description="Try a different search."/></div>:Math.abs(periodOpening)>0.005?<div className="p-4 sm:p-5"><div className="flex items-center justify-between gap-4 rounded-xl bg-[var(--surface-soft)] px-4 py-3.5"><div><p className="text-sm font-bold">Opening balance</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">No transactions in this period yet.</p></div><strong className="money shrink-0 text-sm">{money(periodOpening)}</strong></div></div>:<div className="p-5"><EmptyState title="No transactions yet" description="Activity will appear here when money moves through this account."/></div>}
       </Surface>
     </>:null}
+    {entryOpen?<Modal open title="New amount entry" onClose={()=>{if(!entrySaving){setEntryOpen(false);resetAccountEntry();}}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={entrySaving} onClick={()=>{setEntryOpen(false);resetAccountEntry();}} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold disabled:opacity-50">Cancel</button><button form="account-amount-entry" disabled={entrySaving||!entryAmount||Number(entryAmount)<=0} className="app-primary-button min-h-11 text-sm font-black disabled:opacity-50">{entrySaving?"Saving…":"Save entry"}</button></div>}>
+      <form id="account-amount-entry" onSubmit={submitAccountEntry} className="space-y-4">
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-[var(--surface-soft)] p-1.5">
+          <button type="button" onClick={()=>{setEntryDirection("IN");setEntryKind("LOAN_RECEIVED");setEntryError("");}} className={"min-h-10 rounded-lg text-sm font-black "+(entryDirection==="IN"?"bg-[var(--surface)] text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}>Money in</button>
+          <button type="button" onClick={()=>{setEntryDirection("OUT");setEntryKind("LOAN_REPAYMENT");setEntryError("");}} className={"min-h-10 rounded-lg text-sm font-black "+(entryDirection==="OUT"?"bg-[var(--surface)] text-rose-700 shadow-sm":"text-[var(--text-muted)]")}>Money out</button>
+        </div>
+        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Entry type</span><SearchableSelect className="app-control" value={entryKind} onChange={(event)=>setEntryKind(event.target.value)}>{entryDirection==="IN"?<><option value="LOAN_RECEIVED">Loan received</option><option value="OWNER_FUNDING">Owner funds added</option><option value="OTHER_NON_INCOME">Other non-income</option></>:<><option value="LOAN_REPAYMENT">Loan repayment</option><option value="OWNER_WITHDRAWAL">Owner withdrawal</option><option value="OTHER_NON_EXPENSE">Other non-expense</option></>}</SearchableSelect></label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Amount</span><input className="app-control" type="number" min="0.01" step="0.01" inputMode="decimal" value={entryAmount} onChange={(event)=>{setEntryAmount(event.target.value);setEntryError("");}} placeholder="₹ 0.00" required/></label>
+          <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Date</span><input className="app-control" type="date" max={localDateValue()} value={entryDate} onChange={(event)=>{setEntryDate(event.target.value);setEntryError("");}} required/></label>
+        </div>
+        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">{entryKind.includes("LOAN")?"Loan / lender":"Description"}</span><input className="app-control" value={entryLabel} onChange={(event)=>setEntryLabel(event.target.value)} placeholder={entryKind.includes("LOAN")?"e.g. Gold loan · Muthoot / bank":"Optional description"}/></label>
+        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reference</span><input className="app-control" value={entryReference} onChange={(event)=>setEntryReference(event.target.value)} placeholder="Loan no. / bank reference (optional)"/></label>
+        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Note</span><textarea className="app-control min-h-20 resize-y" value={entryNote} onChange={(event)=>setEntryNote(event.target.value)} placeholder="Optional note"/></label>
+        {entryError?<p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{entryError}</p>:null}
+        {entryKind==="LOAN_RECEIVED"?<p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">This increases the bank balance and loan liability. It is not counted as income.</p>:entryKind==="LOAN_REPAYMENT"?<p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">This reduces the bank balance and loan liability. It is not counted as an expense.</p>:null}
+      </form>
+    </Modal>:null}
     {detailOpen&&typeof document!=="undefined"?createPortal(<Modal open title="Account transaction details" description="Trace this account movement back to the customer or source transaction." onClose={()=>{setDetailOpen(false);setDetail(null);setDetailError("");}}>
       {detailLoading?<div className="py-10 text-center text-sm font-semibold text-[var(--text-muted)]">Loading transaction details…</div>:detailError?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{detailError}</div>:detail&&account?<AccountMovementDetail detail={detail} account={account}/>:null}
     </Modal>,document.body):null}

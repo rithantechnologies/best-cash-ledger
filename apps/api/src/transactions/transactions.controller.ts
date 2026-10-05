@@ -3,6 +3,7 @@ import { RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
+import { CreateAccountEntryDto } from './dto/create-account-entry.dto.js';
 import { CreateAepsDto } from './dto/create-aeps.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
@@ -200,6 +201,12 @@ export class TransactionsController {
   @Post('internal-transfer')
   createInternalTransfer(@Body() dto: CreateInternalTransferDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
     return this.transactions.createInternalTransfer(dto, req.user.userId, key);
+  }
+
+  @Post('account-entry')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  createAccountEntry(@Body() dto: CreateAccountEntryDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.transactions.createAccountEntry(dto, req.user.userId, key);
   }
 
   @Post('expense')

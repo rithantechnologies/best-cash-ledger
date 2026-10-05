@@ -6,6 +6,7 @@ import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.s
 import { LedgerService, type JournalEntry } from '../ledger/ledger.service.js';
 import { ProviderSettlementsService } from '../provider-settlements/provider-settlements.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { CreateAccountEntryDto } from './dto/create-account-entry.dto.js';
 import { CreateAepsDto } from './dto/create-aeps.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
@@ -182,6 +183,7 @@ export class TransactionsService {
       },
       microAtm: true,
       aeps: true,
+      accountEntry: { include: { account: true } },
       providerSettlementReceipt: {
         include: {
           settlement: {
@@ -3394,6 +3396,124 @@ export class TransactionsService {
     });
   }
 
+  async createAccountEntry(
+    dto: CreateAccountEntryDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const amount = this.money(dto.amount);
+    const transactionAt = dto.transactionAt ? new Date(dto.transactionAt) : new Date();
+    if (Number.isNaN(transactionAt.getTime())) {
+      throw new BadRequestException('Invalid transaction date');
+    }
+    if (transactionAt.getTime() > Date.now() + 60_000) {
+      throw new BadRequestException('Transaction date cannot be in the future');
+    }
+    const inboundKinds = new Set(['LOAN_RECEIVED', 'OWNER_FUNDING', 'OTHER_NON_INCOME']);
+    const outboundKinds = new Set(['LOAN_REPAYMENT', 'OWNER_WITHDRAWAL', 'OTHER_NON_EXPENSE']);
+    if (dto.direction === 'IN' && !inboundKinds.has(dto.entryKind)) {
+      throw new BadRequestException('Selected entry type is not valid for money in');
+    }
+    if (dto.direction === 'OUT' && !outboundKinds.has(dto.entryKind)) {
+      throw new BadRequestException('Selected entry type is not valid for money out');
+    }
+    const ledgerCode =
+      dto.entryKind === 'LOAN_RECEIVED' || dto.entryKind === 'LOAN_REPAYMENT'
+        ? 'SYS-LOAN-LIABILITY'
+        : dto.entryKind === 'OWNER_FUNDING' || dto.entryKind === 'OWNER_WITHDRAWAL'
+          ? 'SYS-OWNER-FUNDING'
+          : 'SYS-ACCOUNT-ADJUSTMENT';
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.ACCOUNT_ENTRY,
+      userId,
+      dto,
+      providedIdempotencyKey,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.validation.lockAccount(tx, dto.accountId);
+      const account = await this.validation.liquidAsset(tx, dto.accountId, 'Bank account');
+      if (
+        account.accountType !== AccountType.BANK &&
+        account.accountType !== AccountType.UPI
+      ) {
+        throw new BadRequestException('Manual amount entries are available only for bank / UPI accounts');
+      }
+      if (dto.direction === 'OUT') {
+        await this.validation.ensureSufficientFunds(tx, account, amount);
+      }
+      const counterLedger = await tx.ledgerAccount.findUnique({ where: { ledgerCode } });
+      if (!counterLedger) throw new NotFoundException('Counter ledger is not configured');
+
+      const label = dto.entryLabel?.trim() || null;
+      const transaction = await tx.transaction.create({
+        data: {
+          transactionNumber: 'AEN-' + Date.now().toString(36).toUpperCase(),
+          transactionType: TransactionType.ACCOUNT_ENTRY,
+          transactionAt,
+          grossAmount: new Prisma.Decimal(amount),
+          netAmount: new Prisma.Decimal(amount),
+          status: TransactionStatus.COMPLETED,
+          idempotencyKey,
+          referenceNumber: dto.referenceNumber?.trim() || null,
+          notes: dto.notes?.trim() || null,
+          createdById: userId,
+        },
+      });
+      await tx.accountEntryDetail.create({
+        data: {
+          transactionId: transaction.id,
+          accountId: account.id,
+          direction: dto.direction,
+          entryKind: dto.entryKind,
+          amount: new Prisma.Decimal(amount),
+          entryLabel: label,
+        },
+      });
+
+      const entries: JournalEntry[] = dto.direction === 'IN'
+        ? [
+            {
+              ledgerAccountId: account.ledgerAccount!.id,
+              entryType: EntryType.DEBIT,
+              amount,
+              description: label || 'Manual money in',
+            },
+            {
+              ledgerAccountId: counterLedger.id,
+              entryType: EntryType.CREDIT,
+              amount,
+              description: dto.entryKind === 'LOAN_RECEIVED' ? 'Loan liability created' : label || 'Non-income funding',
+            },
+          ]
+        : [
+            {
+              ledgerAccountId: counterLedger.id,
+              entryType: EntryType.DEBIT,
+              amount,
+              description: dto.entryKind === 'LOAN_REPAYMENT' ? 'Loan liability reduced' : label || 'Non-expense withdrawal',
+            },
+            {
+              ledgerAccountId: account.ledgerAccount!.id,
+              entryType: EntryType.CREDIT,
+              amount,
+              description: label || 'Manual money out',
+            },
+          ];
+
+      await this.ledger.post(
+        tx,
+        transaction.id,
+        userId,
+        label || 'Manual account entry',
+        entries,
+        transactionAt,
+      );
+      await this.auditCreated(tx, transaction, userId);
+      return transaction;
+    });
+  }
+
   async createExpense(
     dto: CreateExpenseDto,
     userId: string,
@@ -4039,6 +4159,7 @@ export class TransactionsService {
         aeps: { include: { cashAccount: true, settlementAccount: true } },
         microAtm: { include: { cashAccount: true, settlementAccount: true } },
         internalTransfer: { include: { sourceAccount: true, destinationAccount: true } },
+        accountEntry: { include: { account: true } },
         expense: { include: { expenseCategory: true, paymentAccount: true } },
         atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
         creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
@@ -4378,6 +4499,7 @@ export class TransactionsService {
       TransactionType.CARD_DUE_RECOVERY,
       TransactionType.CARD_DUE_COMMISSION_COLLECTION,
       TransactionType.CASH_ADJUSTMENT,
+      TransactionType.ACCOUNT_ENTRY,
     ]);
     if (managedElsewhere.has(original.transactionType)) {
       throw new BadRequestException(
