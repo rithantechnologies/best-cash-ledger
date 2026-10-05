@@ -46,6 +46,11 @@ export class CustomersController {
     return this.customers.getQuickEntryProfile(id);
   }
 
+  @Get(':id/card-ledger')
+  cardLedger(@Param('id') id: string, @Query('cardId') cardId?: string) {
+    return this.customers.getCardLedger(id, cardId);
+  }
+
   @Post(':id/service-profiles')
   addServiceProfile(@Param('id') id: string, @Body() dto: CreateServiceProfileDto, @Req() req: any) {
     return this.customers.addServiceProfile(id, dto, req.user.userId);

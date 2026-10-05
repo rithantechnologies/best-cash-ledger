@@ -1,5 +1,5 @@
 "use client";
-/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 
 import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
@@ -23,15 +23,20 @@ type Customer={
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
  receivables:{id:string;reason:string;remainingAmount:string;receivedAmount:string;originalAmount:string;dueAt:string|null;status:string}[];
 };
+type CardLedgerCard={id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean;label:string};
+type CardLedgerRow={id:string;at:string;kind:"CARD_SWIPE"|"CUSTOMER_PAYOUT"|"CARD_DUE_PAYMENT"|"CARD_DUE_RECOVERY";remarks:string;detail:string;debit:number;credit:number;closingBalance:number;cardId:string;cardLabel:string;transactionId:string;transactionNumber:string;referenceNumber:string|null};
+type CardLedger={customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
 type EditState={kind:"card";item:Card}|{kind:"bank";item:Bank}|{kind:"upi";item:Upi}|{kind:"beneficiary";item:Beneficiary}|{kind:"beneficiaryAccount";item:BAccount}|null;
 type AddKind="bank"|"upi"|"beneficiary"|"beneficiaryAccount"|null;
 type ToggleTarget={path:string;isActive:boolean;label:string}|null;
 const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(v||0));
+const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]??ch));
 
 export default function CustomerDetailPage(){
  const {id}=useParams<{id:string}>();
  const [c,setC]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
+ const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
  const [addKind,setAddKind]=useState<AddKind>(null),[toggleTarget,setToggleTarget]=useState<ToggleTarget>(null);
  const [bankName,setBankName]=useState(""),[holder,setHolder]=useState(""),[accountRef,setAccountRef]=useState(""),[ifsc,setIfsc]=useState("");
  const [upiName,setUpiName]=useState(""),[upiId,setUpiId]=useState(""),[upiMobile,setUpiMobile]=useState(""),[upiProvider,setUpiProvider]=useState("");
@@ -41,7 +46,9 @@ export default function CustomerDetailPage(){
  const control="app-control";
 
  const load=()=>apiFetch<Customer>("/customers/"+id).then(setC);
+ const loadCardLedger=(cardId=ledgerCardId)=>{setLedgerLoading(true);setLedgerError("");return apiFetch<CardLedger>("/customers/"+id+"/card-ledger"+(cardId?"?cardId="+encodeURIComponent(cardId):"")).then(setCardLedger).catch(e=>setLedgerError(e instanceof Error?e.message:"Failed to load card ledger")).finally(()=>setLedgerLoading(false));};
  useEffect(()=>{load().catch(e=>setError(e instanceof Error?e.message:"Failed to load customer"));},[id]);
+ useEffect(()=>{loadCardLedger(ledgerCardId);},[id,ledgerCardId]);
 
  async function run(action:()=>Promise<unknown>,success?:string){
   setBusy(true);setError("");setMessage("");
@@ -82,6 +89,19 @@ export default function CustomerDetailPage(){
  const primaryCard=c.cards.find(x=>x.isActive);
  const customerParam="customerId="+encodeURIComponent(c.id);
  const visibleTransactions=c.transactions.filter(t=>(!txStatusFilter||t.status===txStatusFilter)&&(!moneyStatusFilter||moneyStatus(t)?.key===moneyStatusFilter));
+ const ledgerPositionLabel=cardLedger?.totals.position==="TO_PAY_CUSTOMER"?"To pay customer":cardLedger?.totals.position==="TO_RECOVER_FROM_CUSTOMER"?"To recover from customer":"Settled";
+ const ledgerCardLabel=ledgerCardId?(cardLedger?.cards.find(card=>card.id===ledgerCardId)?.label??"Selected card"):"All cards";
+ function printCardLedger(){
+  if(!cardLedger||!cardLedger.rows.length)return;
+  const popup=window.open("","_blank","width=980,height=760");
+  if(!popup)return;
+  popup.opener=null;
+  const rows=cardLedger.rows.map((row,index)=>"<tr><td>"+(index+1)+"</td><td>"+escapeHtml(new Date(row.at).toLocaleString("en-IN"))+"</td><td><b>"+escapeHtml(row.remarks)+"</b><small>"+escapeHtml(row.detail)+"<br>"+escapeHtml(row.transactionNumber)+(row.referenceNumber?" · Ref "+escapeHtml(row.referenceNumber):"")+"</small></td><td class='out'>"+(row.debit?escapeHtml(money(row.debit)):"—")+"</td><td class='in'>"+(row.credit?escapeHtml(money(row.credit)):"—")+"</td><td class='"+(row.closingBalance<0?"out":"in")+"'>"+escapeHtml(money(row.closingBalance))+"</td></tr>").join("");
+  popup.document.write("<!doctype html><html><head><title>Card Ledger - "+escapeHtml(cardLedger.customer.fullName)+"</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{color:#087f7f;margin:0;font-size:22px}.sub{font-size:11px;margin-top:5px}.meta{margin:24px 0 12px;font-size:14px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.box{border:1px solid #cbd5e1;padding:9px}.box small{display:block;color:#64748b}.box b{font-size:16px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #cbd5e1;padding:7px;vertical-align:top}th{background:#ecfeff;color:#075985}td:nth-child(1){text-align:center;width:28px}td:nth-child(2){white-space:nowrap;width:110px}td:nth-child(4),td:nth-child(5),td:nth-child(6){text-align:right;white-space:nowrap;font-weight:700}small{display:block;color:#64748b;margin-top:3px;line-height:1.35}.out{color:#dc2626}.in{color:#15803d}.footer{margin-top:14px;border-top:2px solid #111;padding-top:8px;text-align:right;font-size:14px;font-weight:700}</style></head><body><h1>Customer Card Ledger</h1><div class='sub'>Card swipe, partial payout and card-due running statement</div><div class='meta'><b>Name:</b> "+escapeHtml(cardLedger.customer.fullName)+"<br><b>Card:</b> "+escapeHtml(ledgerCardLabel)+"</div><div class='summary'><div class='box'><small>Total Debit (Out)</small><b class='out'>"+escapeHtml(money(cardLedger.totals.debit))+"</b></div><div class='box'><small>Total Credit (In)</small><b class='in'>"+escapeHtml(money(cardLedger.totals.credit))+"</b></div><div class='box'><small>Closing Balance</small><b>"+escapeHtml(money(cardLedger.totals.balance))+"</b><small>"+escapeHtml(ledgerPositionLabel)+"</small></div></div><table><thead><tr><th>No</th><th>Date</th><th>Remarks</th><th>Debit (Out)</th><th>Credit (In)</th><th>Cls Balance</th></tr></thead><tbody>"+rows+"</tbody></table><div class='footer'>"+escapeHtml(ledgerPositionLabel)+" ₹ "+Math.abs(cardLedger.totals.balance).toLocaleString("en-IN",{maximumFractionDigits:2})+"</div></body></html>");
+  popup.document.close();
+  popup.focus();
+  window.setTimeout(()=>popup.print(),250);
+ }
  return <AppShell><PageFrame>
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href="/customers" className="text-xs font-bold text-indigo-600">← Customers</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{c.customerCode} · {c.customerType.replaceAll("_"," ")}</p><h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{c.fullName}</h2><p className="mt-1 text-sm text-slate-500">{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</p></div>
@@ -103,6 +123,28 @@ export default function CustomerDetailPage(){
    <DetailStat label="Saved cards" value={c.cards.filter(x=>x.isActive).length} tone="indigo"/>
    <DetailStat label="Recipients" value={c.beneficiaries.filter(x=>x.isActive).length} tone="cyan"/>
   </div>
+
+  <Surface className="overflow-hidden">
+   <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+    <div><h3 className="text-sm font-black">Card Ledger</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Card swipes, partial payouts and card-due movements in one running customer balance.</p></div>
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+     <SearchableSelect className="app-control min-w-[190px]" value={ledgerCardId} onChange={e=>setLedgerCardId(e.target.value)}><option value="">All cards</option>{c.cards.map(card=><option key={card.id} value={card.id}>{card.bankName+" •••• "+card.lastFourDigits+(card.nickname?" · "+card.nickname:"")}</option>)}</SearchableSelect>
+     <button type="button" onClick={printCardLedger} disabled={!cardLedger?.rows.length} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-black disabled:opacity-40">Print statement</button>
+    </div>
+   </div>
+   {ledgerError?<div className="border-b border-rose-100 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{ledgerError}</div>:null}
+   {ledgerLoading?<div className="p-5 text-sm font-semibold text-[var(--text-muted)]">Loading card ledger…</div>:cardLedger?.rows.length?<>
+    <div className="grid grid-cols-1 gap-2 border-b border-[var(--border)] p-3 sm:grid-cols-3 sm:p-4">
+     <div className="rounded-xl bg-rose-50 px-3 py-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-rose-600">Total Debit · Out</p><p className="money mt-1 text-lg font-black text-rose-700">{money(cardLedger.totals.debit)}</p></div>
+     <div className="rounded-xl bg-emerald-50 px-3 py-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">Total Credit · In</p><p className="money mt-1 text-lg font-black text-emerald-700">{money(cardLedger.totals.credit)}</p></div>
+     <div className="rounded-xl bg-[var(--surface-soft)] px-3 py-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Closing Balance</p><p className={"money mt-1 text-lg font-black "+(cardLedger.totals.balance<0?"text-rose-700":cardLedger.totals.balance>0?"text-emerald-700":"")}>{money(cardLedger.totals.balance)}</p><p className="mt-0.5 text-[10px] font-bold text-[var(--text-muted)]">{ledgerPositionLabel}</p></div>
+    </div>
+    <div className="border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 text-[10px] font-semibold text-[var(--text-muted)]">Positive balance = money still to pay customer · Negative balance = money still to recover from customer.</div>
+    <div className="divide-y divide-[var(--border)] md:hidden">{cardLedger.rows.map(row=><Link key={row.id} href={"/transactions/"+row.transactionId} className="block p-3.5 hover:bg-[var(--surface-soft)]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-black">{row.remarks}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(row.at).toLocaleString("en-IN")} · {row.transactionNumber}</p><p className="mt-1 text-[10px] leading-4 text-[var(--text-muted)]">{row.detail}</p></div><div className="shrink-0 text-right">{row.debit?<p className="money text-sm font-black text-rose-600">−{money(row.debit)}</p>:null}{row.credit?<p className="money text-sm font-black text-emerald-700">+{money(row.credit)}</p>:null}<p className={"money mt-1 text-[10px] font-bold "+(row.closingBalance<0?"text-rose-600":row.closingBalance>0?"text-emerald-700":"text-[var(--text-muted)]")}>Bal {money(row.closingBalance)}</p></div></div></Link>)}</div>
+    <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[980px] text-xs"><thead className="bg-[var(--surface-soft)] text-left text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]"><tr><th className="w-12 px-4 py-3 text-center">No</th><th className="w-36">Date</th><th>Remarks</th><th className="w-32 text-right text-rose-600">Debit (Out)</th><th className="w-32 text-right text-emerald-700">Credit (In)</th><th className="w-32 pr-4 text-right">Cls Balance</th></tr></thead><tbody>{cardLedger.rows.map((row,index)=><tr key={row.id} className="border-t border-[var(--border)] hover:bg-[var(--surface-soft)]"><td className="px-4 py-3 text-center text-[var(--text-muted)]">{index+1}</td><td className="whitespace-nowrap text-[11px] text-[var(--text-muted)]"><p>{new Date(row.at).toLocaleDateString("en-IN")}</p><p>{new Date(row.at).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></td><td className="py-3"><Link href={"/transactions/"+row.transactionId} className="font-black text-[var(--text)] hover:text-[var(--accent)]">{row.remarks}</Link><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{row.detail}</p><p className="mt-0.5 text-[9px] text-[var(--text-muted)]">{row.transactionNumber}{row.referenceNumber?" · Ref "+row.referenceNumber:""}</p></td><td className="money text-right font-black text-rose-600">{row.debit?money(row.debit):"—"}</td><td className="money text-right font-black text-emerald-700">{row.credit?money(row.credit):"—"}</td><td className={"money pr-4 text-right font-black "+(row.closingBalance<0?"text-rose-600":row.closingBalance>0?"text-emerald-700":"")}>{money(row.closingBalance)}</td></tr>)}</tbody></table></div>
+   </>:<div className="p-4"><EmptyState title="No card ledger activity" description="Card swipes, payouts and card-due movements will appear here automatically."/></div>}
+  </Surface>
+
   <Surface className="overflow-hidden">
    <PanelHeader title="Recent transactions" description={visibleTransactions.length+" of "+c.transactions.length+" recent transaction(s)"} action={<Link href={"/search?q="+encodeURIComponent(c.customerCode)} className="text-xs font-bold text-indigo-600">Search all →</Link>}/>
    <div className="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-2">

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CustomerType, Prisma } from '@prisma/client';
+import { CustomerType, PaymentStatus, Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
 import { CreateQuickCustomerCardDto } from './dto/create-quick-customer-card.dto.js';
@@ -361,6 +361,307 @@ export class CustomersService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
     return customer;
+  }
+
+  async getCardLedger(id: string, cardId?: string) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        fullName: true,
+        mobile: true,
+        cards: {
+          select: {
+            id: true,
+            bankName: true,
+            lastFourDigits: true,
+            nickname: true,
+            isActive: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+    if (cardId && !customer.cards.some((card) => card.id === cardId)) {
+      throw new BadRequestException('Selected card does not belong to this customer');
+    }
+
+    const activeTransaction = {
+      status: {
+        notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED],
+      },
+    };
+    const cardWhere = cardId
+      ? { customerId: id, id: cardId }
+      : { customerId: id };
+
+    const [swipes, clearings] = await Promise.all([
+      this.prisma.cardSwipeDetail.findMany({
+        where: {
+          customerCard: cardWhere,
+          transaction: activeTransaction,
+        },
+        include: {
+          customerCard: true,
+          transaction: {
+            include: {
+              payable: {
+                include: {
+                  payments: {
+                    where: { status: PaymentStatus.COMPLETED },
+                    include: {
+                      sourceAccount: true,
+                      transaction: true,
+                    },
+                    orderBy: { paymentDate: 'asc' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.cardDueClearingDetail.findMany({
+        where: {
+          customerCard: cardWhere,
+          transaction: activeTransaction,
+        },
+        include: {
+          customerCard: true,
+          advanceSourceAccount: true,
+          transaction: true,
+          recoveries: {
+            where: {
+              transaction: activeTransaction,
+            },
+            include: {
+              provider: true,
+              gateway: true,
+              destinationAccount: true,
+              transaction: {
+                include: {
+                  payable: {
+                    include: {
+                      payments: {
+                        where: { status: PaymentStatus.COMPLETED },
+                        include: {
+                          sourceAccount: true,
+                          transaction: true,
+                        },
+                        orderBy: { paymentDate: 'asc' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: { recoveredAt: 'asc' },
+          },
+        },
+      }),
+    ]);
+
+    const providerIds = [...new Set(swipes.map((row) => row.providerId))];
+    const gatewayIds = [...new Set(swipes.map((row) => row.gatewayId))];
+    const [providers, gateways] = await Promise.all([
+      providerIds.length
+        ? this.prisma.provider.findMany({
+            where: { id: { in: providerIds } },
+            select: { id: true, name: true },
+          })
+        : [],
+      gatewayIds.length
+        ? this.prisma.providerGateway.findMany({
+            where: { id: { in: gatewayIds } },
+            select: { id: true, gatewayName: true },
+          })
+        : [],
+    ]);
+    const providerName = new Map(providers.map((row) => [row.id, row.name]));
+    const gatewayName = new Map(gateways.map((row) => [row.id, row.gatewayName]));
+    const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+    type Movement = {
+      id: string;
+      at: Date;
+      priority: number;
+      kind: 'CARD_SWIPE' | 'CUSTOMER_PAYOUT' | 'CARD_DUE_PAYMENT' | 'CARD_DUE_RECOVERY';
+      remarks: string;
+      detail: string;
+      debit: number;
+      credit: number;
+      cardId: string;
+      cardLabel: string;
+      transactionId: string;
+      transactionNumber: string;
+      referenceNumber: string | null;
+    };
+    const movements: Movement[] = [];
+
+    for (const swipe of swipes) {
+      const tx = swipe.transaction;
+      const cardLabel =
+        swipe.customerCard.bankName + ' •••• ' + swipe.customerCard.lastFourDigits;
+      const provider = providerName.get(swipe.providerId) ?? 'Card provider';
+      const gateway = gatewayName.get(swipe.gatewayId) ?? '';
+      movements.push({
+        id: 'swipe-' + swipe.id,
+        at: tx.transactionAt,
+        priority: 10,
+        kind: 'CARD_SWIPE',
+        remarks: 'Card swipe · ' + provider,
+        detail: [
+          cardLabel,
+          gateway,
+          'Swipe ₹' + Number(swipe.swipeAmount).toFixed(2),
+          'Customer fee ₹' + Number(swipe.commissionAmount).toFixed(2),
+        ].filter(Boolean).join(' · '),
+        debit: 0,
+        credit: Number(swipe.customerPayableAmount),
+        cardId: swipe.customerCardId,
+        cardLabel,
+        transactionId: tx.id,
+        transactionNumber: tx.transactionNumber,
+        referenceNumber: tx.referenceNumber,
+      });
+      for (const payment of tx.payable?.payments ?? []) {
+        movements.push({
+          id: 'payout-' + payment.id,
+          at: payment.paymentDate,
+          priority: 20,
+          kind: 'CUSTOMER_PAYOUT',
+          remarks: 'Customer payout · ' + payment.sourceAccount.accountName,
+          detail: [
+            cardLabel,
+            payment.destinationLabel ?? null,
+            payment.destinationReference ?? null,
+          ].filter(Boolean).join(' · '),
+          debit: Number(payment.amount),
+          credit: 0,
+          cardId: swipe.customerCardId,
+          cardLabel,
+          transactionId: payment.transactionId,
+          transactionNumber: payment.transaction.transactionNumber,
+          referenceNumber: payment.referenceNumber,
+        });
+      }
+    }
+
+    for (const clearing of clearings) {
+      const tx = clearing.transaction;
+      const cardLabel =
+        clearing.customerCard.bankName + ' •••• ' + clearing.customerCard.lastFourDigits;
+      movements.push({
+        id: 'due-' + clearing.id,
+        at: tx.transactionAt,
+        priority: 10,
+        kind: 'CARD_DUE_PAYMENT',
+        remarks: 'CC bill payment · ' + clearing.advanceSourceAccount.accountName,
+        detail: cardLabel,
+        debit: Number(clearing.dueAmount),
+        credit: 0,
+        cardId: clearing.customerCardId,
+        cardLabel,
+        transactionId: tx.id,
+        transactionNumber: tx.transactionNumber,
+        referenceNumber: tx.referenceNumber,
+      });
+      for (const recovery of clearing.recoveries) {
+        movements.push({
+          id: 'recovery-' + recovery.id,
+          at: recovery.recoveredAt,
+          priority: 20,
+          kind: 'CARD_DUE_RECOVERY',
+          remarks: 'Recovery · ' + recovery.provider.name,
+          detail: [
+            cardLabel,
+            recovery.gateway.gatewayName,
+            'Into ' + recovery.destinationAccount.accountName,
+          ].join(' · '),
+          debit: 0,
+          credit: Number(recovery.swipeAmount),
+          cardId: clearing.customerCardId,
+          cardLabel,
+          transactionId: recovery.transactionId,
+          transactionNumber: recovery.transaction.transactionNumber,
+          referenceNumber: recovery.referenceNumber,
+        });
+        for (const payment of recovery.transaction.payable?.payments ?? []) {
+          movements.push({
+            id: 'recovery-payout-' + payment.id,
+            at: payment.paymentDate,
+            priority: 30,
+            kind: 'CUSTOMER_PAYOUT',
+            remarks: 'Customer payout · ' + payment.sourceAccount.accountName,
+            detail: [
+              cardLabel,
+              payment.destinationLabel ?? 'Excess recovery paid back',
+              payment.destinationReference ?? null,
+            ].filter(Boolean).join(' · '),
+            debit: Number(payment.amount),
+            credit: 0,
+            cardId: clearing.customerCardId,
+            cardLabel,
+            transactionId: payment.transactionId,
+            transactionNumber: payment.transaction.transactionNumber,
+            referenceNumber: payment.referenceNumber,
+          });
+        }
+      }
+    }
+
+    movements.sort((a, b) =>
+      a.at.getTime() - b.at.getTime() ||
+      a.priority - b.priority ||
+      a.id.localeCompare(b.id),
+    );
+
+    let runningBalance = 0;
+    let totalDebit = 0;
+    let totalCredit = 0;
+    const rows = movements.map((row) => {
+      totalDebit = money(totalDebit + row.debit);
+      totalCredit = money(totalCredit + row.credit);
+      runningBalance = money(runningBalance + row.credit - row.debit);
+      const { priority, ...publicRow } = row;
+      void priority;
+      return {
+        ...publicRow,
+        at: row.at.toISOString(),
+        debit: money(row.debit),
+        credit: money(row.credit),
+        closingBalance: runningBalance,
+      };
+    });
+
+    return {
+      customer: {
+        id: customer.id,
+        fullName: customer.fullName,
+        mobile: customer.mobile,
+      },
+      cards: customer.cards.map((card) => ({
+        ...card,
+        label:
+          card.bankName +
+          ' •••• ' +
+          card.lastFourDigits +
+          (card.nickname ? ' · ' + card.nickname : ''),
+      })),
+      selectedCardId: cardId ?? null,
+      totals: {
+        debit: totalDebit,
+        credit: totalCredit,
+        balance: runningBalance,
+        position:
+          runningBalance > 0.001
+            ? 'TO_PAY_CUSTOMER'
+            : runningBalance < -0.001
+              ? 'TO_RECOVER_FROM_CUSTOMER'
+              : 'SETTLED',
+      },
+      rows,
+    };
   }
 
   create(dto: CreateCustomerDto, userId: string) {
