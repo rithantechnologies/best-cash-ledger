@@ -18,6 +18,8 @@ type BrandRule = AccountBrand & {
   match: (value: string) => boolean;
 };
 
+const assetBasePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
+
 const token = (value: string, word: string) =>
   new RegExp(`(^|[^A-Z0-9])${word}([^A-Z0-9]|$)`).test(value);
 
@@ -102,7 +104,7 @@ export function AccountBrandIcon({
       aria-label={brand.label}
     >
       {brand.image ? (
-        <img src={brand.image} alt="" className="h-7 w-7 object-contain" aria-hidden="true" />
+        <img src={assetBasePath + brand.image} alt="" className="h-7 w-7 object-contain" aria-hidden="true" />
       ) : (
         <span className={"font-black tracking-[-.04em] " + ((brand.initials?.length ?? 0) > 2 ? "text-[9px]" : "text-[11px]")}>
           {brand.initials}
