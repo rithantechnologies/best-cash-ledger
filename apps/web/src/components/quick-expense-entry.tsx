@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -18,6 +19,16 @@ const accountTypes=["CASH","BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"];
 const money=(value:number|string)=>new Intl.NumberFormat("en-IN",{
   style:"currency",currency:"INR",maximumFractionDigits:0,
 }).format(Number(value||0));
+const localDateValue=()=>{
+  const now=new Date();
+  const offset=now.getTimezoneOffset()*60000;
+  return new Date(now.getTime()-offset).toISOString().slice(0,10);
+};
+const dateWithCurrentLocalTime=(date:string)=>{
+  const now=new Date();
+  const [year,month,day]=date.split("-").map(Number);
+  return new Date(year,month-1,day,now.getHours(),now.getMinutes(),now.getSeconds(),now.getMilliseconds()).toISOString();
+};
 
 export function QuickExpenseEntry({
   onSaved,
@@ -40,11 +51,12 @@ export function QuickExpenseEntry({
   const [newCategoryName,setNewCategoryName]=useState("");
   const [creatingCategory,setCreatingCategory]=useState(false);
   const [amount,setAmount]=useState("");
+  const [expenseDate,setExpenseDate]=useState(localDateValue);
   const [accountId,setAccountId]=useState("");
   const [note,setNote]=useState("");
 
   useEffect(()=>setReady(true),[]);
-  useEffect(()=>{const fn=()=>setOpen(true);window.addEventListener("cashledger:open-quick-expense",fn);return()=>window.removeEventListener("cashledger:open-quick-expense",fn);},[]);
+  useEffect(()=>{const fn=()=>{setExpenseDate(localDateValue());setOpen(true);};window.addEventListener("cashledger:open-quick-expense",fn);return()=>window.removeEventListener("cashledger:open-quick-expense",fn);},[]);
   useEffect(()=>{
     if(!open)return;
     const previous=document.body.style.overflow;
@@ -70,7 +82,7 @@ export function QuickExpenseEntry({
   const activeAccounts=accounts.filter(a=>a.isActive!==false&&accountTypes.includes(a.accountType));
 
   function close(){
-    setOpen(false);setError("");setCategoryId("");setShowNewCategory(false);setNewCategoryName("");setAmount("");setAccountId("");setNote("");
+    setOpen(false);setError("");setCategoryId("");setShowNewCategory(false);setNewCategoryName("");setAmount("");setExpenseDate(localDateValue());setAccountId("");setNote("");
   }
 
   async function addCategory(){
@@ -96,6 +108,8 @@ export function QuickExpenseEntry({
     const value=Number(amount);
     if(!categoryId){setError("Choose an expense category.");return;}
     if(!Number.isFinite(value)||value<=0){setError("Enter a valid amount.");return;}
+    if(!expenseDate){setError("Choose the expense date.");return;}
+    if(expenseDate>localDateValue()){setError("Expense date cannot be in the future.");return;}
     const category=categories.find(item=>item.id===categoryId);
     setSaving(true);setError("");
     try{
@@ -105,6 +119,7 @@ export function QuickExpenseEntry({
           expenseCategoryId:categoryId,
           expenseType:"BUSINESS",
           amount:value,
+          transactionAt:dateWithCurrentLocalTime(expenseDate),
           paymentAccountId:accountId||undefined,
           description:category?.name||"Expense",
           notes:note.trim()||undefined,
@@ -119,7 +134,7 @@ export function QuickExpenseEntry({
   }
 
   return <>
-    {showTrigger?<button type="button" aria-label="Expense" onClick={()=>setOpen(true)}
+    {showTrigger?<button type="button" aria-label="Expense" onClick={()=>{setExpenseDate(localDateValue());setOpen(true);}}
       className={"flex min-h-10 items-center gap-2 rounded-full bg-violet-600 px-3.5 text-[13px] font-black text-white shadow-[0_8px_22px_rgba(124,58,237,.24)] transition hover:-translate-y-0.5 active:translate-y-0 "+buttonClassName}>
       <span className="text-base leading-none">₹</span><span>Expense</span>
     </button>:null}
@@ -132,7 +147,7 @@ export function QuickExpenseEntry({
               <span className="grid h-10 w-10 place-items-center rounded-full bg-violet-100 text-xl font-black text-violet-700">₹</span>
               <div>
                 <h3 className="text-[22px] font-black tracking-[-.04em]">Expense</h3>
-                <p className="text-[12px] font-bold text-[var(--text-muted)]">Category + amount · source can be added later</p>
+                <p className="text-[12px] font-bold text-[var(--text-muted)]">Date + category + amount · source can be added later</p>
               </div>
             </div>
             <button type="button" onClick={close} className="grid h-10 w-10 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)]" aria-label="Close">×</button>
@@ -149,6 +164,15 @@ export function QuickExpenseEntry({
                     placeholder="0" value={amount} onChange={e=>{setAmount(e.target.value.replace(/[^0-9.]/g,""));setError("");}}/>
                 </div>
               </label>
+
+              <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-3 rounded-[17px] bg-[var(--surface-soft)] px-4 py-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Expense date <span className="text-rose-500">*</span></p>
+                  <p className="mt-0.5 text-[11px] font-semibold text-[var(--text-muted)]">Defaults to today · back-date when needed</p>
+                </div>
+                <input type="date" required max={localDateValue()} value={expenseDate} onChange={e=>{setExpenseDate(e.target.value);setError("");}}
+                  className="min-h-10 max-w-[155px] rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-[13px] font-black text-[var(--text)] outline-none focus:border-violet-300"/>
+              </div>
 
               <div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
                 <p className="px-1 text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Category <span className="text-rose-500">*</span></p>

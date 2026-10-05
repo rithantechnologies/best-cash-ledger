@@ -1,10 +1,11 @@
 import { UsageType } from '@prisma/client';
-import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsDateString, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateExpenseDto {
   @IsOptional() @IsEnum(UsageType) expenseType?: UsageType;
   @IsString() expenseCategoryId!: string;
   @IsNumber() @Min(0.01) amount!: number;
+  @IsOptional() @IsDateString() transactionAt?: string;
   @IsOptional() @IsString() paymentAccountId?: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() referenceNumber?: string;

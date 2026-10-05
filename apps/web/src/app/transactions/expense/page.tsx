@@ -10,11 +10,19 @@ import { apiFetch } from "@/lib/api";
 type Account={id:string;accountName:string;accountType:string;bankName?:string|null;accountReference?:string|null;lastFourDigits?:string|null;currentBalance?:string|number;isActive?:boolean};
 type Category={id:string;name:string;expenseUsage?:string;isActive?:boolean;_count?:{expenses:number}};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(v);
+const localDateValue=()=>{
+ const now=new Date(),offset=now.getTimezoneOffset()*60000;
+ return new Date(now.getTime()-offset).toISOString().slice(0,10);
+};
+const dateWithCurrentLocalTime=(date:string)=>{
+ const now=new Date(),[year,month,day]=date.split("-").map(Number);
+ return new Date(year,month-1,day,now.getHours(),now.getMinutes(),now.getSeconds(),now.getMilliseconds()).toISOString();
+};
 
 export default function ExpensePage(){
  const router=useRouter();
  const [accounts,setAccounts]=useState<Account[]>([]),[categories,setCategories]=useState<Category[]>([]);
- const [categoryId,setCategoryId]=useState(""),[amount,setAmount]=useState(""),[accountId,setAccountId]=useState(""),[notes,setNotes]=useState("");
+ const [categoryId,setCategoryId]=useState(""),[amount,setAmount]=useState(""),[expenseDate,setExpenseDate]=useState(localDateValue),[accountId,setAccountId]=useState(""),[notes,setNotes]=useState("");
  const [showNewCategory,setShowNewCategory]=useState(false),[newCategoryName,setNewCategoryName]=useState(""),[creatingCategory,setCreatingCategory]=useState(false);
  const [error,setError]=useState(""),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
 
@@ -32,11 +40,14 @@ export default function ExpensePage(){
   }catch(err){setError(err instanceof Error?err.message:"Could not add category");}finally{setCreatingCategory(false);}
  }
  async function submit(e:FormEvent){
-  e.preventDefault();setSaving(true);setError("");
+  e.preventDefault();
+  if(!expenseDate){setError("Choose the expense date.");return;}
+  if(expenseDate>localDateValue()){setError("Expense date cannot be in the future.");return;}
+  setSaving(true);setError("");
   try{
    await apiFetch("/transactions/expense",{method:"POST",body:JSON.stringify({
     expenseType:"BUSINESS",expenseCategoryId:categoryId,amount:value,
-    paymentAccountId:accountId||undefined,description:category?.name||"Expense",notes:notes.trim()||undefined,
+    transactionAt:dateWithCurrentLocalTime(expenseDate),paymentAccountId:accountId||undefined,description:category?.name||"Expense",notes:notes.trim()||undefined,
    })});
    router.push("/expenses");
   }catch(err){setError(err instanceof Error?err.message:"Expense failed");}finally{setSaving(false);}
@@ -46,7 +57,7 @@ export default function ExpensePage(){
  const control="app-control";
  return <AppShell><form onSubmit={submit}><TransactionFrame eyebrow="Spending" title="Expense"
   description="Record an expense quickly. Category and amount are required; payment source can be added later."
-  summary={<><SummaryRow label="Expense amount" value={money(value)} tone="rose"/>{category?<SummaryRow label="Category" value={category.name}/>:null}<SummaryRow label="Paid from" value={account?.accountName||"Complete later"}/></>}
+  summary={<><SummaryRow label="Expense amount" value={money(value)} tone="rose"/><SummaryRow label="Expense date" value={new Date(expenseDate+"T12:00:00").toLocaleDateString("en-IN")}/>{category?<SummaryRow label="Category" value={category.name}/>:null}<SummaryRow label="Paid from" value={account?.accountName||"Complete later"}/></>}
   footer={<button disabled={saving||value<=0||!categoryId} className="app-primary-button min-h-12 w-full px-5 text-sm font-bold disabled:opacity-40">{saving?"Saving…":accountId?"Save expense":"Save now · choose source later"}</button>}>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <FormSection step="1" title="Expense details" description="Choose a category and enter the amount.">
@@ -64,7 +75,9 @@ export default function ExpensePage(){
       <p className="mt-2 text-[10px] text-[var(--text-muted)]">The new category will be selected automatically for this expense.</p>
      </div>}
     </Field>
-    <Field label="Amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>    <Field label="Paid from (optional)">
+    <Field label="Amount"><input className={control} type="number" step="0.01" min="0.01" placeholder="₹ 0.00" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
+    <Field label="Expense date"><input className={control} type="date" required max={localDateValue()} value={expenseDate} onChange={e=>{setExpenseDate(e.target.value);setError("");}}/></Field>
+    <Field label="Paid from (optional)">
      <SearchableSelect mobileSheet className={control} value={accountId} onChange={e=>setAccountId(e.target.value)}>
       <option value="">Not selected yet — complete later</option>
       {eligibleAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}

@@ -3402,6 +3402,9 @@ export class TransactionsService {
     const transactionType = TransactionType.BUSINESS_EXPENSE;
     const expenseType = 'BUSINESS' as const;
     const description = dto.description?.trim() || 'Expense';
+    const transactionAt = dto.transactionAt
+      ? new Date(dto.transactionAt)
+      : new Date();
     const idempotencyKey = await this.idempotency.key(
       transactionType,
       userId,
@@ -3421,7 +3424,7 @@ export class TransactionsService {
           data: {
             transactionNumber: 'EXP-' + Date.now().toString(36).toUpperCase(),
             transactionType,
-            transactionAt: new Date(),
+            transactionAt,
             grossAmount: new Prisma.Decimal(dto.amount),
             netAmount: new Prisma.Decimal(dto.amount),
             status: TransactionStatus.PENDING,
@@ -3511,7 +3514,7 @@ export class TransactionsService {
         data: {
           transactionNumber: 'EXP-' + Date.now().toString(36).toUpperCase(),
           transactionType,
-          transactionAt: new Date(),
+          transactionAt,
           grossAmount: new Prisma.Decimal(dto.amount + payoutChargeAmount),
           netAmount: new Prisma.Decimal(dto.amount),
           status: TransactionStatus.COMPLETED,
@@ -3577,6 +3580,7 @@ export class TransactionsService {
         userId,
         description,
         expenseEntries,
+        transactionAt,
       );
       await this.auditCreated(tx, transaction, userId);
       return transaction;
@@ -3715,6 +3719,7 @@ export class TransactionsService {
         userId,
         description,
         expenseEntries,
+        transaction.transactionAt,
       );
       const updated = await tx.transaction.update({
         where: { id: transactionId },
