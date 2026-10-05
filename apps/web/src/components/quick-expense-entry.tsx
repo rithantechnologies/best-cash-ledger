@@ -147,7 +147,6 @@ export function QuickExpenseEntry({
               <span className="grid h-10 w-10 place-items-center rounded-full bg-violet-100 text-xl font-black text-violet-700">₹</span>
               <div>
                 <h3 className="text-[22px] font-black tracking-[-.04em]">Expense</h3>
-                <p className="text-[12px] font-bold text-[var(--text-muted)]">Date + category + amount · source can be added later</p>
               </div>
             </div>
             <button type="button" onClick={close} className="grid h-10 w-10 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)]" aria-label="Close">×</button>
