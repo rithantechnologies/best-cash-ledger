@@ -57,6 +57,7 @@ enum TransactionType {
   CARD_DUE_COMMISSION_COLLECTION
   CASH_ADJUSTMENT
   ACCOUNT_ENTRY
+  CUSTOMER_LEDGER_ENTRY
   REVERSAL
 }
 
@@ -213,6 +214,7 @@ model CustomerCard {
   updatedAt        DateTime                @updatedAt
   cardSwipeDetails CardSwipeDetail[]
   cardDueClearings CardDueClearingDetail[]
+  manualLedgerEntries CustomerLedgerEntryDetail[]
 
   @@index([cardNetworkId])
 }
@@ -420,6 +422,7 @@ model FinancialAccount {
   providerSettlementReceipts      ProviderSettlementReceipt[]   @relation("ProviderSettlementReceiptAccount")
   transactionCharges              TransactionCharge[]           @relation("TransactionChargeSourceAccount")
   manualAccountEntries            AccountEntryDetail[]           @relation("AccountEntryAccount")
+  customerLedgerEntries             CustomerLedgerEntryDetail[]    @relation("CustomerLedgerEntryAccount")
   createdAt                       DateTime                      @default(now())
   updatedAt                       DateTime                      @updatedAt
 
@@ -491,6 +494,7 @@ model Transaction {
   atmWithdrawal               AtmWithdrawalDetail?
   creditCardPayment           CreditCardPaymentDetail?
   accountEntry                AccountEntryDetail?
+  customerLedgerEntry         CustomerLedgerEntryDetail?
   cardDueClearing             CardDueClearingDetail?
   cardDueRecovery             CardDueRecovery?
   cardDueCommissionCollection CardDueCommissionCollection?
@@ -982,6 +986,25 @@ model InternalTransferDetail {
   chargeAmount         Decimal          @default(0) @db.Decimal(18, 2)
   referenceNumber      String?
   createdAt            DateTime         @default(now())
+}
+
+model CustomerLedgerEntryDetail {
+  id               String           @id @default(uuid())
+  transactionId    String           @unique
+  transaction      Transaction      @relation(fields: [transactionId], references: [id])
+  customerCardId   String?
+  customerCard     CustomerCard?    @relation(fields: [customerCardId], references: [id])
+  financialAccountId String
+  financialAccount FinancialAccount @relation("CustomerLedgerEntryAccount", fields: [financialAccountId], references: [id])
+  direction        String
+  amount           Decimal          @db.Decimal(18, 2)
+  remarks          String
+  receivableAmount Decimal          @default(0) @db.Decimal(18, 2)
+  payableAmount    Decimal          @default(0) @db.Decimal(18, 2)
+  createdAt        DateTime         @default(now())
+
+  @@index([customerCardId])
+  @@index([financialAccountId])
 }
 
 model AccountEntryDetail {

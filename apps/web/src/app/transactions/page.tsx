@@ -25,6 +25,7 @@ type Tx={
  }}}|null;
  charges:{amount:string}[];commissions:{amount:string;commissionType:string}[];
  accountEntry:{direction:"IN"|"OUT";entryKind:string;entryLabel:string|null;account:{accountName:string}}|null;
+ customerLedgerEntry:{direction:"PAY_IN"|"PAY_OUT";amount:string;remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;financialAccount:{accountName:string}}|null;
  payable:{originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string}|null;
  receivableSource:{originalAmount?:string;receivedAmount?:string;remainingAmount:string;dueAt:string|null;status:string}|null;
 };
@@ -55,8 +56,9 @@ const providerIncome=(tx:Tx)=>tx.commissions.filter(c=>c.commissionType.endsWith
 const customerCommissionIncome=(tx:Tx)=>tx.commissions.filter(c=>!c.commissionType.endsWith("_PROVIDER")).reduce((a,x)=>a+Number(x.amount),0);
 const serviceRevenue=(tx:Tx)=>tx.transactionType==="SERVICE_INCOME"?Number(tx.grossAmount):0;
 const totalIncome=(tx:Tx)=>customerCommissionIncome(tx)+providerIncome(tx)+serviceRevenue(tx);
-const displayService=(tx:Tx)=>tx.accountEntry?(tx.accountEntry.entryLabel||"Manual amount entry"):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
+const displayService=(tx:Tx)=>tx.customerLedgerEntry?(tx.customerLedgerEntry.direction==="PAY_IN"?"Pay In":"Pay Out")+" · "+tx.customerLedgerEntry.remarks:tx.accountEntry?(tx.accountEntry.entryLabel||"Manual amount entry"):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
 function activityDirection(tx:Tx):"IN"|"OUT"|null{
+ if(tx.customerLedgerEntry)return tx.customerLedgerEntry.direction==="PAY_IN"?"IN":"OUT";
  if(tx.accountEntry)return tx.accountEntry.direction;
  if(["PROVIDER_SETTLEMENT","CUSTOMER_RECEIPT","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","SERVICE_INCOME"].includes(tx.transactionType))return "IN";
  if(["CUSTOMER_PAYOUT","BUSINESS_EXPENSE","PERSONAL_EXPENSE"].includes(tx.transactionType))return "OUT";
@@ -77,6 +79,7 @@ function sourceContext(tx:Tx){
    ?tx.quickCashTransfer.servicePaymentAccount?.accountName??"Bank / UPI"
    :tx.quickCashTransfer.cashAccount?.accountName??"Cash drawer";
  }
+ if(tx.customerLedgerEntry)return tx.customerLedgerEntry.financialAccount.accountName;
  if(tx.accountEntry)return tx.accountEntry.account.accountName;
  const source=settlementSource(tx);
  if(!source)return "—";
@@ -100,8 +103,10 @@ function activityContext(tx:Tx){
    meta:[label(source.transactionType),source.transactionNumber,detail,source.createdBy?.fullName?"By "+source.createdBy.fullName:null].filter(Boolean).join(" · "),
   };
  }
+ const manualCard=tx.customerLedgerEntry?.customerCard;
  const card=tx.cardSwipe?.customerCard;
- const detail=card?card.bankName+" •••• "+card.lastFourDigits
+ const detail=manualCard?manualCard.bankName+" •••• "+manualCard.lastFourDigits
+  :card?card.bankName+" •••• "+card.lastFourDigits
   :tx.microAtm?(tx.microAtm.customerBankName??"Bank")+" •••• "+tx.microAtm.cardLastFour
   :tx.aeps?tx.aeps.customerBankName+" · Aadhaar •••• "+tx.aeps.aadhaarLastFour
   :null;
@@ -180,7 +185,7 @@ export default function TransactionsPage(){
     <button type="button" onClick={()=>setMobileFiltersOpen(v=>!v)} className={"min-h-11 shrink-0 rounded-xl border px-3 text-xs font-bold transition "+(mobileFiltersOpen?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] bg-[var(--surface)] text-[var(--text)]")}>Filters{activeFilterCount?" ("+activeFilterCount+")":""}</button>
    </div>
    {mobileFiltersOpen?<div className="mt-2 grid gap-2">
-    <SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All services</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","SERVICE_INCOME","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","ACCOUNT_ENTRY","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect>
+    <SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All services</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","SERVICE_INCOME","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","ACCOUNT_ENTRY","CUSTOMER_LEDGER_ENTRY","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect>
     <SearchableSelect className="app-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All transaction statuses</option>{["PENDING","PARTIALLY_PAID","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect>
     <SearchableSelect className="app-control" value={moneyStatusFilter} onChange={e=>setMoneyStatusFilter(e.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</SearchableSelect>
     {(type||status||moneyStatusFilter)?<button type="button" onClick={()=>{setType("");setStatus("");setMoneyStatusFilter("");}} className="min-h-10 rounded-xl text-xs font-bold text-[var(--accent)]">Clear filters</button>:null}
@@ -207,7 +212,7 @@ export default function TransactionsPage(){
     <div className="mb-3 flex items-center justify-between"><div><p className="text-sm font-black">Filter transactions</p><p className="text-[11px] text-[var(--text-muted)]">Narrow the full transaction list.</p></div><button type="button" onClick={clearFilters} className="rounded-lg px-3 py-2 text-xs font-bold text-[var(--accent)] hover:bg-[var(--accent-soft)]">Clear filters</button></div>
     <div className="mb-3"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Date</p><div className="grid grid-cols-4 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">{([["today","Today"],["yesterday","Yesterday"],["week","7 days"],["all","All"]] as [Range,string][]).map(([v,l])=><button key={v} type="button" onClick={()=>setRange(v)} className={"min-h-9 rounded-lg px-2 text-xs font-bold "+(range===v?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)] hover:text-[var(--text)]")}>{l}</button>)}</div></div>
     <div className="grid gap-3 lg:grid-cols-3">
-     <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Service</p><SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All services</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","SERVICE_INCOME","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","ACCOUNT_ENTRY","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect></div>
+     <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Service</p><SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All services</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","SERVICE_INCOME","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","ACCOUNT_ENTRY","CUSTOMER_LEDGER_ENTRY","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect></div>
      <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Transaction status</p><SearchableSelect className="app-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_PAID","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect></div>
      <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payout / Pay-in</p><SearchableSelect className="app-control" value={moneyStatusFilter} onChange={e=>setMoneyStatusFilter(e.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</SearchableSelect></div>
     </div>

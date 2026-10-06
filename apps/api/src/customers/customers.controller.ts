@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { CreateCardDto } from './dto/create-card.dto.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
+import { CreateCustomerLedgerEntryDto } from './dto/create-customer-ledger-entry.dto.js';
 import { CreateQuickCustomerCardDto } from './dto/create-quick-customer-card.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 import { CreateUpiAccountDto } from './dto/create-upi-account.dto.js';
@@ -49,6 +50,16 @@ export class CustomersController {
   @Get(':id/card-ledger')
   cardLedger(@Param('id') id: string, @Query('cardId') cardId?: string) {
     return this.customers.getCardLedger(id, cardId);
+  }
+
+  @Post(':id/card-ledger-entry')
+  cardLedgerEntry(
+    @Param('id') id: string,
+    @Body() dto: CreateCustomerLedgerEntryDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.customers.createCardLedgerEntry(id, dto, req.user.userId, key);
   }
 
   @Post(':id/service-profiles')

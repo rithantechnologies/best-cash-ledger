@@ -1,5 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CustomerType, PaymentStatus, Prisma, TransactionStatus } from '@prisma/client';
+import { AccountType, CustomerType, EntryType, PaymentStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { FinancialValidationService } from '../finance/financial-validation.service.js';
+import { IdempotencyService } from '../finance/idempotency.service.js';
+import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
+import { JournalEntry, LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
 import { CreateQuickCustomerCardDto } from './dto/create-quick-customer-card.dto.js';
@@ -15,10 +19,116 @@ import { UpdateUpiAccountDto } from './dto/update-upi-account.dto.js';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto.js';
 import { UpdateBeneficiaryAccountDto } from './dto/update-beneficiary-account.dto.js';
 import { CreateServiceProfileDto } from './dto/create-service-profile.dto.js';
+import { CreateCustomerLedgerEntryDto } from './dto/create-customer-ledger-entry.dto.js';
 
 @Injectable()
 export class CustomersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: LedgerService,
+    private readonly validation: FinancialValidationService,
+    private readonly idempotency: IdempotencyService,
+    private readonly payoutCharges: ProviderPayoutChargeService,
+  ) {}
+
+  private money(value: number) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  private async cardLedgerBalance(
+    tx: Prisma.TransactionClient,
+    customerId: string,
+    cardId?: string,
+  ) {
+    const activeTransaction = {
+      status: {
+        notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED],
+      },
+    };
+    const cardWhere = cardId
+      ? { customerId, id: cardId }
+      : { customerId };
+    const [swipes, clearings, manualEntries] = await Promise.all([
+      tx.cardSwipeDetail.findMany({
+        where: {
+          customerCard: cardWhere,
+          transaction: activeTransaction,
+        },
+        select: {
+          customerPayableAmount: true,
+          transaction: {
+            select: {
+              payable: {
+                select: {
+                  payments: {
+                    where: { status: PaymentStatus.COMPLETED },
+                    select: { amount: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      tx.cardDueClearingDetail.findMany({
+        where: {
+          customerCard: cardWhere,
+          transaction: activeTransaction,
+        },
+        select: {
+          dueAmount: true,
+          recoveries: {
+            where: { transaction: activeTransaction },
+            select: {
+              swipeAmount: true,
+              transaction: {
+                select: {
+                  payable: {
+                    select: {
+                      payments: {
+                        where: { status: PaymentStatus.COMPLETED },
+                        select: { amount: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      tx.customerLedgerEntryDetail.findMany({
+        where: {
+          transaction: { customerId, ...activeTransaction },
+          ...(cardId ? { customerCardId: cardId } : {}),
+        },
+        select: { direction: true, amount: true },
+      }),
+    ]);
+
+    let credit = 0;
+    let debit = 0;
+    for (const swipe of swipes) {
+      credit += Number(swipe.customerPayableAmount);
+      for (const payment of swipe.transaction.payable?.payments ?? []) {
+        debit += Number(payment.amount);
+      }
+    }
+    for (const clearing of clearings) {
+      debit += Number(clearing.dueAmount);
+      for (const recovery of clearing.recoveries) {
+        credit += Number(recovery.swipeAmount);
+        for (const payment of recovery.transaction.payable?.payments ?? []) {
+          debit += Number(payment.amount);
+        }
+      }
+    }
+    for (const entry of manualEntries) {
+      if (entry.direction === 'PAY_IN') credit += Number(entry.amount);
+      else debit += Number(entry.amount);
+    }
+    return this.money(credit - debit);
+  }
 
   async list(options?: {
     search?: string;
@@ -363,6 +473,249 @@ export class CustomersService {
     return customer;
   }
 
+  async createCardLedgerEntry(
+    customerId: string,
+    dto: CreateCustomerLedgerEntryDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const amount = this.money(dto.amount);
+    const remarks = dto.remarks?.trim() || (dto.direction === 'PAY_IN' ? 'Pay In' : 'Pay Out');
+    const transactionAt = dto.transactionAt ? new Date(dto.transactionAt) : new Date();
+    if (Number.isNaN(transactionAt.getTime())) {
+      throw new BadRequestException('Invalid transaction date');
+    }
+    if (transactionAt.getTime() > Date.now() + 60_000) {
+      throw new BadRequestException('Transaction date cannot be in the future');
+    }
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.CUSTOMER_LEDGER_ENTRY,
+      userId,
+      { customerId, ...dto },
+      providedIdempotencyKey,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.validation.activeCustomer(tx, customerId);
+      if (dto.customerCardId) {
+        await this.validation.customerCard(tx, customerId, dto.customerCardId);
+      }
+      await this.validation.lockAccount(tx, dto.financialAccountId);
+      const account = await this.validation.liquidAsset(
+        tx,
+        dto.financialAccountId,
+        dto.direction === 'PAY_IN' ? 'Pay In receiving account' : 'Pay Out source account',
+      );
+      if (account.accountType === AccountType.CASH) {
+        await this.validation.requireOpenCashDesk(
+          tx,
+          account.id,
+          dto.direction === 'PAY_IN' ? 'Customer Pay In' : 'Customer Pay Out',
+        );
+      }
+
+      const currentBalance = await this.cardLedgerBalance(
+        tx,
+        customerId,
+        dto.customerCardId,
+      );
+      let receivableAmount = 0;
+      let payableAmount = 0;
+      if (dto.direction === 'PAY_IN') {
+        receivableAmount = this.money(Math.min(amount, Math.max(-currentBalance, 0)));
+        payableAmount = this.money(amount - receivableAmount);
+      } else {
+        payableAmount = this.money(Math.min(amount, Math.max(currentBalance, 0)));
+        receivableAmount = this.money(amount - payableAmount);
+      }
+
+      const configuredCharge = dto.direction === 'PAY_OUT'
+        ? await this.payoutCharges.resolve(tx, account, amount, transactionAt)
+        : null;
+      const payoutChargeAmount = configuredCharge?.amount ?? 0;
+      if (dto.direction === 'PAY_OUT') {
+        await this.validation.ensureSufficientFunds(
+          tx,
+          account,
+          amount + payoutChargeAmount,
+        );
+      }
+
+      const systemLedgers = await tx.ledgerAccount.findMany({
+        where: {
+          ledgerCode: {
+            in: ['SYS-CUST-RECEIVABLE', 'SYS-CUST-PAYABLE', 'SYS-PROVIDER-CHARGE'],
+          },
+        },
+      });
+      const byCode = new Map(systemLedgers.map((item) => [item.ledgerCode, item]));
+      const receivableLedger = byCode.get('SYS-CUST-RECEIVABLE');
+      const payableLedger = byCode.get('SYS-CUST-PAYABLE');
+      const providerChargeLedger = byCode.get('SYS-PROVIDER-CHARGE');
+      if (!receivableLedger || !payableLedger) {
+        throw new Error('Customer receivable/payable ledgers are missing');
+      }
+      if (payoutChargeAmount > 0 && !providerChargeLedger) {
+        throw new Error('Provider payout charge ledger is missing');
+      }
+
+      const transaction = await tx.transaction.create({
+        data: {
+          transactionNumber: 'CLK-' + Date.now().toString(36).toUpperCase(),
+          transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+          transactionAt,
+          customerId,
+          grossAmount: new Prisma.Decimal(
+            dto.direction === 'PAY_OUT' ? amount + payoutChargeAmount : amount,
+          ),
+          netAmount: new Prisma.Decimal(amount),
+          status: TransactionStatus.COMPLETED,
+          idempotencyKey,
+          referenceNumber: dto.referenceNumber?.trim() || null,
+          notes: dto.notes?.trim() || null,
+          createdById: userId,
+        },
+      });
+
+      const detail = await tx.customerLedgerEntryDetail.create({
+        data: {
+          transactionId: transaction.id,
+          customerCardId: dto.customerCardId || null,
+          financialAccountId: account.id,
+          direction: dto.direction,
+          amount: new Prisma.Decimal(amount),
+          remarks,
+          receivableAmount: new Prisma.Decimal(receivableAmount),
+          payableAmount: new Prisma.Decimal(payableAmount),
+        },
+      });
+
+      if (payoutChargeAmount > 0 && configuredCharge) {
+        await tx.transactionCharge.create({
+          data: {
+            transactionId: transaction.id,
+            chargeType: 'PAYOUT',
+            providerId: account.providerId,
+            sourceAccountId: account.id,
+            providerPayoutChargeRuleId: configuredCharge.ruleId,
+            calculationType: configuredCharge.calculationType,
+            rate: new Prisma.Decimal(configuredCharge.rate),
+            amount: new Prisma.Decimal(payoutChargeAmount),
+            notes: account.accountName + ' payout charge',
+          },
+        });
+      }
+
+      const entries: JournalEntry[] = [];
+      if (dto.direction === 'PAY_IN') {
+        entries.push({
+          ledgerAccountId: account.ledgerAccount!.id,
+          entryType: EntryType.DEBIT,
+          amount,
+          customerId,
+          description: 'Customer Pay In · ' + remarks,
+        });
+        if (receivableAmount > 0) {
+          entries.push({
+            ledgerAccountId: receivableLedger.id,
+            entryType: EntryType.CREDIT,
+            amount: receivableAmount,
+            customerId,
+            description: 'Reduce customer receivable',
+          });
+        }
+        if (payableAmount > 0) {
+          entries.push({
+            ledgerAccountId: payableLedger.id,
+            entryType: EntryType.CREDIT,
+            amount: payableAmount,
+            customerId,
+            description: 'Increase amount payable to customer',
+          });
+        }
+      } else {
+        if (payableAmount > 0) {
+          entries.push({
+            ledgerAccountId: payableLedger.id,
+            entryType: EntryType.DEBIT,
+            amount: payableAmount,
+            customerId,
+            description: 'Reduce amount payable to customer',
+          });
+        }
+        if (receivableAmount > 0) {
+          entries.push({
+            ledgerAccountId: receivableLedger.id,
+            entryType: EntryType.DEBIT,
+            amount: receivableAmount,
+            customerId,
+            description: 'Increase customer receivable',
+          });
+        }
+        if (payoutChargeAmount > 0 && providerChargeLedger) {
+          entries.push({
+            ledgerAccountId: providerChargeLedger.id,
+            entryType: EntryType.DEBIT,
+            amount: payoutChargeAmount,
+            customerId,
+            description: account.accountName + ' payout charge',
+          });
+        }
+        entries.push({
+          ledgerAccountId: account.ledgerAccount!.id,
+          entryType: EntryType.CREDIT,
+          amount: amount + payoutChargeAmount,
+          customerId,
+          description: 'Customer Pay Out · ' + remarks,
+        });
+      }
+
+      await this.ledger.post(
+        tx,
+        transaction.id,
+        userId,
+        (dto.direction === 'PAY_IN' ? 'Customer Pay In · ' : 'Customer Pay Out · ') + remarks,
+        entries,
+        transactionAt,
+      );
+
+      const endingBalance = this.money(
+        currentBalance + (dto.direction === 'PAY_IN' ? amount : -amount),
+      );
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entityType: 'CUSTOMER_LEDGER_ENTRY',
+          entityId: detail.id,
+          action: 'CREATE',
+          newValues: {
+            customerId,
+            customerCardId: dto.customerCardId ?? null,
+            transactionId: transaction.id,
+            direction: dto.direction,
+            amount,
+            financialAccountId: account.id,
+            remarks,
+            referenceNumber: transaction.referenceNumber,
+            startingBalance: currentBalance,
+            endingBalance,
+            receivableAmount,
+            payableAmount,
+            payoutChargeAmount,
+          },
+        },
+      });
+
+      return {
+        transaction,
+        detail,
+        startingBalance: currentBalance,
+        endingBalance,
+        payoutChargeAmount,
+      };
+    });
+  }
+
   async getCardLedger(id: string, cardId?: string) {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
@@ -396,7 +749,7 @@ export class CustomersService {
       ? { customerId: id, id: cardId }
       : { customerId: id };
 
-    const [swipes, clearings] = await Promise.all([
+    const [swipes, clearings, manualEntries] = await Promise.all([
       this.prisma.cardSwipeDetail.findMany({
         where: {
           customerCard: cardWhere,
@@ -460,6 +813,17 @@ export class CustomersService {
           },
         },
       }),
+      this.prisma.customerLedgerEntryDetail.findMany({
+        where: {
+          transaction: { customerId: id, ...activeTransaction },
+          ...(cardId ? { customerCardId: cardId } : {}),
+        },
+        include: {
+          customerCard: true,
+          financialAccount: true,
+          transaction: true,
+        },
+      }),
     ]);
 
     const providerIds = [...new Set(swipes.map((row) => row.providerId))];
@@ -485,12 +849,12 @@ export class CustomersService {
       id: string;
       at: Date;
       priority: number;
-      kind: 'CARD_SWIPE' | 'CUSTOMER_PAYOUT' | 'CARD_DUE_PAYMENT' | 'CARD_DUE_RECOVERY';
+      kind: 'CARD_SWIPE' | 'CUSTOMER_PAYOUT' | 'CARD_DUE_PAYMENT' | 'CARD_DUE_RECOVERY' | 'PAY_IN' | 'PAY_OUT';
       remarks: string;
       detail: string;
       debit: number;
       credit: number;
-      cardId: string;
+      cardId: string | null;
       cardLabel: string;
       transactionId: string;
       transactionNumber: string;
@@ -608,6 +972,31 @@ export class CustomersService {
           });
         }
       }
+    }
+
+    for (const entry of manualEntries) {
+      const cardLabel = entry.customerCard
+        ? entry.customerCard.bankName + ' •••• ' + entry.customerCard.lastFourDigits
+        : 'Customer ledger';
+      const isPayIn = entry.direction === 'PAY_IN';
+      movements.push({
+        id: 'manual-' + entry.id,
+        at: entry.transaction.transactionAt,
+        priority: 40,
+        kind: isPayIn ? 'PAY_IN' : 'PAY_OUT',
+        remarks: (isPayIn ? 'Pay In · ' : 'Pay Out · ') + entry.remarks,
+        detail: [
+          cardLabel,
+          (isPayIn ? 'Received in ' : 'Paid from ') + entry.financialAccount.accountName,
+        ].join(' · '),
+        debit: isPayIn ? 0 : Number(entry.amount),
+        credit: isPayIn ? Number(entry.amount) : 0,
+        cardId: entry.customerCardId,
+        cardLabel,
+        transactionId: entry.transactionId,
+        transactionNumber: entry.transaction.transactionNumber,
+        referenceNumber: entry.transaction.referenceNumber,
+      });
     }
 
     movements.sort((a, b) =>

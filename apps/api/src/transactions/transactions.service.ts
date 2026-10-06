@@ -184,6 +184,7 @@ export class TransactionsService {
       microAtm: true,
       aeps: true,
       accountEntry: { include: { account: true } },
+      customerLedgerEntry: { include: { customerCard: true, financialAccount: true } },
       providerSettlementReceipt: {
         include: {
           settlement: {
@@ -4160,6 +4161,7 @@ export class TransactionsService {
         microAtm: { include: { cashAccount: true, settlementAccount: true } },
         internalTransfer: { include: { sourceAccount: true, destinationAccount: true } },
         accountEntry: { include: { account: true } },
+      customerLedgerEntry: { include: { customerCard: true, financialAccount: true } },
         expense: { include: { expenseCategory: true, paymentAccount: true } },
         atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
         creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
@@ -4500,6 +4502,7 @@ export class TransactionsService {
       TransactionType.CARD_DUE_COMMISSION_COLLECTION,
       TransactionType.CASH_ADJUSTMENT,
       TransactionType.ACCOUNT_ENTRY,
+      TransactionType.CUSTOMER_LEDGER_ENTRY,
     ]);
     if (managedElsewhere.has(original.transactionType)) {
       throw new BadRequestException(

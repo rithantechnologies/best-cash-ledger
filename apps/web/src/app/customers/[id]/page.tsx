@@ -24,19 +24,25 @@ type Customer={
  receivables:{id:string;reason:string;remainingAmount:string;receivedAmount:string;originalAmount:string;dueAt:string|null;status:string}[];
 };
 type CardLedgerCard={id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean;label:string};
-type CardLedgerRow={id:string;at:string;kind:"CARD_SWIPE"|"CUSTOMER_PAYOUT"|"CARD_DUE_PAYMENT"|"CARD_DUE_RECOVERY";remarks:string;detail:string;debit:number;credit:number;closingBalance:number;cardId:string;cardLabel:string;transactionId:string;transactionNumber:string;referenceNumber:string|null};
+type CardLedgerRow={id:string;at:string;kind:"CARD_SWIPE"|"CUSTOMER_PAYOUT"|"CARD_DUE_PAYMENT"|"CARD_DUE_RECOVERY"|"PAY_IN"|"PAY_OUT";remarks:string;detail:string;debit:number;credit:number;closingBalance:number;cardId:string|null;cardLabel:string;transactionId:string;transactionNumber:string;referenceNumber:string|null};
 type CardLedger={customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
 type EditState={kind:"card";item:Card}|{kind:"bank";item:Bank}|{kind:"upi";item:Upi}|{kind:"beneficiary";item:Beneficiary}|{kind:"beneficiaryAccount";item:BAccount}|null;
 type AddKind="bank"|"upi"|"beneficiary"|"beneficiaryAccount"|null;
 type ToggleTarget={path:string;isActive:boolean;label:string}|null;
+type LedgerAccount={id:string;accountName:string;accountType:string;isActive:boolean};
+type LedgerEntryDirection="PAY_IN"|"PAY_OUT";
 const money=(v:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(v||0));
 const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]??ch));
+const localDateValue=()=>{const now=new Date(),offset=now.getTimezoneOffset()*60000;return new Date(now.getTime()-offset).toISOString().slice(0,10);};
+const dateWithCurrentLocalTime=(date:string)=>{const now=new Date(),[year,month,day]=date.split("-").map(Number);return new Date(year,month-1,day,now.getHours(),now.getMinutes(),now.getSeconds(),now.getMilliseconds()).toISOString();};
 
 export default function CustomerDetailPage(){
  const {id}=useParams<{id:string}>();
  const [c,setC]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
+ const [ledgerAccounts,setLedgerAccounts]=useState<LedgerAccount[]>([]),[ledgerEntryDirection,setLedgerEntryDirection]=useState<LedgerEntryDirection|null>(null),[ledgerEntryBusy,setLedgerEntryBusy]=useState(false),[ledgerEntryError,setLedgerEntryError]=useState("");
+ const [ledgerEntryAmount,setLedgerEntryAmount]=useState(""),[ledgerEntryDate,setLedgerEntryDate]=useState(localDateValue),[ledgerEntryAccountId,setLedgerEntryAccountId]=useState(""),[ledgerEntryCardId,setLedgerEntryCardId]=useState(""),[ledgerEntryRemarks,setLedgerEntryRemarks]=useState(""),[ledgerEntryReference,setLedgerEntryReference]=useState(""),[ledgerEntryNote,setLedgerEntryNote]=useState("");
  const [addKind,setAddKind]=useState<AddKind>(null),[toggleTarget,setToggleTarget]=useState<ToggleTarget>(null);
  const [bankName,setBankName]=useState(""),[holder,setHolder]=useState(""),[accountRef,setAccountRef]=useState(""),[ifsc,setIfsc]=useState("");
  const [upiName,setUpiName]=useState(""),[upiId,setUpiId]=useState(""),[upiMobile,setUpiMobile]=useState(""),[upiProvider,setUpiProvider]=useState("");
@@ -49,6 +55,30 @@ export default function CustomerDetailPage(){
  const loadCardLedger=(cardId=ledgerCardId)=>{setLedgerLoading(true);setLedgerError("");return apiFetch<CardLedger>("/customers/"+id+"/card-ledger"+(cardId?"?cardId="+encodeURIComponent(cardId):"")).then(setCardLedger).catch(e=>setLedgerError(e instanceof Error?e.message:"Failed to load card ledger")).finally(()=>setLedgerLoading(false));};
  useEffect(()=>{load().catch(e=>setError(e instanceof Error?e.message:"Failed to load customer"));},[id]);
  useEffect(()=>{loadCardLedger(ledgerCardId);},[id,ledgerCardId]);
+ useEffect(()=>{apiFetch<LedgerAccount[]>("/accounts").then(rows=>setLedgerAccounts(rows.filter(a=>a.isActive&&["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)))).catch(()=>setLedgerAccounts([]));},[]);
+
+ function resetLedgerEntry(){
+  setLedgerEntryDirection(null);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId("");setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerEntryError("");
+ }
+ function openLedgerEntry(direction:LedgerEntryDirection){
+  setLedgerEntryDirection(direction);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerEntryError("");
+ }
+ async function submitLedgerEntry(e:FormEvent){
+  e.preventDefault();if(!ledgerEntryDirection)return;
+  const amount=Number(ledgerEntryAmount);
+  if(!Number.isFinite(amount)||amount<=0){setLedgerEntryError("Enter a valid amount.");return;}
+  if(!ledgerEntryAccountId){setLedgerEntryError(ledgerEntryDirection==="PAY_IN"?"Choose where the money was received.":"Choose where the money was paid from.");return;}
+  if(!ledgerEntryDate){setLedgerEntryError("Choose the entry date.");return;}
+  if(ledgerEntryDate>localDateValue()){setLedgerEntryError("Entry date cannot be in the future.");return;}
+  setLedgerEntryBusy(true);setLedgerEntryError("");
+  try{
+   await apiFetch("/customers/"+id+"/card-ledger-entry",{method:"POST",body:JSON.stringify({direction:ledgerEntryDirection,amount,financialAccountId:ledgerEntryAccountId,customerCardId:ledgerEntryCardId||undefined,remarks:ledgerEntryRemarks.trim()||undefined,transactionAt:dateWithCurrentLocalTime(ledgerEntryDate),referenceNumber:ledgerEntryReference.trim()||undefined,notes:ledgerEntryNote.trim()||undefined})});
+   const success=ledgerEntryDirection==="PAY_IN"?"Pay In recorded.":"Pay Out recorded.";
+   resetLedgerEntry();setMessage(success);window.setTimeout(()=>setMessage(""),2500);
+   await Promise.all([load(),loadCardLedger(ledgerCardId)]);
+  }catch(err){setLedgerEntryError(err instanceof Error?err.message:"Failed to save ledger entry");}
+  finally{setLedgerEntryBusy(false);}
+ }
 
  async function run(action:()=>Promise<unknown>,success?:string){
   setBusy(true);setError("");setMessage("");
@@ -91,13 +121,18 @@ export default function CustomerDetailPage(){
  const visibleTransactions=c.transactions.filter(t=>(!txStatusFilter||t.status===txStatusFilter)&&(!moneyStatusFilter||moneyStatus(t)?.key===moneyStatusFilter));
  const ledgerPositionLabel=cardLedger?.totals.position==="TO_PAY_CUSTOMER"?"Pay to customer":cardLedger?.totals.position==="TO_RECOVER_FROM_CUSTOMER"?"Customer to pay us":"Settled";
  const ledgerCardLabel=ledgerCardId?(cardLedger?.cards.find(card=>card.id===ledgerCardId)?.label??"Selected card"):"All cards";
+ const ledgerEntryValue=Number(ledgerEntryAmount)||0;
+ const ledgerEntryStartingBalance=ledgerEntryCardId?(cardLedger?.rows.filter(row=>row.cardId===ledgerEntryCardId).reduce((sum,row)=>sum+row.credit-row.debit,0)??0):Number(cardLedger?.totals.balance??0);
+ const ledgerEntryStartingLabel=ledgerEntryStartingBalance>0.001?"Pay to customer":ledgerEntryStartingBalance<-.001?"Customer to pay us":"Settled";
+ const ledgerEntryPreview=ledgerEntryStartingBalance+(ledgerEntryDirection==="PAY_IN"?ledgerEntryValue:ledgerEntryDirection==="PAY_OUT"?-ledgerEntryValue:0);
+ const ledgerEntryPreviewLabel=ledgerEntryPreview>0.001?"Pay to customer":ledgerEntryPreview<-.001?"Customer to pay us":"Settled";
  function printCardLedger(){
   if(!cardLedger||!cardLedger.rows.length)return;
   const popup=window.open("","_blank","width=980,height=760");
   if(!popup)return;
   popup.opener=null;
   const rows=cardLedger.rows.map((row,index)=>"<tr><td>"+(index+1)+"</td><td>"+escapeHtml(new Date(row.at).toLocaleString("en-IN"))+"</td><td><b>"+escapeHtml(row.remarks)+"</b><small>"+escapeHtml(row.detail)+"<br>"+escapeHtml(row.transactionNumber)+(row.referenceNumber?" · Ref "+escapeHtml(row.referenceNumber):"")+"</small></td><td class='out'>"+(row.debit?escapeHtml(money(row.debit)):"—")+"</td><td class='in'>"+(row.credit?escapeHtml(money(row.credit)):"—")+"</td><td class='"+(row.closingBalance<0?"out":"in")+"'>"+escapeHtml(money(row.closingBalance))+"</td></tr>").join("");
-  popup.document.write("<!doctype html><html><head><title>Card Ledger - "+escapeHtml(cardLedger.customer.fullName)+"</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{color:#087f7f;margin:0;font-size:22px}.sub{font-size:11px;margin-top:5px}.meta{margin:24px 0 12px;font-size:14px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.box{border:1px solid #cbd5e1;padding:9px}.box small{display:block;color:#64748b}.box b{font-size:16px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #cbd5e1;padding:7px;vertical-align:top}th{background:#ecfeff;color:#075985}td:nth-child(1){text-align:center;width:28px}td:nth-child(2){white-space:nowrap;width:110px}td:nth-child(4),td:nth-child(5),td:nth-child(6){text-align:right;white-space:nowrap;font-weight:700}small{display:block;color:#64748b;margin-top:3px;line-height:1.35}.out{color:#dc2626}.in{color:#15803d}.footer{margin-top:14px;border-top:2px solid #111;padding-top:8px;text-align:right;font-size:14px;font-weight:700}</style></head><body><h1>Customer Card Ledger</h1><div class='sub'>Card swipe, partial payout and card-due running statement</div><div class='meta'><b>Name:</b> "+escapeHtml(cardLedger.customer.fullName)+"<br><b>Card:</b> "+escapeHtml(ledgerCardLabel)+"</div><div class='summary'><div class='box'><small>Total Debit (Out)</small><b class='out'>"+escapeHtml(money(cardLedger.totals.debit))+"</b></div><div class='box'><small>Total Credit (In)</small><b class='in'>"+escapeHtml(money(cardLedger.totals.credit))+"</b></div><div class='box'><small>Closing Balance</small><b class='"+(cardLedger.totals.balance<0?"out":cardLedger.totals.balance>0?"in":"")+"'>"+escapeHtml(money(cardLedger.totals.balance))+"</b><small class='"+(cardLedger.totals.balance<0?"out":cardLedger.totals.balance>0?"in":"")+"'>"+escapeHtml(ledgerPositionLabel)+"</small></div></div><table><thead><tr><th>No</th><th>Date</th><th>Remarks</th><th>Debit (Out)</th><th>Credit (In)</th><th>Cls Balance</th></tr></thead><tbody>"+rows+"</tbody></table><div class='footer "+(cardLedger.totals.balance<0?"out":cardLedger.totals.balance>0?"in":"")+"'>"+escapeHtml(ledgerPositionLabel)+" ₹ "+Math.abs(cardLedger.totals.balance).toLocaleString("en-IN",{maximumFractionDigits:2})+"</div></body></html>");
+  popup.document.write("<!doctype html><html><head><title>Card Ledger - "+escapeHtml(cardLedger.customer.fullName)+"</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{color:#087f7f;margin:0;font-size:22px}.sub{font-size:11px;margin-top:5px}.meta{margin:24px 0 12px;font-size:14px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.box{border:1px solid #cbd5e1;padding:9px}.box small{display:block;color:#64748b}.box b{font-size:16px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #cbd5e1;padding:7px;vertical-align:top}th{background:#ecfeff;color:#075985}td:nth-child(1){text-align:center;width:28px}td:nth-child(2){white-space:nowrap;width:110px}td:nth-child(4),td:nth-child(5),td:nth-child(6){text-align:right;white-space:nowrap;font-weight:700}small{display:block;color:#64748b;margin-top:3px;line-height:1.35}.out{color:#dc2626}.in{color:#15803d}.footer{margin-top:14px;border-top:2px solid #111;padding-top:8px;text-align:right;font-size:14px;font-weight:700}</style></head><body><h1>Customer Card Ledger</h1><div class='sub'>Card swipe, partial payout, card-due and Pay In / Pay Out running statement</div><div class='meta'><b>Name:</b> "+escapeHtml(cardLedger.customer.fullName)+"<br><b>Card:</b> "+escapeHtml(ledgerCardLabel)+"</div><div class='summary'><div class='box'><small>Total Debit (Out)</small><b class='out'>"+escapeHtml(money(cardLedger.totals.debit))+"</b></div><div class='box'><small>Total Credit (In)</small><b class='in'>"+escapeHtml(money(cardLedger.totals.credit))+"</b></div><div class='box'><small>Closing Balance</small><b class='"+(cardLedger.totals.balance<0?"out":cardLedger.totals.balance>0?"in":"")+"'>"+escapeHtml(money(cardLedger.totals.balance))+"</b><small class='"+(cardLedger.totals.balance<0?"out":cardLedger.totals.balance>0?"in":"")+"'>"+escapeHtml(ledgerPositionLabel)+"</small></div></div><table><thead><tr><th>No</th><th>Date</th><th>Remarks</th><th>Debit (Out)</th><th>Credit (In)</th><th>Cls Balance</th></tr></thead><tbody>"+rows+"</tbody></table><div class='footer "+(cardLedger.totals.balance<0?"out":cardLedger.totals.balance>0?"in":"")+"'>"+escapeHtml(ledgerPositionLabel)+" ₹ "+Math.abs(cardLedger.totals.balance).toLocaleString("en-IN",{maximumFractionDigits:2})+"</div></body></html>");
   popup.document.close();
   popup.focus();
   window.setTimeout(()=>popup.print(),250);
@@ -126,8 +161,10 @@ export default function CustomerDetailPage(){
 
   <Surface className="overflow-hidden">
    <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-    <div><h3 className="text-sm font-black">Card Ledger</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Card swipes, partial payouts and card-due movements in one running customer balance.</p></div>
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+    <div><h3 className="text-sm font-black">Card Ledger</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Card swipes, partial payouts, card-due movements and manual Pay In / Pay Out in one running balance.</p></div>
+    <div className="flex flex-wrap items-center gap-2">
+     <button type="button" onClick={()=>openLedgerEntry("PAY_IN")} className="min-h-10 rounded-xl bg-emerald-700 px-3.5 text-xs font-black text-white shadow-sm">+ Pay In</button>
+     <button type="button" onClick={()=>openLedgerEntry("PAY_OUT")} className="min-h-10 rounded-xl bg-rose-700 px-3.5 text-xs font-black text-white shadow-sm">− Pay Out</button>
      <SearchableSelect className="app-control min-w-[190px]" value={ledgerCardId} onChange={e=>setLedgerCardId(e.target.value)}><option value="">All cards</option>{c.cards.map(card=><option key={card.id} value={card.id}>{card.bankName+" •••• "+card.lastFourDigits+(card.nickname?" · "+card.nickname:"")}</option>)}</SearchableSelect>
      <button type="button" onClick={printCardLedger} disabled={!cardLedger?.rows.length} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-black disabled:opacity-40">Print statement</button>
     </div>
@@ -170,6 +207,28 @@ export default function CustomerDetailPage(){
     <div className="mt-3 space-y-2">{b.accounts.map(a=><div key={a.id} className={!a.isActive?"rounded-xl bg-slate-50 p-3 text-xs opacity-60":"rounded-xl bg-slate-50 p-3 text-xs"}><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="font-bold">{a.accountType}</p><p className="mt-0.5 truncate text-slate-500">{a.bankName?(a.bankName+" "+(a.accountReference||"")):(a.upiId||a.mobileNumber||"—")}</p></div><div className="flex gap-1"><button onClick={()=>beginEdit({kind:"beneficiaryAccount",item:a})} className="font-bold text-indigo-600">Edit</button><button onClick={()=>setToggleTarget({path:"/customers/beneficiary-accounts/"+a.id,isActive:a.isActive,label:"recipient account"})} className="font-bold text-slate-400">{a.isActive?"Retire":"Reactivate"}</button></div></div></div>)}</div>
    </div>)}</div>:<div className="p-4"><EmptyState title="No beneficiaries saved"/></div>}
   </Surface>
+  <Modal open={!!ledgerEntryDirection} title={ledgerEntryDirection==="PAY_IN"?"Pay In":"Pay Out"} description={ledgerEntryDirection==="PAY_IN"?"Money received from customer · adds Credit (In).":"Money paid to customer · adds Debit (Out)."} onClose={()=>{if(!ledgerEntryBusy)resetLedgerEntry();}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={ledgerEntryBusy} onClick={resetLedgerEntry} className="app-secondary-button min-h-11 font-bold disabled:opacity-50">Cancel</button><button form="customer-ledger-entry" disabled={ledgerEntryBusy||!ledgerEntryAccountId||ledgerEntryValue<=0} className={"min-h-11 rounded-xl font-black text-white disabled:opacity-50 "+(ledgerEntryDirection==="PAY_IN"?"bg-emerald-700":"bg-rose-700")}>{ledgerEntryBusy?"Saving…":ledgerEntryDirection==="PAY_IN"?"Save Pay In":"Save Pay Out"}</button></div>}>
+   <form id="customer-ledger-entry" onSubmit={submitLedgerEntry} className="space-y-4">
+    <div className="grid grid-cols-2 gap-2">
+     <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Current balance</p><p className={"money mt-1 text-lg font-black "+(ledgerEntryStartingBalance<0?"text-rose-700":ledgerEntryStartingBalance>0?"text-emerald-700":"")}>{money(ledgerEntryStartingBalance)}</p><p className="mt-0.5 text-[10px] font-semibold text-[var(--text-muted)]">{ledgerEntryStartingLabel}</p></div>
+     <div className={"rounded-xl p-3 "+(ledgerEntryPreview<0?"bg-rose-50":ledgerEntryPreview>0?"bg-emerald-50":"bg-[var(--surface-soft)]")}><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">After entry</p><p className={"money mt-1 text-lg font-black "+(ledgerEntryPreview<0?"text-rose-700":ledgerEntryPreview>0?"text-emerald-700":"")}>{money(ledgerEntryPreview)}</p><p className={"mt-0.5 text-[10px] font-black "+(ledgerEntryPreview<0?"text-rose-700":ledgerEntryPreview>0?"text-emerald-700":"text-[var(--text-muted)]")}>{ledgerEntryPreviewLabel}</p></div>
+    </div>
+    <div className="grid grid-cols-2 gap-3">
+     <Field label="Amount"><input className={control} type="number" min="0.01" step="0.01" inputMode="decimal" value={ledgerEntryAmount} onChange={e=>{setLedgerEntryAmount(e.target.value);setLedgerEntryError("");}} placeholder="₹ 0.00" required/></Field>
+     <Field label="Date"><input className={control} type="date" max={localDateValue()} value={ledgerEntryDate} onChange={e=>{setLedgerEntryDate(e.target.value);setLedgerEntryError("");}} required/></Field>
+    </div>
+    <Field label={ledgerEntryDirection==="PAY_IN"?"Received in":"Paid from"}><SearchableSelect className={control} value={ledgerEntryAccountId} onChange={e=>{setLedgerEntryAccountId(e.target.value);setLedgerEntryError("");}}><option value="">Choose account…</option>{ledgerAccounts.map(account=><option key={account.id} value={account.id}>{account.accountName+" · "+account.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>
+    <Field label="Card (optional)">{ledgerCardId?<div className={control+" flex items-center font-semibold"}>{c.cards.find(card=>card.id===ledgerCardId)?.bankName+" •••• "+c.cards.find(card=>card.id===ledgerCardId)?.lastFourDigits}</div>:<SearchableSelect className={control} value={ledgerEntryCardId} onChange={e=>setLedgerEntryCardId(e.target.value)}><option value="">Customer-level / all cards</option>{c.cards.filter(card=>card.isActive).map(card=><option key={card.id} value={card.id}>{card.bankName+" •••• "+card.lastFourDigits+(card.nickname?" · "+card.nickname:"")}</option>)}</SearchableSelect>}</Field>
+    <Field label="Remarks (optional)"><input className={control} value={ledgerEntryRemarks} onChange={e=>setLedgerEntryRemarks(e.target.value)} placeholder={ledgerEntryDirection==="PAY_IN"?"e.g. GPay received / cash received":"e.g. Cash given / GPay paid"}/></Field>
+    <div className="grid grid-cols-2 gap-3">
+     <Field label="Reference"><input className={control} value={ledgerEntryReference} onChange={e=>setLedgerEntryReference(e.target.value)} placeholder="UTR / ref (optional)"/></Field>
+     <Field label="Note"><input className={control} value={ledgerEntryNote} onChange={e=>setLedgerEntryNote(e.target.value)} placeholder="Optional"/></Field>
+    </div>
+    {ledgerEntryDirection==="PAY_IN"?<p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">Pay In adds a green Credit (In). It reduces a red customer-due balance first; if it crosses zero, the excess becomes money payable to the customer.</p>:<p className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">Pay Out adds a red Debit (Out). It reduces a green customer-credit balance first; if it crosses zero, the excess becomes money to recover from the customer.</p>}
+    {ledgerEntryDirection==="PAY_OUT"&&ledgerAccounts.find(account=>account.id===ledgerEntryAccountId)?.accountType==="PROVIDER_WALLET"?<p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Configured provider-wallet payout charges are applied automatically and do not change the customer ledger amount.</p>:null}
+    {ledgerEntryError?<p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{ledgerEntryError}</p>:null}
+   </form>
+  </Modal>
   <Modal open={addKind==="bank"} title="Add bank account" description="Save a beneficiary or customer bank destination for faster future transfers." onClose={()=>setAddKind(null)} footer={<button form="add-bank" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">Save bank account</button>}>
    <form id="add-bank" onSubmit={addBank} className="grid gap-3 sm:grid-cols-2"><Field label="Account holder"><input className={control} value={holder} onChange={e=>setHolder(e.target.value)} required/></Field><Field label="Bank name"><input className={control} value={bankName} onChange={e=>setBankName(e.target.value)} required/></Field><Field label="Account number / reference"><input className={control} value={accountRef} onChange={e=>setAccountRef(e.target.value)} required/></Field><Field label="IFSC"><input className={control} value={ifsc} onChange={e=>setIfsc(e.target.value)}/></Field></form>
   </Modal>

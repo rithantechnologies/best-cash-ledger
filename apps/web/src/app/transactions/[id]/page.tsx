@@ -33,12 +33,13 @@ type InternalTransfer={transferAmount:string;chargeAmount:string;sourceAccount:A
 type AtmWithdrawal={cashReceived:string;atmCharge:string;withdrawalAmount:string;bankAccount:Account;cashAccount:Account};
 type CreditCardPayment={paymentAmount:string;creditCardAccount:Account;sourceAccount:Account};
 type AccountEntry={direction:"IN"|"OUT";entryKind:string;amount:string;entryLabel:string|null;account:Account};
+type CustomerLedgerEntry={direction:"PAY_IN"|"PAY_OUT";amount:string;remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;financialAccount:Account};
 type CorrectionLink={id:string;transactionNumber:string;status:string};
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
  status:string;referenceNumber:string|null;notes:string|null;reversalReason:string|null;correctionSourceTransactionId:string|null;correctionReason:string|null;createdById:string;createdBy:{id:string;fullName:string}|null;
  customer:{fullName:string}|null;charges:Charge[];commissions:Commission[];journal:{journalNumber:string;description:string;entries:Entry[]}|null;
- payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;internalTransfer:InternalTransfer|null;atmWithdrawal:AtmWithdrawal|null;creditCardPayment:CreditCardPayment|null;accountEntry:AccountEntry|null;
+ payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;internalTransfer:InternalTransfer|null;atmWithdrawal:AtmWithdrawal|null;creditCardPayment:CreditCardPayment|null;accountEntry:AccountEntry|null;customerLedgerEntry:CustomerLedgerEntry|null;
  correctionSource:CorrectionLink|null;correctedTransaction:CorrectionLink|null;
 };
 
@@ -48,7 +49,7 @@ const label=(s:string)=>s.replaceAll("_"," ").toLowerCase().replace(/w/g,c=>c.t
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
 const chargeLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"Partner / external service cost"+(c.sourceAccount?.accountName?" · paid from "+c.sourceAccount.accountName:" · payable"):c.chargeType==="PAYOUT"?"Payout charge"+(c.sourceAccount?.accountName?" · "+c.sourceAccount.accountName:""):"Provider / bank fee";
 const chargeRuleLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"":c.calculationType==="PERCENTAGE"&&c.rate?Number(c.rate)+"%":c.chargeType==="PAYOUT"?"Fixed payout slab":c.rate?"₹"+Number(c.rate):"";
-const displayService=(tx:Tx)=>tx.accountEntry?(tx.accountEntry.entryLabel||"Manual amount entry"):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
+const displayService=(tx:Tx)=>tx.customerLedgerEntry?(tx.customerLedgerEntry.direction==="PAY_IN"?"Pay In":"Pay Out")+" · "+tx.customerLedgerEntry.remarks:tx.accountEntry?(tx.accountEntry.entryLabel||"Manual amount entry"):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
 const correctionBaseAmount=(tx:Tx)=>{
  if(tx.cardSwipe)return Number(tx.cardSwipe.swipeAmount);
  if(tx.cashTransfer)return Number(tx.cashTransfer.requestedAmount);
@@ -85,6 +86,12 @@ function FlowCard({label:heading,value,meta,tone="neutral",children}:{label:stri
 
 function MoneyFlow({tx}:{tx:Tx}){
  const gross=Number(tx.grossAmount),fees=sum(tx.charges),earnings=sum(tx.commissions),net=Number(tx.netAmount??tx.grossAmount);
+ if(tx.customerLedgerEntry){
+  const d=tx.customerLedgerEntry;
+  const inbound=d.direction==="PAY_IN";
+  const card=d.customerCard?d.customerCard.bankName+" •••• "+d.customerCard.lastFourDigits:"Customer-level / all cards";
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Customer ledger movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Manual Pay In / Pay Out entry linked to the customer running card ledger.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label={inbound?"Pay In · Credit":"Pay Out · Debit"} value={(inbound?"+":"−")+money(d.amount)} tone={inbound?"positive":"negative"}/><FlowCard label={inbound?"Received in":"Paid from"} value={d.financialAccount.accountName}/><FlowCard label="Card" value={card}/><FlowCard label="Remarks" value={d.remarks|| (inbound?"Pay In":"Pay Out")} meta={tx.referenceNumber?"Ref "+tx.referenceNumber:undefined}/></div></Surface>;
+ }
  if(tx.accountEntry){
   const d=tx.accountEntry;
   const inbound=d.direction==="IN";
@@ -255,7 +262,7 @@ export default function TransactionDetailPage(){
 
  const cardDueType=["CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION"].includes(tx.transactionType);
  const canEditDateTime=role==="OWNER"||role==="ADMIN";
- const correctionManagedElsewhere=["CUSTOMER_PAYOUT","CUSTOMER_RECEIVABLE","CUSTOMER_RECEIPT","PROVIDER_SETTLEMENT","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_ADJUSTMENT","ACCOUNT_ENTRY"].includes(tx.transactionType);
+ const correctionManagedElsewhere=["CUSTOMER_PAYOUT","CUSTOMER_RECEIVABLE","CUSTOMER_RECEIPT","PROVIDER_SETTLEMENT","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_ADJUSTMENT","ACCOUNT_ENTRY","CUSTOMER_LEDGER_ENTRY"].includes(tx.transactionType);
  const canCorrect=(role==="OWNER"||role==="ADMIN")&&!correctionManagedElsewhere&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL"&&!tx.correctedTransaction;
  const canDelete=role==="OWNER"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const canReverse=role==="ADMIN"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";

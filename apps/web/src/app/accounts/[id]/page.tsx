@@ -30,6 +30,7 @@ type BusinessTx=MoneyRef&{
   atmWithdrawal:{withdrawalAmount:string;bankAccount:{accountName:string};cashAccount:{accountName:string}}|null;
   creditCardPayment:{paymentAmount:string;creditCardAccount:{accountName:string};sourceAccount:{accountName:string}}|null;
   accountEntry:{direction:"IN"|"OUT";entryKind:string;amount:string;entryLabel:string|null;account:{accountName:string}}|null;
+  customerLedgerEntry:{direction:"PAY_IN"|"PAY_OUT";amount:string;remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;financialAccount:{accountName:string}}|null;
 };
 type RowTx=BusinessTx&{
   quickCashCompletionSource:BusinessTx|null;
@@ -56,6 +57,7 @@ type DrillTx={
   providerSettlementSource:{provider:{name:string}|null;gateway:{gatewayName:string}|null;destinationAccount:TxAccount}|null;
   providerSettlementReceipt:{amount:string;destinationAccount:TxAccount;settlement:{provider:{name:string}|null;gateway:{gatewayName:string}|null;destinationAccount:TxAccount;sourceTransaction:SourceRef}}|null;
   accountEntry:{direction:"IN"|"OUT";entryKind:string;amount:string;entryLabel:string|null;account:TxAccount}|null;
+  customerLedgerEntry:{direction:"PAY_IN"|"PAY_OUT";amount:string;remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;financialAccount:TxAccount}|null;
 };
 type DrillDetail={movement:DrillTx;source:DrillTx|null;row:Row;isIn:boolean};
 type Range="7d"|"30d"|"90d"|"all";
@@ -98,6 +100,7 @@ function payoutChargesForAccount(account:Account,tx:RowTx){
     source.internalTransfer?.sourceAccount.accountName,
     source.atmWithdrawal?.bankAccount.accountName,
     source.creditCardPayment?.sourceAccount.accountName,
+    source.customerLedgerEntry?.financialAccount.accountName,
   ].map(cleanAccountName).filter(Boolean);
   return charges.filter((charge)=>{
     if(charge.sourceAccount?.id)return charge.sourceAccount.id===account.id;
@@ -109,6 +112,14 @@ function payoutChargeForAccount(account:Account,tx:RowTx){
   return total(payoutChargesForAccount(account,tx));
 }
 function businessSummary(tx:BusinessTx,row:Row){
+  if(tx.customerLedgerEntry){
+    const inbound=tx.customerLedgerEntry.direction==="PAY_IN";
+    const card=tx.customerLedgerEntry.customerCard?tx.customerLedgerEntry.customerCard.bankName+" •••• "+tx.customerLedgerEntry.customerCard.lastFourDigits:null;
+    return {
+      primary:(inbound?"Pay In":"Pay Out")+" · "+tx.customerLedgerEntry.remarks,
+      secondary:[tx.customer?.fullName,card,inbound?"Received in "+tx.customerLedgerEntry.financialAccount.accountName:"Paid from "+tx.customerLedgerEntry.financialAccount.accountName,tx.transactionNumber,tx.createdBy?.fullName?"By "+tx.createdBy.fullName:null].filter(Boolean).join(" · "),
+    };
+  }
   if(tx.accountEntry){
     return {
       primary:tx.accountEntry.entryLabel?.trim()||"Manual amount entry",
@@ -234,6 +245,7 @@ function activityType(tx:RowTx,row:Row,source:BusinessTx){
   else if(source.cashTransfer)label="Cash transfer";
   else if(source.internalTransfer)label="Internal transfer";
   else if(source.atmWithdrawal)label="ATM withdrawal";
+  else if(source.customerLedgerEntry)label=source.customerLedgerEntry.direction==="PAY_IN"?"Customer Pay In":"Customer Pay Out";
   else if(source.creditCardPayment)label="Credit card payment";
   if(row.description?.toLowerCase().includes("commission"))label+=" · Commission";
   return label;
