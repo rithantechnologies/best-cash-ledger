@@ -45,7 +45,7 @@ export class PayablesController {
     @Req() req: any,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.payables.pay(id, dto, req.user.userId, key);
+    return this.payables.pay(id, dto, req.user.userId, req.user.role, key);
   }
 
   @Post(':id/cancel')

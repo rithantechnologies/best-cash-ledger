@@ -19,13 +19,14 @@ type Payable={
  id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;createdAt:string;
  customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[]};paymentTerm:{name:string}|null;
  sourceTransaction:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;referenceNumber:string|null;notes:string|null;status:string;cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}|null}|null;providerSettlementSource:{status?:string}|null;charges:{amount:string}[];commissions:{amount:string}[]};
- payments:Payment[];manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{remarks:string;financialAccount:{accountName:string;accountType:string};transaction:{id:string;transactionNumber:string;transactionAt:string;referenceNumber:string|null}}}[];createdBy:{id:string;fullName:string}|null;
+ payments:Payment[];manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{amount:string;remarks:string;financialAccount:{accountName:string;accountType:string};transaction:{id:string;transactionNumber:string;transactionAt:string;referenceNumber:string|null;charges:{amount:string}[]}}}[];createdBy:{id:string;fullName:string}|null;
 };
 type Audit={id:string;action:string;reason:string|null;createdAt:string;oldValues:unknown;newValues:unknown;user:{fullName:string}|null};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null};
 type PayoutChargeRule={minAmount:string;maxAmount:string|null;calculationType:"PERCENTAGE"|"FIXED";value:string};
 type Provider={id:string;payoutChargeRules:PayoutChargeRule[]};
 const money=(v:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(v||0));
+const allocatedCharge=(allocationAmount:string|number,movementAmount:string|number,charges:{amount:string}[])=>{const movement=Number(movementAmount||0);if(movement<=0)return 0;return charges.reduce((sum,x)=>sum+Number(x.amount||0),0)*Number(allocationAmount||0)/movement;};
 const statusTone=(s:string)=>s==="PAID"?"emerald":s==="OVERDUE"?"rose":s==="PARTIALLY_PAID"?"indigo":s==="PENDING"?"amber":"slate";
 const serviceLabel=(v:string)=>({AEPS_WITHDRAWAL:"AEPS",CARD_SWIPE:"Card Swipe",MICRO_ATM:"Micro ATM",ATM_WITHDRAWAL:"ATM Withdrawal",CASH_TRANSFER:"Cash Transfer"} as Record<string,string>)[v]??v.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
 function configuredPayoutCharge(providers:Provider[],account:Account|undefined,amount:number){if(!account||account.accountType!=="PROVIDER_WALLET"||!account.providerId||amount<=0)return null;const rules=providers.find(p=>p.id===account.providerId)?.payoutChargeRules??[];if(!rules.length)return null;const rule=rules.find(r=>amount+0.001>=Number(r.minAmount)&&(r.maxAmount===null||amount<=Number(r.maxAmount)+0.001));if(!rule)return 0;const value=Number(rule.value||0);return Math.round((rule.calculationType==="PERCENTAGE"?amount*value/100:value)*100)/100;}
@@ -45,7 +46,7 @@ export default function PayableDetailPage(){
  const progress=Math.min(100,Math.max(0,Number(item.paidAmount)/Math.max(1,Number(item.originalAmount))*100));
  const providerCharge=item.sourceTransaction.charges.reduce((s,x)=>s+Number(x.amount),0);
  const commission=item.sourceTransaction.commissions.reduce((s,x)=>s+Number(x.amount),0);
- const payoutCharges=item.payments.filter(p=>p.status==="COMPLETED").reduce((sum,p)=>sum+p.transaction.charges.reduce((chargeSum,x)=>chargeSum+Number(x.amount),0),0);
+ const payoutCharges=item.payments.filter(p=>p.status==="COMPLETED").reduce((sum,p)=>sum+p.transaction.charges.reduce((chargeSum,x)=>chargeSum+Number(x.amount),0),0)+item.manualLedgerAllocations.reduce((sum,a)=>sum+allocatedCharge(a.amount,a.customerLedgerEntry.amount,a.customerLedgerEntry.transaction.charges),0);
  const profit=commission-providerCharge-payoutCharges;
  const sourceAccount=accounts.find(a=>a.id===source);
  const destinationType=destination==="CASH"?"CASH":destination.startsWith("BANK:")?"CUSTOMER_BANK":destination.startsWith("UPI:")?"CUSTOMER_UPI":"";

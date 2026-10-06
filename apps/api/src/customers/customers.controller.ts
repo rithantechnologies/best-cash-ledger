@@ -59,7 +59,7 @@ export class CustomersController {
     @Req() req: any,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.customers.createCardLedgerEntry(id, dto, req.user.userId, key);
+    return this.customers.createCardLedgerEntry(id, dto, req.user.userId, req.user.role, key);
   }
 
   @Post(':id/service-profiles')

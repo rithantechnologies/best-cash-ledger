@@ -28,7 +28,7 @@ type Clearing={
  id:string;transactionId:string;dueAmount:string;commissionRate:string;commissionAmount:string;
  principalRecovered:string;principalRemaining:string;commissionCollected:string;commissionRemaining:string;
  nextFollowUpAt:string|null;duePaymentReference:string|null;customerCard:Card;advanceSourceAccount:Account;
- transaction:{id:string;transactionNumber:string;transactionAt:string;status:string;customer:{id:string;fullName:string;mobile:string|null}|null};
+ transaction:{id:string;transactionNumber:string;transactionAt:string;status:string;customer:{id:string;fullName:string;mobile:string|null}|null;charges:{amount:string;chargeType:string}[]};
  recoveries:Recovery[];commissionCollections:FeeCollection[];manualLedgerAllocations:ManualDueAllocation[];
 };
 type DuePayable={
@@ -196,27 +196,11 @@ export default function CardDueClearingPage(){
   if(amount<=0||!addProviderId||!addGatewayId||!addRecoveryAccountId){setError("Amount, provider, gateway and receive account are required.");return;}
   setSaving(true);
   try{
-   const sameCustomer=rows.filter(r=>r.transaction.customer?.id===selected.transaction.customer?.id);
-   const targets=[...sameCustomer].filter(r=>Number(r.principalRemaining)>0.001).sort((a,b)=>new Date(a.transaction.transactionAt).getTime()-new Date(b.transaction.transactionAt).getTime());
-   let left=amount;
-   for(const target of targets){
-    if(left<=0.001)break;
-    const part=calcMoney(Math.min(left,Number(target.principalRemaining)));
-    if(part<=0)continue;
-    await apiFetch("/transactions/card-due-clearings/"+target.transactionId+"/recoveries",{method:"POST",body:JSON.stringify({
-     amount:part,providerId:addProviderId,gatewayId:addGatewayId,destinationAccountId:addRecoveryAccountId,
-     referenceNumber:addRecoveryRef||undefined,notes:amount>part?"Split customer due recovery":undefined,
-    })});
-    left=calcMoney(left-part);
-   }
-   if(left>0.001){
-    const target=targets[targets.length-1]??selected;
-    await apiFetch("/transactions/card-due-clearings/"+target.transactionId+"/recoveries",{method:"POST",body:JSON.stringify({
-     amount:left,providerId:addProviderId,gatewayId:addGatewayId,destinationAccountId:addRecoveryAccountId,
-     referenceNumber:addRecoveryRef||undefined,notes:"Excess recovery recorded as customer credit",
-    })});
-   }
-   setSuccess("Recovery added to the customer ledger.");setAddRecoveryRef("");setAddRecoveryAmount("");await refreshSelected();
+   await apiFetch("/transactions/card-due-clearings/"+selected.transactionId+"/customer-recovery",{method:"POST",body:JSON.stringify({
+    amount,providerId:addProviderId,gatewayId:addGatewayId,destinationAccountId:addRecoveryAccountId,
+    referenceNumber:addRecoveryRef||undefined,
+   })});
+   setSuccess("Recovery added atomically to the customer ledger.");setAddRecoveryRef("");setAddRecoveryAmount("");await refreshSelected();
   }catch(err){setError(err instanceof Error?err.message:"Could not add recovery");}finally{setSaving(false);}
  }
 
@@ -248,8 +232,11 @@ export default function CardDueClearingPage(){
  const selectedCustomerRows=selectedCustomerId?rows.filter(r=>r.transaction.customer?.id===selectedCustomerId):[];
  const selectedCustomerPayables=selectedCustomerId?payables.filter(p=>p.customer.id===selectedCustomerId):[];
  const selectedGatewayFees=selectedCustomerRows.reduce((sum,r)=>sum+r.recoveries.reduce((a,x)=>a+Number(x.providerChargeAmount),0),0);
+ const selectedPayoutFees=selectedCustomerRows.reduce((sum,r)=>sum+r.transaction.charges.reduce((a,x)=>a+Number(x.amount),0),0);
+ const selectedProviderCosts=calcMoney(selectedGatewayFees+selectedPayoutFees);
  const customerCommission=selectedCustomerRows.reduce((sum,r)=>sum+r.commissionCollections.reduce((a,x)=>a+Number(x.amount),0),0);
- const selectedProfit=calcMoney(customerCommission-selectedGatewayFees);
+ const commissionEarned=selectedCustomerRows.reduce((sum,r)=>sum+Number(r.commissionAmount),0);
+ const selectedProfit=calcMoney(commissionEarned-selectedProviderCosts);
  const customerPaid=selectedCustomerRows.reduce((sum,r)=>sum+Number(r.dueAmount),0);
  const customerReceived=selectedCustomerRows.reduce((sum,r)=>sum+r.recoveries.reduce((a,x)=>a+Number(x.swipeAmount),0)+r.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
  const customerReturned=selectedCustomerPayables.reduce((sum,p)=>sum+p.payments.reduce((a,x)=>a+Number(x.amount),0)+p.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
@@ -346,8 +333,8 @@ export default function CardDueClearingPage(){
      ["Card paid",selected.dueAmount,"text-rose-600"],
      ["Recovered",selected.principalRecovered,"text-[var(--money-in)]"],
      ["To receive",selected.principalRemaining,Number(selected.principalRemaining)>0?"text-rose-600":"text-[var(--money-in)]"],
-     ["Commission received",customerCommission,"text-[var(--money-in)]"],
-     ["Gateway charges",selectedGatewayFees,selectedGatewayFees>0?"text-[var(--money-out)]":""],
+     ["Commission earned",commissionEarned,"text-[var(--money-in)]"],
+     ["Provider / payout costs",selectedProviderCosts,selectedProviderCosts>0?"text-[var(--money-out)]":""],
      ["Net income",selectedProfit,selectedProfit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]"],
     ].map(([label,value,cls])=><div key={String(label)} className="bg-[var(--surface)] p-3"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p><p className={"money mt-1 text-sm font-black "+cls}>{money(value)}</p></div>)}
    </div>
@@ -380,7 +367,7 @@ export default function CardDueClearingPage(){
      <h3 className="text-sm font-black">Reminder / follow-up</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Keep the case visible until all pending money is settled.</p>
      <input className="app-control mt-3" type="datetime-local" value={detailFollowUp} onChange={e=>setDetailFollowUp(e.target.value)}/>
      <button type="button" onClick={saveFollowUp} disabled={saving} className="mt-2 min-h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-xs font-black disabled:opacity-50">Save follow-up</button>
-     <div className="mt-3 rounded-xl bg-[var(--surface-soft)] p-3 text-[11px] text-[var(--text-muted)]">Gateway charges so far <b className="money text-[var(--money-out)]">{money(selectedGatewayFees)}</b><br/>Commission received <b className="money text-[var(--money-in)]">{money(customerCommission)}</b><br/>Net after gateway charges <b className={selectedProfit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]"}>{money(selectedProfit)}</b></div>
+     <div className="mt-3 rounded-xl bg-[var(--surface-soft)] p-3 text-[11px] text-[var(--text-muted)]">Commission earned <b className="money text-[var(--money-in)]">{money(commissionEarned)}</b> · received <b className="money text-[var(--money-in)]">{money(customerCommission)}</b><br/>Recovery gateway fees <b className="money text-[var(--money-out)]">{money(selectedGatewayFees)}</b> · payout charges <b className="money text-[var(--money-out)]">{money(selectedPayoutFees)}</b><br/>Net income after provider costs <b className={selectedProfit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]"}>{money(selectedProfit)}</b></div>
     </div>
    </div>
 

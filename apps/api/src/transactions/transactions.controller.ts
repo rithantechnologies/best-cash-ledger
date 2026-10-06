@@ -87,7 +87,7 @@ export class TransactionsController {
     @Req() req: any,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.cardDueClearings.create(dto, req.user.userId, key);
+    return this.cardDueClearings.create(dto, req.user.userId, req.user.role, key);
   }
 
   @Post('card-due-clearings/:id/recoveries')
@@ -97,7 +97,23 @@ export class TransactionsController {
     @Req() req: any,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.cardDueClearings.addRecovery(id, dto, req.user.userId, key);
+    return this.cardDueClearings.addRecovery(id, dto, req.user.userId, req.user.role, key);
+  }
+
+  @Post('card-due-clearings/:id/customer-recovery')
+  addCustomerCardDueRecovery(
+    @Param('id') id: string,
+    @Body() dto: CardDueRecoveryDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.cardDueClearings.addCustomerRecovery(
+      id,
+      dto,
+      req.user.userId,
+      req.user.role,
+      key,
+    );
   }
 
   @Post('card-due-clearings/:id/commission-collections')
@@ -107,7 +123,7 @@ export class TransactionsController {
     @Req() req: any,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.cardDueClearings.addCommissionCollection(id, dto, req.user.userId, key);
+    return this.cardDueClearings.addCommissionCollection(id, dto, req.user.userId, req.user.role, key);
   }
 
   @Post('card-due-clearings/:id/follow-up')

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
@@ -93,9 +93,14 @@ export class PayablesService {
       },
       payments: { orderBy: { paymentDate: 'desc' as const } },
       manualLedgerAllocations: {
+        where: {
+          customerLedgerEntry: {
+            transaction: { status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] } },
+          },
+        },
         include: {
           customerLedgerEntry: {
-            include: { financialAccount: true, transaction: true },
+            include: { financialAccount: true, transaction: { include: { charges: true } } },
           },
         },
         orderBy: { createdAt: 'desc' as const },
@@ -128,6 +133,38 @@ export class PayablesService {
   }
 
   async get(id: string) {
+    const { start: todayStart, end: todayEnd } = this.indiaDayRange();
+    await this.prisma.$transaction([
+      this.prisma.customerPayable.updateMany({
+        where: {
+          id,
+          remainingAmount: { gt: 0 },
+          dueAt: { lt: todayStart },
+          status: { in: [PayableStatus.PENDING, PayableStatus.PARTIALLY_PAID] },
+        },
+        data: { status: PayableStatus.OVERDUE },
+      }),
+      this.prisma.customerPayable.updateMany({
+        where: {
+          id,
+          remainingAmount: { gt: 0 },
+          paidAmount: { lte: 0 },
+          dueAt: { gte: todayStart, lt: todayEnd },
+          status: PayableStatus.OVERDUE,
+        },
+        data: { status: PayableStatus.PENDING },
+      }),
+      this.prisma.customerPayable.updateMany({
+        where: {
+          id,
+          remainingAmount: { gt: 0 },
+          paidAmount: { gt: 0 },
+          dueAt: { gte: todayStart, lt: todayEnd },
+          status: PayableStatus.OVERDUE,
+        },
+        data: { status: PayableStatus.PARTIALLY_PAID },
+      }),
+    ]);
     const payable = await this.prisma.customerPayable.findUnique({
       where: { id },
       include: {
@@ -154,9 +191,14 @@ export class PayablesService {
           orderBy: { paymentDate: 'desc' },
         },
         manualLedgerAllocations: {
+          where: {
+            customerLedgerEntry: {
+              transaction: { status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] } },
+            },
+          },
           include: {
             customerLedgerEntry: {
-              include: { financialAccount: true, transaction: true },
+              include: { financialAccount: true, transaction: { include: { charges: true } } },
             },
           },
           orderBy: { createdAt: 'desc' },
@@ -189,6 +231,7 @@ export class PayablesService {
     id: string,
     dto: CreatePayablePaymentDto,
     userId: string,
+    actorRole: RoleName,
     providedIdempotencyKey?: string,
   ) {
     const idempotencyKey = await this.idempotency.key(
@@ -269,6 +312,13 @@ export class PayablesService {
         dto.sourceAccountId,
         'Customer payout source',
       );
+      if (
+        actorRole === RoleName.STAFF &&
+        sourceAccount.accountType === AccountType.CASH &&
+        sourceAccount.accountName === 'Main Cash Reserve'
+      ) {
+        throw new BadRequestException('Main Cash Reserve is owner-only');
+      }
       if (dto.destinationType === 'CASH' && sourceAccount.accountType !== AccountType.CASH) {
         throw new BadRequestException('Cash payout must be paid from a cash account');
       }
@@ -294,6 +344,7 @@ export class PayablesService {
           tx,
           sourceAccount.id,
           'Customer cash payout',
+          actorRole === RoleName.STAFF ? userId : undefined,
         );
       }
       await this.validation.ensureSufficientFunds(
@@ -460,6 +511,11 @@ export class PayablesService {
       });
 
       if (!payable) throw new NotFoundException('Payable not found');
+      if (payable.sourceTransaction.transactionType === TransactionType.CARD_DUE_RECOVERY) {
+        throw new BadRequestException(
+          'Reverse the Card Due recovery instead of cancelling its excess customer credit payable',
+        );
+      }
       if (payable.status === PayableStatus.CANCELLED || payable.status === PayableStatus.REVERSED) {
         throw new BadRequestException('Payable is already cancelled or reversed');
       }

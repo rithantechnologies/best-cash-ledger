@@ -307,6 +307,24 @@ export class TransactionsService {
               },
               orderBy: { paymentDate: 'asc' },
             },
+            manualLedgerAllocations: {
+              where: {
+                customerLedgerEntry: {
+                  transaction: {
+                    status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] },
+                  },
+                },
+              },
+              include: {
+                customerLedgerEntry: {
+                  include: {
+                    financialAccount: true,
+                    transaction: { include: { charges: true } },
+                  },
+                },
+              },
+              orderBy: { createdAt: 'asc' },
+            },
           },
         },
         providerSettlementSource: {
@@ -4161,11 +4179,34 @@ export class TransactionsService {
         microAtm: { include: { cashAccount: true, settlementAccount: true } },
         internalTransfer: { include: { sourceAccount: true, destinationAccount: true } },
         accountEntry: { include: { account: true } },
+        cardDueClearing: {
+          include: { customerCard: true, advanceSourceAccount: true },
+        },
+        cardDueRecovery: {
+          include: {
+            provider: true,
+            gateway: true,
+            destinationAccount: true,
+            clearing: { include: { transaction: true, customerCard: true } },
+          },
+        },
+        cardDueCommissionCollection: {
+          include: {
+            destinationAccount: true,
+            clearing: { include: { transaction: true, customerCard: true } },
+          },
+        },
       customerLedgerEntry: { include: { customerCard: true, financialAccount: true, allocations: { include: { payable: { include: { sourceTransaction: true } }, cardDueClearing: { include: { transaction: true } } } } } },
         expense: { include: { expenseCategory: true, paymentAccount: true } },
         atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
         creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
-        payable: { include: { payments: { include: { sourceAccount: true, transaction: { include: { charges: { include: { sourceAccount: true } } } } } } } },
+        payable: { include: {
+          payments: { include: { sourceAccount: true, transaction: { include: { charges: { include: { sourceAccount: true } } } } } },
+          manualLedgerAllocations: {
+            where: { customerLedgerEntry: { transaction: { status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] } } } },
+            include: { customerLedgerEntry: { include: { financialAccount: true, transaction: { include: { charges: { include: { sourceAccount: true } } } } } } },
+          },
+        } },
         payablePayment: {
           include: {
             payable: {
@@ -5201,25 +5242,90 @@ export class TransactionsService {
           journal: { include: { entries: true } },
           payable: { include: { payments: true } },
           payablePayment: true,
+          customerLedgerEntry: { include: { allocations: true } },
           receivableSource: { include: { collections: true } },
           receivableCollection: true,
           providerSettlementSource: { include: { receipts: true } },
           providerSettlementReceipt: { include: { settlement: true } },
+          cardDueClearing: true,
+          cardDueRecovery: true,
+          cardDueCommissionCollection: true,
         },
       });
 
       if (!original) throw new NotFoundException('Transaction not found');
-      if (
-        original.transactionType === TransactionType.CARD_DUE_CLEARING ||
-        original.transactionType === TransactionType.CARD_DUE_RECOVERY ||
-        original.transactionType === TransactionType.CARD_DUE_COMMISSION_COLLECTION
-      ) {
-        throw new BadRequestException(
-          'Card due clearing entries are managed from the Card Due Clearing screen',
-        );
-      }
       if (original.status === TransactionStatus.REVERSED || original.transactionType === TransactionType.REVERSAL) {
         throw new BadRequestException('Transaction is already reversed or is a reversal');
+      }
+
+      const activeCardDueStatus = {
+        notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED],
+      };
+      if (original.cardDueClearing) {
+        const [activeRecovery, activeCommission, activeAllocation] = await Promise.all([
+          tx.cardDueRecovery.findFirst({
+            where: { clearingId: original.cardDueClearing.id, transaction: { status: activeCardDueStatus } },
+            select: { id: true },
+          }),
+          tx.cardDueCommissionCollection.findFirst({
+            where: { clearingId: original.cardDueClearing.id, transaction: { status: activeCardDueStatus } },
+            select: { id: true },
+          }),
+          tx.customerLedgerAllocation.findFirst({
+            where: {
+              cardDueClearingId: original.cardDueClearing.id,
+              customerLedgerEntry: { transaction: { status: activeCardDueStatus } },
+            },
+            select: { id: true },
+          }),
+        ]);
+        if (activeRecovery || activeCommission || activeAllocation) {
+          throw new BadRequestException(
+            'Reverse all Card Due recoveries, commission collections and matched Pay In entries before reversing the original card payment',
+          );
+        }
+      }
+      if (original.cardDueRecovery) {
+        const [laterRecovery, laterAllocation] = await Promise.all([
+          tx.cardDueRecovery.findFirst({
+            where: {
+              clearingId: original.cardDueRecovery.clearingId,
+              id: { not: original.cardDueRecovery.id },
+              createdAt: { gt: original.cardDueRecovery.createdAt },
+              transaction: { status: activeCardDueStatus },
+            },
+            select: { id: true },
+          }),
+          tx.customerLedgerAllocation.findFirst({
+            where: {
+              cardDueClearingId: original.cardDueRecovery.clearingId,
+              createdAt: { gt: original.cardDueRecovery.createdAt },
+              customerLedgerEntry: { transaction: { status: activeCardDueStatus } },
+            },
+            select: { id: true },
+          }),
+        ]);
+        if (laterRecovery || laterAllocation) {
+          throw new BadRequestException(
+            'Reverse later Card Due receipts first before reversing this recovery',
+          );
+        }
+      }
+      if (original.cardDueCommissionCollection) {
+        const laterCommission = await tx.cardDueCommissionCollection.findFirst({
+          where: {
+            clearingId: original.cardDueCommissionCollection.clearingId,
+            id: { not: original.cardDueCommissionCollection.id },
+            createdAt: { gt: original.cardDueCommissionCollection.createdAt },
+            transaction: { status: activeCardDueStatus },
+          },
+          select: { id: true },
+        });
+        if (laterCommission) {
+          throw new BadRequestException(
+            'Reverse later Card Due commission collections first',
+          );
+        }
       }
 
       if (original.payable && Number(original.payable.paidAmount) > 0) {
@@ -5239,6 +5345,39 @@ export class TransactionsService {
 
       if (!original.journal) {
         throw new BadRequestException('Transaction has no posted journal to reverse');
+      }
+
+      if (original.customerLedgerEntry) {
+        const activeStatus = {
+          notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED],
+        };
+        for (const allocation of original.customerLedgerEntry.allocations) {
+          if (allocation.targetType !== 'CARD_DUE' || !allocation.cardDueClearingId) continue;
+          const [laterRecovery, laterAllocation] = await Promise.all([
+            tx.cardDueRecovery.findFirst({
+              where: {
+                clearingId: allocation.cardDueClearingId,
+                createdAt: { gt: allocation.createdAt },
+                transaction: { status: activeStatus },
+              },
+              select: { id: true },
+            }),
+            tx.customerLedgerAllocation.findFirst({
+              where: {
+                cardDueClearingId: allocation.cardDueClearingId,
+                id: { not: allocation.id },
+                createdAt: { gt: allocation.createdAt },
+                customerLedgerEntry: { transaction: { status: activeStatus } },
+              },
+              select: { id: true },
+            }),
+          ]);
+          if (laterRecovery || laterAllocation) {
+            throw new BadRequestException(
+              'Reverse later Card Due receipts first before reversing this Pay In',
+            );
+          }
+        }
       }
 
       await this.validation.requireOpenCashDeskForLedgerEntries(
@@ -5285,6 +5424,224 @@ export class TransactionsService {
         })),
       );
 
+      if (original.customerLedgerEntry) {
+        const indiaOffset = 330 * 60 * 1000;
+        const indiaNow = new Date(Date.now() + indiaOffset);
+        const todayStart = new Date(
+          Date.UTC(indiaNow.getUTCFullYear(), indiaNow.getUTCMonth(), indiaNow.getUTCDate()) - indiaOffset,
+        );
+        for (const allocation of original.customerLedgerEntry.allocations) {
+          const amount = Number(allocation.amount);
+          if (allocation.targetType === 'PAYABLE' && allocation.payableId) {
+            await tx.$queryRawUnsafe(
+              'SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE',
+              allocation.payableId,
+            );
+            const payable = await tx.customerPayable.findUnique({ where: { id: allocation.payableId } });
+            if (payable) {
+              const paidAmount = this.money(Math.max(0, Number(payable.paidAmount) - amount));
+              const remainingAmount = this.money(Math.max(0, Number(payable.originalAmount) - paidAmount));
+              const status = remainingAmount <= 0.001
+                ? PayableStatus.PAID
+                : payable.dueAt < todayStart
+                  ? PayableStatus.OVERDUE
+                  : paidAmount <= 0.001
+                    ? PayableStatus.PENDING
+                    : PayableStatus.PARTIALLY_PAID;
+              await tx.customerPayable.update({
+                where: { id: payable.id },
+                data: {
+                  paidAmount: new Prisma.Decimal(paidAmount),
+                  remainingAmount: new Prisma.Decimal(remainingAmount),
+                  status,
+                },
+              });
+              await tx.auditLog.create({
+                data: {
+                  userId,
+                  entityType: 'CUSTOMER_PAYABLE',
+                  entityId: payable.id,
+                  action: 'REVERSE_ALLOCATION',
+                  oldValues: {
+                    paidAmount: payable.paidAmount.toString(),
+                    remainingAmount: payable.remainingAmount.toString(),
+                    status: payable.status,
+                  },
+                  newValues: {
+                    paidAmount,
+                    remainingAmount,
+                    status,
+                    allocationId: allocation.id,
+                    reversalTransactionId: reversal.id,
+                  },
+                  reason: dto.reason,
+                },
+              });
+            }
+          }
+          if (allocation.targetType === 'CARD_DUE' && allocation.cardDueClearingId) {
+            await tx.$queryRawUnsafe(
+              'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE',
+              allocation.cardDueClearingId,
+            );
+            const clearing = await tx.cardDueClearingDetail.findUnique({
+              where: { id: allocation.cardDueClearingId },
+            });
+            if (clearing) {
+              const principalRecovered = this.money(
+                Math.max(0, Number(clearing.principalRecovered) - amount),
+              );
+              const principalRemaining = this.money(
+                Math.max(0, Number(clearing.dueAmount) - principalRecovered),
+              );
+              const masterStatus = principalRemaining <= 0.001
+                ? TransactionStatus.COMPLETED
+                : principalRecovered > 0.001
+                  ? TransactionStatus.PARTIALLY_PAID
+                  : TransactionStatus.PENDING;
+              await tx.cardDueClearingDetail.update({
+                where: { id: clearing.id },
+                data: {
+                  principalRecovered: new Prisma.Decimal(principalRecovered),
+                  principalRemaining: new Prisma.Decimal(principalRemaining),
+                },
+              });
+              await tx.transaction.update({
+                where: { id: clearing.transactionId },
+                data: { status: masterStatus },
+              });
+              await tx.auditLog.create({
+                data: {
+                  userId,
+                  entityType: 'CARD_DUE_CLEARING',
+                  entityId: clearing.id,
+                  action: 'REVERSE_PAY_IN_ALLOCATION',
+                  oldValues: {
+                    principalRecovered: clearing.principalRecovered.toString(),
+                    principalRemaining: clearing.principalRemaining.toString(),
+                  },
+                  newValues: {
+                    principalRecovered,
+                    principalRemaining,
+                    allocationId: allocation.id,
+                    reversalTransactionId: reversal.id,
+                  },
+                  reason: dto.reason,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      if (original.cardDueRecovery) {
+        await tx.$queryRawUnsafe(
+          'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE',
+          original.cardDueRecovery.clearingId,
+        );
+        const clearing = await tx.cardDueClearingDetail.findUnique({
+          where: { id: original.cardDueRecovery.clearingId },
+        });
+        if (clearing) {
+          const customerCredit = original.payable ? Number(original.payable.originalAmount) : 0;
+          const principalApplied = this.money(
+            Math.max(0, Number(original.cardDueRecovery.swipeAmount) - customerCredit),
+          );
+          const principalRecovered = this.money(
+            Math.max(0, Number(clearing.principalRecovered) - principalApplied),
+          );
+          const principalRemaining = this.money(
+            Math.max(0, Number(clearing.dueAmount) - principalRecovered),
+          );
+          const masterStatus = principalRemaining <= 0.001
+            ? TransactionStatus.COMPLETED
+            : principalRecovered > 0.001
+              ? TransactionStatus.PARTIALLY_PAID
+              : TransactionStatus.PENDING;
+          await tx.cardDueClearingDetail.update({
+            where: { id: clearing.id },
+            data: {
+              principalRecovered: new Prisma.Decimal(principalRecovered),
+              principalRemaining: new Prisma.Decimal(principalRemaining),
+            },
+          });
+          await tx.transaction.update({
+            where: { id: clearing.transactionId },
+            data: { status: masterStatus },
+          });
+          await tx.auditLog.create({
+            data: {
+              userId,
+              entityType: 'CARD_DUE_CLEARING',
+              entityId: clearing.id,
+              action: 'REVERSE_RECOVERY',
+              oldValues: {
+                principalRecovered: clearing.principalRecovered.toString(),
+                principalRemaining: clearing.principalRemaining.toString(),
+              },
+              newValues: {
+                principalRecovered,
+                principalRemaining,
+                principalReversed: principalApplied,
+                recoveryTransactionId: original.id,
+                reversalTransactionId: reversal.id,
+              },
+              reason: dto.reason,
+            },
+          });
+        }
+      }
+
+      if (original.cardDueCommissionCollection) {
+        await tx.$queryRawUnsafe(
+          'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE',
+          original.cardDueCommissionCollection.clearingId,
+        );
+        const clearing = await tx.cardDueClearingDetail.findUnique({
+          where: { id: original.cardDueCommissionCollection.clearingId },
+        });
+        if (clearing) {
+          const collectionAmount = Number(original.cardDueCommissionCollection.amount);
+          const commissionCollected = this.money(
+            Math.max(0, Number(clearing.commissionCollected) - collectionAmount),
+          );
+          const baseCommission = this.money(
+            Number(clearing.dueAmount) * Number(clearing.commissionRate) / 100,
+          );
+          const commissionAmount = this.money(Math.max(baseCommission, commissionCollected));
+          const commissionRemaining = this.money(Math.max(0, baseCommission - commissionCollected));
+          await tx.cardDueClearingDetail.update({
+            where: { id: clearing.id },
+            data: {
+              commissionAmount: new Prisma.Decimal(commissionAmount),
+              commissionCollected: new Prisma.Decimal(commissionCollected),
+              commissionRemaining: new Prisma.Decimal(commissionRemaining),
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              userId,
+              entityType: 'CARD_DUE_CLEARING',
+              entityId: clearing.id,
+              action: 'REVERSE_COMMISSION_COLLECTION',
+              oldValues: {
+                commissionAmount: clearing.commissionAmount.toString(),
+                commissionCollected: clearing.commissionCollected.toString(),
+                commissionRemaining: clearing.commissionRemaining.toString(),
+              },
+              newValues: {
+                commissionAmount,
+                commissionCollected,
+                commissionRemaining,
+                collectionTransactionId: original.id,
+                reversalTransactionId: reversal.id,
+              },
+              reason: dto.reason,
+            },
+          });
+        }
+      }
+
       if (original.payable) {
         await tx.customerPayable.update({
           where: { id: original.payable.id },
@@ -5305,12 +5662,24 @@ export class TransactionsService {
             where: { id: payment.id },
             data: { status: 'REVERSED' },
           });
+          const indiaOffset = 330 * 60 * 1000;
+          const indiaNow = new Date(Date.now() + indiaOffset);
+          const todayStart = new Date(
+            Date.UTC(indiaNow.getUTCFullYear(), indiaNow.getUTCMonth(), indiaNow.getUTCDate()) - indiaOffset,
+          );
+          const status = remaining <= 0.001
+            ? PayableStatus.PAID
+            : payable.dueAt < todayStart
+              ? PayableStatus.OVERDUE
+              : paid <= 0.001
+                ? PayableStatus.PENDING
+                : PayableStatus.PARTIALLY_PAID;
           await tx.customerPayable.update({
             where: { id: payable.id },
             data: {
               paidAmount: new Prisma.Decimal(paid),
               remainingAmount: new Prisma.Decimal(remaining),
-              status: paid <= 0 ? PayableStatus.PENDING : PayableStatus.PARTIALLY_PAID,
+              status,
             },
           });
         }

@@ -22,6 +22,7 @@ type Settlement={
 type Payable={
  id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;
  payments:{id:string;amount:string;status:string;sourceAccount:Account;transaction:{charges:Charge[]}}[];
+ manualLedgerAllocations:{id:string;amount:string;customerLedgerEntry:{amount:string;financialAccount:Account;transaction:{charges:Charge[]}}}[];
 };
 type CardSwipe={swipeAmount:string;providerChargeRate:string;providerChargeAmount:string;commissionRate:string;commissionAmount:string;customerPayableAmount:string;settlementAmount:string;dueAt:string;paymentTerm:{name:string}|null;settlementAccount:Account;customerCard:{bankName:string;lastFourDigits:string}|null};
 type CashTransfer={requestedAmount:string;commissionMethod:string;commissionRate:string;commissionAmount:string;cashReceived:string;actualTransferAmount:string;transferChargeAmount:string;sourceAccount:Account;cashAccount:Account};
@@ -34,12 +35,15 @@ type AtmWithdrawal={cashReceived:string;atmCharge:string;withdrawalAmount:string
 type CreditCardPayment={paymentAmount:string;creditCardAccount:Account;sourceAccount:Account};
 type AccountEntry={direction:"IN"|"OUT";entryKind:string;amount:string;entryLabel:string|null;account:Account};
 type CustomerLedgerEntry={direction:"PAY_IN"|"PAY_OUT";amount:string;remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;financialAccount:Account;allocations:{targetType:"PAYABLE"|"CARD_DUE";amount:string;payable:{sourceTransaction:{transactionNumber:string}}|null;cardDueClearing:{transaction:{transactionNumber:string}}|null}[]};
+type CardDueClearing={dueAmount:string;principalRecovered:string;principalRemaining:string;commissionAmount:string;commissionCollected:string;commissionRemaining:string;customerCard:{bankName:string;lastFourDigits:string};advanceSourceAccount:Account};
+type CardDueRecovery={swipeAmount:string;providerChargeAmount:string;provider:{name:string};gateway:{gatewayName:string};destinationAccount:Account;clearing:{transaction:{transactionNumber:string};customerCard:{bankName:string;lastFourDigits:string}}};
+type CardDueCommissionCollection={amount:string;paymentMode:string;destinationAccount:Account;clearing:{transaction:{transactionNumber:string};customerCard:{bankName:string;lastFourDigits:string}}};
 type CorrectionLink={id:string;transactionNumber:string;status:string};
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
  status:string;referenceNumber:string|null;notes:string|null;reversalReason:string|null;correctionSourceTransactionId:string|null;correctionReason:string|null;createdById:string;createdBy:{id:string;fullName:string}|null;
  customer:{fullName:string}|null;charges:Charge[];commissions:Commission[];journal:{journalNumber:string;description:string;entries:Entry[]}|null;
- payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;internalTransfer:InternalTransfer|null;atmWithdrawal:AtmWithdrawal|null;creditCardPayment:CreditCardPayment|null;accountEntry:AccountEntry|null;customerLedgerEntry:CustomerLedgerEntry|null;
+ payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;internalTransfer:InternalTransfer|null;atmWithdrawal:AtmWithdrawal|null;creditCardPayment:CreditCardPayment|null;accountEntry:AccountEntry|null;customerLedgerEntry:CustomerLedgerEntry|null;cardDueClearing:CardDueClearing|null;cardDueRecovery:CardDueRecovery|null;cardDueCommissionCollection:CardDueCommissionCollection|null;
  correctionSource:CorrectionLink|null;correctedTransaction:CorrectionLink|null;
 };
 
@@ -47,6 +51,7 @@ const money=(v:string|number|null)=>new Intl.NumberFormat("en-IN",{style:"curren
 const tone=(s:string)=>s==="COMPLETED"?"emerald":s==="PENDING"?"amber":s==="REVERSED"?"rose":"slate";
 const label=(s:string)=>s.replaceAll("_"," ").toLowerCase().replace(/w/g,c=>c.toUpperCase());
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
+const allocatedCharge=(allocationAmount:string|number,movementAmount:string|number,charges:{amount:string}[])=>{const movement=Number(movementAmount||0);if(movement<=0)return 0;return charges.reduce((total,x)=>total+Number(x.amount||0),0)*Number(allocationAmount||0)/movement;};
 const chargeLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"Partner / external service cost"+(c.sourceAccount?.accountName?" · paid from "+c.sourceAccount.accountName:" · payable"):c.chargeType==="PAYOUT"?"Payout charge"+(c.sourceAccount?.accountName?" · "+c.sourceAccount.accountName:""):"Provider / bank fee";
 const chargeRuleLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"":c.calculationType==="PERCENTAGE"&&c.rate?Number(c.rate)+"%":c.chargeType==="PAYOUT"?"Fixed payout slab":c.rate?"₹"+Number(c.rate):"";
 const displayService=(tx:Tx)=>tx.customerLedgerEntry?(tx.customerLedgerEntry.direction==="PAY_IN"?"Pay In":"Pay Out")+" · "+tx.customerLedgerEntry.remarks:tx.accountEntry?(tx.accountEntry.entryLabel||"Manual amount entry"):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
@@ -86,6 +91,18 @@ function FlowCard({label:heading,value,meta,tone="neutral",children}:{label:stri
 
 function MoneyFlow({tx}:{tx:Tx}){
  const gross=Number(tx.grossAmount),fees=sum(tx.charges),earnings=sum(tx.commissions),net=Number(tx.netAmount??tx.grossAmount);
+ if(tx.cardDueClearing){
+  const d=tx.cardDueClearing,card=d.customerCard.bankName+" •••• "+d.customerCard.lastFourDigits;
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Card Due payment</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Business paid the customer&apos;s card due and is tracking principal recovery separately from commission.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Card due paid" value={"−"+money(d.dueAmount)} tone="negative"/><FlowCard label="Paid from" value={d.advanceSourceAccount.accountName}/><FlowCard label="Principal remaining" value={money(d.principalRemaining)} tone={Number(d.principalRemaining)>0?"negative":"positive"} meta={"Recovered "+money(d.principalRecovered)}/><FlowCard label="Commission earned" value={money(d.commissionAmount)} tone="positive" meta={"Collected "+money(d.commissionCollected)+" · pending "+money(d.commissionRemaining)+" · "+card}/></div></Surface>;
+ }
+ if(tx.cardDueRecovery){
+  const d=tx.cardDueRecovery,card=d.clearing.customerCard.bankName+" •••• "+d.clearing.customerCard.lastFourDigits;
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Card Due recovery</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Money recovered from the customer against an earlier Card Due payment.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Customer recovery" value={"+"+money(d.swipeAmount)} tone="positive"/><FlowCard label="Received into" value={d.destinationAccount.accountName}/><FlowCard label="Gateway fee" value={money(d.providerChargeAmount)} tone={Number(d.providerChargeAmount)>0?"negative":"neutral"} meta={d.provider.name+" · "+d.gateway.gatewayName}/><FlowCard label="Applied to" value={d.clearing.transaction.transactionNumber} meta={card}/></div></Surface>;
+ }
+ if(tx.cardDueCommissionCollection){
+  const d=tx.cardDueCommissionCollection,card=d.clearing.customerCard.bankName+" •••• "+d.clearing.customerCard.lastFourDigits;
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Card Due commission collection</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Commission cash/UPI received separately from Card Due principal.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Commission received" value={"+"+money(d.amount)} tone="positive"/><FlowCard label="Received in" value={d.destinationAccount.accountName}/><FlowCard label="Payment mode" value={d.paymentMode}/><FlowCard label="Applied to" value={d.clearing.transaction.transactionNumber} meta={card}/></div></Surface>;
+ }
  if(tx.customerLedgerEntry){
   const d=tx.customerLedgerEntry;
   const inbound=d.direction==="PAY_IN";
@@ -99,7 +116,7 @@ function MoneyFlow({tx}:{tx:Tx}){
   const inbound=d.direction==="IN";
   return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Manual account movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Audited balance movement recorded directly against this account.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3 sm:p-4"><FlowCard label={inbound?"Money in":"Money out"} value={(inbound?"+":"−")+money(d.amount)} tone={inbound?"positive":"negative"}/><FlowCard label="Account" value={d.account.accountName}/><FlowCard label="Reason / source" value={d.entryLabel||"—"} meta={tx.referenceNumber?"Ref "+tx.referenceNumber:undefined}/></div></Surface>;
  }
- const payoutFees=tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0;
+ const payoutFees=(tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0)+(tx.payable?.manualLedgerAllocations.reduce((total,a)=>total+allocatedCharge(a.amount,a.customerLedgerEntry.amount,a.customerLedgerEntry.transaction.charges),0)??0);
  const settlement=tx.providerSettlementSource;
  if(tx.transactionType==="SERVICE_INCOME"){
   const d=tx.quickCashTransfer;
@@ -267,11 +284,11 @@ export default function TransactionDetailPage(){
  const correctionManagedElsewhere=["CUSTOMER_PAYOUT","CUSTOMER_RECEIVABLE","CUSTOMER_RECEIPT","PROVIDER_SETTLEMENT","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_ADJUSTMENT","ACCOUNT_ENTRY","CUSTOMER_LEDGER_ENTRY"].includes(tx.transactionType);
  const canCorrect=(role==="OWNER"||role==="ADMIN")&&!correctionManagedElsewhere&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL"&&!tx.correctedTransaction;
  const canDelete=role==="OWNER"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
- const canReverse=role==="ADMIN"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
+ const canReverse=(role==="ADMIN"||(role==="OWNER"&&cardDueType))&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const payoutState=tx.transactionType==="CARD_SWIPE"?payoutDisplay(tx.payable):null;
  const partnerPayablePending=tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceFulfillmentMode==="PARTNER"&&tx.quickCashTransfer.servicePartnerPaymentTiming==="PAY_LATER"&&!tx.quickCashTransfer.servicePartnerPaidAt;
  const fees=sum(tx.charges),commissionIncome=sum(tx.commissions),serviceIncome=tx.transactionType==="SERVICE_INCOME"?Number(tx.grossAmount):0,totalIncome=commissionIncome+serviceIncome,gross=Number(tx.grossAmount),net=Number(tx.netAmount??tx.grossAmount);
- const payoutFees=tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0;
+ const payoutFees=(tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0)+(tx.payable?.manualLedgerAllocations.reduce((total,a)=>total+allocatedCharge(a.amount,a.customerLedgerEntry.amount,a.customerLedgerEntry.transaction.charges),0)??0);
  const cardProfit=commissionIncome-fees-payoutFees;
  const businessResult=tx.transactionType==="CARD_SWIPE"?cardProfit:totalIncome-fees;
  const netLabel=tx.transactionType==="CARD_SWIPE"?"Customer gets":tx.transactionType==="AEPS_WITHDRAWAL"?(tx.status==="FAILED"?"Money moved":tx.payable&&Number(tx.payable.remainingAmount)>0?"Cash due":"Cash given"):tx.transactionType==="CASH_TRANSFER"?"Transferred":tx.transactionType==="SERVICE_INCOME"?"Amount received":"Net value";

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountType, EntryType, PayableStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountType, CalculationType, EntryType, PayableStatus, Prisma, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
@@ -46,10 +46,13 @@ export class CardDueClearingService {
 
   private detailInclude() {
     return {
-      transaction: { include: { customer: true, commissions: true } },
+      transaction: { include: { customer: true, commissions: true, charges: true } },
       customerCard: true,
       advanceSourceAccount: true,
       recoveries: {
+        where: {
+          transaction: { status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] } },
+        },
         include: {
           transaction: { include: { charges: true } },
           provider: true,
@@ -59,10 +62,18 @@ export class CardDueClearingService {
         orderBy: { recoveredAt: 'asc' as const },
       },
       commissionCollections: {
+        where: {
+          transaction: { status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] } },
+        },
         include: { transaction: true, destinationAccount: true },
         orderBy: { collectedAt: 'asc' as const },
       },
       manualLedgerAllocations: {
+        where: {
+          customerLedgerEntry: {
+            transaction: { status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] } },
+          },
+        },
         include: {
           customerLedgerEntry: {
             include: { transaction: true, financialAccount: true },
@@ -76,9 +87,10 @@ export class CardDueClearingService {
   async list(options?: { customerId?: string; openOnly?: boolean }) {
     return this.prisma.cardDueClearingDetail.findMany({
       where: {
-        ...(options?.customerId
-          ? { transaction: { customerId: options.customerId } }
-          : {}),
+        transaction: {
+          status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] },
+          ...(options?.customerId ? { customerId: options.customerId } : {}),
+        },
         ...(options?.openOnly
           ? {
               OR: [
@@ -109,6 +121,7 @@ export class CardDueClearingService {
   async create(
     dto: CreateCardDueClearingDto,
     userId: string,
+    actorRole: RoleName,
     providedIdempotencyKey?: string,
   ) {
     const idempotencyKey = await this.idempotency.key(
@@ -135,11 +148,19 @@ export class CardDueClearingService {
         dto.sourceAccountId,
         'Card due payment source',
       );
+      if (
+        actorRole === RoleName.STAFF &&
+        sourceAccount.accountType === AccountType.CASH &&
+        sourceAccount.accountName === 'Main Cash Reserve'
+      ) {
+        throw new BadRequestException('Main Cash Reserve is owner-only');
+      }
       if (sourceAccount.accountType === AccountType.CASH) {
         await this.validation.requireOpenCashDesk(
           tx,
           sourceAccount.id,
           'Card due payment from cash',
+          actorRole === RoleName.STAFF ? userId : undefined,
         );
       }
       const configuredPayoutCharge = await this.payoutCharges.resolve(
@@ -314,6 +335,7 @@ export class CardDueClearingService {
           clearing.id,
           dto.initialRecovery,
           userId,
+          actorRole,
           idempotencyKey + ':recovery',
         );
       }
@@ -323,6 +345,7 @@ export class CardDueClearingService {
           clearing.id,
           dto.initialCommissionCollection,
           userId,
+          actorRole,
           idempotencyKey + ':commission',
         );
       }
@@ -337,6 +360,7 @@ export class CardDueClearingService {
     masterTransactionId: string,
     dto: CardDueRecoveryDto,
     userId: string,
+    actorRole: RoleName,
     providedIdempotencyKey?: string,
   ) {
     const idempotencyKey = await this.idempotency.key(
@@ -351,15 +375,110 @@ export class CardDueClearingService {
         select: { id: true },
       });
       if (!clearing) throw new NotFoundException('Card due clearing not found');
-      await this.recordRecoveryTx(tx, clearing.id, dto, userId, idempotencyKey);
+      await this.recordRecoveryTx(tx, clearing.id, dto, userId, actorRole, idempotencyKey);
     });
     return this.get(masterTransactionId);
+  }
+
+  async addCustomerRecovery(
+    masterTransactionId: string,
+    dto: CardDueRecoveryDto,
+    userId: string,
+    actorRole: RoleName,
+    providedIdempotencyKey?: string,
+  ) {
+    const amount = this.money(dto.amount);
+    if (amount <= 0) {
+      throw new BadRequestException('Recovery amount must be greater than zero');
+    }
+    const batchKey = await this.idempotency.key(
+      TransactionType.CARD_DUE_RECOVERY,
+      userId,
+      { masterTransactionId, customerRecovery: dto },
+      providedIdempotencyKey,
+    );
+
+    const affectedIds = await this.prisma.$transaction(async (tx) => {
+      const anchor = await tx.cardDueClearingDetail.findUnique({
+        where: { transactionId: masterTransactionId },
+        include: { transaction: true },
+      });
+      if (!anchor || !anchor.transaction.customerId) {
+        throw new NotFoundException('Card due clearing customer not found');
+      }
+
+      const targets = await tx.cardDueClearingDetail.findMany({
+        where: {
+          transaction: {
+            customerId: anchor.transaction.customerId,
+            status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] },
+          },
+          principalRemaining: { gt: 0 },
+        },
+        include: { transaction: true },
+        orderBy: { transaction: { transactionAt: 'asc' } },
+      });
+      if (!targets.length) {
+        throw new BadRequestException('This customer has no open Card Due principal to recover');
+      }
+
+      // Lock every target in deterministic order so one customer-level recovery
+      // cannot partially commit or race another recovery.
+      for (const target of [...targets].sort((a, b) => a.id.localeCompare(b.id))) {
+        await tx.$queryRawUnsafe(
+          'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE',
+          target.id,
+        );
+      }
+
+      let left = amount;
+      const ids: string[] = [];
+      let index = 0;
+      for (const target of targets) {
+        if (left <= 0.001) break;
+        const part = this.money(Math.min(left, Number(target.principalRemaining)));
+        if (part <= 0) continue;
+        index += 1;
+        const child = await this.recordRecoveryTx(
+          tx,
+          target.id,
+          { ...dto, amount: part, notes: amount > part ? (dto.notes ?? 'Split customer due recovery') : dto.notes },
+          userId,
+          actorRole,
+          index === 1 ? batchKey : batchKey + ':' + index,
+        );
+        ids.push(child.id);
+        left = this.money(left - part);
+      }
+
+      if (left > 0.001) {
+        const target = targets[targets.length - 1];
+        index += 1;
+        const child = await this.recordRecoveryTx(
+          tx,
+          target.id,
+          { ...dto, amount: left, notes: dto.notes ?? 'Excess recovery recorded as customer credit' },
+          userId,
+          actorRole,
+          index === 1 ? batchKey : batchKey + ':' + index,
+        );
+        ids.push(child.id);
+      }
+      return ids;
+    });
+
+    return {
+      recoveredAmount: amount,
+      transactionIds: affectedIds,
+      customerLedger: await this.get(masterTransactionId),
+    };
   }
 
   async addCommissionCollection(
     masterTransactionId: string,
     dto: CardDueCommissionCollectionDto,
     userId: string,
+    actorRole: RoleName,
     providedIdempotencyKey?: string,
   ) {
     const idempotencyKey = await this.idempotency.key(
@@ -374,7 +493,7 @@ export class CardDueClearingService {
         select: { id: true },
       });
       if (!clearing) throw new NotFoundException('Card due clearing not found');
-      await this.recordCommissionTx(tx, clearing.id, dto, userId, idempotencyKey);
+      await this.recordCommissionTx(tx, clearing.id, dto, userId, actorRole, idempotencyKey);
     });
     return this.get(masterTransactionId);
   }
@@ -411,6 +530,7 @@ export class CardDueClearingService {
     clearingId: string,
     dto: CardDueRecoveryDto,
     userId: string,
+    actorRole: RoleName,
     idempotencyKey: string,
   ) {
     await tx.$queryRawUnsafe(
@@ -457,6 +577,13 @@ export class CardDueClearingService {
       'Card recovery destination',
     );
     if (
+      actorRole === RoleName.STAFF &&
+      destinationAccount.accountType === AccountType.CASH &&
+      destinationAccount.accountName === 'Main Cash Reserve'
+    ) {
+      throw new BadRequestException('Main Cash Reserve is owner-only');
+    }
+    if (
       destinationAccount.accountType === AccountType.PROVIDER_WALLET &&
       destinationAccount.providerId !== dto.providerId
     ) {
@@ -469,6 +596,7 @@ export class CardDueClearingService {
         tx,
         destinationAccount.id,
         'Card recovery into cash',
+        actorRole === RoleName.STAFF ? userId : undefined,
       );
     }
 
@@ -488,7 +616,7 @@ export class CardDueClearingService {
     const recoveredAt = new Date();
     const transaction = await tx.transaction.create({
       data: {
-        transactionNumber: 'CDR-' + Date.now().toString(36).toUpperCase(),
+        transactionNumber: 'CDR-' + Date.now().toString(36).toUpperCase() + '-' + (idempotencyKey.split(':').pop() || 'X').slice(-4).toUpperCase(),
         transactionType: TransactionType.CARD_DUE_RECOVERY,
         transactionAt: recoveredAt,
         customerId: clearing.transaction.customerId,
@@ -639,6 +767,7 @@ export class CardDueClearingService {
     clearingId: string,
     dto: CardDueCommissionCollectionDto,
     userId: string,
+    actorRole: RoleName,
     idempotencyKey: string,
   ) {
     await tx.$queryRawUnsafe(
@@ -670,6 +799,13 @@ export class CardDueClearingService {
       dto.destinationAccountId,
       'Commission collection destination',
     );
+    if (
+      actorRole === RoleName.STAFF &&
+      destinationAccount.accountType === AccountType.CASH &&
+      destinationAccount.accountName === 'Main Cash Reserve'
+    ) {
+      throw new BadRequestException('Main Cash Reserve is owner-only');
+    }
     if (dto.paymentMode === 'CASH' && destinationAccount.accountType !== AccountType.CASH) {
       throw new BadRequestException('Cash commission must be collected into a cash account');
     }
@@ -681,6 +817,7 @@ export class CardDueClearingService {
         tx,
         destinationAccount.id,
         'Cash card due commission collection',
+        actorRole === RoleName.STAFF ? userId : undefined,
       );
     }
 
@@ -722,6 +859,18 @@ export class CardDueClearingService {
         createdById: userId,
       },
     });
+
+    if (newCommissionIncome > 0) {
+      await tx.transactionCommission.create({
+        data: {
+          transactionId: transaction.id,
+          commissionType: 'CARD_DUE_CLEARING_EXTRA',
+          calculationType: CalculationType.FIXED,
+          rate: new Prisma.Decimal(0),
+          amount: new Prisma.Decimal(newCommissionIncome),
+        },
+      });
+    }
 
     await this.ledger.post(
       tx,

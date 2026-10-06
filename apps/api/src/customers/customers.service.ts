@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountType, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountType, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
@@ -100,9 +100,30 @@ export class CustomersService {
       tx.customerLedgerEntryDetail.findMany({
         where: {
           transaction: { customerId, ...activeTransaction },
-          ...(cardId ? { customerCardId: cardId } : {}),
         },
-        select: { direction: true, amount: true },
+        select: {
+          customerCardId: true,
+          direction: true,
+          amount: true,
+          allocations: {
+            select: {
+              amount: true,
+              payable: {
+                select: {
+                  sourceTransaction: {
+                    select: {
+                      cardSwipe: { select: { customerCardId: true } },
+                      cardDueRecovery: {
+                        select: { clearing: { select: { customerCardId: true } } },
+                      },
+                    },
+                  },
+                },
+              },
+              cardDueClearing: { select: { customerCardId: true } },
+            },
+          },
+        },
       }),
     ]);
 
@@ -124,8 +145,21 @@ export class CustomersService {
       }
     }
     for (const entry of manualEntries) {
-      if (entry.direction === 'PAY_IN') credit += Number(entry.amount);
-      else debit += Number(entry.amount);
+      let entryAmount = Number(entry.amount);
+      if (cardId && entry.customerCardId !== cardId) {
+        if (entry.customerCardId) continue;
+        entryAmount = this.money(entry.allocations.reduce((sum, allocation) => {
+          const targetCardId =
+            allocation.cardDueClearing?.customerCardId ??
+            allocation.payable?.sourceTransaction.cardSwipe?.customerCardId ??
+            allocation.payable?.sourceTransaction.cardDueRecovery?.clearing.customerCardId ??
+            null;
+          return targetCardId === cardId ? sum + Number(allocation.amount) : sum;
+        }, 0));
+        if (entryAmount <= 0.001) continue;
+      }
+      if (entry.direction === 'PAY_IN') credit += entryAmount;
+      else debit += entryAmount;
     }
     return this.money(credit - debit);
   }
@@ -477,6 +511,7 @@ export class CustomersService {
     customerId: string,
     dto: CreateCustomerLedgerEntryDto,
     userId: string,
+    actorRole: RoleName,
     providedIdempotencyKey?: string,
   ) {
     const amount = this.money(dto.amount);
@@ -531,17 +566,41 @@ export class CustomersService {
       if (dto.customerCardId) {
         await this.validation.customerCard(tx, customerId, dto.customerCardId);
       }
+      // Keep lock order consistent with dedicated payable/card-due workflows:
+      // target obligation first, then the money account. This avoids needless
+      // deadlocks when two staff members settle the same customer concurrently.
+      for (const allocation of allocations) {
+        if (allocation.targetType === 'PAYABLE') {
+          await tx.$queryRawUnsafe(
+            'SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE',
+            allocation.targetId,
+          );
+        } else {
+          await tx.$queryRawUnsafe(
+            'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE',
+            allocation.targetId,
+          );
+        }
+      }
       await this.validation.lockAccount(tx, dto.financialAccountId);
       const account = await this.validation.liquidAsset(
         tx,
         dto.financialAccountId,
         dto.direction === 'PAY_IN' ? 'Pay In receiving account' : 'Pay Out source account',
       );
+      if (
+        actorRole === RoleName.STAFF &&
+        account.accountType === AccountType.CASH &&
+        account.accountName === 'Main Cash Reserve'
+      ) {
+        throw new BadRequestException('Main Cash Reserve is owner-only');
+      }
       if (account.accountType === AccountType.CASH) {
         await this.validation.requireOpenCashDesk(
           tx,
           account.id,
           dto.direction === 'PAY_IN' ? 'Customer Pay In' : 'Customer Pay Out',
+          actorRole === RoleName.STAFF ? userId : undefined,
         );
       }
 
@@ -603,12 +662,22 @@ export class CustomersService {
           }
           const paidAmount = this.money(Number(payable.paidAmount) + allocation.amount);
           const remainingAmount = this.money(Math.max(0, remaining - allocation.amount));
+          const indiaOffset = 330 * 60 * 1000;
+          const indiaNow = new Date(Date.now() + indiaOffset);
+          const todayStart = new Date(
+            Date.UTC(indiaNow.getUTCFullYear(), indiaNow.getUTCMonth(), indiaNow.getUTCDate()) - indiaOffset,
+          );
+          const payableStatus = remainingAmount <= 0.001
+            ? PayableStatus.PAID
+            : payable.dueAt < todayStart
+              ? PayableStatus.OVERDUE
+              : PayableStatus.PARTIALLY_PAID;
           await tx.customerPayable.update({
             where: { id: payable.id },
             data: {
               paidAmount: new Prisma.Decimal(paidAmount),
               remainingAmount: new Prisma.Decimal(remainingAmount),
-              status: remainingAmount <= 0.001 ? PayableStatus.PAID : PayableStatus.PARTIALLY_PAID,
+              status: payableStatus,
             },
           });
           allocatedPayableAmount = this.money(allocatedPayableAmount + allocation.amount);
@@ -992,7 +1061,6 @@ export class CustomersService {
       this.prisma.customerLedgerEntryDetail.findMany({
         where: {
           transaction: { customerId: id, ...activeTransaction },
-          ...(cardId ? { customerCardId: cardId } : {}),
         },
         include: {
           customerCard: true,
@@ -1000,8 +1068,17 @@ export class CustomersService {
           transaction: true,
           allocations: {
             include: {
-              payable: { include: { sourceTransaction: true } },
-              cardDueClearing: { include: { transaction: true } },
+              payable: {
+                include: {
+                  sourceTransaction: {
+                    include: {
+                      cardSwipe: true,
+                      cardDueRecovery: { include: { clearing: true } },
+                    },
+                  },
+                },
+              },
+              cardDueClearing: { include: { transaction: true, customerCard: true } },
             },
           },
         },
@@ -1157,17 +1234,36 @@ export class CustomersService {
     }
 
     for (const entry of manualEntries) {
+      const allocationCardId = (allocation: (typeof entry.allocations)[number]) =>
+        allocation.cardDueClearing?.customerCardId ??
+        allocation.payable?.sourceTransaction.cardSwipe?.customerCardId ??
+        allocation.payable?.sourceTransaction.cardDueRecovery?.clearing.customerCardId ??
+        null;
+      const visibleAllocations = cardId
+        ? entry.allocations.filter((allocation) => allocationCardId(allocation) === cardId)
+        : entry.allocations;
+      let movementAmount = Number(entry.amount);
+      if (cardId && entry.customerCardId !== cardId) {
+        if (entry.customerCardId) continue;
+        movementAmount = money(
+          visibleAllocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0),
+        );
+        if (movementAmount <= 0.001) continue;
+      }
+      const selectedCard = cardId ? customer.cards.find((card) => card.id === cardId) : null;
       const cardLabel = entry.customerCard
         ? entry.customerCard.bankName + ' •••• ' + entry.customerCard.lastFourDigits
-        : 'Customer ledger';
+        : selectedCard
+          ? selectedCard.bankName + ' •••• ' + selectedCard.lastFourDigits
+          : 'Customer ledger';
       const isPayIn = entry.direction === 'PAY_IN';
-      const matchedLabels = entry.allocations.map((allocation) =>
+      const matchedLabels = visibleAllocations.map((allocation) =>
         allocation.targetType === 'PAYABLE'
           ? allocation.payable?.sourceTransaction.transactionNumber
           : allocation.cardDueClearing?.transaction.transactionNumber,
       ).filter((value): value is string => Boolean(value));
       movements.push({
-        id: 'manual-' + entry.id,
+        id: 'manual-' + entry.id + (cardId && !entry.customerCardId ? '-' + cardId : ''),
         at: entry.transaction.transactionAt,
         priority: 40,
         kind: isPayIn ? 'PAY_IN' : 'PAY_OUT',
@@ -1177,9 +1273,9 @@ export class CustomersService {
           (isPayIn ? 'Received in ' : 'Paid from ') + entry.financialAccount.accountName,
           matchedLabels.length ? 'Matched ' + matchedLabels.join(', ') : 'Unallocated / on-account',
         ].join(' · '),
-        debit: isPayIn ? 0 : Number(entry.amount),
-        credit: isPayIn ? Number(entry.amount) : 0,
-        cardId: entry.customerCardId,
+        debit: isPayIn ? 0 : movementAmount,
+        credit: isPayIn ? movementAmount : 0,
+        cardId: entry.customerCardId ?? (cardId || null),
         cardLabel,
         transactionId: entry.transactionId,
         transactionNumber: entry.transaction.transactionNumber,
