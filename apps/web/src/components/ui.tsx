@@ -110,7 +110,7 @@ export function Modal({
   open,title,description,onClose,children,footer,
 }:{open:boolean;title:string;description?:string;onClose:()=>void;children:ReactNode;footer?:ReactNode}) {
   if(!open)return null;
-  return <div className="fixed inset-0 z-[80] grid place-items-end bg-slate-950/45 p-0 backdrop-blur-[4px] sm:place-items-center sm:p-5">
+  return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/45 p-3 backdrop-blur-[4px] sm:p-5">
     <button className="absolute inset-0" onClick={onClose} aria-label="Close dialog"/>
     <div className="app-modal-panel relative max-h-[92vh] w-full overflow-hidden bg-[var(--surface)] shadow-2xl sm:max-w-2xl">
       <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6 sm:py-5">
