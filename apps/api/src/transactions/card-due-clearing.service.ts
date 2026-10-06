@@ -62,6 +62,14 @@ export class CardDueClearingService {
         include: { transaction: true, destinationAccount: true },
         orderBy: { collectedAt: 'asc' as const },
       },
+      manualLedgerAllocations: {
+        include: {
+          customerLedgerEntry: {
+            include: { transaction: true, financialAccount: true },
+          },
+        },
+        orderBy: { createdAt: 'asc' as const },
+      },
     };
   }
 
@@ -585,7 +593,7 @@ export class CardDueClearingService {
     );
 
     const principalRecovered = this.money(
-      Number(clearing.principalRecovered) + amount,
+      Number(clearing.principalRecovered) + principalApplied,
     );
     const principalRemaining = this.money(Math.max(0, remaining - principalApplied));
     await tx.cardDueClearingDetail.update({

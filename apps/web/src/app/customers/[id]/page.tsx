@@ -25,7 +25,8 @@ type Customer={
 };
 type CardLedgerCard={id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean;label:string};
 type CardLedgerRow={id:string;at:string;kind:"CARD_SWIPE"|"CUSTOMER_PAYOUT"|"CARD_DUE_PAYMENT"|"CARD_DUE_RECOVERY"|"PAY_IN"|"PAY_OUT";remarks:string;detail:string;debit:number;credit:number;closingBalance:number;cardId:string|null;cardLabel:string;transactionId:string;transactionNumber:string;referenceNumber:string|null};
-type CardLedger={customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
+type CardLedgerOpenItem={targetType:"PAYABLE"|"CARD_DUE";targetId:string;sourceKind:"CARD_SWIPE"|"EXCESS_RECOVERY"|"CARD_DUE";transactionId:string;transactionNumber:string;transactionAt:string;dueAt:string;originalAmount:number;remainingAmount:number;cardId:string;cardLabel:string;label:string};
+type CardLedger={customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;openPayOutItems:CardLedgerOpenItem[];openPayInItems:CardLedgerOpenItem[];totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
 type EditState={kind:"card";item:Card}|{kind:"bank";item:Bank}|{kind:"upi";item:Upi}|{kind:"beneficiary";item:Beneficiary}|{kind:"beneficiaryAccount";item:BAccount}|null;
 type AddKind="bank"|"upi"|"beneficiary"|"beneficiaryAccount"|null;
 type ToggleTarget={path:string;isActive:boolean;label:string}|null;
@@ -42,7 +43,7 @@ export default function CustomerDetailPage(){
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
  const [ledgerAccounts,setLedgerAccounts]=useState<LedgerAccount[]>([]),[ledgerEntryDirection,setLedgerEntryDirection]=useState<LedgerEntryDirection|null>(null),[ledgerEntryBusy,setLedgerEntryBusy]=useState(false),[ledgerEntryError,setLedgerEntryError]=useState("");
- const [ledgerEntryAmount,setLedgerEntryAmount]=useState(""),[ledgerEntryDate,setLedgerEntryDate]=useState(localDateValue),[ledgerEntryAccountId,setLedgerEntryAccountId]=useState(""),[ledgerEntryCardId,setLedgerEntryCardId]=useState(""),[ledgerEntryRemarks,setLedgerEntryRemarks]=useState(""),[ledgerEntryReference,setLedgerEntryReference]=useState(""),[ledgerEntryNote,setLedgerEntryNote]=useState("");
+ const [ledgerEntryAmount,setLedgerEntryAmount]=useState(""),[ledgerEntryDate,setLedgerEntryDate]=useState(localDateValue),[ledgerEntryAccountId,setLedgerEntryAccountId]=useState(""),[ledgerEntryCardId,setLedgerEntryCardId]=useState(""),[ledgerEntryRemarks,setLedgerEntryRemarks]=useState(""),[ledgerEntryReference,setLedgerEntryReference]=useState(""),[ledgerEntryNote,setLedgerEntryNote]=useState(""),[ledgerAllocations,setLedgerAllocations]=useState<Record<string,string>>({});
  const [addKind,setAddKind]=useState<AddKind>(null),[toggleTarget,setToggleTarget]=useState<ToggleTarget>(null);
  const [bankName,setBankName]=useState(""),[holder,setHolder]=useState(""),[accountRef,setAccountRef]=useState(""),[ifsc,setIfsc]=useState("");
  const [upiName,setUpiName]=useState(""),[upiId,setUpiId]=useState(""),[upiMobile,setUpiMobile]=useState(""),[upiProvider,setUpiProvider]=useState("");
@@ -58,10 +59,19 @@ export default function CustomerDetailPage(){
  useEffect(()=>{apiFetch<LedgerAccount[]>("/accounts").then(rows=>setLedgerAccounts(rows.filter(a=>a.isActive&&["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)))).catch(()=>setLedgerAccounts([]));},[]);
 
  function resetLedgerEntry(){
-  setLedgerEntryDirection(null);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId("");setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerEntryError("");
+  setLedgerEntryDirection(null);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId("");setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerAllocations({});setLedgerEntryError("");
  }
  function openLedgerEntry(direction:LedgerEntryDirection){
-  setLedgerEntryDirection(direction);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerEntryError("");
+  setLedgerEntryDirection(direction);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerAllocations({});setLedgerEntryError("");
+ }
+ function matchingLedgerItems(direction=ledgerEntryDirection,cardId=ledgerEntryCardId){
+  const items=direction==="PAY_IN"?(cardLedger?.openPayInItems??[]):(cardLedger?.openPayOutItems??[]);
+  return cardId?items.filter(item=>item.cardId===cardId):items;
+ }
+ function suggestedLedgerAllocations(value:string,direction=ledgerEntryDirection,cardId=ledgerEntryCardId){
+  let left=Number(value)||0;const next:Record<string,string>={};
+  for(const item of matchingLedgerItems(direction,cardId)){if(left<=.001)break;const applied=Math.min(left,item.remainingAmount);if(applied>.001){next[item.targetId]=String(Math.round(applied*100)/100);left=Math.round((left-applied)*100)/100;}}
+  return next;
  }
  async function submitLedgerEntry(e:FormEvent){
   e.preventDefault();if(!ledgerEntryDirection)return;
@@ -70,9 +80,13 @@ export default function CustomerDetailPage(){
   if(!ledgerEntryAccountId){setLedgerEntryError(ledgerEntryDirection==="PAY_IN"?"Choose where the money was received.":"Choose where the money was paid from.");return;}
   if(!ledgerEntryDate){setLedgerEntryError("Choose the entry date.");return;}
   if(ledgerEntryDate>localDateValue()){setLedgerEntryError("Entry date cannot be in the future.");return;}
+  const openItems=matchingLedgerItems();
+  const allocations=openItems.map(item=>({targetType:item.targetType,targetId:item.targetId,amount:Number(ledgerAllocations[item.targetId]||0)})).filter(item=>item.amount>0);
+  const matched=Math.round(allocations.reduce((sum,item)=>sum+item.amount,0)*100)/100;
+  if(matched>amount+.001){setLedgerEntryError("Matched amount cannot be more than the Pay In / Pay Out amount.");return;}
   setLedgerEntryBusy(true);setLedgerEntryError("");
   try{
-   await apiFetch("/customers/"+id+"/card-ledger-entry",{method:"POST",body:JSON.stringify({direction:ledgerEntryDirection,amount,financialAccountId:ledgerEntryAccountId,customerCardId:ledgerEntryCardId||undefined,remarks:ledgerEntryRemarks.trim()||undefined,transactionAt:dateWithCurrentLocalTime(ledgerEntryDate),referenceNumber:ledgerEntryReference.trim()||undefined,notes:ledgerEntryNote.trim()||undefined})});
+   await apiFetch("/customers/"+id+"/card-ledger-entry",{method:"POST",body:JSON.stringify({direction:ledgerEntryDirection,amount,financialAccountId:ledgerEntryAccountId,customerCardId:ledgerEntryCardId||undefined,allocations,remarks:ledgerEntryRemarks.trim()||undefined,transactionAt:dateWithCurrentLocalTime(ledgerEntryDate),referenceNumber:ledgerEntryReference.trim()||undefined,notes:ledgerEntryNote.trim()||undefined})});
    const success=ledgerEntryDirection==="PAY_IN"?"Pay In recorded.":"Pay Out recorded.";
    resetLedgerEntry();setMessage(success);window.setTimeout(()=>setMessage(""),2500);
    await Promise.all([load(),loadCardLedger(ledgerCardId)]);
@@ -126,6 +140,9 @@ export default function CustomerDetailPage(){
  const ledgerEntryStartingLabel=ledgerEntryStartingBalance>0.001?"Pay to customer":ledgerEntryStartingBalance<-.001?"Customer to pay us":"Settled";
  const ledgerEntryPreview=ledgerEntryStartingBalance+(ledgerEntryDirection==="PAY_IN"?ledgerEntryValue:ledgerEntryDirection==="PAY_OUT"?-ledgerEntryValue:0);
  const ledgerEntryPreviewLabel=ledgerEntryPreview>0.001?"Pay to customer":ledgerEntryPreview<-.001?"Customer to pay us":"Settled";
+ const ledgerMatchItems=matchingLedgerItems();
+ const ledgerMatchedAmount=Math.round(ledgerMatchItems.reduce((sum,item)=>sum+Number(ledgerAllocations[item.targetId]||0),0)*100)/100;
+ const ledgerUnallocatedAmount=Math.max(0,Math.round((ledgerEntryValue-ledgerMatchedAmount)*100)/100);
  function printCardLedger(){
   if(!cardLedger||!cardLedger.rows.length)return;
   const popup=window.open("","_blank","width=980,height=760");
@@ -214,11 +231,12 @@ export default function CustomerDetailPage(){
      <div className={"rounded-xl p-3 "+(ledgerEntryPreview<0?"bg-rose-50":ledgerEntryPreview>0?"bg-emerald-50":"bg-[var(--surface-soft)]")}><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">After entry</p><p className={"money mt-1 text-lg font-black "+(ledgerEntryPreview<0?"text-rose-700":ledgerEntryPreview>0?"text-emerald-700":"")}>{money(ledgerEntryPreview)}</p><p className={"mt-0.5 text-[10px] font-black "+(ledgerEntryPreview<0?"text-rose-700":ledgerEntryPreview>0?"text-emerald-700":"text-[var(--text-muted)]")}>{ledgerEntryPreviewLabel}</p></div>
     </div>
     <div className="grid grid-cols-2 gap-3">
-     <Field label="Amount"><input className={control} type="number" min="0.01" step="0.01" inputMode="decimal" value={ledgerEntryAmount} onChange={e=>{setLedgerEntryAmount(e.target.value);setLedgerEntryError("");}} placeholder="₹ 0.00" required/></Field>
+     <Field label="Amount"><input className={control} type="number" min="0.01" step="0.01" inputMode="decimal" value={ledgerEntryAmount} onChange={e=>{const value=e.target.value;setLedgerEntryAmount(value);setLedgerAllocations(suggestedLedgerAllocations(value,ledgerEntryDirection,ledgerEntryCardId));setLedgerEntryError("");}} placeholder="₹ 0.00" required/></Field>
      <Field label="Date"><input className={control} type="date" max={localDateValue()} value={ledgerEntryDate} onChange={e=>{setLedgerEntryDate(e.target.value);setLedgerEntryError("");}} required/></Field>
     </div>
     <Field label={ledgerEntryDirection==="PAY_IN"?"Received in":"Paid from"}><SearchableSelect className={control} value={ledgerEntryAccountId} onChange={e=>{setLedgerEntryAccountId(e.target.value);setLedgerEntryError("");}}><option value="">Choose account…</option>{ledgerAccounts.map(account=><option key={account.id} value={account.id}>{account.accountName+" · "+account.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>
-    <Field label="Card (optional)">{ledgerCardId?<div className={control+" flex items-center font-semibold"}>{c.cards.find(card=>card.id===ledgerCardId)?.bankName+" •••• "+c.cards.find(card=>card.id===ledgerCardId)?.lastFourDigits}</div>:<SearchableSelect className={control} value={ledgerEntryCardId} onChange={e=>setLedgerEntryCardId(e.target.value)}><option value="">Customer-level / all cards</option>{c.cards.filter(card=>card.isActive).map(card=><option key={card.id} value={card.id}>{card.bankName+" •••• "+card.lastFourDigits+(card.nickname?" · "+card.nickname:"")}</option>)}</SearchableSelect>}</Field>
+    <Field label="Card (optional)">{ledgerCardId?<div className={control+" flex items-center font-semibold"}>{c.cards.find(card=>card.id===ledgerCardId)?.bankName+" •••• "+c.cards.find(card=>card.id===ledgerCardId)?.lastFourDigits}</div>:<SearchableSelect className={control} value={ledgerEntryCardId} onChange={e=>{const cardId=e.target.value;setLedgerEntryCardId(cardId);setLedgerAllocations(suggestedLedgerAllocations(ledgerEntryAmount,ledgerEntryDirection,cardId));}}><option value="">Customer-level / all cards</option>{c.cards.filter(card=>card.isActive).map(card=><option key={card.id} value={card.id}>{card.bankName+" •••• "+card.lastFourDigits+(card.nickname?" · "+card.nickname:"")}</option>)}</SearchableSelect>}</Field>
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black">Match outstanding <span className="font-semibold text-[var(--text-muted)]">(optional)</span></p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{ledgerEntryDirection==="PAY_IN"?"Apply this receipt to open Card Due principal.":"Apply this payment to open swipe/customer payables."}</p></div><button type="button" onClick={()=>setLedgerAllocations(suggestedLedgerAllocations(ledgerEntryAmount))} className="shrink-0 text-[10px] font-black text-[var(--accent)]">Auto oldest first</button></div>{ledgerMatchItems.length?<div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto pr-1">{ledgerMatchItems.map(item=><div key={item.targetId} className="grid grid-cols-[minmax(0,1fr)_96px] items-center gap-2 rounded-lg bg-[var(--surface)] px-2.5 py-2 ring-1 ring-[var(--border)]"><div className="min-w-0"><p className="truncate text-[11px] font-black">{item.label}</p><p className="truncate text-[9px] text-[var(--text-muted)]">{item.cardLabel} · remaining {money(item.remainingAmount)}</p></div><input className="app-control h-9 px-2 text-right text-xs font-black" type="number" min="0" max={item.remainingAmount} step="0.01" inputMode="decimal" value={ledgerAllocations[item.targetId]??""} onChange={e=>setLedgerAllocations(prev=>({...prev,[item.targetId]:e.target.value}))} placeholder="0"/></div>)}</div>:<p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">{ledgerEntryDirection==="PAY_IN"?"No open Card Due principal for this selection.":"No open customer payable for this selection."}</p>}<div className="mt-2 flex items-center justify-between border-t border-[var(--border)] pt-2 text-[10px] font-bold"><span>Matched {money(ledgerMatchedAmount)}</span><span className={ledgerUnallocatedAmount>.001?"text-amber-700":"text-emerald-700"}>Unallocated {money(ledgerUnallocatedAmount)}</span></div></div>
     <Field label="Remarks (optional)"><input className={control} value={ledgerEntryRemarks} onChange={e=>setLedgerEntryRemarks(e.target.value)} placeholder={ledgerEntryDirection==="PAY_IN"?"e.g. GPay received / cash received":"e.g. Cash given / GPay paid"}/></Field>
     <div className="grid grid-cols-2 gap-3">
      <Field label="Reference"><input className={control} value={ledgerEntryReference} onChange={e=>setLedgerEntryReference(e.target.value)} placeholder="UTR / ref (optional)"/></Field>

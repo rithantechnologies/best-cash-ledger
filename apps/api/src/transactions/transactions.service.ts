@@ -184,7 +184,7 @@ export class TransactionsService {
       microAtm: true,
       aeps: true,
       accountEntry: { include: { account: true } },
-      customerLedgerEntry: { include: { customerCard: true, financialAccount: true } },
+      customerLedgerEntry: { include: { customerCard: true, financialAccount: true, allocations: { include: { payable: { include: { sourceTransaction: true } }, cardDueClearing: { include: { transaction: true } } } } } },
       providerSettlementReceipt: {
         include: {
           settlement: {
@@ -4161,7 +4161,7 @@ export class TransactionsService {
         microAtm: { include: { cashAccount: true, settlementAccount: true } },
         internalTransfer: { include: { sourceAccount: true, destinationAccount: true } },
         accountEntry: { include: { account: true } },
-      customerLedgerEntry: { include: { customerCard: true, financialAccount: true } },
+      customerLedgerEntry: { include: { customerCard: true, financialAccount: true, allocations: { include: { payable: { include: { sourceTransaction: true } }, cardDueClearing: { include: { transaction: true } } } } } },
         expense: { include: { expenseCategory: true, paymentAccount: true } },
         atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
         creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },

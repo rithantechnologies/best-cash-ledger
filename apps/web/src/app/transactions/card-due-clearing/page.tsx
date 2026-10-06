@@ -1,5 +1,5 @@
 "use client";
-/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect, react-hooks/immutability, @typescript-eslint/no-explicit-any */
 
 import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
@@ -23,18 +23,20 @@ type FeeCollection={
  id:string;amount:string;paymentMode:string;collectedAt:string;referenceNumber:string|null;
  destinationAccount:Account;transaction:{id:string;transactionNumber:string};
 };
+type ManualDueAllocation={id:string;amount:string;createdAt:string;customerLedgerEntry:{direction:string;remarks:string;financialAccount:Account;transaction:{id:string;transactionNumber:string;transactionAt:string;referenceNumber:string|null}}};
 type Clearing={
  id:string;transactionId:string;dueAmount:string;commissionRate:string;commissionAmount:string;
  principalRecovered:string;principalRemaining:string;commissionCollected:string;commissionRemaining:string;
  nextFollowUpAt:string|null;duePaymentReference:string|null;customerCard:Card;advanceSourceAccount:Account;
  transaction:{id:string;transactionNumber:string;transactionAt:string;status:string;customer:{id:string;fullName:string;mobile:string|null}|null};
- recoveries:Recovery[];commissionCollections:FeeCollection[];
+ recoveries:Recovery[];commissionCollections:FeeCollection[];manualLedgerAllocations:ManualDueAllocation[];
 };
 type DuePayable={
  id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;
  customer:{id:string;fullName:string;mobile:string|null};
  sourceTransaction:{id:string;transactionNumber:string;transactionAt:string;transactionType:string};
  payments:{id:string;amount:string;paymentDate:string;transactionId:string}[];
+ manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{remarks:string;financialAccount:{accountName:string};transaction:{id:string;transactionNumber:string;transactionAt:string}}}[];
 };
 type DueMovement={id:string;at:string;direction:"IN"|"OUT";label:string;amount:number;detail:string;href?:string;affectsBalance?:boolean};
 
@@ -249,14 +251,16 @@ export default function CardDueClearingPage(){
  const customerCommission=selectedCustomerRows.reduce((sum,r)=>sum+r.commissionCollections.reduce((a,x)=>a+Number(x.amount),0),0);
  const selectedProfit=calcMoney(customerCommission-selectedGatewayFees);
  const customerPaid=selectedCustomerRows.reduce((sum,r)=>sum+Number(r.dueAmount),0);
- const customerReceived=selectedCustomerRows.reduce((sum,r)=>sum+r.recoveries.reduce((a,x)=>a+Number(x.swipeAmount),0),0);
- const customerReturned=selectedCustomerPayables.reduce((sum,p)=>sum+p.payments.reduce((a,x)=>a+Number(x.amount),0),0);
+ const customerReceived=selectedCustomerRows.reduce((sum,r)=>sum+r.recoveries.reduce((a,x)=>a+Number(x.swipeAmount),0)+r.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
+ const customerReturned=selectedCustomerPayables.reduce((sum,p)=>sum+p.payments.reduce((a,x)=>a+Number(x.amount),0)+p.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
  const customerBalance=calcMoney(customerPaid+customerReturned-customerReceived);
  const customerMovements:DueMovement[]=[
   ...selectedCustomerRows.map(r=>({id:"pay-"+r.id,at:r.transaction.transactionAt,direction:"OUT" as const,label:"Card payment",amount:Number(r.dueAmount),detail:r.customerCard.bankName+" •••• "+r.customerCard.lastFourDigits+" · from "+r.advanceSourceAccount.accountName,href:"/transactions/"+r.transaction.id})),
   ...selectedCustomerRows.flatMap(r=>r.recoveries.map(x=>({id:"rec-"+x.id,at:x.recoveredAt,direction:"IN" as const,label:"Recovery",amount:Number(x.swipeAmount),detail:x.provider.name+" · "+x.gateway.gatewayName+" · into "+x.destinationAccount.accountName,href:"/transactions/"+x.transaction.id}))),
+  ...selectedCustomerRows.flatMap(r=>r.manualLedgerAllocations.map(x=>({id:"manual-in-"+x.id,at:x.customerLedgerEntry.transaction.transactionAt,direction:"IN" as const,label:"Pay In",amount:Number(x.amount),detail:x.customerLedgerEntry.remarks+" · into "+x.customerLedgerEntry.financialAccount.accountName,href:"/transactions/"+x.customerLedgerEntry.transaction.id}))),
   ...selectedCustomerRows.flatMap(r=>r.commissionCollections.map(x=>({id:"fee-"+x.id,at:x.collectedAt,direction:"IN" as const,label:"Commission",amount:Number(x.amount),detail:x.paymentMode+" · into "+x.destinationAccount.accountName+" · income (does not change principal balance)",href:"/transactions/"+x.transaction.id,affectsBalance:false}))),
   ...selectedCustomerPayables.flatMap(x=>x.payments.map(payment=>({id:"refund-"+payment.id,at:payment.paymentDate,direction:"OUT" as const,label:"Paid back to customer",amount:Number(payment.amount),detail:"Customer balance payout",href:"/transactions/"+payment.transactionId}))),
+  ...selectedCustomerPayables.flatMap(x=>x.manualLedgerAllocations.map(a=>({id:"manual-out-"+a.id,at:a.customerLedgerEntry.transaction.transactionAt,direction:"OUT" as const,label:"Pay Out",amount:Number(a.amount),detail:a.customerLedgerEntry.remarks+" · from "+a.customerLedgerEntry.financialAccount.accountName,href:"/transactions/"+a.customerLedgerEntry.transaction.id}))),
  ].sort((a,b)=>new Date(a.at).getTime()-new Date(b.at).getTime());
  let runningCustomerBalance=0;
  const customerLedger=customerMovements.map(m=>{if(m.affectsBalance!==false)runningCustomerBalance=calcMoney(runningCustomerBalance+(m.direction==="OUT"?m.amount:-m.amount));return {...m,balance:runningCustomerBalance};});
@@ -265,8 +269,8 @@ export default function CardDueClearingPage(){
  const balanceForCustomer=(id:string)=>{
   const dueRows=rows.filter(r=>r.transaction.customer?.id===id);
   const paid=dueRows.reduce((sum,r)=>sum+Number(r.dueAmount),0);
-  const received=dueRows.reduce((sum,r)=>sum+r.recoveries.reduce((a,x)=>a+Number(x.swipeAmount),0),0);
-  const returned=payables.filter(p=>p.customer.id===id).reduce((sum,p)=>sum+p.payments.reduce((a,x)=>a+Number(x.amount),0),0);
+  const received=dueRows.reduce((sum,r)=>sum+r.recoveries.reduce((a,x)=>a+Number(x.swipeAmount),0)+r.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
+  const returned=payables.filter(p=>p.customer.id===id).reduce((sum,p)=>sum+p.payments.reduce((a,x)=>a+Number(x.amount),0)+p.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
   return calcMoney(paid+returned-received);
  };
  const attentionCustomers=customerIds.map(id=>{
@@ -323,7 +327,7 @@ export default function CardDueClearingPage(){
   {selected?<Surface className="overflow-hidden">
    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
     <div><p className="text-[10px] font-extrabold uppercase tracking-[.12em] text-[var(--text-muted)]">Current case</p><h2 className="mt-1 text-lg font-black">{selected.transaction.customer?.fullName??"Customer"} · {selected.transaction.transactionNumber}</h2><p className="mt-0.5 text-xs text-[var(--text-muted)]">{selected.customerCard.bankName} •••• {selected.customerCard.lastFourDigits} · paid from {selected.advanceSourceAccount.accountName}</p></div>
-    <StatusBadge tone={statusTone(selected.transaction.status) as "rose"|"amber"|"emerald"}>{statusLabel(selected.transaction.status)}</StatusBadge>
+    <div className="text-right"><StatusBadge tone={statusTone(selected.transaction.status) as "rose"|"amber"|"emerald"}>{statusLabel(selected.transaction.status)}</StatusBadge><p className={"mt-1 text-[10px] font-bold "+(Number(selected.principalRemaining)<=.001?"text-emerald-700":"text-rose-700")}>Principal {Number(selected.principalRemaining)<=.001?"settled":money(selected.principalRemaining)+" pending"}</p>{Number(selected.commissionAmount)>0?<p className={"mt-0.5 text-[10px] font-bold "+(Number(selected.commissionRemaining)<=.001?"text-emerald-700":"text-amber-700")}>Commission {Number(selected.commissionRemaining)<=.001?"settled":money(selected.commissionRemaining)+" pending"}</p>:null}</div>
    </div>
    <div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4">
     <div className="bg-[var(--surface)] p-3"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Paid out</p><p className="money mt-1 text-base font-black text-rose-600">{money(customerPaid)}</p></div>
@@ -381,7 +385,7 @@ export default function CardDueClearingPage(){
    </div>
 
    <div className="grid gap-4 border-t border-[var(--border)] p-4 lg:grid-cols-2 sm:p-5">
-    <div><h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-muted)]">Recovery history</h3>{selected.recoveries.length?<div className="mt-2 space-y-2">{selected.recoveries.map(r=><div key={r.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs"><div className="flex justify-between gap-3"><b>{money(r.swipeAmount)} via {r.provider.name}</b><Link href={"/transactions/"+r.transaction.id} className="text-[var(--accent)]">{r.transaction.transactionNumber}</Link></div><p className="mt-1 text-[var(--text-muted)]">{r.gateway.gatewayName} · fee {money(r.providerChargeAmount)} · received into {r.destinationAccount.accountName} · {new Date(r.recoveredAt).toLocaleString("en-IN")}</p></div>)}</div>:<p className="mt-2 text-xs text-[var(--text-muted)]">No recovery recorded yet.</p>}</div>
+    <div><h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-muted)]">Recovery / Pay In history</h3>{selected.recoveries.length||selected.manualLedgerAllocations.length?<div className="mt-2 space-y-2">{selected.recoveries.map(r=><div key={r.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs"><div className="flex justify-between gap-3"><b>{money(r.swipeAmount)} via {r.provider.name}</b><Link href={"/transactions/"+r.transaction.id} className="text-[var(--accent)]">{r.transaction.transactionNumber}</Link></div><p className="mt-1 text-[var(--text-muted)]">{r.gateway.gatewayName} · fee {money(r.providerChargeAmount)} · received into {r.destinationAccount.accountName} · {new Date(r.recoveredAt).toLocaleString("en-IN")}</p></div>)}{selected.manualLedgerAllocations.map(a=><div key={a.id} className="rounded-xl bg-emerald-50 p-3 text-xs"><div className="flex justify-between gap-3"><b>{money(a.amount)} · Pay In</b><Link href={"/transactions/"+a.customerLedgerEntry.transaction.id} className="text-[var(--accent)]">{a.customerLedgerEntry.transaction.transactionNumber}</Link></div><p className="mt-1 text-[var(--text-muted)]">{a.customerLedgerEntry.remarks} · received into {a.customerLedgerEntry.financialAccount.accountName} · {new Date(a.customerLedgerEntry.transaction.transactionAt).toLocaleString("en-IN")}</p></div>)}</div>:<p className="mt-2 text-xs text-[var(--text-muted)]">No recovery or direct Pay In recorded yet.</p>}</div>
     <div><h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-muted)]">Commission collection history</h3>{selected.commissionCollections.length?<div className="mt-2 space-y-2">{selected.commissionCollections.map(c=><div key={c.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs"><div className="flex justify-between gap-3"><b>{money(c.amount)} · {c.paymentMode}</b><Link href={"/transactions/"+c.transaction.id} className="text-[var(--accent)]">{c.transaction.transactionNumber}</Link></div><p className="mt-1 text-[var(--text-muted)]">{c.destinationAccount.accountName} · {new Date(c.collectedAt).toLocaleString("en-IN")}</p></div>)}</div>:<p className="mt-2 text-xs text-[var(--text-muted)]">No commission collected yet.</p>}</div>
    </div>
   </Surface>:null}

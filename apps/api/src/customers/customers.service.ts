@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountType, CustomerType, EntryType, PaymentStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountType, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
@@ -488,6 +488,37 @@ export class CustomersService {
     if (transactionAt.getTime() > Date.now() + 60_000) {
       throw new BadRequestException('Transaction date cannot be in the future');
     }
+    const allocations = (dto.allocations ?? [])
+      .map((item) => ({
+        ...item,
+        amount: this.money(item.amount),
+      }))
+      .sort((a, b) =>
+        (a.targetType + ':' + a.targetId).localeCompare(b.targetType + ':' + b.targetId),
+      );
+    const seenTargets = new Set<string>();
+    let requestedAllocationTotal = 0;
+    for (const allocation of allocations) {
+      if (allocation.amount <= 0) {
+        throw new BadRequestException('Allocation amount must be greater than zero');
+      }
+      if (dto.direction === 'PAY_OUT' && allocation.targetType !== 'PAYABLE') {
+        throw new BadRequestException('Pay Out can only be matched to customer payables');
+      }
+      if (dto.direction === 'PAY_IN' && allocation.targetType !== 'CARD_DUE') {
+        throw new BadRequestException('Pay In can only be matched to card due principal');
+      }
+      const key = allocation.targetType + ':' + allocation.targetId;
+      if (seenTargets.has(key)) {
+        throw new BadRequestException('The same outstanding item cannot be allocated twice');
+      }
+      seenTargets.add(key);
+      requestedAllocationTotal = this.money(requestedAllocationTotal + allocation.amount);
+    }
+    if (requestedAllocationTotal > amount + 0.001) {
+      throw new BadRequestException('Matched amount cannot exceed Pay In / Pay Out amount');
+    }
+
     const idempotencyKey = await this.idempotency.key(
       TransactionType.CUSTOMER_LEDGER_ENTRY,
       userId,
@@ -519,14 +550,141 @@ export class CustomersService {
         customerId,
         dto.customerCardId,
       );
-      let receivableAmount = 0;
-      let payableAmount = 0;
+
+      let allocatedPayableAmount = 0;
+      let allocatedReceivableAmount = 0;
+      const allocationRecords: Array<{
+        targetType: 'PAYABLE' | 'CARD_DUE';
+        targetId: string;
+        amount: number;
+        label: string;
+      }> = [];
+
+      for (const allocation of allocations) {
+        if (allocation.targetType === 'PAYABLE') {
+          await tx.$queryRawUnsafe(
+            'SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE',
+            allocation.targetId,
+          );
+          const payable = await tx.customerPayable.findUnique({
+            where: { id: allocation.targetId },
+            include: {
+              sourceTransaction: {
+                include: {
+                  cardSwipe: { include: { customerCard: true } },
+                  cardDueRecovery: {
+                    include: {
+                      clearing: { include: { customerCard: true } },
+                    },
+                  },
+                },
+              },
+            },
+          });
+          if (!payable || payable.customerId !== customerId) {
+            throw new BadRequestException('Selected payable does not belong to this customer');
+          }
+          if (
+            payable.sourceTransaction.status === TransactionStatus.CANCELLED ||
+            payable.sourceTransaction.status === TransactionStatus.REVERSED
+          ) {
+            throw new BadRequestException('Selected payable is not active');
+          }
+          const targetCardId =
+            payable.sourceTransaction.cardSwipe?.customerCardId ??
+            payable.sourceTransaction.cardDueRecovery?.clearing.customerCardId ??
+            null;
+          if (dto.customerCardId && targetCardId !== dto.customerCardId) {
+            throw new BadRequestException('Selected payable belongs to another card');
+          }
+          const remaining = Number(payable.remainingAmount);
+          if (allocation.amount > remaining + 0.001) {
+            throw new BadRequestException('Pay Out allocation exceeds the selected payable balance');
+          }
+          const paidAmount = this.money(Number(payable.paidAmount) + allocation.amount);
+          const remainingAmount = this.money(Math.max(0, remaining - allocation.amount));
+          await tx.customerPayable.update({
+            where: { id: payable.id },
+            data: {
+              paidAmount: new Prisma.Decimal(paidAmount),
+              remainingAmount: new Prisma.Decimal(remainingAmount),
+              status: remainingAmount <= 0.001 ? PayableStatus.PAID : PayableStatus.PARTIALLY_PAID,
+            },
+          });
+          allocatedPayableAmount = this.money(allocatedPayableAmount + allocation.amount);
+          const card = payable.sourceTransaction.cardSwipe?.customerCard ?? payable.sourceTransaction.cardDueRecovery?.clearing.customerCard;
+          allocationRecords.push({
+            targetType: 'PAYABLE',
+            targetId: payable.id,
+            amount: allocation.amount,
+            label: payable.sourceTransaction.transactionNumber + (card ? ' · ' + card.bankName + ' •••• ' + card.lastFourDigits : ''),
+          });
+        } else {
+          await tx.$queryRawUnsafe(
+            'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE',
+            allocation.targetId,
+          );
+          const clearing = await tx.cardDueClearingDetail.findUnique({
+            where: { id: allocation.targetId },
+            include: { transaction: true, customerCard: true },
+          });
+          if (!clearing || clearing.transaction.customerId !== customerId) {
+            throw new BadRequestException('Selected card due does not belong to this customer');
+          }
+          if (
+            clearing.transaction.status === TransactionStatus.CANCELLED ||
+            clearing.transaction.status === TransactionStatus.REVERSED
+          ) {
+            throw new BadRequestException('Selected card due is not active');
+          }
+          if (dto.customerCardId && clearing.customerCardId !== dto.customerCardId) {
+            throw new BadRequestException('Selected card due belongs to another card');
+          }
+          const remaining = Number(clearing.principalRemaining);
+          if (allocation.amount > remaining + 0.001) {
+            throw new BadRequestException('Pay In allocation exceeds the selected card due balance');
+          }
+          const principalRecovered = this.money(Number(clearing.principalRecovered) + allocation.amount);
+          const principalRemaining = this.money(Math.max(0, remaining - allocation.amount));
+          await tx.cardDueClearingDetail.update({
+            where: { id: clearing.id },
+            data: {
+              principalRecovered: new Prisma.Decimal(principalRecovered),
+              principalRemaining: new Prisma.Decimal(principalRemaining),
+            },
+          });
+          await tx.transaction.update({
+            where: { id: clearing.transactionId },
+            data: {
+              status: principalRemaining <= 0.001
+                ? TransactionStatus.COMPLETED
+                : TransactionStatus.PARTIALLY_PAID,
+            },
+          });
+          allocatedReceivableAmount = this.money(allocatedReceivableAmount + allocation.amount);
+          allocationRecords.push({
+            targetType: 'CARD_DUE',
+            targetId: clearing.id,
+            amount: allocation.amount,
+            label: clearing.transaction.transactionNumber + ' · ' + clearing.customerCard.bankName + ' •••• ' + clearing.customerCard.lastFourDigits,
+          });
+        }
+      }
+
+      const allocatedTotal = this.money(allocatedPayableAmount + allocatedReceivableAmount);
+      const unallocatedAmount = this.money(Math.max(0, amount - allocatedTotal));
+      let receivableAmount = allocatedReceivableAmount;
+      let payableAmount = allocatedPayableAmount;
       if (dto.direction === 'PAY_IN') {
-        receivableAmount = this.money(Math.min(amount, Math.max(-currentBalance, 0)));
-        payableAmount = this.money(amount - receivableAmount);
+        const balanceAfterMatched = this.money(currentBalance + allocatedReceivableAmount);
+        const genericReceivable = this.money(Math.min(unallocatedAmount, Math.max(-balanceAfterMatched, 0)));
+        receivableAmount = this.money(receivableAmount + genericReceivable);
+        payableAmount = this.money(unallocatedAmount - genericReceivable);
       } else {
-        payableAmount = this.money(Math.min(amount, Math.max(currentBalance, 0)));
-        receivableAmount = this.money(amount - payableAmount);
+        const balanceAfterMatched = this.money(currentBalance - allocatedPayableAmount);
+        const genericPayable = this.money(Math.min(unallocatedAmount, Math.max(balanceAfterMatched, 0)));
+        payableAmount = this.money(payableAmount + genericPayable);
+        receivableAmount = this.money(unallocatedAmount - genericPayable);
       }
 
       const configuredCharge = dto.direction === 'PAY_OUT'
@@ -589,6 +747,18 @@ export class CustomersService {
           payableAmount: new Prisma.Decimal(payableAmount),
         },
       });
+
+      if (allocationRecords.length) {
+        await tx.customerLedgerAllocation.createMany({
+          data: allocationRecords.map((allocation) => ({
+            customerLedgerEntryId: detail.id,
+            targetType: allocation.targetType,
+            payableId: allocation.targetType === 'PAYABLE' ? allocation.targetId : null,
+            cardDueClearingId: allocation.targetType === 'CARD_DUE' ? allocation.targetId : null,
+            amount: new Prisma.Decimal(allocation.amount),
+          })),
+        });
+      }
 
       if (payoutChargeAmount > 0 && configuredCharge) {
         await tx.transactionCharge.create({
@@ -701,6 +871,9 @@ export class CustomersService {
             endingBalance,
             receivableAmount,
             payableAmount,
+            matchedAmount: allocatedTotal,
+            unallocatedAmount,
+            allocations: allocationRecords,
             payoutChargeAmount,
           },
         },
@@ -711,6 +884,9 @@ export class CustomersService {
         detail,
         startingBalance: currentBalance,
         endingBalance,
+        matchedAmount: allocatedTotal,
+        unallocatedAmount,
+        allocations: allocationRecords,
         payoutChargeAmount,
       };
     });
@@ -822,6 +998,12 @@ export class CustomersService {
           customerCard: true,
           financialAccount: true,
           transaction: true,
+          allocations: {
+            include: {
+              payable: { include: { sourceTransaction: true } },
+              cardDueClearing: { include: { transaction: true } },
+            },
+          },
         },
       }),
     ]);
@@ -979,6 +1161,11 @@ export class CustomersService {
         ? entry.customerCard.bankName + ' •••• ' + entry.customerCard.lastFourDigits
         : 'Customer ledger';
       const isPayIn = entry.direction === 'PAY_IN';
+      const matchedLabels = entry.allocations.map((allocation) =>
+        allocation.targetType === 'PAYABLE'
+          ? allocation.payable?.sourceTransaction.transactionNumber
+          : allocation.cardDueClearing?.transaction.transactionNumber,
+      ).filter((value): value is string => Boolean(value));
       movements.push({
         id: 'manual-' + entry.id,
         at: entry.transaction.transactionAt,
@@ -988,6 +1175,7 @@ export class CustomersService {
         detail: [
           cardLabel,
           (isPayIn ? 'Received in ' : 'Paid from ') + entry.financialAccount.accountName,
+          matchedLabels.length ? 'Matched ' + matchedLabels.join(', ') : 'Unallocated / on-account',
         ].join(' · '),
         debit: isPayIn ? 0 : Number(entry.amount),
         credit: isPayIn ? Number(entry.amount) : 0,
@@ -1023,6 +1211,65 @@ export class CustomersService {
       };
     });
 
+    const openPayOutItems = [
+      ...swipes.flatMap((swipe) => {
+        const payable = swipe.transaction.payable;
+        if (!payable || Number(payable.remainingAmount) <= 0.001) return [];
+        const cardLabel = swipe.customerCard.bankName + ' •••• ' + swipe.customerCard.lastFourDigits;
+        return [{
+          targetType: 'PAYABLE' as const,
+          targetId: payable.id,
+          sourceKind: 'CARD_SWIPE' as const,
+          transactionId: swipe.transaction.id,
+          transactionNumber: swipe.transaction.transactionNumber,
+          transactionAt: swipe.transaction.transactionAt.toISOString(),
+          dueAt: payable.dueAt.toISOString(),
+          originalAmount: money(Number(payable.originalAmount)),
+          remainingAmount: money(Number(payable.remainingAmount)),
+          cardId: swipe.customerCardId,
+          cardLabel,
+          label: 'Swipe ' + swipe.transaction.transactionNumber,
+        }];
+      }),
+      ...clearings.flatMap((clearing) => clearing.recoveries.flatMap((recovery) => {
+        const payable = recovery.transaction.payable;
+        if (!payable || Number(payable.remainingAmount) <= 0.001) return [];
+        const cardLabel = clearing.customerCard.bankName + ' •••• ' + clearing.customerCard.lastFourDigits;
+        return [{
+          targetType: 'PAYABLE' as const,
+          targetId: payable.id,
+          sourceKind: 'EXCESS_RECOVERY' as const,
+          transactionId: recovery.transaction.id,
+          transactionNumber: recovery.transaction.transactionNumber,
+          transactionAt: recovery.transaction.transactionAt.toISOString(),
+          dueAt: payable.dueAt.toISOString(),
+          originalAmount: money(Number(payable.originalAmount)),
+          remainingAmount: money(Number(payable.remainingAmount)),
+          cardId: clearing.customerCardId,
+          cardLabel,
+          label: 'Excess recovery ' + recovery.transaction.transactionNumber,
+        }];
+      })),
+    ].sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime() || new Date(a.transactionAt).getTime() - new Date(b.transactionAt).getTime());
+
+    const openPayInItems = clearings
+      .filter((clearing) => Number(clearing.principalRemaining) > 0.001)
+      .map((clearing) => ({
+        targetType: 'CARD_DUE' as const,
+        targetId: clearing.id,
+        sourceKind: 'CARD_DUE' as const,
+        transactionId: clearing.transaction.id,
+        transactionNumber: clearing.transaction.transactionNumber,
+        transactionAt: clearing.transaction.transactionAt.toISOString(),
+        dueAt: clearing.nextFollowUpAt?.toISOString() ?? clearing.transaction.transactionAt.toISOString(),
+        originalAmount: money(Number(clearing.dueAmount)),
+        remainingAmount: money(Number(clearing.principalRemaining)),
+        cardId: clearing.customerCardId,
+        cardLabel: clearing.customerCard.bankName + ' •••• ' + clearing.customerCard.lastFourDigits,
+        label: 'Card due ' + clearing.transaction.transactionNumber,
+      }))
+      .sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime() || new Date(a.transactionAt).getTime() - new Date(b.transactionAt).getTime());
+
     return {
       customer: {
         id: customer.id,
@@ -1038,6 +1285,8 @@ export class CustomersService {
           (card.nickname ? ' · ' + card.nickname : ''),
       })),
       selectedCardId: cardId ?? null,
+      openPayOutItems,
+      openPayInItems,
       totals: {
         debit: totalDebit,
         credit: totalCredit,

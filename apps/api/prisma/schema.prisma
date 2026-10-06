@@ -596,6 +596,7 @@ model CardDueClearingDetail {
   duePaymentReference    String?
   recoveries             CardDueRecovery[]
   commissionCollections  CardDueCommissionCollection[]
+  manualLedgerAllocations CustomerLedgerAllocation[]
   createdAt              DateTime                      @default(now())
   updatedAt              DateTime                      @updatedAt
 
@@ -663,6 +664,7 @@ model CustomerPayable {
   dueAt               DateTime
   status              PayableStatus
   payments            PayablePayment[]
+  manualLedgerAllocations CustomerLedgerAllocation[]
   ledgerEntries       LedgerEntry[]
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
@@ -1001,10 +1003,28 @@ model CustomerLedgerEntryDetail {
   remarks          String
   receivableAmount Decimal          @default(0) @db.Decimal(18, 2)
   payableAmount    Decimal          @default(0) @db.Decimal(18, 2)
+  allocations      CustomerLedgerAllocation[]
   createdAt        DateTime         @default(now())
 
   @@index([customerCardId])
   @@index([financialAccountId])
+}
+
+model CustomerLedgerAllocation {
+  id                    String                    @id @default(uuid())
+  customerLedgerEntryId String
+  customerLedgerEntry   CustomerLedgerEntryDetail @relation(fields: [customerLedgerEntryId], references: [id])
+  targetType            String
+  payableId             String?
+  payable               CustomerPayable?         @relation(fields: [payableId], references: [id])
+  cardDueClearingId     String?
+  cardDueClearing       CardDueClearingDetail?   @relation(fields: [cardDueClearingId], references: [id])
+  amount                Decimal                   @db.Decimal(18, 2)
+  createdAt             DateTime                  @default(now())
+
+  @@index([customerLedgerEntryId])
+  @@index([payableId])
+  @@index([cardDueClearingId])
 }
 
 model AccountEntryDetail {

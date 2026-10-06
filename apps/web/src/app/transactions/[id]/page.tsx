@@ -33,7 +33,7 @@ type InternalTransfer={transferAmount:string;chargeAmount:string;sourceAccount:A
 type AtmWithdrawal={cashReceived:string;atmCharge:string;withdrawalAmount:string;bankAccount:Account;cashAccount:Account};
 type CreditCardPayment={paymentAmount:string;creditCardAccount:Account;sourceAccount:Account};
 type AccountEntry={direction:"IN"|"OUT";entryKind:string;amount:string;entryLabel:string|null;account:Account};
-type CustomerLedgerEntry={direction:"PAY_IN"|"PAY_OUT";amount:string;remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;financialAccount:Account};
+type CustomerLedgerEntry={direction:"PAY_IN"|"PAY_OUT";amount:string;remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;financialAccount:Account;allocations:{targetType:"PAYABLE"|"CARD_DUE";amount:string;payable:{sourceTransaction:{transactionNumber:string}}|null;cardDueClearing:{transaction:{transactionNumber:string}}|null}[]};
 type CorrectionLink={id:string;transactionNumber:string;status:string};
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
@@ -90,7 +90,9 @@ function MoneyFlow({tx}:{tx:Tx}){
   const d=tx.customerLedgerEntry;
   const inbound=d.direction==="PAY_IN";
   const card=d.customerCard?d.customerCard.bankName+" •••• "+d.customerCard.lastFourDigits:"Customer-level / all cards";
-  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Customer ledger movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Manual Pay In / Pay Out entry linked to the customer running card ledger.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label={inbound?"Pay In · Credit":"Pay Out · Debit"} value={(inbound?"+":"−")+money(d.amount)} tone={inbound?"positive":"negative"}/><FlowCard label={inbound?"Received in":"Paid from"} value={d.financialAccount.accountName}/><FlowCard label="Card" value={card}/><FlowCard label="Remarks" value={d.remarks|| (inbound?"Pay In":"Pay Out")} meta={tx.referenceNumber?"Ref "+tx.referenceNumber:undefined}/></div></Surface>;
+  const matched=d.allocations.map(a=>(a.targetType==="PAYABLE"?a.payable?.sourceTransaction.transactionNumber:a.cardDueClearing?.transaction.transactionNumber)).filter(Boolean).join(", ");
+  const meta=[matched?"Matched "+matched:null,tx.referenceNumber?"Ref "+tx.referenceNumber:null].filter(Boolean).join(" · ")||undefined;
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Customer ledger movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Manual Pay In / Pay Out entry linked to the customer running card ledger.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label={inbound?"Pay In · Credit":"Pay Out · Debit"} value={(inbound?"+":"−")+money(d.amount)} tone={inbound?"positive":"negative"}/><FlowCard label={inbound?"Received in":"Paid from"} value={d.financialAccount.accountName}/><FlowCard label="Card" value={card}/><FlowCard label="Remarks" value={d.remarks|| (inbound?"Pay In":"Pay Out")} meta={meta}/></div></Surface>;
  }
  if(tx.accountEntry){
   const d=tx.accountEntry;

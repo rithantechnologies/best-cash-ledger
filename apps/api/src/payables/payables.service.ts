@@ -92,6 +92,14 @@ export class PayablesService {
         },
       },
       payments: { orderBy: { paymentDate: 'desc' as const } },
+      manualLedgerAllocations: {
+        include: {
+          customerLedgerEntry: {
+            include: { financialAccount: true, transaction: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' as const },
+      },
     };
 
     if (!options?.page) {
@@ -144,6 +152,14 @@ export class PayablesService {
             transaction: { include: { charges: true } },
           },
           orderBy: { paymentDate: 'desc' },
+        },
+        manualLedgerAllocations: {
+          include: {
+            customerLedgerEntry: {
+              include: { financialAccount: true, transaction: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
         },
       },
     });

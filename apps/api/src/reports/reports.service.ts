@@ -179,7 +179,7 @@ export class ReportsService {
       microAtm: { include: { cashAccount: true, settlementAccount: true } },
       internalTransfer: { include: { sourceAccount: true, destinationAccount: true } },
       accountEntry: { include: { account: true } },
-      customerLedgerEntry: { include: { customerCard: true, financialAccount: true } },
+      customerLedgerEntry: { include: { customerCard: true, financialAccount: true, allocations: { include: { payable: { include: { sourceTransaction: true } }, cardDueClearing: { include: { transaction: true } } } } } },
       atmWithdrawal: { include: { bankAccount: true, cashAccount: true } },
       creditCardPayment: { include: { creditCardAccount: true, sourceAccount: true } },
     } satisfies Prisma.TransactionInclude;
