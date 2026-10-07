@@ -340,6 +340,55 @@ function AccountMovementDetail({detail,account}:{detail:DrillDetail;account:Acco
   </div>;
 }
 
+function WalletLedgerColumn({title,direction,rows,account,onOpen}:{title:string;direction:"IN"|"OUT";rows:Row[];account:Account;onOpen:(row:Row,isIn:boolean)=>void}){
+  const isIn=direction==="IN";
+  const totalAmount=rows.reduce((sum,row)=>sum+Number(row.amount),0);
+  return <Surface className="overflow-hidden">
+    <div className={"flex items-center justify-between gap-3 border-b px-4 py-3.5 sm:px-5 "+(isIn?"border-emerald-100 bg-emerald-50/60":"border-rose-100 bg-rose-50/60")}>
+      <div>
+        <div className="flex items-center gap-2"><MoneyFlowIcon direction={direction}/><h2 className={"text-sm font-black "+(isIn?"text-emerald-800":"text-rose-800")}>{title}</h2></div>
+        <p className="mt-1 text-[11px] font-semibold text-[var(--text-muted)]">{rows.length} entr{rows.length===1?"y":"ies"} in this period</p>
+      </div>
+      <div className="text-right">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Total</p>
+        <p className={"money mt-0.5 text-base font-black "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(totalAmount)}</p>
+      </div>
+    </div>
+    <div className="hidden grid-cols-[82px_minmax(0,1fr)_108px_92px] gap-2 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 text-[9px] font-black uppercase tracking-[.06em] text-[var(--text-muted)] sm:grid">
+      <span>Date</span><span>Details</span><span className="text-right">Amount</span><span className="text-right">Balance</span>
+    </div>
+    {rows.length?<div className="divide-y divide-[var(--border)]">
+      {rows.map((row)=>{
+        const tx=row.journal.transaction;
+        const summary=movementSummary(tx,row);
+        const presentation=activityPresentation(tx,row,summary);
+        const payoutFee=isIn?0:payoutChargeForAccount(account,tx);
+        const principal=Math.max(0,Number(row.amount)-payoutFee);
+        const activityDate=new Date(ledgerActivityDate(tx));
+        return <button type="button" key={row.id} disabled={!tx.id} onClick={()=>onOpen(row,isIn)} className="grid w-full grid-cols-[72px_minmax(0,1fr)_92px] gap-2 px-3 py-3 text-left transition hover:bg-[var(--surface-soft)] disabled:cursor-default disabled:hover:bg-transparent sm:grid-cols-[82px_minmax(0,1fr)_108px_92px] sm:px-4">
+          <div className="text-[10px] font-semibold leading-4 text-[var(--text-muted)]">
+            <p>{activityDate.toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</p>
+            <p>{activityDate.toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-black text-[var(--text)] sm:text-[13px]">{presentation.name}</p>
+            <p className="mt-0.5 truncate text-[10px] font-bold text-[var(--text)] sm:text-[11px]">{presentation.type}</p>
+            {presentation.details?<p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-[var(--text-muted)]">{presentation.details}</p>:null}
+            {tx.referenceNumber?<p className="mt-1 truncate text-[9px] font-semibold text-[var(--text-muted)]">Ref: {tx.referenceNumber}</p>:null}
+            {tx.status!=="COMPLETED"?<span className={"mt-1 inline-flex rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide "+(tx.status==="REVERSED"?"bg-rose-100 text-rose-700":"bg-amber-100 text-amber-700")}>{nice(tx.status)}</span>:null}
+          </div>
+          <div className="text-right">
+            <p className={"money text-xs font-black sm:text-[13px] "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(isIn?row.amount:principal)}</p>
+            {!isIn&&payoutFee>0?<><p className="mt-1 text-[9px] font-bold text-rose-600">Fee {money(payoutFee)}</p><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Total {money(row.amount)}</p></>:null}
+            <p className="mt-1 text-[9px] font-semibold text-[var(--text-muted)] sm:hidden">Bal. {money(row.runningBalance)}</p>
+          </div>
+          <div className="hidden text-right sm:block"><p className="money text-[11px] font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
+        </button>;
+      })}
+    </div>:<div className="p-5"><EmptyState title={"No "+title+" entries"} description="Nothing to show for this period."/></div>}
+  </Surface>;
+}
+
 function AccountLedgerSkeleton(){
   return <AppShell><PageFrame width="max-w-6xl">
     <div className="space-y-2">
@@ -425,7 +474,7 @@ export default function AccountLedgerPage(){
     if(!query)return statusFiltered;
     return statusFiltered.filter((row)=>{
       const summary=movementSummary(row.journal.transaction,row);
-      return [row.journal.transaction.transactionNumber,row.journal.transaction.customer?.fullName,row.description,summary.primary,summary.secondary]
+      return [row.journal.transaction.transactionNumber,row.journal.transaction.referenceNumber,row.journal.transaction.customer?.fullName,row.description,summary.primary,summary.secondary]
         .filter(Boolean).join(" ").toLowerCase().includes(query);
     });
   },[data,search,txStatusFilter,moneyStatusFilter]);
@@ -498,9 +547,9 @@ export default function AccountLedgerPage(){
 
           {showPayoutCharges?<div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--border)] pt-4 sm:grid-cols-4">
             <div className="min-w-0"><p className="text-[11px] font-semibold text-[var(--text-muted)]">Period opening</p><p className="money mt-1 truncate text-sm font-black">{money(periodOpening)}</p></div>
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-emerald-700">Money in</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Money out</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(movement.out)}</p></div>
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Payout charges</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(payoutChargeTotal)}</p><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Included in Money out</p></div>
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-emerald-700">Pay IN</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Pay OUT</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(movement.out)}</p></div>
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Payout charges</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(payoutChargeTotal)}</p><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Included in Pay OUT</p></div>
           </div>:<div className="mt-4 grid grid-cols-3 divide-x divide-[var(--border)] border-t border-[var(--border)] pt-4">
             <div className="min-w-0 pr-2.5 sm:pr-4"><p className="text-[11px] font-semibold text-[var(--text-muted)]">Period opening</p><p className="money mt-1 truncate text-sm font-black">{money(periodOpening)}</p></div>
             <div className="min-w-0 px-2.5 sm:px-4"><p className="text-[11px] font-semibold text-emerald-700">{isCard?"Added":"Money in"}</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>
@@ -513,7 +562,18 @@ export default function AccountLedgerPage(){
         {([["7d","7 days"],["30d","30 days"],["90d","90 days"],["all","All time"]] as [Range,string][]).map(([value,label])=><button type="button" key={value} onClick={()=>setRange(value)} className={"min-h-10 shrink-0 rounded-full px-3.5 text-xs font-bold transition "+(range===value?"bg-[var(--text)] text-[var(--surface)]":"bg-[var(--surface-soft)] text-[var(--text-muted)]")}>{label}</button>)}
       </div></div>
 
-      <Surface className="overflow-hidden">
+      {showPayoutCharges?<div className="space-y-3">
+        <Surface className="p-3 sm:p-4">
+          <div className="relative">
+            <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+            <input className="app-control !pl-10" value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Search customer, particulars or reference"/>
+          </div>
+        </Surface>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <WalletLedgerColumn title="PAY IN" direction="IN" rows={rows.filter((row)=>increases(data.account,row))} account={data.account} onOpen={openMovement}/>
+          <WalletLedgerColumn title="PAY OUT" direction="OUT" rows={rows.filter((row)=>!increases(data.account,row))} account={data.account} onOpen={openMovement}/>
+        </div>
+      </div>:      <Surface className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
           <div><h2 className="text-sm font-extrabold">Activity</h2><p className="mt-0.5 text-xs text-[var(--text-muted)]">{rows.length} transaction entr{rows.length===1?"y":"ies"}</p></div>
         </div>
@@ -598,7 +658,7 @@ export default function AccountLedgerPage(){
             </button>;
           })}
         </div>:search?<div className="p-5"><EmptyState title="No matching activity" description="Try a different search."/></div>:Math.abs(periodOpening)>0.005?<div className="p-4 sm:p-5"><div className="flex items-center justify-between gap-4 rounded-xl bg-[var(--surface-soft)] px-4 py-3.5"><div><p className="text-sm font-bold">Opening balance</p><p className="mt-0.5 text-xs text-[var(--text-muted)]">No transactions in this period yet.</p></div><strong className="money shrink-0 text-sm">{money(periodOpening)}</strong></div></div>:<div className="p-5"><EmptyState title="No transactions yet" description="Activity will appear here when money moves through this account."/></div>}
-      </Surface>
+      </Surface>}
     </>:null}
     {entryOpen?<Modal open title="New amount entry" onClose={()=>{if(!entrySaving){setEntryOpen(false);resetAccountEntry();}}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={entrySaving} onClick={()=>{setEntryOpen(false);resetAccountEntry();}} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold disabled:opacity-50">Cancel</button><button form="account-amount-entry" disabled={entrySaving||!entryAmount||Number(entryAmount)<=0} className="app-primary-button min-h-11 text-sm font-black disabled:opacity-50">{entrySaving?"Saving…":"Save entry"}</button></div>}>
       <form id="account-amount-entry" onSubmit={submitAccountEntry} className="space-y-4">
