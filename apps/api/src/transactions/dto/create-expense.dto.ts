@@ -19,7 +19,7 @@ export class CompleteExpenseDto {
 }
 
 // Full replacement of user-editable expense fields. Null paymentAccountId makes
-// an expense pending; edits to posted expenses use auditable adjusting journals.
+// an expense pending; posted expense journals are updated in place with before/after audits.
 export class UpdateExpenseDto {
   @IsString() expenseCategoryId!: string;
   @IsNumber() @Min(0.01) amount!: number;

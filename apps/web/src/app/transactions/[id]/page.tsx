@@ -320,7 +320,7 @@ export default function TransactionDetailPage(){
     <p className="mt-1 text-xs text-[var(--text-muted)]">Payee: {tx.expense.payee||"—"} · {tx.expense.description||"Expense"}</p>
    </div><Link href={"/expenses/"+tx.id+"/edit"} className="text-xs font-bold text-[var(--accent)]">Edit / view history →</Link></div>
    {Boolean(tx.expenseAdjustments?.length)?<details className="mt-3 border-t border-[var(--border)] pt-3">
-    <summary className="cursor-pointer text-xs font-bold text-[var(--accent)]">View {tx.expenseAdjustments?.length} ledger adjustment(s)</summary>
+    <summary className="cursor-pointer text-xs font-bold text-[var(--accent)]">View {tx.expenseAdjustments?.length} earlier correction record(s)</summary>
     <div className="mt-3 space-y-2">{tx.expenseAdjustments?.map(a=><div key={a.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs">
      <b>{a.transactionNumber} · {new Date(a.createdAt).toLocaleString("en-IN")}</b>
      <p className="my-1 text-[var(--text-muted)]">{a.notes}</p>

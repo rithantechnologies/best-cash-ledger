@@ -43,7 +43,7 @@ export default function EditExpense(){
  if(loading)return <AppShell><PageLoader label="Loading expense…"/></AppShell>;
  if(!tx?.expense)return <AppShell><div className="mx-auto max-w-3xl p-6"><p className="text-sm text-rose-700">{error||"Expense not found"}</p><Link href="/expenses">Back to expenses</Link></div></AppShell>;
  return <AppShell><form onSubmit={save}><TransactionFrame eyebrow="Expense correction" title={"Edit "+tx.transactionNumber}
-  description="Correct any saved detail. Original entries, journal postings and an audit trail are preserved."
+  description="Update this same expense. Its original business date stays unless you change it; edits appear in the audit history."
   summary={<><SummaryRow label="Amount" value={money(Number(amount)||0)} tone="rose"/><SummaryRow label="Paid from" value={accounts.find(a=>a.id===accountId)?.accountName||"Pending · choose later"}/><SummaryRow label="Originally entered" value={new Date(tx.createdAt).toLocaleString("en-IN")}/></>}
   footer={<div className="grid gap-2 sm:grid-cols-2"><Link href={"/transactions/"+id} className="flex min-h-12 items-center justify-center rounded-xl border border-[var(--border)] text-sm font-bold">Cancel</Link><button disabled={saving||!categoryId||Number(amount)<=0||reason.trim().length<3} className="app-primary-button min-h-12 px-4 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Save all changes"}</button></div>}>
   {error?<p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
@@ -61,7 +61,7 @@ export default function EditExpense(){
   </FormSection>
   <FormSection step="2" title="Correction reason" description="Every change keeps the before/after values, editor and timestamp.">
    <Field label="Reason"><textarea className={ctl+" min-h-20 py-3"} required minLength={3} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Entered rough details; now correcting from the receipt."/></Field>
-   <p className="text-xs leading-5 text-[var(--text-muted)]">Financial corrections use new adjustment journals instead of overwriting posted entries. Corrections to closed cash sessions require the owner.</p>
+   <p className="text-xs leading-5 text-[var(--text-muted)]">The same expense and original posting are updated in place. Audit history records what changed and when. Financial edits affecting a closed cash drawer require reconciliation first.</p>
   </FormSection>
   {history.length>0?<section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"><h2 className="text-sm font-black">Edit history</h2><div className="mt-3 space-y-2">{history.slice(0,20).map(h=><div key={h.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs"><b>{h.action.replaceAll("_"," ")} · {h.editorName}</b><p className="mt-1 text-[var(--text-muted)]">{new Date(h.createdAt).toLocaleString("en-IN")}{h.reason?" · "+h.reason:""}</p>{h.action==="UPDATE_EXPENSE"?<p className="mt-1">Amount: {money(Number(h.oldValues?.amount||0))} → {money(Number(h.newValues?.amount||0))}</p>:null}</div>)}</div></section>:null}
  </TransactionFrame></form></AppShell>;
