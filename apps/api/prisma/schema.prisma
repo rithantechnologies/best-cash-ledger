@@ -1053,6 +1053,7 @@ model ExpenseDetail {
   paymentAccount    FinancialAccount? @relation(fields: [paymentAccountId], references: [id])
   amount            Decimal           @db.Decimal(18, 2)
   description       String?
+  payee             String?
   createdAt         DateTime          @default(now())
 }
 

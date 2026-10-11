@@ -22,7 +22,7 @@ const dateWithCurrentLocalTime=(date:string)=>{
 export default function ExpensePage(){
  const router=useRouter();
  const [accounts,setAccounts]=useState<Account[]>([]),[categories,setCategories]=useState<Category[]>([]);
- const [categoryId,setCategoryId]=useState(""),[amount,setAmount]=useState(""),[expenseDate,setExpenseDate]=useState(localDateValue),[accountId,setAccountId]=useState(""),[notes,setNotes]=useState("");
+ const [categoryId,setCategoryId]=useState(""),[amount,setAmount]=useState(""),[expenseDate,setExpenseDate]=useState(localDateValue),[accountId,setAccountId]=useState(""),[notes,setNotes]=useState(""),[payee,setPayee]=useState("");
  const [showNewCategory,setShowNewCategory]=useState(false),[newCategoryName,setNewCategoryName]=useState(""),[creatingCategory,setCreatingCategory]=useState(false);
  const [error,setError]=useState(""),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
 
@@ -47,7 +47,7 @@ export default function ExpensePage(){
   try{
    await apiFetch("/transactions/expense",{method:"POST",body:JSON.stringify({
     expenseType:"BUSINESS",expenseCategoryId:categoryId,amount:value,
-    transactionAt:dateWithCurrentLocalTime(expenseDate),paymentAccountId:accountId||undefined,description:category?.name||"Expense",notes:notes.trim()||undefined,
+    transactionAt:dateWithCurrentLocalTime(expenseDate),paymentAccountId:accountId||undefined,description:category?.name||"Expense",payee:payee.trim()||undefined,notes:notes.trim()||undefined,
    })});
    router.push("/expenses");
   }catch(err){setError(err instanceof Error?err.message:"Expense failed");}finally{setSaving(false);}
@@ -83,6 +83,7 @@ export default function ExpensePage(){
       {eligibleAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}
      </SearchableSelect>
     </Field>
+    <Field label="Paid to / payee (optional)"><input className={control} value={payee} onChange={e=>setPayee(e.target.value)} placeholder="Vendor, person or company"/></Field>
     <Field label="Note (optional)"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Add a note"/></Field>
    </div>
   </FormSection>
