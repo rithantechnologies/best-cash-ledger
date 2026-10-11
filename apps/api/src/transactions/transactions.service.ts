@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountNature, AccountType, CalculationType, CommissionMethod, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
+import { AccountNature, AccountType, CalculationType, CommissionMethod, CustomerType, EntryType, JournalStatus, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
@@ -3803,23 +3803,9 @@ export class TransactionsService {
         throw new BadRequestException('Expense payment account has no ledger');
       }
       for (const account of [oldAccount, newAccount]) {
-        if (!account) continue;
-        if (account.accountType === AccountType.CASH) {
-          if (account.accountName === 'Main Cash Reserve' && role !== RoleName.OWNER) {
-            throw new ForbiddenException('Main Cash Reserve is owner-only');
-          }
-          const historicalClose = await tx.cashSession.findFirst({
-            where: { cashAccountId: account.id, status: 'CLOSED',
-              OR: [
-                { openedAt: { lte: original.journal?.postingDate ?? original.transactionAt },
-                  closedAt: { gte: original.journal?.postingDate ?? original.transactionAt } },
-                { openedAt: { lte: date }, closedAt: { gte: date } },
-              ] },
-            select: { id: true },
-          });
-          if (historicalClose && role !== RoleName.OWNER) {
-            throw new ForbiddenException('This expense affects a closed cash session. Owner approval is required to correct it.');
-          }
+        if (account?.accountType === AccountType.CASH &&
+            account.accountName === 'Main Cash Reserve' && role !== RoleName.OWNER) {
+          throw new ForbiddenException('Main Cash Reserve is owner-only');
         }
       }
       if (newAccount) {
@@ -3842,6 +3828,27 @@ export class TransactionsService {
         ? priceAgain ? this.money(configuredCharge?.amount ?? 0) : oldFee
         : 0;
       const financialChanged = paymentChanged || amountChanged || Math.abs(newFee - oldFee) > 0.001;
+      const dateChanged = date.getTime() !== original.transactionAt.getTime();
+      const journalChanged = financialChanged || dateChanged;
+      // Earlier versions created EXA correction transactions. On the next edit,
+      // fold their net balance into the original journal and deactivate their
+      // postings. Keep those historical rows and the full audit trail intact.
+      const amendments = journalChanged && original.journal
+        ? await tx.transaction.findMany({
+            where: { reversedTransactionId: id, transactionNumber: { startsWith: 'EXA-' },
+              status: TransactionStatus.COMPLETED },
+            include: { journal: { include: { entries: true } } },
+          }) : [];
+      if (amendments.some(amendment => !amendment.journal)) {
+        throw new BadRequestException('Expense correction history is incomplete; contact the owner');
+      }
+      const previousJournal = original.journal ? {
+        id: original.journal.id, postingDate: original.journal.postingDate.toISOString(),
+        status: original.journal.status,
+        entries: original.journal.entries.map(entry => ({ id: entry.id,
+          ledgerAccountId: entry.ledgerAccountId, entryType: entry.entryType,
+          amount: entry.amount.toString(), description: entry.description })),
+      } : null;
       const oldValues = {
         amount: oldAmount, expenseCategoryId: original.expense.expenseCategoryId,
         expenseType: original.expense.expenseType, paymentAccountId: oldAccountId,
@@ -3883,58 +3890,134 @@ export class TransactionsService {
             amount: this.money(value + fee), description: 'Expense payment: ' + label },
         ];
       };
-      let adjustmentId: string | null = null;
-      if (financialChanged) {
-        // Check only the extra outflow: edits to a paid amount must not demand
-        // the full replacement sum when the old debit is already on the ledger.
+      if (journalChanged) {
+        // Reclassify the original transaction itself, not a new dated transaction.
+        // Editing on 11 October never changes an expense dated 5 October into
+        // an 11 October expense. Only an explicit date edit changes postingDate.
         const extra = this.money(amount + newFee -
           (oldAccountId === paymentAccountId ? oldAmount + oldFee : 0));
-        if (newAccount && extra > 0) {
+        if (newAccount && extra > 0 && financialChanged) {
           if (newAccount.accountType === AccountType.OWNER_CREDIT_CARD) {
             await this.validation.ensureCreditCapacity(tx, newAccount, extra);
           } else {
             await this.validation.ensureSufficientFunds(tx, newAccount, extra);
           }
         }
-        // Both the original and corrected cash drawer may receive a ledger
-        // adjustment. Record such movement only while its drawer is open.
-        for (const cashAccountId of [...new Set([oldAccount, newAccount]
-          .filter(account => account?.accountType === AccountType.CASH)
-          .map(account => account!.id))]) {
-          await this.validation.requireOpenCashDesk(tx, cashAccountId, 'Edited cash expense');
+        if (oldAccount?.accountType === AccountType.OWNER_CREDIT_CARD && financialChanged) {
+          const reduction = this.money(oldAmount + oldFee -
+            (oldAccountId === paymentAccountId ? amount + newFee : 0));
+          if (reduction > 0) {
+            const outstanding = await this.validation.balance(tx, oldAccount);
+            if (outstanding + 0.001 < reduction) {
+              throw new BadRequestException('Cannot reduce this credit-card expense below the already-settled outstanding balance');
+            }
+          }
         }
         const previous = entriesFor(oldAccount, oldAmount, oldFee, original.expense.description || 'Expense');
         const replacement = entriesFor(newAccount, amount, newFee, description);
-        if (!original.journal) {
-          if (previous.length || oldAccount) throw new BadRequestException('Expense ledger is inconsistent');
-          if (replacement.length) await this.ledger.post(tx, original.id, userId,
-            'Expense payment added: ' + original.transactionNumber, replacement, date);
-        } else {
-          // Never rewrite a posted journal: book the old posting's reversal and
-          // the corrected one together, at correction time. Closed cash counts stay frozen.
-          const amendments: JournalEntry[] = [
-            ...previous.map(entry => ({ ...entry,
-              entryType: entry.entryType === EntryType.DEBIT ? EntryType.CREDIT : EntryType.DEBIT,
-              description: 'Undo previous expense: ' + (entry.description ?? '') })),
-            ...replacement,
-          ];
-          if (amendments.length) {
-            const correction = await tx.transaction.create({ data: {
-              transactionNumber: 'EXA-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
-              transactionType: TransactionType.REVERSAL,
-              transactionAt: new Date(),
-              grossAmount: new Prisma.Decimal(amount),
-              netAmount: new Prisma.Decimal(amount),
-              status: TransactionStatus.COMPLETED,
-              reversedTransactionId: original.id,
-              referenceNumber: original.transactionNumber,
-              notes: 'Expense correction: ' + reason,
-              createdById: userId,
-            } });
-            await this.ledger.post(tx, correction.id, userId,
-              'Expense adjustment for ' + original.transactionNumber, amendments);
-            adjustmentId = correction.id;
+        if (!original.journal && (previous.length || oldAccount)) {
+          throw new BadRequestException('Expense ledger is inconsistent');
+        }
+        if (original.journal && original.journal.status !== JournalStatus.POSTED &&
+            original.journal.status !== JournalStatus.REVERSED) {
+          throw new BadRequestException('Unexpected expense journal status');
+        }
+        if (original.journal?.entries.some(entry =>
+          entry.customerId || entry.payableId || entry.receivableId || entry.providerSettlementId)) {
+          throw new BadRequestException('Cannot edit an expense journal with linked allocations');
+        }
+        // In-place ledger changes would retroactively alter a closed drawer's
+        // reconciled balance. Require a separate owner reconciliation for that
+        // exceptional case; never silently rewrite a closed cash session.
+        const touchedLedgerIds = [...new Set([
+          ...(original.journal?.status === JournalStatus.POSTED
+            ? original.journal.entries.map(entry => entry.ledgerAccountId) : []),
+          ...amendments.filter(a => a.journal?.status === JournalStatus.POSTED)
+            .flatMap(a => a.journal!.entries.map(entry => entry.ledgerAccountId)),
+          ...replacement.map(entry => entry.ledgerAccountId),
+        ])];
+        const touchedCashAccounts = await tx.financialAccount.findMany({
+          where: { accountType: AccountType.CASH,
+            ledgerAccount: { id: { in: touchedLedgerIds } } },
+          select: { id: true, accountName: true },
+        });
+        for (const account of touchedCashAccounts) {
+          if (account.accountName === 'Main Cash Reserve' && role !== RoleName.OWNER) {
+            throw new ForbiddenException('Main Cash Reserve is owner-only');
           }
+          const closedSession = await tx.cashSession.findFirst({
+            where: { cashAccountId: account.id, status: 'CLOSED',
+              OR: [
+                { openedAt: { lte: original.journal?.postingDate ?? original.transactionAt },
+                  closedAt: { gte: original.journal?.postingDate ?? original.transactionAt } },
+                { openedAt: { lte: date }, closedAt: { gte: date } },
+                ...amendments.filter(a => a.journal).map(a => ({
+                  openedAt: { lte: a.journal!.postingDate },
+                  closedAt: { gte: a.journal!.postingDate },
+                })),
+              ] },
+            select: { id: true },
+          });
+          if (closedSession) {
+            throw new BadRequestException('This financial edit would change a closed cash session. The owner must reconcile that session before this cash correction. Other expense fields can still be edited.');
+          }
+          await this.validation.requireOpenCashDesk(tx, account.id, 'Edited cash expense');
+          const coversOriginalDate = await tx.cashSession.findFirst({
+            where: { cashAccountId: account.id, status: 'OPEN', openedAt: { lte: date } },
+            select: { id: true },
+          });
+          if (!coversOriginalDate) {
+            throw new BadRequestException('The expense business date is before the currently open cash session. Reconcile the earlier cash day before changing its payment amount or drawer.');
+          }
+        }
+        if (!original.journal) {
+          if (replacement.length) {
+            await this.ledger.post(tx, original.id, userId,
+              'Expense payment: ' + original.transactionNumber, replacement, date);
+          }
+        } else {
+          // Existing EXA journals remain as audit evidence but stop contributing
+          // to balances, since the original journal now holds the final amounts.
+          for (const amendment of amendments) {
+            if (amendment.journal?.status === JournalStatus.POSTED) {
+              await tx.ledgerJournal.update({
+                where: { id: amendment.journal.id }, data: { status: JournalStatus.REVERSED },
+              });
+            }
+          }
+          if (replacement.length) {
+            await tx.ledgerEntry.deleteMany({ where: { journalId: original.journal.id } });
+            await tx.ledgerEntry.createMany({ data: replacement.map(entry => ({
+              journalId: original.journal!.id, ledgerAccountId: entry.ledgerAccountId,
+              entryType: entry.entryType, amount: new Prisma.Decimal(entry.amount),
+              description: entry.description ?? null,
+            })) });
+          }
+          // With no payment source, retain the original journal as REVERSED;
+          // reselecting a source later reuses that very same journal ID.
+          await tx.ledgerJournal.update({ where: { id: original.journal.id }, data: {
+            status: replacement.length ? JournalStatus.POSTED : JournalStatus.REVERSED,
+            postingDate: date,
+            description: 'Expense: ' + description,
+          } });
+        }
+      }
+      if (!journalChanged && original.journal?.status === JournalStatus.POSTED &&
+          description !== (original.expense.description || 'Expense')) {
+        // A description-only edit changes the visible ledger narration in the
+        // same original journal, without generating a financial movement.
+        await tx.ledgerJournal.update({
+          where: { id: original.journal.id }, data: { description: 'Expense: ' + description },
+        });
+        await tx.ledgerEntry.updateMany({
+          where: { journalId: original.journal.id, ledgerAccountId: expenseLedger!.id },
+          data: { description },
+        });
+        if (newAccount?.ledgerAccount) {
+          await tx.ledgerEntry.updateMany({
+            where: { journalId: original.journal.id, ledgerAccountId: newAccount.ledgerAccount.id },
+            data: { description: 'Expense payment: ' + description },
+          });
         }
       }
       if (priceAgain) {
@@ -3964,8 +4047,10 @@ export class TransactionsService {
       } });
       await tx.auditLog.create({ data: {
         userId, entityType: 'TRANSACTION', entityId: id, action: 'UPDATE_EXPENSE',
-        oldValues, newValues: { ...newValues, adjustmentTransactionId: adjustmentId,
-          adjustmentPostingDate: adjustmentId ? new Date().toISOString() : null }, reason,
+        oldValues: { ...oldValues, originalJournal: previousJournal },
+        newValues: { ...newValues,
+          originalTransactionId: id, journalChanged,
+          historicalAdjustmentsConsolidated: amendments.map(a => a.id) }, reason,
       } });
       return updated;
     });
@@ -5453,7 +5538,7 @@ export class TransactionsService {
   async deleteTransaction(id: string, dto: ReverseTransactionDto, userId: string) {
     const original = await this.prisma.transaction.findUnique({
       where: { id },
-      include: { expense: true, journal: { select: { id: true } } },
+      include: { expense: true, journal: { select: { id: true, status: true } } },
     });
     if (!original) throw new NotFoundException('Transaction not found');
 
@@ -5462,7 +5547,7 @@ export class TransactionsService {
     if (
       original.expense &&
       original.status === TransactionStatus.PENDING &&
-      !original.journal
+      (!original.journal || original.journal.status === JournalStatus.REVERSED)
     ) {
       return this.prisma.$transaction(async (tx) => {
         const updated = await tx.transaction.update({
@@ -5625,7 +5710,7 @@ export class TransactionsService {
         );
       }
 
-      if (!original.journal) {
+      if (!original.journal || original.journal.status !== JournalStatus.POSTED) {
         throw new BadRequestException('Transaction has no posted journal to reverse');
       }
 
@@ -5662,9 +5747,9 @@ export class TransactionsService {
         }
       }
 
-      // Expense edits append balancing amendment journals rather than altering
-      // the original posting. A later reversal must undo the entire net expense,
-      // including every amendment, exactly once.
+      // New edits update the original expense journal in place. Historical EXA
+      // amendments (if any) are counted only when still POSTED, so reversals
+      // never double-count a consolidated correction.
       let effectiveEntries: JournalEntry[] = original.journal.entries.map(entry => ({
         ledgerAccountId: entry.ledgerAccountId, entryType: entry.entryType,
         amount: Number(entry.amount), customerId: entry.customerId ?? undefined,
@@ -5681,7 +5766,8 @@ export class TransactionsService {
         });
         const totals = new Map<string, number>();
         for (const entry of [ ...original.journal.entries,
-          ...amendments.flatMap(amendment => amendment.journal?.entries ?? []) ]) {
+          ...amendments.filter(amendment => amendment.journal?.status === JournalStatus.POSTED)
+            .flatMap(amendment => amendment.journal?.entries ?? []) ]) {
           totals.set(entry.ledgerAccountId, this.money((totals.get(entry.ledgerAccountId) ?? 0) +
             (entry.entryType === EntryType.DEBIT ? 1 : -1) * Number(entry.amount)));
         }
