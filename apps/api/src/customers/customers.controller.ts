@@ -42,11 +42,6 @@ export class CustomersController {
     });
   }
 
-  @Get('autocomplete')
-  autocomplete(@Query('q') q = '', @Query('field') field = 'name') {
-    return this.customers.autocomplete(q, field);
-  }
-
   @Get(':id/quick-entry-profile')
   quickEntryProfile(@Param('id') id: string) {
     return this.customers.getQuickEntryProfile(id);

@@ -164,33 +164,6 @@ export class CustomersService {
     return this.money(credit - debit);
   }
 
-  // Lightweight, prefix-only lookup for repeat customers at the counter.
-  // Keep this separate from broad directory search so two digits (e.g. 99) work.
-  async autocomplete(q: string, field: string) {
-    const byMobile = field === 'mobile';
-    const query = byMobile ? q.replace(/\D/g, '') : q.trim();
-    if ((field !== 'name' && !byMobile) || query.length < 2 || query.length > 80) return [];
-
-    const where: Prisma.CustomerWhereInput = {
-      isActive: true,
-      ...(byMobile
-        ? {
-            OR: [
-              { mobile: { startsWith: query } },
-              { mobile: { startsWith: '+91' + query } },
-              { mobile: { startsWith: '91' + query } },
-            ],
-          }
-        : { fullName: { startsWith: query, mode: 'insensitive' as const } }),
-    };
-    return this.prisma.customer.findMany({
-      where,
-      select: { id: true, customerCode: true, fullName: true, mobile: true, customerType: true },
-      orderBy: byMobile ? { mobile: 'asc' } : { fullName: 'asc' },
-      take: 100,
-    });
-  }
-
   async list(options?: {
     search?: string;
     page?: number;

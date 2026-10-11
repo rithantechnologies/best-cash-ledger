@@ -5,9 +5,7 @@
 import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { CustomerIdentity, CustomerIdentityAutocomplete } from "@/components/customer-identity-autocomplete";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { SearchSelect } from "@/components/search-select";
@@ -19,11 +17,9 @@ type Customer={
 type Paged={items:Customer[];pagination:{page:number;pageSize:number;total:number;totalPages:number}};
 
 export default function CustomersPage(){
- const router=useRouter();
  const [items,setItems]=useState<Customer[]>([]),[pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
- const [selectedCustomer,setSelectedCustomer]=useState<CustomerIdentity|null>(null);
  const [q,setQ]=useState(""),[sortBy,setSortBy]=useState("createdAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("desc"),[role,setRole]=useState("");
- const [creating,setCreating]=useState(false),[fullName,setFullName]=useState(""),[mobile,setMobile]=useState(""),[customerType,setCustomerType]=useState("REGULAR");
+ const [creating,setCreating]=useState(false),[customerType,setCustomerType]=useState("REGULAR");
  const [addingCard,setAddingCard]=useState(false),[cardCustomerId,setCardCustomerId]=useState(""),[cardBank,setCardBank]=useState(""),[cardLast4,setCardLast4]=useState(""),[cardNickname,setCardNickname]=useState("");
  const [editing,setEditing]=useState<Customer|null>(null),[editName,setEditName]=useState(""),[editMobile,setEditMobile]=useState(""),[editType,setEditType]=useState("REGULAR"),[editNotes,setEditNotes]=useState("");
  const [toggleTarget,setToggleTarget]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
@@ -38,15 +34,14 @@ export default function CustomersPage(){
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
  useEffect(()=>{if(!role)return;const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load customers")),180);return()=>clearTimeout(timer);},[role,q,sortBy,sortDir,pagination.pageSize]);
 
- function openCreate(){setSelectedCustomer(null);setFullName("");setMobile("");setCustomerType("REGULAR");setCreating(true);}
- function pickExisting(customer:CustomerIdentity){
-  setSelectedCustomer(customer);setFullName(customer.fullName);setMobile(customer.mobile||"");setCustomerType(customer.customerType);
- }
  async function submit(e:FormEvent){
   e.preventDefault();
-  if(selectedCustomer){setCreating(false);router.push("/customers/"+selectedCustomer.id);return;}
+  // Read the actual input values; native browser autofill can populate fields without React change events.
+  const formValues=new FormData(e.currentTarget as HTMLFormElement);
+  const fullName=String(formValues.get("customer_name")||"").trim();
+  const mobile=String(formValues.get("customer_mobile")||"").trim();
   setBusy(true);setError("");setMessage("");
-  try{await apiFetch("/customers",{method:"POST",body:JSON.stringify({customerType,fullName,mobile:mobile||undefined})});setFullName("");setMobile("");setSelectedCustomer(null);setCreating(false);setMessage("Customer created.");await load(1);}
+  try{await apiFetch("/customers",{method:"POST",body:JSON.stringify({customerType,fullName,mobile:mobile||undefined})});setCreating(false);setMessage("Customer created.");await load(1);}
   catch(e){setError(e instanceof Error?e.message:"Failed to create customer");}finally{setBusy(false);}
  }
  async function addCard(e:FormEvent){
@@ -72,7 +67,7 @@ export default function CustomersPage(){
 
  return <AppShell><PageFrame>
   <SectionHeading eyebrow="Customer directory" title="Customers" description="Profiles, saved cards and recipient details for repeat counter work."
-   action={<div className="flex gap-2"><button onClick={()=>setAddingCard(true)} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={openCreate} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
+   action={<div className="flex gap-2"><button onClick={()=>setAddingCard(true)} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>setCreating(true)} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
@@ -101,17 +96,12 @@ export default function CustomersPage(){
    </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="customer" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
   </>}
-  <Modal open={creating} title="Add customer" description="Type two letters or mobile digits to find existing customers before adding a new profile." onClose={()=>setCreating(false)}
-   footer={<button form="create-customer" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Creating…":selectedCustomer?"Open existing customer":"Create customer"}</button>}>
-   <form id="create-customer" onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
-    <CustomerIdentityAutocomplete field="name" value={fullName} selected={!!selectedCustomer} required
-      onChange={value=>{setSelectedCustomer(null);setFullName(value);}} onPick={pickExisting}/>
-    <CustomerIdentityAutocomplete field="mobile" value={mobile} selected={!!selectedCustomer}
-      onChange={value=>{setSelectedCustomer(null);setMobile(value);}} onPick={pickExisting}/>
-    {selectedCustomer?<p className="sm:col-span-2 rounded-lg bg-[var(--surface-soft)] px-3 py-2 text-xs text-[var(--text-muted)]">
-     Existing customer found: <strong className="text-[var(--text)]">{selectedCustomer.fullName}</strong>. Open their saved profile rather than creating a duplicate. Edit either field to enter a different customer.
-    </p>:null}
-    <Field label="Customer type" className="sm:col-span-2"><SearchableSelect className={control} value={customerType} onChange={e=>{setSelectedCustomer(null);setCustomerType(e.target.value);}}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></SearchableSelect></Field>
+  <Modal open={creating} title="Add customer" description="Create a reusable customer profile for faster counter work." onClose={()=>setCreating(false)}
+   footer={<button form="create-customer" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Creating…":"Create customer"}</button>}>
+   <form id="create-customer" autoComplete="on" onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
+    <Field label="Customer name"><input className={control} type="text" name="customer_name" autoComplete="name" required/></Field>
+    <Field label="Mobile"><input className={control} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" placeholder="Optional"/></Field>
+    <Field label="Customer type" className="sm:col-span-2"><SearchableSelect className={control} value={customerType} onChange={e=>setCustomerType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></SearchableSelect></Field>
    </form>
   </Modal>
 
