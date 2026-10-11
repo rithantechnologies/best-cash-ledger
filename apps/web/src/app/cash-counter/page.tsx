@@ -325,6 +325,7 @@ export default function CashCounterPage(){
   const [pendingQuickCash,setPendingQuickCash]=useState<QuickCashPending[]>([]);
   const pendingPageSize=30;
   const [pendingPage,setPendingPage]=useState(1);
+  const [pendingListOpen,setPendingListOpen]=useState(false);
   const [completedQuickCashIds,setCompletedQuickCashIds]=useState<string[]>([]);
   const [completePendingId,setCompletePendingId]=useState<string|null>(null);
   const [completeSourceAccountId,setCompleteSourceAccountId]=useState("");
@@ -353,6 +354,7 @@ export default function CashCounterPage(){
     ?{start:(currentPendingPage-1)*pendingPageSize+1,end:Math.min(currentPendingPage*pendingPageSize,pendingQuickCash.length)}
     :{start:0,end:0};
   const goToPendingPage=(page:number)=>setPendingPage(Math.max(1,Math.min(page,pendingPageCount)));
+  const showPendingList=()=>{setPendingListOpen(true);setPendingPage(1);requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}));};
   const completingQuickCash=useMemo(()=>pendingQuickCash.find((item)=>item.id===completePendingId)??null,[pendingQuickCash,completePendingId]);
   const selectedQuickTransferType=useMemo(()=>cashInTransferTypes.find((item)=>item.id===quickTransferTypeId)??null,[cashInTransferTypes,quickTransferTypeId]);
   const quickCommissionValue=Number(quickCommission||0);
@@ -958,7 +960,7 @@ export default function CashCounterPage(){
           {!isClosed?<div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"IN"}))} className="min-h-10 rounded-xl bg-emerald-500 px-3.5 text-xs font-black text-white shadow-sm sm:px-4">↓ Cash In</button>
             <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"OUT"}))} className="min-h-10 rounded-xl bg-rose-500 px-3.5 text-xs font-black text-white shadow-sm sm:px-4">↑ Cash Out</button>
-            <QuickCashRushEntryV2 cashAccountId={today.cashAccountId} onSaved={()=>load(today.cashAccountId)} pendingTransactionIds={pendingQuickCash.map((item)=>item.id)} completedTransactionIds={completedQuickCashIds} onCompleteTransaction={openPendingCompletionById} onShowPending={()=>requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}))}/>
+            <QuickCashRushEntryV2 cashAccountId={today.cashAccountId} onSaved={()=>load(today.cashAccountId)} pendingTransactionIds={pendingQuickCash.map((item)=>item.id)} completedTransactionIds={completedQuickCashIds} onCompleteTransaction={openPendingCompletionById} onShowPending={showPendingList}/>
 
           </div>:null}
         </div>
@@ -1165,9 +1167,10 @@ export default function CashCounterPage(){
       </Surface>
       </>}
 
-      {pendingQuickCash.length?<Surface className="scroll-mt-24 overflow-hidden">
+      {pendingQuickCash.length&&pendingListOpen?<Surface className="scroll-mt-24 overflow-hidden">
         <div id="pending-cash" className="scroll-mt-24 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5">
           <div className="flex items-center gap-2"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
+          <button type="button" aria-label="Close pending list" onClick={()=>setPendingListOpen(false)} className="ml-auto min-h-9 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-muted)]">Close ×</button>
           <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]"><span>Showing {pendingRange.start}–{pendingRange.end} of {pendingQuickCash.length}</span>{pendingQuickCash.length>pendingPageSize?<><button type="button" disabled={currentPendingPage<=1} onClick={()=>goToPendingPage(currentPendingPage-1)} className="min-h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 font-black text-[var(--text)] disabled:opacity-35">Previous</button><span className="min-w-[76px] text-center font-black text-[var(--text)]">Page {currentPendingPage} / {pendingPageCount}</span><button type="button" disabled={currentPendingPage>=pendingPageCount} onClick={()=>goToPendingPage(currentPendingPage+1)} className="min-h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 font-black text-[var(--text)] disabled:opacity-35">Next</button></>:null}</div>
         </div>
         <div className="overflow-x-auto">
@@ -1311,7 +1314,7 @@ export default function CashCounterPage(){
                 <div className={"rounded-xl p-3 "+(Math.abs(previewDifference)>.005?"bg-rose-50":"bg-emerald-50")}><p className={"text-xs font-bold uppercase "+(Math.abs(previewDifference)>.005?"text-rose-600":"text-emerald-700")}>Difference</p><p className={"money mt-1 text-sm font-black "+(Math.abs(previewDifference)>.005?"text-rose-700":"text-emerald-700")}>{money(previewDifference)}</p></div>
               </div>
               {pendingQuickCash.length?<div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
-                <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black text-amber-900">{pendingQuickCash.length} transaction{pendingQuickCash.length===1?"":"s"} still need completion</p><p className="mt-0.5 text-[12px] font-semibold text-amber-800">You can close anyway, but these transactions will remain pending.</p></div><button type="button" onClick={()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"})} className="min-h-9 shrink-0 rounded-lg bg-amber-500 px-3 text-[10px] font-black text-white">Review</button></div>
+                <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black text-amber-900">{pendingQuickCash.length} transaction{pendingQuickCash.length===1?"":"s"} still need completion</p><p className="mt-0.5 text-[12px] font-semibold text-amber-800">You can close anyway, but these transactions will remain pending.</p></div><button type="button" onClick={showPendingList} className="min-h-9 shrink-0 rounded-lg bg-amber-500 px-3 text-[10px] font-black text-white">Review</button></div>
               </div>:null}
               {Math.abs(previewDifference)>.005?<div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
                 <p className="text-sm font-black text-rose-700">NOT READY TO CLOSE</p>
@@ -1342,7 +1345,7 @@ export default function CashCounterPage(){
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] font-bold text-amber-900">Recommended: review pending work before closing whenever possible.</div>
         </div>
         <div className="grid gap-2 border-t border-[var(--border)] bg-[var(--surface-soft)] p-4 sm:grid-cols-2">
-          <button type="button" onClick={()=>{setPendingCloseConfirm(false);requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}));}} className="min-h-11 rounded-xl bg-amber-500 px-4 text-sm font-black text-white">Review pending</button>
+          <button type="button" onClick={()=>{setPendingCloseConfirm(false);showPendingList();}} className="min-h-11 rounded-xl bg-amber-500 px-4 text-sm font-black text-white">Review pending</button>
           <button type="button" disabled={saving} onClick={()=>{setPendingCloseConfirm(false);void performCloseCounter();}} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-black text-[var(--text)] disabled:opacity-40">{saving?"Closing…":"Close anyway"}</button>
         </div>
       </div>
@@ -1670,11 +1673,11 @@ export default function CashCounterPage(){
     {pendingQuickCash.length>0&&!completePendingId?<button
       type="button"
       aria-label={"Complete pending transactions, "+pendingQuickCash.length+" remaining"}
-      onClick={()=>{setPendingPage(1);document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"});}}
+      onClick={()=>{if(pendingListOpen){setPendingListOpen(false);}else{showPendingList();}}}
       className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-40 inline-flex min-h-14 items-center gap-2.5 rounded-full bg-amber-400 px-4 py-3 text-sm font-black text-amber-950 shadow-[0_10px_35px_rgba(0,0,0,.24)] ring-2 ring-white/80 transition hover:bg-amber-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 active:scale-[.98] sm:bottom-6 sm:right-6"
     >
       <span aria-hidden="true" className="text-lg leading-none">✓</span>
-      <span>Complete pending</span>
+      <span>{pendingListOpen?"Hide pending":"Complete pending"}</span>
       <span className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-amber-950 px-1.5 text-xs text-white">{pendingQuickCash.length}</span>
     </button>:null}
 
