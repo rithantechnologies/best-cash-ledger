@@ -26,7 +26,8 @@ type Customer={
 type CardLedgerCard={id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean;label:string};
 type CardLedgerRow={id:string;at:string;kind:"CARD_SWIPE"|"CUSTOMER_PAYOUT"|"CARD_DUE_PAYMENT"|"CARD_DUE_RECOVERY"|"PAY_IN"|"PAY_OUT";remarks:string;detail:string;debit:number;credit:number;closingBalance:number;cardId:string|null;cardLabel:string;transactionId:string;transactionNumber:string;referenceNumber:string|null};
 type CardLedgerOpenItem={targetType:"PAYABLE"|"CARD_DUE";targetId:string;sourceKind:"CARD_SWIPE"|"EXCESS_RECOVERY"|"CARD_DUE";transactionId:string;transactionNumber:string;transactionAt:string;dueAt:string;originalAmount:number;remainingAmount:number;cardId:string;cardLabel:string;label:string};
-type CardLedger={customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;openPayOutItems:CardLedgerOpenItem[];openPayInItems:CardLedgerOpenItem[];totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
+type Advance={id:string;customerCardId:string|null;amount:number;applied:number;remaining:number;transactionId:string;transactionNumber:string;date:string;source:string};
+type CardLedger={availableAdvances:Advance[];customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;openPayOutItems:CardLedgerOpenItem[];openPayInItems:CardLedgerOpenItem[];totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
 type EditState={kind:"card";item:Card}|{kind:"bank";item:Bank}|{kind:"upi";item:Upi}|{kind:"beneficiary";item:Beneficiary}|{kind:"beneficiaryAccount";item:BAccount}|null;
 type AddKind="bank"|"upi"|"beneficiary"|"beneficiaryAccount"|null;
 type ToggleTarget={path:string;isActive:boolean;label:string}|null;
@@ -187,6 +188,10 @@ export default function CustomerDetailPage(){
     </div>
    </div>
    {ledgerError?<div className="border-b border-rose-100 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{ledgerError}</div>:null}
+   {cardLedger?.availableAdvances?.length?<div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50/70 px-4 py-3">
+    <div><p className="text-xs font-bold text-indigo-800">Earlier Pay Out available: {money(cardLedger.availableAdvances.reduce((sum,a)=>sum+a.remaining,0))}</p><p className="mt-1 text-[11px] text-indigo-700">Already sent to the customer. Apply to a later card swipe without paying again.</p></div>
+    {cardLedger.openPayOutItems.some(item=>item.sourceKind==="CARD_SWIPE")?<Link href={"/payables/"+cardLedger.openPayOutItems.find(item=>item.sourceKind==="CARD_SWIPE")?.targetId} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-indigo-700">Apply to swipe →</Link>:null}
+   </div>:null}
    {ledgerLoading?<div className="p-5 text-sm font-semibold text-[var(--text-muted)]">Loading card ledger…</div>:cardLedger?.rows.length?<>
     <div className="grid grid-cols-1 gap-2 border-b border-[var(--border)] p-3 sm:grid-cols-3 sm:p-4">
      <div className="rounded-xl bg-rose-50 px-3 py-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-rose-600">Total Debit · Out</p><p className="money mt-1 text-lg font-black text-rose-700">{money(cardLedger.totals.debit)}</p></div>

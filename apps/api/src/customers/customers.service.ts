@@ -1366,12 +1366,32 @@ export class CustomersService {
       }))
       .sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime() || new Date(a.transactionAt).getTime() - new Date(b.transactionAt).getTime());
 
+    const availableAdvances = manualEntries
+      .filter(entry =>
+        entry.direction === 'PAY_OUT' &&
+        entry.transaction.status === TransactionStatus.COMPLETED &&
+        (!cardId || !entry.customerCardId || entry.customerCardId === cardId),
+      )
+      .map(entry => ({
+        id: entry.id,
+        customerCardId: entry.customerCardId,
+        amount: money(Number(entry.receivableAmount)),
+        applied: money(Number(entry.advanceAppliedAmount)),
+        remaining: money(Number(entry.receivableAmount) - Number(entry.advanceAppliedAmount)),
+        transactionId: entry.transaction.id,
+        transactionNumber: entry.transaction.transactionNumber,
+        date: entry.transaction.transactionAt.toISOString(),
+        source: entry.financialAccount.accountName,
+      }))
+      .filter(entry => entry.remaining > 0.001);
+
     return {
       customer: {
         id: customer.id,
         fullName: customer.fullName,
         mobile: customer.mobile,
       },
+      availableAdvances,
       cards: customer.cards.map((card) => ({
         ...card,
         label:

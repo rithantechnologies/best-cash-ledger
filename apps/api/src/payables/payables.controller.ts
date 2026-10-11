@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CreatePayablePaymentDto } from './dto/create-payable-payment.dto.js';
+import { CreateAdvanceOffsetDto } from './dto/create-advance-offset.dto.js';
 import { CancelPayableDto } from './dto/cancel-payable.dto.js';
 import { PayablesService } from './payables.service.js';
 
@@ -46,6 +47,19 @@ export class PayablesController {
     @Headers('idempotency-key') key?: string,
   ) {
     return this.payables.pay(id, dto, req.user.userId, req.user.role, key);
+  }
+
+  @Post(':id/advance-offsets')
+  applyAdvance(@Param('id') id: string, @Body() dto: CreateAdvanceOffsetDto,
+    @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.payables.applyAdvance(id, dto, req.user.userId, key);
+  }
+
+  @Post(':id/advance-offsets/:offsetId/reverse')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  reverseAdvance(@Param('id') id: string, @Param('offsetId') offsetId: string,
+    @Body() dto: CancelPayableDto, @Req() req: any) {
+    return this.payables.reverseAdvance(id, offsetId, dto.reason, req.user.userId);
   }
 
   @Post(':id/cancel')

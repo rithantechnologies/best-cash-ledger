@@ -15,11 +15,22 @@ type Payment={
 };
 type BankDestination={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type UpiDestination={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
+type Advance={
+ id:string;remainingAdvance:number;receivableAmount:string;advanceAppliedAmount:string;
+ remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;
+ financialAccount:{accountName:string;accountType:string};
+ transaction:{id:string;transactionNumber:string;transactionAt:string};
+};
+type AdvanceOffset={
+ id:string;amount:string;notes:string|null;createdAt:string;reversedAt:string|null;
+ advanceEntry:{id:string;remarks:string;financialAccount:{accountName:string};transaction:{id:string;transactionNumber:string;transactionAt:string}};
+ transaction:{id:string;transactionNumber:string;status:string};
+};
 type Payable={
- id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;createdAt:string;
+ id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;createdAt:string;
  customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[]};paymentTerm:{name:string}|null;
  sourceTransaction:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;referenceNumber:string|null;notes:string|null;status:string;cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}|null}|null;providerSettlementSource:{status?:string}|null;charges:{amount:string}[];commissions:{amount:string}[]};
- payments:Payment[];manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{amount:string;remarks:string;financialAccount:{accountName:string;accountType:string};transaction:{id:string;transactionNumber:string;transactionAt:string;referenceNumber:string|null;charges:{amount:string}[]}}}[];createdBy:{id:string;fullName:string}|null;
+ payments:Payment[];advanceOffsets:AdvanceOffset[];availableAdvances:Advance[];manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{amount:string;remarks:string;financialAccount:{accountName:string;accountType:string};transaction:{id:string;transactionNumber:string;transactionAt:string;referenceNumber:string|null;charges:{amount:string}[]}}}[];createdBy:{id:string;fullName:string}|null;
 };
 type Audit={id:string;action:string;reason:string|null;createdAt:string;oldValues:unknown;newValues:unknown;user:{fullName:string}|null};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null};
@@ -38,12 +49,16 @@ export default function PayableDetailPage(){
  const backLabel=searchParams.get("from")==="dues"?"Dues":"Payables";
  const [item,setItem]=useState<Payable|null>(null),[audit,setAudit]=useState<Audit[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[providers,setProviders]=useState<Provider[]>([]),[error,setError]=useState("");
  const [payOpen,setPayOpen]=useState(false),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState(""),[busy,setBusy]=useState(false);
+ const [advanceOpen,setAdvanceOpen]=useState(false),[advanceId,setAdvanceId]=useState(""),[advanceAmount,setAdvanceAmount]=useState(""),[advanceNotes,setAdvanceNotes]=useState(""),[role,setRole]=useState("");
  const control="app-control";
  function load(){return apiFetch<Payable>("/payables/"+id).then(x=>{setItem(x);return Promise.all([apiFetch<Audit[]>("/audit?entityType=CUSTOMER_PAYABLE&entityId="+id).then(setAudit).catch(()=>{}),apiFetch<Account[]>("/dashboard/accounts").then(setAccounts),apiFetch<Provider[]>("/providers").then(setProviders)]);});}
- useEffect(()=>{load().catch(e=>setError(e instanceof Error?e.message:"Failed to load payable"));},[id]);
+ useEffect(()=>{
+  try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}
+  load().catch(e=>setError(e instanceof Error?e.message:"Failed to load payable"));
+ },[id]);
  if(!item)return <AppShell><PageLoader label="Loading payable…"/></AppShell>;
 
- const progress=Math.min(100,Math.max(0,Number(item.paidAmount)/Math.max(1,Number(item.originalAmount))*100));
+ const progress=Math.min(100,Math.max(0,(Number(item.paidAmount)+Number(item.offsetAmount||0))/Math.max(1,Number(item.originalAmount))*100));
  const providerCharge=item.sourceTransaction.charges.reduce((s,x)=>s+Number(x.amount),0);
  const commission=item.sourceTransaction.commissions.reduce((s,x)=>s+Number(x.amount),0);
  const payoutCharges=item.payments.filter(p=>p.status==="COMPLETED").reduce((sum,p)=>sum+p.transaction.charges.reduce((chargeSum,x)=>chargeSum+Number(x.amount),0),0)+item.manualLedgerAllocations.reduce((sum,a)=>sum+allocatedCharge(a.amount,a.customerLedgerEntry.amount,a.customerLedgerEntry.transaction.charges),0);
@@ -59,6 +74,36 @@ export default function PayableDetailPage(){
  const autoPayoutCharge=configuredPayoutCharge(providers,sourceAccount,payoutAmount);
  const payoutCharge=walletSource?(autoPayoutCharge===null?Number(charge||0):autoPayoutCharge):0;
  const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
+ const chosenAdvance=item.availableAdvances?.find(a=>a.id===advanceId);
+ const requestedAdvance=Number(advanceAmount||0);
+ const maxAdvance=Math.min(Number(item.remainingAmount),chosenAdvance?.remainingAdvance||0);
+ const canApplyAdvance=!!chosenAdvance&&requestedAdvance>0&&requestedAdvance<=maxAdvance+.001;
+ function openAdvance(){
+  if(!item)return;
+  const first=item.availableAdvances?.[0];setAdvanceId(first?.id||"");
+  setAdvanceAmount(first?Math.min(first.remainingAdvance,Number(item.remainingAmount)).toFixed(2):"");
+  setAdvanceNotes("");setAdvanceOpen(true);
+ }
+ async function applyAdvance(e:FormEvent){
+  e.preventDefault();if(!item||!canApplyAdvance||busy)return;
+  setBusy(true);setError("");
+  try{
+   await apiFetch("/payables/"+item.id+"/advance-offsets",{method:"POST",body:JSON.stringify({advanceEntryId:advanceId,amount:requestedAdvance,notes:advanceNotes||undefined})});
+   setAdvanceOpen(false);await load();
+  }catch(err){setError(err instanceof Error?err.message:"Could not apply previous Pay Out");}
+  finally{setBusy(false);}
+ }
+ async function reverseAdvance(offset:AdvanceOffset){
+  if(!item||busy)return;
+  const reason=window.prompt("Reason to reverse the "+money(offset.amount)+" advance adjustment?");
+  if(!reason||reason.trim().length<3)return;
+  setBusy(true);setError("");
+  try{
+   await apiFetch("/payables/"+item.id+"/advance-offsets/"+offset.id+"/reverse",{method:"POST",body:JSON.stringify({reason:reason.trim()})});
+   await load();
+  }catch(err){setError(err instanceof Error?err.message:"Could not reverse advance adjustment");}
+  finally{setBusy(false);}
+ }
  const canPay=Number(item.remainingAmount)>0&&!["PAID","CANCELLED","REVERSED"].includes(item.status);
  async function submitPayment(e:FormEvent){e.preventDefault();if(!item||!canPay||!source)return;setBusy(true);setError("");try{await apiFetch("/payables/"+item.id+"/payments",{method:"POST",body:JSON.stringify({amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,destinationType,destinationId,referenceNumber:reference||undefined,notes:notes||undefined})});setPayOpen(false);setAmount("");setCharge("");setSource("");setDestination("");setReference("");setNotes("");await load();}catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}}
  function openPayment(){if(!item)return;setAmount(item.remainingAmount);setCharge("");setSource("");setDestination("");setReference("");setNotes("");setPayOpen(true);}
@@ -66,14 +111,16 @@ export default function PayableDetailPage(){
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href={backHref} className="text-xs font-bold text-indigo-600">← {backLabel}</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{item.customer.customerCode}</p><h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{item.customer.fullName}</h2><p className="mt-1 text-sm text-slate-500">{serviceLabel(item.sourceTransaction.transactionType)} · {item.sourceTransaction.transactionNumber} · Due {new Date(item.dueAt).toLocaleString("en-IN")}</p></div>
-   <div className="flex items-center gap-2">{canPay?<button type="button" onClick={openPayment} className="app-primary-button min-h-10 px-4 text-xs font-bold">Pay now</button>:null}<StatusBadge tone={statusTone(item.status) as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{item.status.replaceAll("_"," ")}</StatusBadge></div>
+   <div className="flex flex-wrap items-center gap-2">{canPay&&item.sourceTransaction.transactionType==="CARD_SWIPE"&&item.availableAdvances?.length?<button type="button" onClick={openAdvance} className="min-h-10 rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-xs font-bold text-indigo-700">Apply earlier Pay Out</button>:null}{canPay?<button type="button" onClick={openPayment} className="app-primary-button min-h-10 px-4 text-xs font-bold">Pay now</button>:null}<StatusBadge tone={statusTone(item.status) as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{item.status.replaceAll("_"," ")}</StatusBadge></div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
-  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-   <DetailStat label="Original" value={money(item.originalAmount)}/>
-   <DetailStat label="Paid" value={money(item.paidAmount)} tone="emerald"/>
-   <DetailStat label="Remaining" value={money(item.remainingAmount)} tone="amber"/>
+  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+   <DetailStat label="Customer gets" value={money(item.originalAmount)}/>
+   <DetailStat label="Actually paid out" value={money(item.paidAmount)} tone="emerald"/>
+   <DetailStat label="Earlier advance applied" value={money(item.offsetAmount||0)} tone="indigo"/>
+   <DetailStat label="Still to send" value={money(item.remainingAmount)} tone="amber"/>
   </div>
+  {item.sourceTransaction.transactionType==="CARD_SWIPE"&&Number(item.remainingAmount)>0?<p className="text-xs text-[var(--text-muted)]">Send now, send later, split payments, or apply a prior Pay Out. No second payment is made when an earlier advance is applied.</p>:null}
 
   <Surface className="p-4 sm:p-5">
    <div className="flex items-center justify-between text-xs"><strong>Payout progress</strong><span className="font-bold text-slate-500">{progress.toFixed(0)}%</span></div>
@@ -91,11 +138,32 @@ export default function PayableDetailPage(){
    <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Date</th><th>Transaction</th><th>Paid to</th><th>Paid from</th><th>Amount</th><th>Charge</th><th>Reference</th><th>Operator</th><th>Status</th></tr></thead><tbody>{item.payments.map(p=><tr key={p.id} className="border-t border-slate-100"><td className="px-5 py-3 text-xs">{new Date(p.paymentDate).toLocaleString("en-IN")}</td><td>{p.transaction.transactionNumber}</td><td><p className="font-semibold">{p.destinationLabel||"Not recorded"}</p>{p.destinationReference?<p className="mt-0.5 text-[10px] text-slate-400">{p.destinationReference}</p>:null}</td><td>{p.sourceAccount.accountName}</td><td className="font-bold">{money(p.amount)}</td><td className="text-rose-600">{money(p.transaction.charges.reduce((sum,x)=>sum+Number(x.amount),0))}</td><td>{p.referenceNumber||"—"}</td><td>{p.createdBy?.fullName||"Unknown"}</td><td>{p.status}</td></tr>)}</tbody></table></div></>:<div className="p-4"><EmptyState title="No payouts recorded yet"/></div>}
   </Surface>
   {item.manualLedgerAllocations.length?<Surface className="overflow-hidden"><PanelHeader title="Matched Pay Out entries" description="Payments entered from the customer Card Ledger and allocated to this payable."/><div className="divide-y divide-slate-100">{item.manualLedgerAllocations.map(a=><Link key={a.id} href={"/transactions/"+a.customerLedgerEntry.transaction.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"><div><p className="text-sm font-bold">{a.customerLedgerEntry.remarks||"Pay Out"}</p><p className="mt-0.5 text-[11px] text-slate-400">{new Date(a.customerLedgerEntry.transaction.transactionAt).toLocaleString("en-IN")} · {a.customerLedgerEntry.financialAccount.accountName} · {a.customerLedgerEntry.transaction.transactionNumber}</p></div><strong className="money text-sm text-rose-600">{money(a.amount)}</strong></Link>)}</div></Surface>:null}
+  {item.sourceTransaction.transactionType==="CARD_SWIPE"?<Surface className="overflow-hidden">
+   <PanelHeader title="Earlier Pay Out adjustments" description="Advances previously sent to the customer, adjusted here without moving money again."/>
+   {item.advanceOffsets?.length?<div className="divide-y divide-[var(--border)]">{item.advanceOffsets.map(o=><div key={o.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+    <div><p className="text-sm font-bold">{money(o.amount)} · {o.reversedAt?"Reversed":"Applied"}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{o.advanceEntry.transaction.transactionNumber} · {o.advanceEntry.financialAccount.accountName} · {new Date(o.createdAt).toLocaleString("en-IN")}</p>{o.notes?<p className="mt-1 text-xs">{o.notes}</p>:null}</div>
+    <div className="flex items-center gap-2"><Link href={"/transactions/"+o.transaction.id} className="text-xs font-bold text-[var(--accent)]">Journal →</Link>{!o.reversedAt&&(role==="OWNER"||role==="ADMIN")?<button type="button" disabled={busy} onClick={()=>reverseAdvance(o)} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700 disabled:opacity-50">Reverse</button>:null}</div>
+   </div>)}</div>:<div className="p-4"><EmptyState title="No advance adjustments"/></div>}
+  </Surface>:null}
   {audit.length?<Surface className="overflow-hidden"><PanelHeader title="Audit history" description="Recorded changes to this payable."/><div className="divide-y divide-slate-100">{audit.map(a=><div key={a.id} className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between sm:px-5">
    <div><p className="text-sm font-bold">{a.action.replaceAll("_"," ")}</p><p className="mt-0.5 text-[11px] text-slate-400">{a.user?.fullName||"Unknown operator"} · {new Date(a.createdAt).toLocaleString("en-IN")}</p>{a.reason?<p className="mt-1 text-xs text-slate-600">{a.reason}</p>:null}</div>
    <details className="text-xs"><summary className="cursor-pointer font-bold text-indigo-600">View change</summary><pre className="mt-2 max-w-lg overflow-auto rounded-xl bg-slate-950 p-3 text-[10px] text-slate-200">{JSON.stringify({before:a.oldValues,after:a.newValues},null,2)}</pre></details>
   </div>)}</div></Surface>:null}
 
+  <Modal open={advanceOpen} title={"Apply earlier Pay Out · "+item.customer.fullName} description={"Still to send "+money(item.remainingAmount)+" · No new cash or bank transfer"} onClose={()=>setAdvanceOpen(false)}
+   footer={<button form="apply-advance-form" disabled={busy||!canApplyAdvance} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-40">{busy?"Applying…":"Apply prior Pay Out"}</button>}>
+   <form id="apply-advance-form" onSubmit={applyAdvance} className="space-y-3">
+    <Field label="Earlier payment already sent">
+     <SearchableSelect className={control} value={advanceId} required onChange={e=>{setAdvanceId(e.target.value);const a=item.availableAdvances?.find(v=>v.id===e.target.value);setAdvanceAmount(a?Math.min(a.remainingAdvance,Number(item.remainingAmount)).toFixed(2):"");}}>
+      <option value="">Select earlier Pay Out</option>
+      {(item.availableAdvances||[]).map(a=><option key={a.id} value={a.id}>{a.transaction.transactionNumber} · {money(a.remainingAdvance)} available · {a.financialAccount.accountName}{a.customerCard?" · "+a.customerCard.bankName+" •••• "+a.customerCard.lastFourDigits:""}</option>)}
+     </SearchableSelect>
+    </Field>
+    <Field label="Apply amount"><input className={control} type="number" step="0.01" min="0.01" max={maxAdvance.toFixed(2)} value={advanceAmount} required onChange={e=>setAdvanceAmount(e.target.value)}/></Field>
+    <p className="text-xs text-[var(--text-muted)]">The selected earlier Pay Out was already paid from its cash drawer/bank/wallet. Applying it reduces this swipe’s pending payout and the unapplied advance only. Money does not leave again.</p>
+    <Field label="Notes (optional)"><input className={control} maxLength={500} value={advanceNotes} onChange={e=>setAdvanceNotes(e.target.value)}/></Field>
+   </form>
+  </Modal>
   <Modal open={payOpen} title={"Pay "+item.customer.fullName} description={serviceLabel(item.sourceTransaction.transactionType)+" · Remaining "+money(item.remainingAmount)} onClose={()=>setPayOpen(false)} footer={<button form="detail-pay-form" disabled={busy||sourceShort||payoutAmount<=0||!source||!destinationType} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
    <div className="space-y-3">
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">

@@ -6,6 +6,7 @@ import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.s
 import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreatePayablePaymentDto } from './dto/create-payable-payment.dto.js';
+import { CreateAdvanceOffsetDto } from './dto/create-advance-offset.dto.js';
 import { CancelPayableDto } from './dto/cancel-payable.dto.js';
 
 @Injectable()
@@ -54,6 +55,7 @@ export class PayablesService {
           dueAt: { gte: todayStart, lt: todayEnd },
           remainingAmount: { gt: 0 },
           paidAmount: { lte: 0 },
+          offsetAmount: { lte: 0 },
           status: PayableStatus.OVERDUE,
         },
         data: { status: PayableStatus.PENDING },
@@ -62,7 +64,7 @@ export class PayablesService {
         where: {
           dueAt: { gte: todayStart, lt: todayEnd },
           remainingAmount: { gt: 0 },
-          paidAmount: { gt: 0 },
+          OR: [{ paidAmount: { gt: 0 } }, { offsetAmount: { gt: 0 } }],
           status: PayableStatus.OVERDUE,
         },
         data: { status: PayableStatus.PARTIALLY_PAID },
@@ -74,7 +76,7 @@ export class PayablesService {
       ...(options?.status ? { status: options.status } : {}),
       ...(options?.transactionType ? { sourceTransaction: { transactionType: options.transactionType } } : {}),
     };
-    const allowedSort = new Set(['dueAt','createdAt','originalAmount','paidAmount','remainingAmount','status']);
+    const allowedSort = new Set(['dueAt','createdAt','originalAmount','paidAmount','offsetAmount','remainingAmount','status']);
     const sortBy = allowedSort.has(options?.sortBy ?? '') ? options!.sortBy! : 'dueAt';
     const sortDir = options?.sortDir === 'desc' ? 'desc' : 'asc';
     const orderBy = { [sortBy]: sortDir } as Prisma.CustomerPayableOrderByWithRelationInput;
@@ -203,6 +205,13 @@ export class PayablesService {
           },
           orderBy: { createdAt: 'desc' },
         },
+        advanceOffsets: {
+          include: {
+            advanceEntry: { include: { financialAccount: true, customerCard: true, transaction: true } },
+            transaction: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
     if (!payable) throw new NotFoundException('Payable not found');
@@ -217,8 +226,40 @@ export class PayablesService {
     });
     const byId = new Map(users.map((user) => [user.id, user]));
 
+    const candidateAdvances = payable.sourceTransaction.transactionType === TransactionType.CARD_SWIPE
+      ? await this.prisma.customerLedgerEntryDetail.findMany({
+          where: {
+            direction: 'PAY_OUT',
+            receivableAmount: { gt: 0 },
+            transaction: {
+              customerId: payable.customerId,
+              transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+              status: TransactionStatus.COMPLETED,
+              transactionAt: { lte: payable.sourceTransaction.transactionAt },
+            },
+          },
+          include: {
+            financialAccount: { select: { id: true, accountName: true, accountType: true } },
+            customerCard: { select: { id: true, bankName: true, lastFourDigits: true } },
+            transaction: { select: { id: true, transactionNumber: true, transactionAt: true } },
+          },
+          orderBy: { transaction: { transactionAt: 'asc' } },
+        })
+      : [];
+    const availableAdvances = candidateAdvances
+      .filter(advance => !advance.customerCardId ||
+        advance.customerCardId === payable.sourceTransaction.cardSwipe?.customerCardId)
+      .map(advance => ({
+        ...advance,
+        remainingAdvance: Math.round(
+          (Number(advance.receivableAmount) - Number(advance.advanceAppliedAmount)) * 100,
+        ) / 100,
+      }))
+      .filter(advance => advance.remainingAdvance > 0.001);
+
     return {
       ...payable,
+      availableAdvances,
       createdBy:
         byId.get(payable.sourceTransaction.createdById) ?? null,
       payments: payable.payments.map((payment) => ({
@@ -492,6 +533,202 @@ export class PayablesService {
     });
   }
 
+  // Earlier Pay Out already moved money. Only move receivable to payable now.
+  async applyAdvance(payableId: string, dto: CreateAdvanceOffsetDto, userId: string, providedIdempotencyKey?: string) {
+    const amount = dto.amount;
+    if (!Number.isFinite(amount) || amount <= 0 || Math.abs(Math.round(amount * 100) - amount * 100) > 0.000001) {
+      throw new BadRequestException('Enter a valid amount in rupees and paise');
+    }
+    const idempotencyKey = await this.idempotency.key(TransactionType.CUSTOMER_ADVANCE_OFFSET, userId,
+      { payableId, ...dto }, providedIdempotencyKey);
+    return this.prisma.$transaction(async tx => {
+      // Serialize against a concurrent reversal of the earlier Pay Out.
+      // Source transaction first, then target payable, then advance entry.
+      const advanceRef = await tx.customerLedgerEntryDetail.findUnique({
+        where: { id: dto.advanceEntryId }, select: { transactionId: true },
+      });
+      if (!advanceRef) throw new NotFoundException('Earlier Pay Out not found');
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', advanceRef.transactionId);
+      await tx.$queryRawUnsafe('SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE', payableId);
+      const payable = await tx.customerPayable.findUnique({
+        where: { id: payableId },
+        include: { sourceTransaction: { include: { cardSwipe: true } } },
+      });
+      if (!payable) throw new NotFoundException('Payable not found');
+      if (payable.sourceTransaction.transactionType !== TransactionType.CARD_SWIPE ||
+          !payable.sourceTransaction.cardSwipe ||
+          ['CANCELLED', 'REVERSED', 'PAID'].includes(payable.status) ||
+          Number(payable.remainingAmount) + 0.001 < amount) {
+        throw new BadRequestException('Choose an open card swipe with enough payable remaining');
+      }
+      await tx.$queryRawUnsafe('SELECT "id" FROM "CustomerLedgerEntryDetail" WHERE "id" = $1 FOR UPDATE', dto.advanceEntryId);
+      const advance = await tx.customerLedgerEntryDetail.findUnique({
+        where: { id: dto.advanceEntryId }, include: { transaction: true },
+      });
+      if (!advance || advance.transaction.customerId !== payable.customerId ||
+          advance.direction !== 'PAY_OUT' ||
+          advance.transaction.transactionType !== TransactionType.CUSTOMER_LEDGER_ENTRY ||
+          advance.transaction.status !== TransactionStatus.COMPLETED ||
+          advance.transaction.transactionAt > payable.sourceTransaction.transactionAt ||
+          (advance.customerCardId && advance.customerCardId !== payable.sourceTransaction.cardSwipe.customerCardId)) {
+        throw new BadRequestException('Select an earlier Pay Out advance for this customer and card');
+      }
+      const available = Math.round((Number(advance.receivableAmount) - Number(advance.advanceAppliedAmount)) * 100) / 100;
+      if (available + 0.001 < amount) throw new BadRequestException('Advance already used or has insufficient balance');
+      const ledgers = await tx.ledgerAccount.findMany({
+        where: { ledgerCode: { in: ['SYS-CUST-PAYABLE', 'SYS-CUST-RECEIVABLE'] } },
+      });
+      const payableLedger = ledgers.find(l => l.ledgerCode === 'SYS-CUST-PAYABLE');
+      const receivableLedger = ledgers.find(l => l.ledgerCode === 'SYS-CUST-RECEIVABLE');
+      if (!payableLedger || !receivableLedger) throw new Error('Customer balance ledgers missing');
+      const now = new Date();
+      const transaction = await tx.transaction.create({
+        data: {
+          transactionNumber: 'OFA-' + now.getTime().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase(),
+          transactionType: TransactionType.CUSTOMER_ADVANCE_OFFSET,
+          transactionAt: now, customerId: payable.customerId,
+          grossAmount: new Prisma.Decimal(amount), netAmount: new Prisma.Decimal(amount),
+          status: TransactionStatus.COMPLETED, idempotencyKey,
+          notes: dto.notes?.trim() || 'Earlier Pay Out applied to later card swipe',
+          createdById: userId,
+        },
+      });
+      const offset = await tx.customerAdvanceOffset.create({
+        data: { payableId, advanceEntryId: advance.id, transactionId: transaction.id,
+          amount: new Prisma.Decimal(amount), notes: dto.notes?.trim() || null, createdById: userId },
+      });
+      const remaining = Math.round((Number(payable.remainingAmount) - amount) * 100) / 100;
+      const { start: todayStart } = this.indiaDayRange();
+      const updated = await tx.customerPayable.update({
+        where: { id: payableId },
+        data: {
+          offsetAmount: { increment: new Prisma.Decimal(amount) },
+          remainingAmount: new Prisma.Decimal(Math.max(0, remaining)),
+          status: remaining <= 0.001 ? PayableStatus.PAID :
+            payable.dueAt < todayStart ? PayableStatus.OVERDUE : PayableStatus.PARTIALLY_PAID,
+        },
+      });
+      await tx.customerLedgerEntryDetail.update({
+        where: { id: advance.id },
+        data: { advanceAppliedAmount: { increment: new Prisma.Decimal(amount) } },
+      });
+      await this.ledger.post(tx, transaction.id, userId, 'Match earlier customer Pay Out to card swipe', [
+        { ledgerAccountId: payableLedger.id, entryType: EntryType.DEBIT, amount,
+          customerId: payable.customerId, payableId, description: 'Card swipe settled with advance' },
+        { ledgerAccountId: receivableLedger.id, entryType: EntryType.CREDIT, amount,
+          customerId: payable.customerId, description: 'Earlier advance receivable cleared' },
+      ]);
+      await tx.auditLog.create({
+        data: {
+          userId, entityType: 'CUSTOMER_PAYABLE', entityId: payableId, action: 'ADVANCE_OFFSET',
+          oldValues: { remainingAmount: payable.remainingAmount.toString(), offsetAmount: payable.offsetAmount.toString(), status: payable.status },
+          newValues: { remainingAmount: updated.remainingAmount.toString(), offsetAmount: updated.offsetAmount.toString(), status: updated.status, advanceEntryId: advance.id, offsetId: offset.id, transactionId: transaction.id, amount },
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId, entityType: 'CUSTOMER_LEDGER_ENTRY', entityId: advance.id, action: 'APPLY_ADVANCE',
+          oldValues: { advanceAppliedAmount: advance.advanceAppliedAmount.toString() },
+          newValues: { advanceAppliedAmount: Number(advance.advanceAppliedAmount) + amount, payableId, offsetId: offset.id, transactionId: transaction.id },
+        },
+      });
+      return { transaction, offset, payable: updated };
+    });
+  }
+
+  async reverseAdvance(payableId: string, offsetId: string, reason: string, userId: string) {
+    if (!reason?.trim() || reason.trim().length < 3) throw new BadRequestException('Give a reversal reason');
+    return this.prisma.$transaction(async tx => {
+      const source = await tx.customerAdvanceOffset.findFirst({
+        where: { id: offsetId, payableId },
+        include: { advanceEntry: { select: { transactionId: true } } },
+      });
+      if (!source) throw new NotFoundException('Advance adjustment not found');
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', source.advanceEntry.transactionId);
+      await tx.$queryRawUnsafe('SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE', payableId);
+      await tx.$queryRawUnsafe('SELECT "id" FROM "CustomerLedgerEntryDetail" WHERE "id" = $1 FOR UPDATE', source.advanceEntryId);
+      const offset = await tx.customerAdvanceOffset.findUnique({
+        where: { id: offsetId },
+        include: {
+          payable: true, advanceEntry: { include: { transaction: true } },
+          transaction: { include: { journal: { include: { entries: true } } } },
+        },
+      });
+      if (!offset || offset.reversedAt || !offset.transaction.journal ||
+          ['CANCELLED', 'REVERSED'].includes(offset.payable.status) ||
+          offset.advanceEntry.transaction.status !== TransactionStatus.COMPLETED) {
+        throw new BadRequestException('Advance adjustment is not reversible');
+      }
+      const amount = Number(offset.amount);
+      if (Number(offset.payable.offsetAmount) + 0.001 < amount ||
+          Number(offset.advanceEntry.advanceAppliedAmount) + 0.001 < amount) {
+        throw new BadRequestException('Advance balances inconsistent');
+      }
+      const now = new Date();
+      const reversal = await tx.transaction.create({
+        data: {
+          transactionNumber: 'OFR-' + now.getTime().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase(),
+          transactionType: TransactionType.REVERSAL,
+          transactionAt: now, customerId: offset.payable.customerId,
+          grossAmount: offset.amount, netAmount: offset.amount,
+          status: TransactionStatus.COMPLETED, reversedTransactionId: offset.transactionId,
+          referenceNumber: offset.transaction.transactionNumber,
+          reversalReason: reason.trim(), createdById: userId,
+        },
+      });
+      await this.ledger.post(tx, reversal.id, userId, 'Reverse customer advance matching',
+        offset.transaction.journal.entries.map(entry => ({
+          ledgerAccountId: entry.ledgerAccountId,
+          entryType: entry.entryType === EntryType.DEBIT ? EntryType.CREDIT : EntryType.DEBIT,
+          amount: Number(entry.amount), customerId: entry.customerId ?? undefined,
+          payableId: entry.payableId ?? undefined, receivableId: entry.receivableId ?? undefined,
+          description: 'Reversal: ' + reason.trim(),
+        })),
+      );
+      const { start: todayStart } = this.indiaDayRange(now);
+      const remaining = Number(offset.payable.remainingAmount) + amount;
+      const adjusted = Number(offset.payable.offsetAmount) - amount;
+      const updated = await tx.customerPayable.update({
+        where: { id: payableId },
+        data: {
+          offsetAmount: new Prisma.Decimal(adjusted),
+          remainingAmount: new Prisma.Decimal(remaining),
+          status: offset.payable.dueAt < todayStart ? PayableStatus.OVERDUE :
+            Number(offset.payable.paidAmount) + adjusted > 0.001 ? PayableStatus.PARTIALLY_PAID : PayableStatus.PENDING,
+        },
+      });
+      await tx.customerLedgerEntryDetail.update({
+        where: { id: offset.advanceEntryId },
+        data: { advanceAppliedAmount: { decrement: new Prisma.Decimal(amount) } },
+      });
+      await tx.customerAdvanceOffset.update({
+        where: { id: offsetId },
+        data: { reversedAt: now, reversedById: userId, reversalTransactionId: reversal.id },
+      });
+      await tx.transaction.update({
+        where: { id: offset.transactionId },
+        data: { status: TransactionStatus.REVERSED, reversalReason: reason.trim(), updatedById: userId },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId, entityType: 'CUSTOMER_PAYABLE', entityId: payableId,
+          action: 'REVERSE_ADVANCE_OFFSET', reason: reason.trim(),
+          oldValues: { remainingAmount: offset.payable.remainingAmount.toString(), offsetAmount: offset.payable.offsetAmount.toString() },
+          newValues: { remainingAmount: updated.remainingAmount.toString(), offsetAmount: updated.offsetAmount.toString(), reversalTransactionId: reversal.id, offsetId },
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId, entityType: 'CUSTOMER_LEDGER_ENTRY', entityId: offset.advanceEntryId,
+          action: 'REVERSE_ADVANCE_OFFSET', reason: reason.trim(),
+          oldValues: { advanceAppliedAmount: offset.advanceEntry.advanceAppliedAmount.toString() },
+          newValues: { advanceAppliedAmount: Number(offset.advanceEntry.advanceAppliedAmount) - amount, reversalTransactionId: reversal.id, offsetId },
+        },
+      });
+      return { reversal, payable: updated };
+    });
+  }
+
   async cancel(id: string, dto: CancelPayableDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRawUnsafe(
@@ -519,8 +756,8 @@ export class PayablesService {
       if (payable.status === PayableStatus.CANCELLED || payable.status === PayableStatus.REVERSED) {
         throw new BadRequestException('Payable is already cancelled or reversed');
       }
-      if (Number(payable.paidAmount) > 0) {
-        throw new BadRequestException('Reverse all customer payouts before cancelling this payable');
+      if (Number(payable.paidAmount) > 0 || Number(payable.offsetAmount) > 0) {
+        throw new BadRequestException('Reverse all customer payouts and advance offsets before cancelling this payable');
       }
       if (
         payable.sourceTransaction.providerSettlementSource &&

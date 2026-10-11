@@ -4545,7 +4545,7 @@ export class TransactionsService {
         journal: { select: { id: true, postingDate: true } },
         expense: { select: { id: true } },
         cardSwipe: { select: { id: true, dueAt: true } },
-        payable: { select: { id: true, dueAt: true, status: true, paidAmount: true, remainingAmount: true } },
+        payable: { select: { id: true, dueAt: true, status: true, paidAmount: true, offsetAmount: true, remainingAmount: true } },
         payablePayment: { select: { id: true, paymentDate: true } },
         receivableSource: { select: { id: true, dueAt: true, status: true, receivedAmount: true, remainingAmount: true } },
         receivableCollection: { select: { id: true, collectionDate: true } },
@@ -4636,7 +4636,7 @@ export class TransactionsService {
           })();
           status = dueAt < todayStart
             ? PayableStatus.OVERDUE
-            : Number(original.payable.paidAmount) > 0
+            : Number(original.payable.paidAmount) + Number(original.payable.offsetAmount) > 0
               ? PayableStatus.PARTIALLY_PAID
               : PayableStatus.PENDING;
         }
@@ -4940,7 +4940,7 @@ export class TransactionsService {
       });
     }
 
-    if (original.payable && Number(original.payable.paidAmount) > 0) {
+    if (original.payable && (Number(original.payable.paidAmount) > 0 || Number(original.payable.offsetAmount) > 0)) {
       throw new BadRequestException(
         'Reverse the linked customer payout first, then correct this transaction',
       );
@@ -5521,6 +5521,12 @@ export class TransactionsService {
       if (original.status === TransactionStatus.REVERSED || original.transactionType === TransactionType.REVERSAL) {
         throw new BadRequestException('Transaction is already reversed or is a reversal');
       }
+      if (original.transactionType === TransactionType.CUSTOMER_ADVANCE_OFFSET) {
+        throw new BadRequestException('Reverse advance adjustments from the source swipe detail page');
+      }
+      if (original.customerLedgerEntry && Number(original.customerLedgerEntry.advanceAppliedAmount) > 0) {
+        throw new BadRequestException('Reverse earlier Pay Out advance adjustments before reversing this Pay Out');
+      }
 
       const activeCardDueStatus = {
         notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED],
@@ -5592,8 +5598,20 @@ export class TransactionsService {
         }
       }
 
-      if (original.payable && Number(original.payable.paidAmount) > 0) {
-        throw new BadRequestException('Reverse customer payouts first before reversing this source transaction');
+      if (original.payable) {
+        // A matching/payout transaction may have completed while we waited on
+        // its payable. Lock then reread, never trust a stale balance snapshot.
+        await tx.$queryRawUnsafe(
+          'SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE',
+          original.payable.id,
+        );
+        const currentPayable = await tx.customerPayable.findUnique({
+          where: { id: original.payable.id },
+          select: { paidAmount: true, offsetAmount: true },
+        });
+        if (currentPayable && (Number(currentPayable.paidAmount) > 0 || Number(currentPayable.offsetAmount) > 0)) {
+          throw new BadRequestException('Reverse customer payouts and advance offsets first before reversing this source transaction');
+        }
       }
       if (original.receivableSource && Number(original.receivableSource.receivedAmount) > 0) {
         throw new BadRequestException('Reverse receivable collections first before reversing this source transaction');
@@ -5724,12 +5742,12 @@ export class TransactionsService {
             const payable = await tx.customerPayable.findUnique({ where: { id: allocation.payableId } });
             if (payable) {
               const paidAmount = this.money(Math.max(0, Number(payable.paidAmount) - amount));
-              const remainingAmount = this.money(Math.max(0, Number(payable.originalAmount) - paidAmount));
+              const remainingAmount = this.money(Math.max(0, Number(payable.originalAmount) - paidAmount - Number(payable.offsetAmount)));
               const status = remainingAmount <= 0.001
                 ? PayableStatus.PAID
                 : payable.dueAt < todayStart
                   ? PayableStatus.OVERDUE
-                  : paidAmount <= 0.001
+                  : paidAmount + Number(payable.offsetAmount) <= 0.001
                     ? PayableStatus.PENDING
                     : PayableStatus.PARTIALLY_PAID;
               await tx.customerPayable.update({
@@ -5941,7 +5959,7 @@ export class TransactionsService {
         const payable = await tx.customerPayable.findUnique({ where: { id: payment.payableId } });
         if (payable) {
           const paid = Math.max(0, Number(payable.paidAmount) - Number(payment.amount));
-          const remaining = Number(payable.originalAmount) - paid;
+          const remaining = Number(payable.originalAmount) - paid - Number(payable.offsetAmount);
           await tx.payablePayment.update({
             where: { id: payment.id },
             data: { status: 'REVERSED' },
@@ -5955,7 +5973,7 @@ export class TransactionsService {
             ? PayableStatus.PAID
             : payable.dueAt < todayStart
               ? PayableStatus.OVERDUE
-              : paid <= 0.001
+              : paid + Number(payable.offsetAmount) <= 0.001
                 ? PayableStatus.PENDING
                 : PayableStatus.PARTIALLY_PAID;
           await tx.customerPayable.update({

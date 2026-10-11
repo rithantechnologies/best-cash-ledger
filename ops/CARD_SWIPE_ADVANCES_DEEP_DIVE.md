@@ -56,3 +56,37 @@ The VPS hosts other workloads: do not delete or overwrite unrelated files or ser
 
 ## Status after this audit
 This document records the identified design gap and required tests. It is **not** proof that advance matching, share actions, migrations, or financial reconciliation fixes have been coded, tested or deployed.
+
+## Implementation update (2026-10-11)
+
+This increment is implemented in source on Git main, subject to separate
+database migration and release deployment:
+
+- A later card swipe can apply the receivable portion of an earlier funded
+  customer Card Ledger Pay Out. A dedicated CUSTOMER_ADVANCE_OFFSET posts
+  Dr customer payable / Cr customer receivable without moving real money.
+- Applications and owner/admin reversals are atomic, posted, audited,
+  linked to the original Pay Out and swipe, and source balance checked.
+- CustomerPayable.offsetAmount is separate from actually paid paidAmount;
+  CustomerLedgerEntryDetail.advanceAppliedAmount tracks consumed advances.
+- Staff use the existing compact Pay Out button, not a new payment form.
+  Customer Card Ledger shows unapplied advances, with a direct path to
+  a pending swipe. The payable screen shows entitlement, actually paid,
+  previous advance adjusted and still to send.
+- Advances are customer-verified and card-verified when tagged. They
+  must predate the swipe. Multiple partial matches are supported, and
+  leftover advances remain available for later swipe settlement.
+- Source Pay Out, swipe and adjustment reversal paths protect dependent
+  balances; locks serialize application against reversal.
+- Forward-only migration 20261011120000_customer_advance_offsets and
+  targeted regression tests are committed for client VPS setup.
+
+DEPLOYMENT SAFETY: Source integration is not proof of a live rollout. The
+VPS filesystem was almost full during this update while a separate
+Cash Ledger release build was operating. No unrelated process or backup
+should be deleted to deploy this change.
+
+NOT IN THIS INCREMENT: using prior unapplied Pay In credit to settle a
+future Card Due, or direct messaging of a sanitized customer receipt.
+Existing Pay In, Pay Out, partial settlement and statement printing are
+unchanged. Those additions require separate acceptance and privacy tests.
