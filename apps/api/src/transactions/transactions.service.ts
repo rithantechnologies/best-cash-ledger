@@ -3896,9 +3896,12 @@ export class TransactionsService {
             await this.validation.ensureSufficientFunds(tx, newAccount, extra);
           }
         }
-        if (newAccount?.accountType === AccountType.CASH &&
-            (role !== RoleName.OWNER || !original.journal)) {
-          await this.validation.requireOpenCashDesk(tx, newAccount.id, 'Edited cash expense');
+        // Both the original and corrected cash drawer may receive a ledger
+        // adjustment. Record such movement only while its drawer is open.
+        for (const cashAccountId of [...new Set([oldAccount, newAccount]
+          .filter(account => account?.accountType === AccountType.CASH)
+          .map(account => account!.id))]) {
+          await this.validation.requireOpenCashDesk(tx, cashAccountId, 'Edited cash expense');
         }
         const previous = entriesFor(oldAccount, oldAmount, oldFee, original.expense.description || 'Expense');
         const replacement = entriesFor(newAccount, amount, newFee, description);
