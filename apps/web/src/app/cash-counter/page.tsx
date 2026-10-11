@@ -959,7 +959,7 @@ export default function CashCounterPage(){
             <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"IN"}))} className="min-h-10 rounded-xl bg-emerald-500 px-3.5 text-xs font-black text-white shadow-sm sm:px-4">↓ Cash In</button>
             <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"OUT"}))} className="min-h-10 rounded-xl bg-rose-500 px-3.5 text-xs font-black text-white shadow-sm sm:px-4">↑ Cash Out</button>
             <QuickCashRushEntryV2 cashAccountId={today.cashAccountId} onSaved={()=>load(today.cashAccountId)} pendingTransactionIds={pendingQuickCash.map((item)=>item.id)} completedTransactionIds={completedQuickCashIds} onCompleteTransaction={openPendingCompletionById} onShowPending={()=>requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}))}/>
-            <button type="button" disabled={!pendingQuickCash.length} onClick={()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"})} className={"min-h-10 rounded-xl px-3.5 text-xs font-black shadow-sm sm:px-4 "+(pendingQuickCash.length?"bg-amber-400 text-amber-950":"border border-white/15 bg-white/5 text-[#a9bfd5]")}>Pending {pendingQuickCash.length}</button>
+
           </div>:null}
         </div>
         <div className="cash-desk-now p-4 sm:p-5">
@@ -1666,6 +1666,17 @@ export default function CashCounterPage(){
         </footer>
       </form>
     </div>,document.body):null}
+
+    {pendingQuickCash.length>0&&!completePendingId?<button
+      type="button"
+      aria-label={"Complete pending transactions, "+pendingQuickCash.length+" remaining"}
+      onClick={()=>{setPendingPage(1);document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"});}}
+      className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-40 inline-flex min-h-14 items-center gap-2.5 rounded-full bg-amber-400 px-4 py-3 text-sm font-black text-amber-950 shadow-[0_10px_35px_rgba(0,0,0,.24)] ring-2 ring-white/80 transition hover:bg-amber-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 active:scale-[.98] sm:bottom-6 sm:right-6"
+    >
+      <span aria-hidden="true" className="text-lg leading-none">✓</span>
+      <span>Complete pending</span>
+      <span className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-amber-950 px-1.5 text-xs text-white">{pendingQuickCash.length}</span>
+    </button>:null}
 
     {previousHistory.length?<details className="cash-history-collapsible app-surface overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 sm:px-5">
