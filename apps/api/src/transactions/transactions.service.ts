@@ -13,7 +13,7 @@ import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
 import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
 import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
-import { CompleteExpenseDto, CreateExpenseDto } from './dto/create-expense.dto.js';
+import { CompleteExpenseDto, CreateExpenseDto, UpdateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleServicePartnerPayableDto } from './dto/quick-cash-transfer.dto.js';
@@ -3581,6 +3581,7 @@ export class TransactionsService {
             paymentAccountId: null,
             amount: new Prisma.Decimal(dto.amount),
             description,
+            payee: dto.payee?.trim() || null,
           },
         });
         await this.auditCreated(tx, transaction, userId);
@@ -3671,6 +3672,7 @@ export class TransactionsService {
           paymentAccountId,
           amount: new Prisma.Decimal(dto.amount),
           description,
+          payee: dto.payee?.trim() || null,
         },
       });
       if (payoutChargeAmount > 0 && configuredPayoutCharge) {
@@ -3726,6 +3728,246 @@ export class TransactionsService {
     });
   }
 
+  async expenseHistory(transactionId: string) {
+    const expense = await this.prisma.transaction.findUnique({
+      where: { id: transactionId }, select: { id: true, expense: { select: { id: true } } },
+    });
+    if (!expense?.expense) throw new NotFoundException('Expense not found');
+    const logs = await this.prisma.auditLog.findMany({
+      where: { entityType: 'TRANSACTION', entityId: transactionId,
+        action: { in: ['CREATE', 'COMPLETE_EXPENSE', 'UPDATE_EXPENSE', 'CORRECT_AMOUNT'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...new Set(logs.map(log => log.userId))] } },
+      select: { id: true, fullName: true },
+    });
+    const names = new Map(users.map(user => [user.id, user.fullName]));
+    return logs.map(log => ({ ...log, editorName: names.get(log.userId) ?? log.userId }));
+  }
+
+  async updateExpense(id: string, dto: UpdateExpenseDto, userId: string, role: RoleName) {
+    const amount = this.money(dto.amount);
+    const date = new Date(dto.transactionAt);
+    if (!Number.isFinite(amount) || amount <= 0 || Number.isNaN(date.getTime())) {
+      throw new BadRequestException('A valid expense amount and date are required');
+    }
+    const paymentAccountId = dto.paymentAccountId || null;
+    const description = dto.description?.trim() || 'Expense';
+    const payee = dto.payee?.trim() || null;
+    const referenceNumber = dto.referenceNumber?.trim() || null;
+    const notes = dto.notes?.trim() || null;
+    const reason = dto.reason.trim();
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', id);
+      const original = await tx.transaction.findUnique({
+        where: { id },
+        include: { expense: true, charges: true, journal: { include: { entries: true } } },
+      });
+      if (!original?.expense || (original.transactionType !== TransactionType.BUSINESS_EXPENSE && original.transactionType !== TransactionType.PERSONAL_EXPENSE)) {
+        throw new NotFoundException('Expense not found');
+      }
+      if ((original.status !== TransactionStatus.PENDING && original.status !== TransactionStatus.COMPLETED)) {
+        throw new BadRequestException('Cancelled or reversed expenses cannot be edited');
+      }
+      const selectedCategory = await tx.expenseCategory.findUnique({ where: { id: dto.expenseCategoryId } });
+      if (!selectedCategory || selectedCategory.expenseUsage !== original.expense.expenseType ||
+          (!selectedCategory.isActive && dto.expenseCategoryId !== original.expense.expenseCategoryId)) {
+        throw new BadRequestException('Select an active category matching this expense type');
+      }
+      const oldAmount = Number(original.expense.amount);
+      const oldAccountId = original.expense.paymentAccountId;
+      const oldCharges = original.charges.filter(charge => charge.chargeType === 'PAYOUT');
+      const oldFee = this.money(oldCharges.reduce((total, charge) => total + Number(charge.amount), 0));
+      const oldAccountIds = [oldAccountId, paymentAccountId].filter((id): id is string => Boolean(id));
+      for (const accountId of [...new Set(oldAccountIds)].sort()) {
+        await this.validation.lockAccount(tx, accountId);
+      }
+      const oldAccount = oldAccountId
+        ? await tx.financialAccount.findUnique({ where: { id: oldAccountId }, include: { ledgerAccount: true } })
+        : null;
+      if (oldAccountId && !oldAccount?.ledgerAccount) {
+        throw new BadRequestException('Original payment account has no ledger');
+      }
+      const newAccount = paymentAccountId
+        ? oldAccountId === paymentAccountId && oldAccount
+          ? oldAccount
+          : await this.validation.account(tx, paymentAccountId, {
+              label: 'Expense payment account',
+              types: [AccountType.CASH, AccountType.BANK, AccountType.UPI,
+                AccountType.PROVIDER_WALLET, AccountType.OWNER_CREDIT_CARD],
+            })
+        : null;
+      if (newAccount && !newAccount.ledgerAccount) {
+        throw new BadRequestException('Expense payment account has no ledger');
+      }
+      for (const account of [oldAccount, newAccount]) {
+        if (!account) continue;
+        if (account.accountType === AccountType.CASH) {
+          if (account.accountName === 'Main Cash Reserve' && role !== RoleName.OWNER) {
+            throw new ForbiddenException('Main Cash Reserve is owner-only');
+          }
+          const historicalClose = await tx.cashSession.findFirst({
+            where: { cashAccountId: account.id, status: 'CLOSED',
+              OR: [
+                { openedAt: { lte: original.journal?.postingDate ?? original.transactionAt },
+                  closedAt: { gte: original.journal?.postingDate ?? original.transactionAt } },
+                { openedAt: { lte: date }, closedAt: { gte: date } },
+              ] },
+            select: { id: true },
+          });
+          if (historicalClose && role !== RoleName.OWNER) {
+            throw new ForbiddenException('This expense affects a closed cash session. Owner approval is required to correct it.');
+          }
+        }
+      }
+      if (newAccount) {
+        const validTypes: AccountType[] = [AccountType.CASH, AccountType.BANK,
+          AccountType.UPI, AccountType.PROVIDER_WALLET, AccountType.OWNER_CREDIT_CARD];
+        if (!validTypes.includes(newAccount.accountType) ||
+          (newAccount.accountType === AccountType.OWNER_CREDIT_CARD
+            ? newAccount.accountNature !== AccountNature.LIABILITY
+            : newAccount.accountNature !== AccountNature.ASSET)) {
+          throw new BadRequestException('Invalid expense payment account');
+        }
+      }
+      const paymentChanged = oldAccountId !== paymentAccountId;
+      const amountChanged = Math.abs(oldAmount - amount) > 0.001;
+      // A metadata edit must not silently reprice an old transaction under today's fee rules.
+      const priceAgain = paymentChanged || amountChanged;
+      const configuredCharge = newAccount && priceAgain
+        ? await this.payoutCharges.resolve(tx, newAccount, amount) : null;
+      const newFee = newAccount
+        ? priceAgain ? this.money(configuredCharge?.amount ?? 0) : oldFee
+        : 0;
+      const financialChanged = paymentChanged || amountChanged || Math.abs(newFee - oldFee) > 0.001;
+      const oldValues = {
+        amount: oldAmount, expenseCategoryId: original.expense.expenseCategoryId,
+        expenseType: original.expense.expenseType, paymentAccountId: oldAccountId,
+        description: original.expense.description, payee: original.expense.payee,
+        transactionAt: original.transactionAt.toISOString(),
+        referenceNumber: original.referenceNumber, notes: original.notes,
+        status: original.status, payoutCharge: oldFee,
+        payoutChargeDetails: oldCharges.map(charge => ({ id: charge.id,
+          ruleId: charge.providerPayoutChargeRuleId, amount: charge.amount.toString(),
+          calculationType: charge.calculationType, rate: charge.rate?.toString() ?? null })),
+      };
+      const newValues = {
+        amount, expenseCategoryId: dto.expenseCategoryId,
+        expenseType: original.expense.expenseType, paymentAccountId,
+        description, payee, transactionAt: date.toISOString(),
+        referenceNumber, notes, status: paymentAccountId ? TransactionStatus.COMPLETED : TransactionStatus.PENDING,
+        payoutCharge: newFee,
+      };
+      if (Object.entries(newValues).every(([key, value]) =>
+        JSON.stringify(value) === JSON.stringify(oldValues[key as keyof typeof oldValues]))) {
+        throw new BadRequestException('No expense fields were changed');
+      }
+      const expenseLedger = await tx.ledgerAccount.findUnique({ where: {
+        ledgerCode: original.expense.expenseType === 'PERSONAL' ? 'SYS-PERSONAL-EXPENSE' : 'SYS-BUSINESS-EXPENSE',
+      } });
+      const payoutLedger = oldFee > 0 || newFee > 0
+        ? await tx.ledgerAccount.findUnique({ where: { ledgerCode: 'SYS-PROVIDER-CHARGE' } })
+        : null;
+      if ((financialChanged && !expenseLedger) || ((oldFee > 0 || newFee > 0) && !payoutLedger)) {
+        throw new BadRequestException('Expense or payout-charge ledger is missing');
+      }
+      const entriesFor = (account: typeof oldAccount, value: number, fee: number, label: string): JournalEntry[] => {
+        if (!account?.ledgerAccount) return [];
+        return [
+          { ledgerAccountId: expenseLedger!.id, entryType: EntryType.DEBIT, amount: value, description: label },
+          ...(fee > 0 ? [{ ledgerAccountId: payoutLedger!.id, entryType: EntryType.DEBIT, amount: fee,
+            description: account.accountName + ' payout charge' }] : []),
+          { ledgerAccountId: account.ledgerAccount.id, entryType: EntryType.CREDIT,
+            amount: this.money(value + fee), description: 'Expense payment: ' + label },
+        ];
+      };
+      let adjustmentId: string | null = null;
+      if (financialChanged) {
+        // Check only the extra outflow: edits to a paid amount must not demand
+        // the full replacement sum when the old debit is already on the ledger.
+        const extra = this.money(amount + newFee -
+          (oldAccountId === paymentAccountId ? oldAmount + oldFee : 0));
+        if (newAccount && extra > 0) {
+          if (newAccount.accountType === AccountType.OWNER_CREDIT_CARD) {
+            await this.validation.ensureCreditCapacity(tx, newAccount, extra);
+          } else {
+            await this.validation.ensureSufficientFunds(tx, newAccount, extra);
+          }
+        }
+        if (newAccount?.accountType === AccountType.CASH &&
+            (role !== RoleName.OWNER || !original.journal)) {
+          await this.validation.requireOpenCashDesk(tx, newAccount.id, 'Edited cash expense');
+        }
+        const previous = entriesFor(oldAccount, oldAmount, oldFee, original.expense.description || 'Expense');
+        const replacement = entriesFor(newAccount, amount, newFee, description);
+        if (!original.journal) {
+          if (previous.length || oldAccount) throw new BadRequestException('Expense ledger is inconsistent');
+          if (replacement.length) await this.ledger.post(tx, original.id, userId,
+            'Expense payment added: ' + original.transactionNumber, replacement, date);
+        } else {
+          // Never rewrite a posted journal: book the old posting's reversal and
+          // the corrected one together, at correction time. Closed cash counts stay frozen.
+          const amendments: JournalEntry[] = [
+            ...previous.map(entry => ({ ...entry,
+              entryType: entry.entryType === EntryType.DEBIT ? EntryType.CREDIT : EntryType.DEBIT,
+              description: 'Undo previous expense: ' + (entry.description ?? '') })),
+            ...replacement,
+          ];
+          if (amendments.length) {
+            const correction = await tx.transaction.create({ data: {
+              transactionNumber: 'EXA-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
+              transactionType: TransactionType.REVERSAL,
+              transactionAt: new Date(),
+              grossAmount: new Prisma.Decimal(amount),
+              netAmount: new Prisma.Decimal(amount),
+              status: TransactionStatus.COMPLETED,
+              reversedTransactionId: original.id,
+              referenceNumber: original.transactionNumber,
+              notes: 'Expense correction: ' + reason,
+              createdById: userId,
+            } });
+            await this.ledger.post(tx, correction.id, userId,
+              'Expense adjustment for ' + original.transactionNumber, amendments);
+            adjustmentId = correction.id;
+          }
+        }
+      }
+      if (priceAgain) {
+        await tx.transactionCharge.deleteMany({ where: { transactionId: id, chargeType: 'PAYOUT' } });
+        if (newFee > 0 && newAccount) {
+          const rule = configuredCharge;
+          await tx.transactionCharge.create({ data: {
+            transactionId: id, chargeType: 'PAYOUT',
+            providerId: newAccount.providerId, sourceAccountId: newAccount.id,
+            providerPayoutChargeRuleId: rule?.ruleId ?? null,
+            calculationType: rule?.calculationType ?? CalculationType.FIXED,
+            rate: rule ? new Prisma.Decimal(rule.rate) : null,
+            amount: new Prisma.Decimal(newFee),
+            notes: newAccount.accountName + ' payout charge (expense edit)',
+          } });
+        }
+      }
+      await tx.expenseDetail.update({ where: { transactionId: id }, data: {
+        expenseCategoryId: dto.expenseCategoryId, paymentAccountId,
+        amount: new Prisma.Decimal(amount), description, payee,
+      } });
+      const updated = await tx.transaction.update({ where: { id }, data: {
+        transactionAt: date, referenceNumber, notes,
+        grossAmount: new Prisma.Decimal(this.money(amount + newFee)),
+        netAmount: new Prisma.Decimal(amount),
+        status: newValues.status, updatedById: userId,
+      } });
+      await tx.auditLog.create({ data: {
+        userId, entityType: 'TRANSACTION', entityId: id, action: 'UPDATE_EXPENSE',
+        oldValues, newValues: { ...newValues, adjustmentTransactionId: adjustmentId,
+          adjustmentPostingDate: adjustmentId ? new Date().toISOString() : null }, reason,
+      } });
+      return updated;
+    });
+  }
+
   async completeExpense(
     transactionId: string,
     dto: CompleteExpenseDto,
@@ -3741,6 +3983,9 @@ export class TransactionsService {
       }
       if (transaction.status !== TransactionStatus.PENDING) {
         throw new BadRequestException('Only pending expenses can be completed');
+      }
+      if (await tx.ledgerJournal.findUnique({ where: { transactionId } })) {
+        throw new BadRequestException('This expense was previously posted. Use Edit expense to set its payment source and retain the correction history.');
       }
 
       await this.validation.lockAccount(tx, dto.paymentAccountId);
@@ -4269,11 +4514,20 @@ export class TransactionsService {
         select: { id: true, transactionNumber: true, status: true },
       }),
     ]);
+    const expenseAdjustments = transaction.expense
+      ? await this.prisma.transaction.findMany({
+          where: { reversedTransactionId: id, transactionNumber: { startsWith: 'EXA-' } },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, transactionNumber: true, createdAt: true, notes: true,
+            journal: { select: { journalNumber: true, postingDate: true,
+              entries: { include: { ledgerAccount: true } } } } },
+        }) : [];
     return {
       ...transaction,
       createdBy: creator,
       correctionSource,
       correctedTransaction,
+      expenseAdjustments,
     };
   }
 
@@ -4286,6 +4540,7 @@ export class TransactionsService {
       where: { id },
       include: {
         journal: { select: { id: true, postingDate: true } },
+        expense: { select: { id: true } },
         cardSwipe: { select: { id: true, dueAt: true } },
         payable: { select: { id: true, dueAt: true, status: true, paidAmount: true, remainingAmount: true } },
         payablePayment: { select: { id: true, paymentDate: true } },
@@ -4300,6 +4555,9 @@ export class TransactionsService {
       },
     });
     if (!original) throw new NotFoundException('Transaction not found');
+    if (original.expense) {
+      throw new BadRequestException('Use Edit expense to change its date and other details together');
+    }
 
     const quickCompletion = original.quickCashTransfer?.completionTransactionId
       ? await this.prisma.transaction.findUnique({
@@ -4491,6 +4749,9 @@ export class TransactionsService {
     userId: string,
     actorRole: RoleName,
   ) {
+    if (await this.prisma.expenseDetail.findUnique({ where: { transactionId: id }, select: { id: true } })) {
+      throw new BadRequestException('Use Edit expense to correct any expense field, including the amount');
+    }
     const correctedAmount = this.money(dto.correctedAmount);
     const reason = dto.reason.trim();
     if (correctedAmount <= 0) {
@@ -5380,15 +5641,40 @@ export class TransactionsService {
         }
       }
 
+      // Expense edits append balancing amendment journals rather than altering
+      // the original posting. A later reversal must undo the entire net expense,
+      // including every amendment, exactly once.
+      let effectiveEntries: JournalEntry[] = original.journal.entries.map(entry => ({
+        ledgerAccountId: entry.ledgerAccountId, entryType: entry.entryType,
+        amount: Number(entry.amount), customerId: entry.customerId ?? undefined,
+        payableId: entry.payableId ?? undefined, receivableId: entry.receivableId ?? undefined,
+        providerSettlementId: entry.providerSettlementId ?? undefined,
+        description: entry.description ?? undefined,
+      }));
+      if (original.transactionType === TransactionType.BUSINESS_EXPENSE ||
+          original.transactionType === TransactionType.PERSONAL_EXPENSE) {
+        const amendments = await tx.transaction.findMany({
+          where: { reversedTransactionId: id, transactionNumber: { startsWith: 'EXA-' },
+            status: TransactionStatus.COMPLETED },
+          include: { journal: { include: { entries: true } } },
+        });
+        const totals = new Map<string, number>();
+        for (const entry of [ ...original.journal.entries,
+          ...amendments.flatMap(amendment => amendment.journal?.entries ?? []) ]) {
+          totals.set(entry.ledgerAccountId, this.money((totals.get(entry.ledgerAccountId) ?? 0) +
+            (entry.entryType === EntryType.DEBIT ? 1 : -1) * Number(entry.amount)));
+        }
+        effectiveEntries = [...totals.entries()]
+          .filter(([, value]) => Math.abs(value) > 0.001)
+          .map(([ledgerAccountId, value]) => ({ ledgerAccountId,
+            entryType: value > 0 ? EntryType.DEBIT : EntryType.CREDIT,
+            amount: Math.abs(value), description: 'Expense net of all previous edits',
+          }));
+      }
       await this.validation.requireOpenCashDeskForLedgerEntries(
-        tx,
-        original.journal.entries,
-        'Cash transaction reversal',
+        tx, effectiveEntries, 'Cash transaction reversal',
       );
-      await this.validation.ensureReversalCapacity(
-        tx,
-        original.journal.entries,
-      );
+      await this.validation.ensureReversalCapacity(tx, effectiveEntries);
 
       const reversal = await tx.transaction.create({
         data: {
@@ -5412,14 +5698,9 @@ export class TransactionsService {
         reversal.id,
         userId,
         'Reversal of ' + original.transactionNumber,
-        original.journal.entries.map((entry) => ({
-          ledgerAccountId: entry.ledgerAccountId,
+        effectiveEntries.map((entry) => ({
+          ...entry,
           entryType: entry.entryType === EntryType.DEBIT ? EntryType.CREDIT : EntryType.DEBIT,
-          amount: Number(entry.amount),
-          customerId: entry.customerId ?? undefined,
-          payableId: entry.payableId ?? undefined,
-          receivableId: entry.receivableId ?? undefined,
-          providerSettlementId: entry.providerSettlementId ?? undefined,
           description: 'Reversal: ' + (entry.description ?? original.transactionNumber),
         })),
       );

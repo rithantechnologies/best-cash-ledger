@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
@@ -16,7 +16,7 @@ import {
 } from './dto/create-card-due-clearing.dto.js';
 import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
-import { CompleteExpenseDto, CreateExpenseDto } from './dto/create-expense.dto.js';
+import { CompleteExpenseDto, CreateExpenseDto, UpdateExpenseDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleServicePartnerPayableDto } from './dto/quick-cash-transfer.dto.js';
@@ -228,6 +228,16 @@ export class TransactionsController {
   @Post('expense')
   createExpense(@Body() dto: CreateExpenseDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
     return this.transactions.createExpense(dto, req.user.userId, key);
+  }
+
+  @Patch('expense/:id')
+  updateExpense(@Param('id') id: string, @Body() dto: UpdateExpenseDto, @Req() req: any) {
+    return this.transactions.updateExpense(id, dto, req.user.userId, req.user.role);
+  }
+
+  @Get('expense/:id/history')
+  expenseHistory(@Param('id') id: string) {
+    return this.transactions.expenseHistory(id);
   }
 
   @Post('expense/:id/complete')
