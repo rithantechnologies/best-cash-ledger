@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { SearchableSelect } from "@/components/searchable-select";
-import { EmptyState, PageLoader, Surface } from "@/components/ui";
+import { EmptyState, Modal, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 
 type ExpenseDetail={expenseCategoryId:string;expenseType:string;amount:string;description:string};
@@ -50,6 +50,25 @@ export default function ExpensesPage(){
  const [scope]=useState<Scope>("COMBINED"),[period,setPeriod]=useState<Period>("TODAY");
  const [categoryId,setCategoryId]=useState("ALL"),[dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState("");
  const [loading,setLoading]=useState(true),[error,setError]=useState("");
+ const [role,setRole]=useState(""),[categoryTarget,setCategoryTarget]=useState<Tx|null>(null),[deleteTarget,setDeleteTarget]=useState<Tx|null>(null);
+ const [chosenCategory,setChosenCategory]=useState(""),[categoryReason,setCategoryReason]=useState(""),[deleteReason,setDeleteReason]=useState(""),[actionSaving,setActionSaving]=useState(false);
+ useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"")}catch{}},[]);
+ function openCategory(tx:Tx){setCategoryTarget(tx);setChosenCategory(tx.expense?.expenseCategoryId||"");setCategoryReason("");setError("");}
+ function openDelete(tx:Tx){setDeleteTarget(tx);setDeleteReason("");setError("");}
+ async function changeCategory(e:React.FormEvent){e.preventDefault();if(!categoryTarget)return;setActionSaving(true);setError("");
+  try{
+   await apiFetch("/transactions/expense/"+categoryTarget.id+"/category",{method:"PATCH",body:JSON.stringify({expenseCategoryId:chosenCategory,reason:categoryReason.trim()})});
+   setTransactions(previous=>previous.map(t=>t.id===categoryTarget.id&&t.expense?{...t,expense:{...t.expense,expenseCategoryId:chosenCategory}}:t));
+   setCategoryTarget(null);
+  }catch(e){setError(e instanceof Error?e.message:"Category update failed")}finally{setActionSaving(false)}
+ }
+ async function deleteExpense(e:React.FormEvent){e.preventDefault();if(!deleteTarget)return;setActionSaving(true);setError("");
+  try{
+   await apiFetch("/transactions/expense/"+deleteTarget.id+"/delete",{method:"POST",body:JSON.stringify({reason:deleteReason.trim()})});
+   setTransactions(previous=>previous.filter(t=>t.id!==deleteTarget.id));
+   setDeleteTarget(null);
+  }catch(e){setError(e instanceof Error?e.message:"Expense deletion failed")}finally{setActionSaving(false)}
+ }
  useEffect(()=>{
   let cancelled=false;
   const load=async()=>{
@@ -180,10 +199,28 @@ export default function ExpensesPage(){
    </Surface>
 
    <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5"><div><p className="dashboard-kicker">Transactions</p><h2 className="mt-1 text-base font-bold">Expense ledger</h2></div><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">All activity</Link></div>
-    {filtered.length?<><div className="md:hidden divide-y divide-[var(--border)]">{filtered.slice(0,20).map(tx=><Link key={tx.id} href={"/transactions/"+tx.id} className="block px-4 py-3.5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold">{tx.expense?.description??"Expense"}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{categoryById.get(tx.expense?.expenseCategoryId??"")??"Other"} · Expense {dateOnly(tx.transactionAt)}</p><p className="mt-0.5 text-[9px] text-[var(--text-muted)]">Entered {enteredAt(tx.createdAt)}</p></div><strong className="money shrink-0 text-sm text-[var(--money-out)]">{money(tx.expense?.amount??tx.grossAmount)}</strong></div></Link>)}</div>
-     <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[900px] text-xs"><thead className="bg-[var(--surface-soft)] text-left text-[10px] uppercase tracking-[.06em] text-[var(--text-muted)]"><tr><th className="px-4 py-3">Expense date</th><th>Entered</th><th>Particulars</th><th>Category</th><th>Notes / reference</th><th className="pr-4 text-right">Amount</th></tr></thead><tbody>{filtered.slice(0,100).map(tx=><tr key={tx.id} className="border-t border-[var(--border)]"><td className="px-4 py-3 font-semibold text-[var(--text)]">{dateOnly(tx.transactionAt)}</td><td className="whitespace-nowrap text-[var(--text-muted)]">{enteredAt(tx.createdAt)}</td><td><Link href={"/transactions/"+tx.id} className="font-bold text-[var(--accent)]">{tx.expense?.description??tx.transactionNumber}</Link></td><td>{categoryById.get(tx.expense?.expenseCategoryId??"")??"Other"}</td><td className="max-w-[260px] truncate text-[var(--text-muted)]" title={tx.notes??tx.referenceNumber??undefined}>{tx.notes??tx.referenceNumber??"—"}</td><td className="money pr-4 text-right font-bold text-[var(--money-out)]">{money(tx.expense?.amount??tx.grossAmount)} <Link href={"/expenses/"+tx.id+"/edit"} className="ml-2 font-bold text-[var(--accent)] underline">Edit</Link></td></tr>)}</tbody></table></div>
+    {filtered.length?<><div className="md:hidden divide-y divide-[var(--border)]">{filtered.slice(0,20).map(tx=><div key={tx.id} className="px-4 py-3.5"><Link href={"/transactions/"+tx.id} className="block"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold">{tx.expense?.description??"Expense"}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{categoryById.get(tx.expense?.expenseCategoryId??"")??"Other"} · Expense {dateOnly(tx.transactionAt)}</p><p className="mt-0.5 text-[9px] text-[var(--text-muted)]">Entered {enteredAt(tx.createdAt)}</p></div><strong className="money shrink-0 text-sm text-[var(--money-out)]">{money(tx.expense?.amount??tx.grossAmount)}</strong></div></Link><div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-bold"><button onClick={()=>openCategory(tx)} className="text-[var(--accent)]">Change category</button><Link href={"/expenses/"+tx.id+"/edit"} className="text-[var(--accent)]">Edit</Link>{role==="OWNER"?<button onClick={()=>openDelete(tx)} className="text-rose-700">Delete</button>:null}</div></div>)}</div>
+     <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[900px] text-xs"><thead className="bg-[var(--surface-soft)] text-left text-[10px] uppercase tracking-[.06em] text-[var(--text-muted)]"><tr><th className="px-4 py-3">Expense date</th><th>Entered</th><th>Particulars</th><th>Category</th><th>Notes / reference</th><th className="pr-4 text-right">Amount</th><th className="pr-4 text-right">Actions</th></tr></thead><tbody>{filtered.slice(0,100).map(tx=><tr key={tx.id} className="border-t border-[var(--border)]"><td className="px-4 py-3 font-semibold text-[var(--text)]">{dateOnly(tx.transactionAt)}</td><td className="whitespace-nowrap text-[var(--text-muted)]">{enteredAt(tx.createdAt)}</td><td><Link href={"/transactions/"+tx.id} className="font-bold text-[var(--accent)]">{tx.expense?.description??tx.transactionNumber}</Link></td><td>{categoryById.get(tx.expense?.expenseCategoryId??"")??"Other"}</td><td className="max-w-[260px] truncate text-[var(--text-muted)]" title={tx.notes??tx.referenceNumber??undefined}>{tx.notes??tx.referenceNumber??"—"}</td><td className="money pr-4 text-right font-bold text-[var(--money-out)]">{money(tx.expense?.amount??tx.grossAmount)}</td><td className="whitespace-nowrap pr-4 text-right font-bold"><button onClick={()=>openCategory(tx)} className="text-[var(--accent)]">Category</button><Link href={"/expenses/"+tx.id+"/edit"} className="ml-3 text-[var(--accent)]">Edit</Link>{role==="OWNER"?<button onClick={()=>openDelete(tx)} className="ml-3 text-rose-700">Delete</button>:null}</td></tr>)}</tbody></table></div>
     </>:<div className="p-4"><EmptyState title="No expenses in this range" description="Change the filter or record a new expense."/></div>}
    </Surface>
   </div>
+  <Modal open={!!categoryTarget} title="Change expense category" description="Only the category changes. Original transaction ID, date, amount, payment account and financial ledger stay untouched." onClose={()=>!actionSaving&&setCategoryTarget(null)}
+   footer={<div className="grid grid-cols-2 gap-2"><button disabled={actionSaving} onClick={()=>setCategoryTarget(null)} className="min-h-11 rounded-xl border border-[var(--border)] text-sm font-bold">Cancel</button><button form="expense-category-update" disabled={actionSaving||chosenCategory===categoryTarget?.expense?.expenseCategoryId||categoryReason.trim().length<3} className="app-primary-button min-h-11 text-sm font-bold disabled:opacity-50">{actionSaving?"Saving…":"Save category"}</button></div>}>
+    {error?<p role="alert" className="mb-3 text-sm text-rose-700">{error}</p>:null}
+    <form id="expense-category-update" onSubmit={changeCategory} className="space-y-4">
+     <p className="text-xs text-[var(--text-muted)]">{categoryTarget?.transactionNumber} · {categoryTarget?dateOnly(categoryTarget.transactionAt):""}</p>
+     <label className="block text-sm font-bold">New category<SearchableSelect mobileSheet required className="app-control mt-1 w-full" value={chosenCategory} onChange={e=>setChosenCategory(e.target.value)}>{categories.filter(c=>c.expenseUsage===categoryTarget?.expense?.expenseType&&(c.isActive!==false||c.id===categoryTarget?.expense?.expenseCategoryId)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</SearchableSelect></label>
+     <label className="block text-sm font-bold">Reason<textarea required minLength={3} className="app-control mt-1 min-h-20 w-full p-3" value={categoryReason} onChange={e=>setCategoryReason(e.target.value)} placeholder="Example: Selected the wrong category"/></label>
+    </form>
+   </Modal>
+   <Modal open={!!deleteTarget} title="Delete expense?" description="Remove this expense from active expense totals, while keeping its original record and deletion audit." onClose={()=>!actionSaving&&setDeleteTarget(null)}
+    footer={<div className="grid grid-cols-2 gap-2"><button disabled={actionSaving} onClick={()=>setDeleteTarget(null)} className="min-h-11 rounded-xl border border-[var(--border)] text-sm font-bold">Keep expense</button><button form="expense-delete" disabled={actionSaving||deleteReason.trim().length<3} className="min-h-11 rounded-xl bg-rose-700 text-sm font-bold text-white disabled:opacity-50">{actionSaving?"Deleting…":"Delete expense"}</button></div>}>
+    {error?<p role="alert" className="mb-3 text-sm text-rose-700">{error}</p>:null}
+    <form id="expense-delete" onSubmit={deleteExpense} className="space-y-3">
+      <p className="text-sm font-bold">{deleteTarget?.expense?.description||deleteTarget?.transactionNumber} · {money(deleteTarget?.expense?.amount||0)}</p>
+      <p className="text-xs leading-5 text-[var(--text-muted)]">Only the owner can delete. A paid expense is removed from active account balances without creating a second transaction. Closed cash sessions cannot be silently modified.</p>
+      <label className="block text-sm font-bold">Deletion reason<textarea required minLength={3} className="app-control mt-1 min-h-20 w-full p-3" value={deleteReason} onChange={e=>setDeleteReason(e.target.value)} placeholder="Example: Duplicate expense entered by mistake"/></label>
+    </form>
+   </Modal>
  </div></AppShell>;
 }

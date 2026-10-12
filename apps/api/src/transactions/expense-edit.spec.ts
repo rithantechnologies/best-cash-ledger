@@ -22,7 +22,7 @@ function setup(opts:{pending?:boolean;previouslyPosted?:boolean;legacy?:boolean;
   status:opts.pending?TransactionStatus.PENDING:TransactionStatus.COMPLETED,
   transactionAt:new Date(oldDate),createdAt:new Date(oldDate),
   referenceNumber:null,notes:null,charges:[],expense:{
-   expenseType:'BUSINESS',expenseCategoryId:'cat-one',amount:new Prisma.Decimal(100),
+   expenseType:'BUSINESS',expenseCategoryId:'cat-one',expenseCategory:{name:'Old category'},amount:new Prisma.Decimal(100),
    paymentAccountId:opts.pending?null:from.id,description:'Old expense',payee:null,
   },
   journal:opts.pending&&!opts.previouslyPosted?null:{
@@ -61,7 +61,7 @@ function setup(opts:{pending?:boolean;previouslyPosted?:boolean;legacy?:boolean;
  const prisma:any={$transaction:(cb:(db:any)=>Promise<unknown>)=>cb(tx)};
  const ledger:any={post:vi.fn()};
  const validation:any={lockAccount:vi.fn(),account:vi.fn().mockResolvedValue(to),
-  ensureSufficientFunds:vi.fn(),ensureCreditCapacity:vi.fn(),
+  ensureSufficientFunds:vi.fn(),ensureCreditCapacity:vi.fn(),ensureReversalCapacity:vi.fn(),
   requireOpenCashDesk:vi.fn(),balance:vi.fn().mockResolvedValue(5000)};
  const charges:any={resolve:vi.fn().mockResolvedValue(null)};
  const service=new TransactionsService(prisma,ledger,validation,{} as any,{} as any,charges);
@@ -185,5 +185,81 @@ describe('edit the original expense in place',()=>{
    .rejects.toThrow(/closed cash session/);
   expect(tx.ledgerEntry.deleteMany).not.toHaveBeenCalled();
   expect(tx.transaction.update).not.toHaveBeenCalled();
+ });
+});
+describe('delete expense and quick category correction',()=>{
+ it('changes only the category on the original expense with date preserved and a before/after audit',async()=>{
+  const {service,tx,ledger,original}=setup();
+  tx.expenseCategory.findUnique.mockResolvedValue({id:'cat-two',name:'Travel',expenseUsage:'BUSINESS',isActive:true});
+  const changed=await service.updateExpenseCategory('expense-one',{expenseCategoryId:'cat-two',reason:'Category was wrong'},'staff-one');
+  expect(changed.id).toBe(original.id);
+  expect(changed.transactionAt).toEqual(new Date(oldDate));
+  expect(tx.expenseDetail.update).toHaveBeenCalledWith({where:{transactionId:'expense-one'},data:{expenseCategoryId:'cat-two'}});
+  expect(tx.transaction.update).toHaveBeenCalledWith({where:{id:'expense-one'},data:{updatedById:'staff-one'}});
+  expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({
+   action:'UPDATE_EXPENSE_CATEGORY',oldValues:expect.objectContaining({expenseCategoryId:'cat-one',categoryName:'Old category'}),
+   newValues:expect.objectContaining({expenseCategoryId:'cat-two',categoryName:'Travel'}),
+   reason:'Category was wrong',
+  })}));
+  expect(tx.ledgerEntry.deleteMany).not.toHaveBeenCalled();
+  expect(tx.ledgerJournal.update).not.toHaveBeenCalled();
+  expect(ledger.post).not.toHaveBeenCalled();
+ });
+ it('rejects category changes to a mismatched expense type',async()=>{
+  const {service,tx}=setup();
+  tx.expenseCategory.findUnique.mockResolvedValue({id:'personal',name:'Personal',expenseUsage:'PERSONAL',isActive:true});
+  await expect(service.updateExpenseCategory('expense-one',{expenseCategoryId:'personal',reason:'Testing mismatch'},'staff-one'))
+   .rejects.toThrow(/category/);
+  expect(tx.expenseDetail.update).not.toHaveBeenCalled();
+ });
+ it('deletes a pending expense without a journal or a replacement transaction',async()=>{
+  const {service,tx,ledger}=setup({pending:true});
+  const deleted=await service.deleteExpense('expense-one',{reason:'Duplicate rough entry'},'owner-one');
+  expect(deleted).toEqual({id:'expense-one',deleted:true,status:TransactionStatus.REVERSED});
+  expect(tx.transaction.update).toHaveBeenCalledWith({where:{id:'expense-one'},data:{
+   status:TransactionStatus.REVERSED,reversalReason:'Duplicate rough entry',updatedById:'owner-one',
+  }});
+  expect(tx.transaction.create).not.toHaveBeenCalled();
+  expect(tx.ledgerJournal.update).not.toHaveBeenCalled();
+  expect(ledger.post).not.toHaveBeenCalled();
+  expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({
+   action:'DELETE_EXPENSE',entityId:'expense-one',reason:'Duplicate rough entry',
+  })}));
+ });
+ it('deletes an already posted bank expense by voiding its original journal and preserving evidence',async()=>{
+  const {service,tx,validation,ledger,original}=setup();
+  const result=await service.deleteExpense('expense-one',{reason:'Wrong duplicate bank expense'},'owner-one');
+  expect(result.id).toBe(original.id);
+  expect(tx.ledgerJournal.update).toHaveBeenCalledWith({where:{id:'original-journal'},data:{status:JournalStatus.REVERSED}});
+  expect(validation.ensureReversalCapacity).toHaveBeenCalledOnce();
+  expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({
+   action:'DELETE_EXPENSE',oldValues:expect.objectContaining({transactionAt:oldDate,amount:'100',
+    postedJournals:expect.arrayContaining([expect.objectContaining({id:'original-journal'})])}),
+   newValues:expect.objectContaining({status:TransactionStatus.REVERSED,journalsVoided:['original-journal']}),
+  })}));
+  expect(tx.transaction.create).not.toHaveBeenCalled();
+  expect(ledger.post).not.toHaveBeenCalled();
+ });
+ it('deletes legacy expense amendments together with the original journal without a second posting',async()=>{
+  const {service,tx}=setup({legacy:true});
+  await service.deleteExpense('expense-one',{reason:'Incorrect expense'},'owner-one');
+  expect(tx.ledgerJournal.update).toHaveBeenCalledWith({where:{id:'original-journal'},data:{status:JournalStatus.REVERSED}});
+  expect(tx.ledgerJournal.update).toHaveBeenCalledWith({where:{id:'legacy-journal'},data:{status:JournalStatus.REVERSED}});
+  expect(tx.transaction.create).not.toHaveBeenCalled();
+ });
+ it('blocks deleting a cash expense touching a closed session, including for the owner',async()=>{
+  const {service,tx}=setup({cash:true});
+  tx.financialAccount.findMany.mockResolvedValue([{id:'bank-one',ledgerAccount:{id:'ledger-one'}}]);
+  tx.cashSession.findFirst.mockResolvedValue({id:'closed-session'});
+  await expect(service.deleteExpense('expense-one',{reason:'Duplicate cash expense'},'owner-one'))
+   .rejects.toThrow(/closed cash session/);
+  expect(tx.ledgerJournal.update).not.toHaveBeenCalled();
+  expect(tx.transaction.update).not.toHaveBeenCalled();
+ });
+ it('rejects a second deletion and prevents repeat balance effects',async()=>{
+  const {service,tx,original}=setup();original.status=TransactionStatus.REVERSED;
+  await expect(service.deleteExpense('expense-one',{reason:'Delete again'},'owner-one'))
+   .rejects.toThrow(/already deleted/);
+  expect(tx.ledgerJournal.update).not.toHaveBeenCalled();
  });
 });
