@@ -71,7 +71,7 @@ export default function ExpensePage(){
      </SearchableSelect>
      {!showNewCategory?<button type="button" onClick={()=>{setShowNewCategory(true);setError("");}} className="mt-2 text-xs font-black text-[var(--accent)]">+ Add new category</button>:<div className="mt-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
       <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">New expense category</p>
-      <div className="flex flex-col gap-2 sm:flex-row"><input autoFocus className={control+" flex-1"} value={newCategoryName} onChange={e=>setNewCategoryName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();void addCategory();}}} placeholder="Example: Office supplies" maxLength={80}/><button type="button" onClick={()=>void addCategory()} disabled={creatingCategory||newCategoryName.trim().length<2} className="app-primary-button min-h-11 px-4 text-xs font-bold disabled:opacity-40">{creatingCategory?"Adding…":"Add category"}</button><button type="button" onClick={()=>{setShowNewCategory(false);setNewCategoryName("");}} className="min-h-11 rounded-xl border border-[var(--border)] px-3 text-xs font-bold">Cancel</button></div>
+      <div className="flex flex-col gap-2 sm:flex-row"><input name="cashledger_category" autoComplete="on" autoFocus className={control+" flex-1"} value={newCategoryName} onChange={e=>setNewCategoryName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();void addCategory();}}} placeholder="Example: Office supplies" maxLength={80}/><button type="button" onClick={()=>void addCategory()} disabled={creatingCategory||newCategoryName.trim().length<2} className="app-primary-button min-h-11 px-4 text-xs font-bold disabled:opacity-40">{creatingCategory?"Adding…":"Add category"}</button><button type="button" onClick={()=>{setShowNewCategory(false);setNewCategoryName("");}} className="min-h-11 rounded-xl border border-[var(--border)] px-3 text-xs font-bold">Cancel</button></div>
       <p className="mt-2 text-[10px] text-[var(--text-muted)]">The new category will be selected automatically for this expense.</p>
      </div>}
     </Field>
@@ -83,8 +83,8 @@ export default function ExpensePage(){
       {eligibleAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}
      </SearchableSelect>
     </Field>
-    <Field label="Paid to / payee (optional)"><input className={control} value={payee} onChange={e=>setPayee(e.target.value)} placeholder="Vendor, person or company"/></Field>
-    <Field label="Note (optional)"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Add a note"/></Field>
+    <Field label="Paid to / payee (optional)"><input name="cashledger_paid_to_payee_optional" autoComplete="on" className={control} value={payee} onChange={e=>setPayee(e.target.value)} placeholder="Vendor, person or company"/></Field>
+    <Field label="Note (optional)"><textarea name="cashledger_note_optional" autoComplete="on" className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Add a note"/></Field>
    </div>
   </FormSection>
  </TransactionFrame></form></AppShell>;

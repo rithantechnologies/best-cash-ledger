@@ -364,7 +364,7 @@ export default function AccountsPage(){
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="relative min-w-0 flex-1">
           <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
-          <input className="app-control !pl-10" value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Search account"/>
+          <input name="cashledger_search_account" autoComplete="on" className="app-control !pl-10" value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Search account"/>
         </div>
         <div className="ui-scroll-fade min-w-0 lg:flex-none"><div className="flex gap-1.5 overflow-x-auto pb-0.5 pr-5 lg:pr-0">
           {typeTabs.map(([value,label])=><button type="button" key={value} onClick={()=>setListType(value)}
@@ -451,7 +451,7 @@ export default function AccountsPage(){
     <AccountModal open={adding} onClose={()=>setAdding(false)} title="Add account">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="PROVIDER_WALLET"?"Provider / wallet name":"Account name"}</span><input className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder={type==="CASH"?"e.g. Main Cash Reserve":type==="PROVIDER_WALLET"?"e.g. ECPay":"e.g. HDFC Current"} required/></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="PROVIDER_WALLET"?"Provider / wallet name":"Account name"}</span><input name="cashledger_name" autoComplete="on" className="app-control" value={name} onChange={(e)=>setName(e.target.value)} placeholder={type==="CASH"?"e.g. Main Cash Reserve":type==="PROVIDER_WALLET"?"e.g. ECPay":"e.g. HDFC Current"} required/></label>
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Type</span><SearchableSelect className="app-control" value={type} onChange={(e)=>setType(e.target.value)}>
             <option value="CASH">Cash reserve / drawer</option><option value="BANK">Bank</option><option value="OWNER_CREDIT_CARD">Credit card</option><option value="PROVIDER_WALLET">Payment provider / wallet</option>
           </SearchableSelect></label>
@@ -471,7 +471,7 @@ export default function AccountsPage(){
             <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">A wallet account is created automatically. Add the provider&apos;s gateway now, or manage additional gateways later in Settings.</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Gateway name <span className="font-normal text-[var(--text-muted)]">(optional)</span></span><input className="app-control" value={gatewayName} onChange={(e)=>setGatewayName(e.target.value)} placeholder="e.g. Razorpay / Pine Labs / Paytm"/></label>
+            <label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Gateway name <span className="font-normal text-[var(--text-muted)]">(optional)</span></span><input name="cashledger_e_g_razorpay_pine_labs_paytm" autoComplete="on" className="app-control" value={gatewayName} onChange={(e)=>setGatewayName(e.target.value)} placeholder="e.g. Razorpay / Pine Labs / Paytm"/></label>
             <label className="block"><span className="mb-1.5 block text-sm font-semibold">Charge type</span><SearchableSelect className="app-control" value={gatewayChargeType} onChange={(e)=>setGatewayChargeType(e.target.value)}><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed amount</option></SearchableSelect></label>
             <label className="block"><span className="mb-1.5 block text-sm font-semibold">{gatewayChargeType==="PERCENTAGE"?"Default gateway charge %":"Default gateway charge"}</span><input className="app-control" type="number" min="0" step="0.0001" inputMode="decimal" value={gatewayRate} onChange={(e)=>setGatewayRate(e.target.value)} placeholder={gatewayChargeType==="PERCENTAGE"?"e.g. 1.5":"e.g. 10"} required={Boolean(gatewayName.trim())}/></label>
           </div>
@@ -483,7 +483,7 @@ export default function AccountsPage(){
     <AccountModal open={Boolean(editing)} onClose={()=>setEditing(null)} title={editing?.accountName??"Edit account"} description={editing?typeLabels[editing.accountType]:undefined}>
       {editing?<form onSubmit={saveEdit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Account name</span><input className="app-control" value={editName} onChange={(e)=>setEditName(e.target.value)} required/></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Account name</span><input name="cashledger_edit_name" autoComplete="on" className="app-control" value={editName} onChange={(e)=>setEditName(e.target.value)} required/></label>
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><SearchableSelect className="app-control" value={editUsage} onChange={(e)=>setEditUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></SearchableSelect></label>
           {editing.accountType==="OWNER_CREDIT_CARD"?<label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Credit limit</span><input className="app-control" type="number" min="0.01" step="0.01" value={editLimit} onChange={(e)=>setEditLimit(e.target.value)} required/></label>:null}
         </div>

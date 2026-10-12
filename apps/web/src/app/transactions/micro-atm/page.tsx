@@ -133,16 +133,16 @@ export default function MicroAtmPage(){
      <button type="button" onClick={()=>setCustomerMode("new")} className={"min-h-10 rounded-lg text-sm font-bold "+(customerMode==="new"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>New</button>
     </div>
     {customerMode==="existing"?<div className="grid gap-3 sm:grid-cols-2">
-     <Field label="Find customer"><input className={control} value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name or mobile"/></Field>
+     <Field label="Find customer"><input name="cashledger_find_customer" autoComplete="on" className={control} value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name or mobile"/></Field>
      <Field label="Customer"><SearchableSelect className={control} value={customerId} onChange={e=>setCustomerId(e.target.value)} required><option value="">Select customer</option>{filteredCustomers.map(c=><option key={c.id} value={c.id}>{c.fullName}{c.mobile?" · "+c.mobile:""}</option>)}</SearchableSelect></Field>
     </div>:<div className="grid gap-3 sm:grid-cols-2">
-     <Field label="Customer name"><input className={control} value={newCustomerName} onChange={e=>setNewCustomerName(e.target.value.toUpperCase())} placeholder="Enter customer name" required/></Field>
+     <Field label="Customer name"><input name="cashledger_customer_name" autoComplete="on" className={control} value={newCustomerName} onChange={e=>setNewCustomerName(e.target.value.toUpperCase())} placeholder="Enter customer name" required/></Field>
      <Field label="Mobile (optional)"><input className={control} inputMode="numeric" maxLength={10} value={newCustomerMobile} onChange={e=>setNewCustomerMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile"/>{newCustomerMobile&& !/^[6-9]\d{9}$/.test(newCustomerMobile)?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Enter a valid 10-digit Indian mobile number.</span>:null}</Field>
     </div>}
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
      <Field label="Customer gets"><input className={control+" text-xl font-bold"} type="number" inputMode="decimal" step="0.01" min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" required/></Field>
      <Field label="Card last 4"><input className={control} inputMode="numeric" maxLength={4} placeholder="Last 4 digits" value={cardLastFour} onChange={e=>setCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
-     <Field label="Customer bank"><input className={control} value={bank} onChange={e=>setBank(e.target.value)} placeholder="Optional bank name"/></Field>
+     <Field label="Customer bank"><input name="cashledger_customer_bank" autoComplete="on" className={control} value={bank} onChange={e=>setBank(e.target.value)} placeholder="Optional bank name"/></Field>
     </div>
    </FormSection>
 
@@ -163,7 +163,7 @@ export default function MicroAtmPage(){
     </div>
    </FormSection>
 
-   <details className="group rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer list-none px-4 py-3.5 text-sm font-bold">More details <span className="float-right text-[var(--text-muted)] group-open:rotate-45">+</span></summary><div className="grid gap-3 border-t border-[var(--border)] p-4 sm:grid-cols-2"><Field label="Provider reference / RRN"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="RRN / transaction reference"/></Field><Field label="Transaction date & time (optional)"><input className={control} type="datetime-local" value={transactionAt} onChange={e=>setTransactionAt(e.target.value)}/><span className="mt-1 block text-[10px] text-[var(--text-muted)]">Leave blank to use the current date and time.</span></Field><Field label="Notes" className="sm:col-span-2"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></details>
+   <details className="group rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer list-none px-4 py-3.5 text-sm font-bold">More details <span className="float-right text-[var(--text-muted)] group-open:rotate-45">+</span></summary><div className="grid gap-3 border-t border-[var(--border)] p-4 sm:grid-cols-2"><Field label="Provider reference / RRN"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="RRN / transaction reference"/></Field><Field label="Transaction date & time (optional)"><input className={control} type="datetime-local" value={transactionAt} onChange={e=>setTransactionAt(e.target.value)}/><span className="mt-1 block text-[10px] text-[var(--text-muted)]">Leave blank to use the current date and time.</span></Field><Field label="Notes" className="sm:col-span-2"><textarea name="cashledger_notes" autoComplete="on" className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></details>
   </TransactionFrame>
  </form></AppShell>;
 }

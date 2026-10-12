@@ -181,7 +181,7 @@ export default function TransactionsPage(){
   <Surface className="p-1.5 md:hidden"><div className="grid grid-cols-4 gap-1">{([["today","Today"],["yesterday","Yesterday"],["week","7 days"],["all","All"]] as [Range,string][]).map(([v,l])=><button key={v} onClick={()=>setRange(v)} className={"min-h-11 rounded-xl px-2 text-xs font-semibold transition "+(range===v?"bg-[var(--accent)] text-white":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]")}>{l}</button>)}</div></Surface>
   <Surface className="p-3 md:hidden">
    <div className="flex gap-2">
-    <input className="app-control min-w-0 flex-1" placeholder="Search transactions" value={q} onChange={e=>setQ(e.target.value)}/>
+    <input name="cashledger_search_transactions" autoComplete="on" className="app-control min-w-0 flex-1" placeholder="Search transactions" value={q} onChange={e=>setQ(e.target.value)}/>
     <button type="button" onClick={()=>setMobileFiltersOpen(v=>!v)} className={"min-h-11 shrink-0 rounded-xl border px-3 text-xs font-bold transition "+(mobileFiltersOpen?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] bg-[var(--surface)] text-[var(--text)]")}>Filters{activeFilterCount?" ("+activeFilterCount+")":""}</button>
    </div>
    {mobileFiltersOpen?<div className="mt-2 grid gap-2">

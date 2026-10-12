@@ -580,7 +580,7 @@ export default function AccountLedgerPage(){
         <div className="grid gap-2 border-b border-[var(--border)] p-3 md:grid-cols-[minmax(0,1fr)_180px_220px]">
           <div className="relative">
             <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
-            <input className="app-control !pl-10" value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Search activity"/>
+            <input name="cashledger_search_activity" autoComplete="on" className="app-control !pl-10" value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Search activity"/>
           </div>
           <SearchableSelect className="app-control" value={txStatusFilter} onChange={(event)=>setTxStatusFilter(event.target.value)}><option value="">All transaction status</option>{["COMPLETED","PENDING","FAILED","CANCELLED","REVERSED"].map((x)=><option key={x}>{nice(x)}</option>)}</SearchableSelect>
           <SearchableSelect className="app-control" value={moneyStatusFilter} onChange={(event)=>setMoneyStatusFilter(event.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([value,label])=><option key={value} value={value}>{label}</option>)}</SearchableSelect>
@@ -671,9 +671,9 @@ export default function AccountLedgerPage(){
           <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Amount</span><input className="app-control" type="number" min="0.01" step="0.01" inputMode="decimal" value={entryAmount} onChange={(event)=>{setEntryAmount(event.target.value);setEntryError("");}} placeholder="₹ 0.00" required/></label>
           <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Date</span><input className="app-control" type="date" max={localDateValue()} value={entryDate} onChange={(event)=>{setEntryDate(event.target.value);setEntryError("");}} required/></label>
         </div>
-        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason / source</span><input className="app-control" value={entryLabel} onChange={(event)=>{setEntryLabel(event.target.value);setEntryError("");}} placeholder="Optional reason or source"/></label>
+        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason / source</span><input name="cashledger_optional_reason_or_source" autoComplete="on" className="app-control" value={entryLabel} onChange={(event)=>{setEntryLabel(event.target.value);setEntryError("");}} placeholder="Optional reason or source"/></label>
         <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reference</span><input className="app-control" value={entryReference} onChange={(event)=>setEntryReference(event.target.value)} placeholder="Bank ref / UTR / document no. (optional)"/></label>
-        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Note</span><textarea className="app-control min-h-20 resize-y" value={entryNote} onChange={(event)=>setEntryNote(event.target.value)} placeholder="Optional note"/></label>
+        <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Note</span><textarea name="cashledger_optional_note" autoComplete="on" className="app-control min-h-20 resize-y" value={entryNote} onChange={(event)=>setEntryNote(event.target.value)} placeholder="Optional note"/></label>
         {entryError?<p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{entryError}</p>:null}
 
       </form>

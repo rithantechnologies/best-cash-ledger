@@ -38,6 +38,6 @@ export default function OwnerCcPaymentPage(){
     {card?<div className="rounded-xl bg-slate-50 px-3 py-2.5 text-xs"><p className="text-slate-400">Credit limit</p><p className="mt-1 font-bold">{card.creditLimit!==null?money(card.creditLimit):"Not configured"}</p></div>:null}
    </div>
   </FormSection>
-  <FormSection step="2" title="Reference & notes" description="Optional payment reference for reconciliation."><div className="grid gap-3 sm:grid-cols-2"><Field label="Reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Payment reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></FormSection>
+  <FormSection step="2" title="Reference & notes" description="Optional payment reference for reconciliation."><div className="grid gap-3 sm:grid-cols-2"><Field label="Reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Payment reference"/></Field><Field label="Notes"><textarea name="cashledger_notes" autoComplete="on" className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></FormSection>
  </TransactionFrame></form></AppShell>;
 }

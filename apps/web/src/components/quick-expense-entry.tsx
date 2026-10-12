@@ -190,7 +190,7 @@ export function QuickExpenseEntry({
                   className="mt-2 min-h-8 px-1 text-[12px] font-black text-violet-700">+ Add new category</button>:
                   <div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2.5">
                     <p className="mb-2 text-[10px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">New expense category</p>
-                    <input autoFocus value={newCategoryName} onChange={e=>setNewCategoryName(e.target.value)}
+                    <input name="cashledger_new_category_name" autoComplete="on" autoFocus value={newCategoryName} onChange={e=>setNewCategoryName(e.target.value)}
                       onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();void addCategory();}}}
                       placeholder="Example: Office supplies" maxLength={80}
                       className="min-h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-[14px] font-bold text-[var(--text)] outline-none focus:border-violet-300"/>
@@ -215,7 +215,7 @@ export function QuickExpenseEntry({
                 </label>
                 <label className="flex min-h-[58px] items-start gap-3 py-3">
                   <span className="w-[76px] shrink-0 pt-1 text-[10px] font-black uppercase tracking-[.09em] text-[var(--text-muted)]">Note</span>
-                  <textarea rows={2} className="min-h-[42px] min-w-0 flex-1 resize-none appearance-none bg-transparent p-0 text-right text-[17px] font-extrabold leading-5 text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]"
+                  <textarea name="cashledger_add_note" autoComplete="on" rows={2} className="min-h-[42px] min-w-0 flex-1 resize-none appearance-none bg-transparent p-0 text-right text-[17px] font-extrabold leading-5 text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]"
                     placeholder="Add note" value={note} onChange={e=>setNote(e.target.value)}/>
                 </label>
               </div>

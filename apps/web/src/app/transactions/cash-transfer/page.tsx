@@ -480,7 +480,7 @@ export default function CashTransferPage(){
 
             {customerMode==="NEW"?<div className="mt-3 grid gap-3 sm:grid-cols-2">
               <Field label="Customer name">
-                <input className={control} value={newName} onChange={e=>setNewName(e.target.value.toUpperCase())} autoFocus placeholder="Full name"/>
+                <input name="cashledger_customer_name" autoComplete="on" className={control} value={newName} onChange={e=>setNewName(e.target.value.toUpperCase())} autoFocus placeholder="Full name"/>
               </Field>
               <Field label="Mobile (optional)">
                 <input className={control} inputMode="numeric" maxLength={10} value={newMobile} onChange={e=>setNewMobile(e.target.value.replace(/D/g,"").slice(0,10))} placeholder="10-digit mobile"/>
@@ -551,11 +551,11 @@ export default function CashTransferPage(){
                 <button type="button" onClick={()=>{setDestinationType("UPI");setDestinationValue("");}} className={"min-h-10 rounded-lg px-2 text-xs font-bold "+(destinationType==="UPI"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>UPI / GPay</button>
                 <button type="button" onClick={()=>{setDestinationType("BANK");setDestinationValue("");}} className={"min-h-10 rounded-lg px-2 text-xs font-bold "+(destinationType==="BANK"?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Bank</button>
               </div></div>
-              {recipientScope==="OTHER"?<Field label="Recipient name"><input className={control} value={recipientName} onChange={e=>setRecipientName(e.target.value)} placeholder="Recipient name" required/></Field>:null}
+              {recipientScope==="OTHER"?<Field label="Recipient name"><input name="cashledger_recipient_name" autoComplete="on" className={control} value={recipientName} onChange={e=>setRecipientName(e.target.value)} placeholder="Recipient name" required/></Field>:null}
               {destinationType==="UPI"?<Field label="UPI / GPay / PhonePe" className={recipientScope==="SELF"?"md:col-span-2":""}><input className={control} value={destinationValue} onChange={e=>setDestinationValue(e.target.value)} placeholder="name@upi or mobile" required/></Field>:<>
-                <Field label="Bank"><input className={control} value={bankName} onChange={e=>setBankName(e.target.value)} placeholder="Bank name" required/></Field>
+                <Field label="Bank"><input name="cashledger_bank" autoComplete="on" className={control} value={bankName} onChange={e=>setBankName(e.target.value)} placeholder="Bank name" required/></Field>
                 <Field label="Account number"><input className={control} value={destinationValue} onChange={e=>setDestinationValue(e.target.value)} placeholder="Account number" required/></Field>
-                <Field label="IFSC (optional)"><input className={control} value={ifsc} onChange={e=>setIfsc(e.target.value.toUpperCase())} placeholder="IFSC"/></Field>
+                <Field label="IFSC (optional)"><input name="cashledger_i_f_s_c_optional" autoComplete="on" className={control} value={ifsc} onChange={e=>setIfsc(e.target.value.toUpperCase())} placeholder="IFSC"/></Field>
               </>}
             </div>}
           </section>
@@ -629,7 +629,7 @@ export default function CashTransferPage(){
               <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 text-left"><span className="text-sm font-semibold">More details</span><span className="text-lg text-[var(--text-muted)] group-open:rotate-45">+</span></summary>
               <div className="grid gap-3 border-t border-[var(--border)] p-4 sm:grid-cols-2">
                 <Field label="UTR / reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Optional"/></Field>
-                <Field label="Notes"><input className={control} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></Field>
+                <Field label="Notes"><input name="cashledger_notes" autoComplete="on" className={control} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional"/></Field>
               </div>
             </details>
           </section>

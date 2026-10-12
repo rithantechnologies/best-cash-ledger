@@ -179,7 +179,7 @@ export default function AuditPage(){
     <Surface className="p-3 sm:p-4">
       <div className="relative">
         <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"><Icon type="search"/></span>
-        <input className="app-control !pl-11" placeholder="Search activity, record, user or reason…" value={q} onChange={(event)=>setQ(event.target.value)}/>
+        <input name="cashledger_q" autoComplete="on" className="app-control !pl-11" placeholder="Search activity, record, user or reason…" value={q} onChange={(event)=>setQ(event.target.value)}/>
       </div>
       <div className="mt-3 grid gap-2.5 sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
         <SearchableSelect className="app-control" value={entity} onChange={(event)=>setEntity(event.target.value)}><option value="">All areas</option>{entities.map((value)=><option key={value} value={value}>{words(value)}</option>)}</SearchableSelect>

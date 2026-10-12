@@ -109,9 +109,9 @@ export default function ReceivablesPage(){
     <Field label="Source account" hint="Leave blank for opening / legacy receivable."><SearchSelect value={sourceAccountId} onChange={setSourceAccountId} options={[{value:"",label:"No source account"},...liquidAccounts.map(a=>({value:a.id,label:a.accountName,description:money(a.currentBalance),searchText:a.accountName+" "+a.accountType}))]} placeholder="No source account" searchPlaceholder="Search account…"/></Field>
     <Field label="Due date"><input className={control} type="date" value={dueAt} onChange={e=>setDueAt(e.target.value)}/></Field>
     <Field label="Reason category"><SearchableSelect className={control} value={reasonCategory} onChange={e=>setReasonCategory(e.target.value)}>{["ADVANCE","SETTLEMENT_DUE","SHORTAGE_RECOVERY","LOAN","ADJUSTMENT","OTHER"].map(x=><option key={x}>{x}</option>)}</SearchableSelect></Field>
-    <Field label="Reason"><input className={control} value={reason} onChange={e=>setReason(e.target.value)} required/></Field>
+    <Field label="Reason"><input name="cashledger_reason" autoComplete="on" className={control} value={reason} onChange={e=>setReason(e.target.value)} required/></Field>
     <Field label="Reference"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Optional reference"/></Field>
-    <Field label="Description"><input className={control} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Optional detail"/></Field>
+    <Field label="Description"><input name="cashledger_description" autoComplete="on" className={control} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Optional detail"/></Field>
    </form>
   </Modal>
   <Modal open={!!selected} title={selected?"Collect from "+selected.customer.fullName:"Record collection"} description={selected?"Remaining "+money(selected.remainingAmount):undefined} onClose={()=>setSelected(null)}
@@ -120,13 +120,13 @@ export default function ReceivablesPage(){
     <Field label="Amount received"><input className={control} type="number" step="0.01" min="0.01" max={selected?.remainingAmount} value={collectAmount} onChange={e=>setCollectAmount(e.target.value)} required/></Field>
     <Field label="Received into"><SearchSelect value={destination} onChange={setDestination} options={liquidAccounts.map(a=>({value:a.id,label:a.accountName,description:a.accountType,searchText:a.accountName+" "+a.accountType}))} placeholder="Select account" searchPlaceholder="Search account…"/></Field>
     <Field label="Reference / UTR"><input className={control} value={collectReference} onChange={e=>setCollectReference(e.target.value)} placeholder="Optional"/></Field>
-    <Field label="Notes"><input className={control} value={collectNotes} onChange={e=>setCollectNotes(e.target.value)} placeholder="Optional"/></Field>
+    <Field label="Notes"><input name="cashledger_notes" autoComplete="on" className={control} value={collectNotes} onChange={e=>setCollectNotes(e.target.value)} placeholder="Optional"/></Field>
    </form>
   </Modal>
 
   <Modal open={!!cancelTarget} title="Cancel receivable?" description="Only uncollected receivables can be cancelled. Financial history is preserved." onClose={()=>setCancelTarget(null)}
    footer={<div className="grid grid-cols-2 gap-2"><button onClick={()=>setCancelTarget(null)} className="app-secondary-button min-h-11 font-bold">Keep</button><button form="cancel-receivable" disabled={busy} className="min-h-11 rounded-xl bg-rose-700 font-bold text-white disabled:opacity-50">Confirm cancel</button></div>}>
-   <form id="cancel-receivable" onSubmit={cancel}><Field label="Reason"><textarea className="min-h-28 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm" value={cancelReason} onChange={e=>setCancelReason(e.target.value)} minLength={3} required/></Field></form>
+   <form id="cancel-receivable" onSubmit={cancel}><Field label="Reason"><textarea name="cashledger_reason" autoComplete="on" className="min-h-28 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm" value={cancelReason} onChange={e=>setCancelReason(e.target.value)} minLength={3} required/></Field></form>
   </Modal>
  </PageFrame></AppShell>;
 }
