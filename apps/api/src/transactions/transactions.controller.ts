@@ -16,7 +16,7 @@ import {
 } from './dto/create-card-due-clearing.dto.js';
 import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
-import { CompleteExpenseDto, CreateExpenseDto, UpdateExpenseDto } from './dto/create-expense.dto.js';
+import { CompleteExpenseDto, CreateExpenseDto, UpdateExpenseDto, UpdateExpenseCategoryDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleServicePartnerPayableDto } from './dto/quick-cash-transfer.dto.js';
@@ -233,6 +233,17 @@ export class TransactionsController {
   @Patch('expense/:id')
   updateExpense(@Param('id') id: string, @Body() dto: UpdateExpenseDto, @Req() req: any) {
     return this.transactions.updateExpense(id, dto, req.user.userId, req.user.role);
+  }
+
+  @Patch('expense/:id/category')
+  updateExpenseCategory(@Param('id') id: string, @Body() dto: UpdateExpenseCategoryDto, @Req() req: any) {
+    return this.transactions.updateExpenseCategory(id, dto, req.user.userId);
+  }
+
+  @Post('expense/:id/delete')
+  @Roles(RoleName.OWNER)
+  deleteExpense(@Param('id') id: string, @Body() dto: ReverseTransactionDto, @Req() req: any) {
+    return this.transactions.deleteExpense(id, dto, req.user.userId);
   }
 
   @Get('expense/:id/history')

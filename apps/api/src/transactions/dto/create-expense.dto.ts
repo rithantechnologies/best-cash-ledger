@@ -31,3 +31,9 @@ export class UpdateExpenseDto {
   @IsOptional() @IsString() notes?: string | null;
   @IsString() @MinLength(3) reason!: string;
 }
+
+// A quick category correction must never re-save or shift other expense fields.
+export class UpdateExpenseCategoryDto {
+  @IsString() expenseCategoryId!: string;
+  @IsString() @MinLength(3) reason!: string;
+}

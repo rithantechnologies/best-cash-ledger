@@ -13,7 +13,7 @@ import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
 import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
 import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
-import { CompleteExpenseDto, CreateExpenseDto, UpdateExpenseDto } from './dto/create-expense.dto.js';
+import { CompleteExpenseDto, CreateExpenseDto, UpdateExpenseDto, UpdateExpenseCategoryDto } from './dto/create-expense.dto.js';
 import { CreateInternalTransferDto } from './dto/create-internal-transfer.dto.js';
 import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleServicePartnerPayableDto } from './dto/quick-cash-transfer.dto.js';
@@ -3728,6 +3728,136 @@ export class TransactionsService {
     });
   }
 
+  async updateExpenseCategory(id: string, dto: UpdateExpenseCategoryDto, userId: string) {
+    const reason = dto.reason?.trim();
+    if (!reason || reason.length < 3) throw new BadRequestException('Enter a reason for the category change');
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', id);
+      const original = await tx.transaction.findUnique({
+        where: { id }, include: { expense: { include: { expenseCategory: true } } },
+      });
+      if (!original?.expense) throw new NotFoundException('Expense not found');
+      if (original.status !== TransactionStatus.PENDING && original.status !== TransactionStatus.COMPLETED) {
+        throw new BadRequestException('Deleted or reversed expenses cannot be changed');
+      }
+      const newCategory = await tx.expenseCategory.findUnique({ where: { id: dto.expenseCategoryId } });
+      if (!newCategory || newCategory.expenseUsage !== original.expense.expenseType ||
+        (!newCategory.isActive && newCategory.id !== original.expense.expenseCategoryId)) {
+        throw new BadRequestException('Select an active category for this expense type');
+      }
+      if (newCategory.id === original.expense.expenseCategoryId) {
+        throw new BadRequestException('This expense already uses the selected category');
+      }
+      await tx.expenseDetail.update({ where: { transactionId: id },
+        data: { expenseCategoryId: newCategory.id } });
+      await tx.transaction.update({ where: { id }, data: { updatedById: userId } });
+      await tx.auditLog.create({ data: {
+        userId, entityType: 'TRANSACTION', entityId: id, action: 'UPDATE_EXPENSE_CATEGORY',
+        oldValues: { expenseCategoryId: original.expense.expenseCategoryId,
+          categoryName: original.expense.expenseCategory.name, transactionAt: original.transactionAt.toISOString() },
+        newValues: { expenseCategoryId: newCategory.id,
+          categoryName: newCategory.name, transactionAt: original.transactionAt.toISOString() },
+        reason,
+      } });
+      return { id, transactionAt: original.transactionAt, expenseCategoryId: newCategory.id, categoryName: newCategory.name };
+    });
+  }
+
+  async deleteExpense(id: string, dto: ReverseTransactionDto, userId: string) {
+    const reason = dto.reason?.trim();
+    if (!reason || reason.length < 3) throw new BadRequestException('Enter a reason for deleting this expense');
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', id);
+      const original = await tx.transaction.findUnique({
+        where: { id }, include: { expense: true, journal: { include: { entries: true } } },
+      });
+      if (!original?.expense) throw new NotFoundException('Expense not found');
+      if (original.status !== TransactionStatus.PENDING && original.status !== TransactionStatus.COMPLETED) {
+        throw new BadRequestException('Expense already deleted, cancelled or reversed');
+      }
+      const amendments = await tx.transaction.findMany({
+        where: { reversedTransactionId: id, transactionNumber: { startsWith: 'EXA-' },
+          status: TransactionStatus.COMPLETED },
+        include: { journal: { include: { entries: true } } },
+      });
+      if (amendments.some(a => !a.journal)) {
+        throw new BadRequestException('Incomplete previous expense adjustments; contact owner');
+      }
+      const postedJournals = [
+        ...(original.journal?.status === JournalStatus.POSTED ? [original.journal] : []),
+        ...amendments.map(a => a.journal!).filter(j => j.status === JournalStatus.POSTED),
+      ];
+      const ledgerEntries = postedJournals.flatMap(j => j.entries);
+      if (ledgerEntries.length) {
+        // Prevent changing reconciled cash drawers, even by an owner. Every
+        // financial change must remain safe for the original business date.
+        const touchedLedgerIds = [...new Set(ledgerEntries.map(e => e.ledgerAccountId))];
+        const cashAccounts = await tx.financialAccount.findMany({
+          where: { accountType: AccountType.CASH,
+            ledgerAccount: { id: { in: touchedLedgerIds } } },
+          select: { id: true, ledgerAccount: { select: { id: true } } },
+        });
+        for (const cashAccount of cashAccounts) {
+          for (const journal of postedJournals) {
+            if (!journal.entries.some(entry => entry.ledgerAccountId === cashAccount.ledgerAccount?.id)) continue;
+            const closed = await tx.cashSession.findFirst({
+              where: { cashAccountId: cashAccount.id, status: 'CLOSED',
+                openedAt: { lte: journal.postingDate }, closedAt: { gte: journal.postingDate } },
+              select: { id: true },
+            });
+            if (closed) {
+              throw new BadRequestException('Expense affects a closed cash session. Reconcile that session before deleting.');
+            }
+            const open = await tx.cashSession.findFirst({
+              where: { cashAccountId: cashAccount.id, status: 'OPEN',
+                openedAt: { lte: journal.postingDate } }, select: { id: true },
+            });
+            if (!open) {
+              throw new BadRequestException('Cannot remove an older cash expense outside the open cash session. Reconcile its original cash day first.');
+            }
+          }
+        }
+        // Check the net financial effect, not individual legacy amendment rows.
+        const signed = new Map<string, number>();
+        for (const item of ledgerEntries) {
+          signed.set(item.ledgerAccountId, this.money((signed.get(item.ledgerAccountId) ?? 0) +
+            (item.entryType === EntryType.DEBIT ? 1 : -1) * Number(item.amount)));
+        }
+        const netEntries = [...signed].filter(([,value]) => Math.abs(value) > .001)
+          .map(([ledgerAccountId,value]) => ({
+            ledgerAccountId, entryType: value > 0 ? EntryType.DEBIT : EntryType.CREDIT,
+            amount: Math.abs(value),
+          }));
+        await this.validation.ensureReversalCapacity(tx, netEntries);
+      }
+      for (const journal of postedJournals) {
+        await tx.ledgerJournal.update({ where: { id: journal.id },
+          data: { status: JournalStatus.REVERSED } });
+      }
+      await tx.transaction.update({ where: { id }, data: {
+        status: TransactionStatus.REVERSED, reversalReason: reason, updatedById: userId,
+      } });
+      await tx.auditLog.create({ data: {
+        userId, entityType: 'TRANSACTION', entityId: id, action: 'DELETE_EXPENSE',
+        oldValues: {
+          status: original.status, transactionNumber: original.transactionNumber,
+          transactionAt: original.transactionAt.toISOString(),
+          categoryId: original.expense.expenseCategoryId,
+          amount: original.expense.amount.toString(),
+          paymentAccountId: original.expense.paymentAccountId,
+          postedJournals: postedJournals.map(j => ({ id: j.id,
+            postingDate: j.postingDate.toISOString(),
+            entries: j.entries.map(e => ({ ledgerAccountId: e.ledgerAccountId,
+              entryType: e.entryType, amount: e.amount.toString() })) })),
+        },
+        newValues: { status: TransactionStatus.REVERSED, originalExpenseId: id,
+          journalsVoided: postedJournals.map(j => j.id) },
+        reason,
+      } });
+      return { id, deleted: true, status: TransactionStatus.REVERSED };
+    });
+  }
+
   async expenseHistory(transactionId: string) {
     const expense = await this.prisma.transaction.findUnique({
       where: { id: transactionId }, select: { id: true, expense: { select: { id: true } } },
@@ -3735,7 +3865,7 @@ export class TransactionsService {
     if (!expense?.expense) throw new NotFoundException('Expense not found');
     const logs = await this.prisma.auditLog.findMany({
       where: { entityType: 'TRANSACTION', entityId: transactionId,
-        action: { in: ['CREATE', 'COMPLETE_EXPENSE', 'UPDATE_EXPENSE', 'CORRECT_AMOUNT'] } },
+        action: { in: ['CREATE', 'COMPLETE_EXPENSE', 'UPDATE_EXPENSE', 'UPDATE_EXPENSE_CATEGORY', 'DELETE_EXPENSE', 'CORRECT_AMOUNT'] } },
       orderBy: { createdAt: 'desc' },
     });
     const users = await this.prisma.user.findMany({
@@ -5541,6 +5671,7 @@ export class TransactionsService {
       include: { expense: true, journal: { select: { id: true, status: true } } },
     });
     if (!original) throw new NotFoundException('Transaction not found');
+    if (original.expense) return this.deleteExpense(id, dto, userId);
 
     // Pending expenses saved without a payment source have no accounting journal yet.
     // They can be voided directly because there is no financial movement to reverse.
