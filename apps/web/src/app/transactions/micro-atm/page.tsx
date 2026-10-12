@@ -141,7 +141,7 @@ export default function MicroAtmPage(){
     </div>}
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
      <Field label="Customer gets"><input className={control+" text-xl font-bold"} type="number" inputMode="decimal" step="0.01" min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" required/></Field>
-     <Field label="Card last 4"><input className={control} inputMode="numeric" maxLength={4} placeholder="Last 4 digits" value={cardLastFour} onChange={e=>setCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
+     <Field label="Card last 4"><input autoComplete="on" name="cashledger_card_last_four" className={control} inputMode="numeric" maxLength={4} placeholder="Last 4 digits" value={cardLastFour} onChange={e=>setCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
      <Field label="Customer bank"><input name="cashledger_customer_bank" autoComplete="on" className={control} value={bank} onChange={e=>setBank(e.target.value)} placeholder="Optional bank name"/></Field>
     </div>
    </FormSection>

@@ -392,14 +392,14 @@ export default function CardDueClearingPage(){
     <Field label="Customer name"><input name="cashledger_customer_name" autoComplete="on" className="app-control" value={newName} onChange={e=>setNewName(e.target.value.toUpperCase())} placeholder="Full name" required/></Field>
     <Field label="Mobile"><div className="flex overflow-hidden rounded-xl border border-[var(--border)]"><span className="grid h-11 place-items-center border-r border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm">+91</span><input className="h-11 min-w-0 flex-1 bg-transparent px-3 outline-none" inputMode="numeric" value={newMobile} onChange={e=>setNewMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile" required/></div></Field>
     <Field label="Card bank"><SearchableSelect className="app-control" value={newBank} onChange={e=>setNewBank(e.target.value)} required><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
-    <Field label="Card last 4"><input className="app-control font-semibold tracking-[.12em]" inputMode="numeric" value={newLastFour} onChange={e=>setNewLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
+    <Field label="Card last 4"><input autoComplete="on" name="cashledger_card_last_four" className="app-control font-semibold tracking-[.12em]" inputMode="numeric" value={newLastFour} onChange={e=>setNewLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
    </form>
   </Modal>
   <Modal open={addCardOpen} title="Add card" description={customer?""+customer.fullName+"":undefined} onClose={()=>{if(!addCardBusy)setAddCardOpen(false);}} footer={<button form="due-add-card" disabled={addCardBusy||!addCardBank||addCardLastFour.length!==4} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{addCardBusy?"Saving…":"Save & use card"}</button>}>
    <form id="due-add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
     <Field label="Bank"><SearchableSelect className="app-control" value={addCardBank} onChange={e=>setAddCardBank(e.target.value)} required><option value="">Select bank</option>{INDIAN_BANKS.map(bank=><option key={bank} value={bank}>{bank}</option>)}</SearchableSelect></Field>
     <Field label="Card type"><div className="app-control flex items-center bg-[var(--surface-soft)] font-bold">CREDIT</div></Field>
-    <Field label="Last 4 digits"><input className="app-control font-semibold tracking-[.12em]" inputMode="numeric" value={addCardLastFour} onChange={e=>setAddCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
+    <Field label="Last 4 digits"><input autoComplete="on" name="cashledger_card_last_four" className="app-control font-semibold tracking-[.12em]" inputMode="numeric" value={addCardLastFour} onChange={e=>setAddCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} placeholder="0000" required/></Field>
     <Field label="Nickname"><input name="cashledger_nickname" autoComplete="on" className="app-control" value={addCardNickname} onChange={e=>setAddCardNickname(e.target.value)} placeholder="Optional"/></Field>
    </form>
   </Modal>
