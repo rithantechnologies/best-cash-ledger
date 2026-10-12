@@ -5,6 +5,7 @@
 import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
@@ -17,9 +18,10 @@ type Customer={
 type Paged={items:Customer[];pagination:{page:number;pageSize:number;total:number;totalPages:number}};
 
 export default function CustomersPage(){
+ const router=useRouter();
  const [items,setItems]=useState<Customer[]>([]),[pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
  const [q,setQ]=useState(""),[sortBy,setSortBy]=useState("createdAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("desc"),[role,setRole]=useState("");
- const [creating,setCreating]=useState(false),[customerType,setCustomerType]=useState("REGULAR");
+ const [creating,setCreating]=useState(false),[createError,setCreateError]=useState(""),[customerType,setCustomerType]=useState("REGULAR"),[showMobileFilters,setShowMobileFilters]=useState(false);
  const [addingCard,setAddingCard]=useState(false),[cardCustomerId,setCardCustomerId]=useState(""),[cardBank,setCardBank]=useState(""),[cardLast4,setCardLast4]=useState(""),[cardNickname,setCardNickname]=useState("");
  const [editing,setEditing]=useState<Customer|null>(null),[editName,setEditName]=useState(""),[editMobile,setEditMobile]=useState(""),[editType,setEditType]=useState("REGULAR"),[editNotes,setEditNotes]=useState("");
  const [toggleTarget,setToggleTarget]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
@@ -33,16 +35,32 @@ export default function CustomersPage(){
  }
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
  useEffect(()=>{if(!role)return;const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load customers")),180);return()=>clearTimeout(timer);},[role,q,sortBy,sortDir,pagination.pageSize]);
+ useEffect(()=>{
+  if(!creating)return;
+  const previous=document.body.style.overflow;document.body.style.overflow="hidden";
+  const onKeyDown=(event:KeyboardEvent)=>{if(event.key==="Escape"&&!busy)setCreating(false);};
+  document.addEventListener("keydown",onKeyDown);
+  return()=>{document.body.style.overflow=previous;document.removeEventListener("keydown",onKeyDown);};
+ },[creating,busy]);
 
  async function submit(e:FormEvent){
   e.preventDefault();
+  const submitter=(e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement|null;
+  const openDetails=submitter?.value!=="stay";
   // Read the actual input values; native browser autofill can populate fields without React change events.
   const formValues=new FormData(e.currentTarget as HTMLFormElement);
   const fullName=String(formValues.get("customer_name")||"").trim();
   const mobile=String(formValues.get("customer_mobile")||"").trim();
-  setBusy(true);setError("");setMessage("");
-  try{await apiFetch("/customers",{method:"POST",body:JSON.stringify({customerType,fullName,mobile:mobile||undefined})});setCreating(false);setMessage("Customer created.");await load(1);}
-  catch(e){setError(e instanceof Error?e.message:"Failed to create customer");}finally{setBusy(false);}
+  if(!fullName){setCreateError("Enter the customer's name.");return;}
+  setBusy(true);setCreateError("");
+  try{
+   const customer=await apiFetch<{id:string}>("/customers",{method:"POST",body:JSON.stringify({customerType,fullName,mobile:mobile||undefined})});
+   setCreating(false);
+   if(openDetails){router.push("/customers/"+customer.id+"?setup=1");}
+   else{setMessage("Customer created.");await load(1);}
+  }
+  catch(err){setCreateError(err instanceof Error?err.message:"Couldn't save customer. Try again.");}
+  finally{setBusy(false);}
  }
  async function addCard(e:FormEvent){
   e.preventDefault();setBusy(true);setError("");setMessage("");
@@ -67,11 +85,12 @@ export default function CustomersPage(){
 
  return <AppShell><PageFrame>
   <SectionHeading eyebrow="Customer directory" title="Customers" description="Profiles, saved cards and recipient details for repeat counter work."
-   action={<div className="flex gap-2"><button onClick={()=>setAddingCard(true)} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>setCreating(true)} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
+   action={<div className="flex gap-2"><button onClick={()=>setAddingCard(true)} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>{setCreateError("");setCustomerType("REGULAR");setCreating(true);}} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
-  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+  <p className="text-xs font-semibold text-[var(--text-muted)] sm:hidden">{pagination.total} customer{pagination.total===1?"":"s"}</p>
+  <div className="hidden grid-cols-3 gap-2.5 sm:grid">
    <DetailStat label="Customers" value={pagination.total}/>
    <DetailStat label="Active on page" value={activeCount} tone="emerald"/>
    <DetailStat label="Saved cards on page" value={cardCount} tone="indigo"/>
@@ -79,15 +98,18 @@ export default function CustomersPage(){
 
   <Toolbar>
    <input inputMode="search" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Search name, mobile or card last 4…" value={q} onChange={e=>setQ(e.target.value)}/>
-   <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="createdAt">Created date</option><option value="fullName">Name</option><option value="customerCode">Customer code</option><option value="customerType">Type</option><option value="mobile">Mobile</option></SearchableSelect>
-   <SearchableSelect className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
+   <button type="button" onClick={()=>setShowMobileFilters(v=>!v)} aria-expanded={showMobileFilters} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-muted)] sm:hidden">{showMobileFilters?"Hide options":"Sort & page size"}</button>
+   <div className={(showMobileFilters?"grid":"hidden")+" grid-cols-2 gap-2 sm:contents"}>
+    <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="createdAt">Created date</option><option value="fullName">Name</option><option value="customerCode">Customer code</option><option value="customerType">Type</option><option value="mobile">Mobile</option></SearchableSelect>
+    <SearchableSelect className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
+   </div>
   </Toolbar>
   {loading?<PageLoader label="Loading customers…"/>:<>
-   <div className="space-y-2 md:hidden">{items.map(c=><Surface key={c.id} className={!c.isActive?"p-4 opacity-60":"p-4"}>
-    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Link href={"/customers/"+c.id} className="block truncate font-bold">{c.fullName}</Link><p className="mt-0.5 text-[11px] text-slate-400">{c.customerCode}{c.mobile?" · "+c.mobile:""}</p></div><StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge></div>
-    <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs"><div className="flex items-center justify-between gap-3"><span className="font-semibold text-slate-500">{c.customerType.replaceAll("_"," ")}</span><span className="font-bold">{c.cards.filter(x=>x.isActive).length} saved card(s)</span></div>{c.cards.some(x=>x.isActive)?<div className="mt-2 flex flex-wrap gap-1.5">{c.cards.filter(x=>x.isActive).slice(0,3).map(card=><span key={card.id} className="rounded-md bg-white px-2 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">••••{card.lastFourDigits}</span>)}</div>:null}</div>
-    <div className="mt-3 grid grid-cols-2 gap-2"><Link href={"/customers/"+c.id} className="flex min-h-10 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold">Open profile</Link>{admin?<button onClick={()=>beginEdit(c)} className="min-h-10 rounded-xl border border-slate-200 text-xs font-bold">Edit</button>:null}</div>
-    {admin?<button onClick={()=>setToggleTarget(c)} className="mt-2 min-h-9 w-full text-xs font-bold text-slate-500">{c.isActive?"Retire customer":"Reactivate customer"}</button>:null}
+   <div className="space-y-2 md:hidden">{items.map(c=><Surface key={c.id} className={!c.isActive?"p-3.5 opacity-60":"p-3.5"}>
+    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Link href={"/customers/"+c.id} className="block truncate text-sm font-black">{c.fullName}</Link><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{c.mobile||"No mobile"} · {c.customerCode}</p></div><StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge></div>
+    <p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">{c.customerType.replaceAll("_"," ")} · {c.cards.filter(x=>x.isActive).length} saved card(s)</p>
+    <div className="mt-3 flex gap-2"><Link href={"/customers/"+c.id} className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[var(--accent-soft)] px-3 text-xs font-black text-[var(--accent)]">Open details →</Link>{admin?<button type="button" onClick={()=>beginEdit(c)} className="min-h-11 rounded-xl border border-[var(--border)] px-4 text-xs font-bold">Edit</button>:null}</div>
+    {admin?<details className="mt-2"><summary className="cursor-pointer py-1 text-right text-[11px] font-semibold text-[var(--text-muted)]">More actions</summary><button type="button" onClick={()=>setToggleTarget(c)} className="mt-1 min-h-10 w-full rounded-xl border border-[var(--border)] text-xs font-bold text-[var(--text-muted)]">{c.isActive?"Retire customer":"Reactivate customer"}</button></details>:null}
    </Surface>)}{!items.length?<EmptyState title="No matching customers" description="Try a different search or create a customer."/>:null}</div>
 
    <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm">
@@ -96,14 +118,28 @@ export default function CustomersPage(){
    </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="customer" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
   </>}
-  <Modal open={creating} title="Add customer" description="Create a reusable customer profile for faster counter work." onClose={()=>setCreating(false)}
-   footer={<button form="create-customer" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Creating…":"Create customer"}</button>}>
-   <form id="create-customer" autoComplete="on" onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
-    <Field label="Customer name"><input className={control} type="text" name="customer_name" autoComplete="name" required/></Field>
-    <Field label="Mobile"><input className={control} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" placeholder="Optional"/></Field>
-    <Field label="Customer type" className="sm:col-span-2"><SearchableSelect className={control} value={customerType} onChange={e=>setCustomerType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></SearchableSelect></Field>
-   </form>
-  </Modal>
+  {creating?<div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/50 p-0 backdrop-blur-[3px] sm:items-center sm:p-5">
+   <button type="button" className="absolute inset-0 cursor-default" aria-label="Close add customer" onClick={()=>{if(!busy)setCreating(false);}}/>
+   <section role="dialog" aria-modal="true" aria-labelledby="create-customer-title" className="relative flex max-h-[calc(100dvh-0.5rem)] w-full flex-col overflow-hidden rounded-t-3xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-h-[min(90dvh,640px)] sm:max-w-md sm:rounded-3xl">
+    <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-[var(--border)] sm:hidden"/>
+    <div className="flex shrink-0 items-center justify-between gap-3 px-5 pb-2 pt-4 sm:px-6 sm:pt-5">
+     <div><h3 id="create-customer-title" className="text-xl font-black tracking-tight">New customer</h3><p className="mt-0.5 text-xs text-[var(--text-muted)]">Just the basics. Add other details after saving.</p></div>
+     <button type="button" disabled={busy} aria-label="Close" onClick={()=>setCreating(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[var(--border)] text-xl text-[var(--text-muted)]">×</button>
+    </div>
+    <form id="create-customer" autoComplete="on" onSubmit={submit} className="flex min-h-0 flex-col">
+     <div className="min-h-0 space-y-3 overflow-y-auto px-5 py-3 sm:px-6">
+      <Field label="Customer name *"><input className={control+" min-h-12 text-base"} type="text" name="customer_name" autoComplete="name" autoFocus maxLength={150} placeholder="Enter name" required onChange={()=>{if(createError)setCreateError("");}}/></Field>
+      <Field label="Mobile (optional)"><input className={control+" min-h-12 text-base"} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" maxLength={20} placeholder="Mobile number"/></Field>
+      <details className="rounded-xl border border-[var(--border)] px-3 py-2"><summary className="cursor-pointer text-xs font-bold text-[var(--text-muted)]">More options</summary><div className="pt-3"><Field label="Customer type"><SearchableSelect className={control} value={customerType} onChange={e=>setCustomerType(e.target.value)}><option value="REGULAR">Regular</option><option value="WALK_IN">Walk-in</option></SearchableSelect></Field></div></details>
+      {createError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-700">{createError}</p>:null}
+     </div>
+     <div className="shrink-0 space-y-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5">
+      <button type="submit" name="after_create" value="details" disabled={busy} className="app-primary-button min-h-12 w-full text-sm font-black disabled:opacity-50">{busy?"Saving…":"Save & add details →"}</button>
+      <button type="submit" name="after_create" value="stay" disabled={busy} className="min-h-10 w-full rounded-xl text-xs font-bold text-[var(--text-muted)] disabled:opacity-50">Save only</button>
+     </div>
+    </form>
+   </section>
+  </div>:null}
 
   <Modal open={addingCard} title="Add saved card" description="Save only the non-sensitive card details used for identifying the card at the counter." onClose={()=>setAddingCard(false)}
    footer={<button form="add-card" disabled={busy} className="min-h-11 w-full rounded-xl bg-indigo-700 text-sm font-bold text-white disabled:opacity-50">{busy?"Saving…":"Save card"}</button>}>

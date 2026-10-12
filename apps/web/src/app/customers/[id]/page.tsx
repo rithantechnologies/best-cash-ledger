@@ -41,6 +41,8 @@ const dateWithCurrentLocalTime=(date:string)=>{const now=new Date(),[year,month,
 export default function CustomerDetailPage(){
  const {id}=useParams<{id:string}>();
  const [c,setC]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
+ const [view,setView]=useState<"details"|"activity">("details"),[setupGuide,setSetupGuide]=useState(false);
+ const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
  const [ledgerAccounts,setLedgerAccounts]=useState<LedgerAccount[]>([]),[ledgerEntryDirection,setLedgerEntryDirection]=useState<LedgerEntryDirection|null>(null),[ledgerEntryBusy,setLedgerEntryBusy]=useState(false),[ledgerEntryError,setLedgerEntryError]=useState("");
@@ -55,6 +57,7 @@ export default function CustomerDetailPage(){
 
  const load=()=>apiFetch<Customer>("/customers/"+id).then(setC);
  const loadCardLedger=(cardId=ledgerCardId)=>{setLedgerLoading(true);setLedgerError("");return apiFetch<CardLedger>("/customers/"+id+"/card-ledger"+(cardId?"?cardId="+encodeURIComponent(cardId):"")).then(setCardLedger).catch(e=>setLedgerError(e instanceof Error?e.message:"Failed to load card ledger")).finally(()=>setLedgerLoading(false));};
+ useEffect(()=>{setSetupGuide(new URLSearchParams(window.location.search).has("setup"));},[id]);
  useEffect(()=>{load().catch(e=>setError(e instanceof Error?e.message:"Failed to load customer"));},[id]);
  useEffect(()=>{loadCardLedger(ledgerCardId);},[id,ledgerCardId]);
  useEffect(()=>{apiFetch<LedgerAccount[]>("/accounts").then(rows=>setLedgerAccounts(rows.filter(a=>a.isActive&&["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)))).catch(()=>setLedgerAccounts([]));},[]);
@@ -99,6 +102,17 @@ export default function CustomerDetailPage(){
   setBusy(true);setError("");setMessage("");
   try{await action();await load();if(success){setMessage(success);window.setTimeout(()=>setMessage(""),2500);}}
   catch(err){setError(err instanceof Error?err.message:"Update failed");throw err;}
+  finally{setBusy(false);}
+ }
+ async function addCard(e:FormEvent){
+  e.preventDefault();
+  if(!/^\d{4}$/.test(cardLastFour)){setCardError("Enter the last 4 card digits.");return;}
+  setBusy(true);setCardError("");
+  try{
+   await apiFetch("/customers/"+id+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank.trim(),cardType:"CREDIT",lastFourDigits:cardLastFour,nickname:cardNickname.trim()||undefined})});
+   setAddingCard(false);setCardBank("");setCardLastFour("");setCardNickname("");setMessage("Card added.");
+   await load();
+  }catch(err){setCardError(err instanceof Error?err.message:"Could not save card.");}
   finally{setBusy(false);}
  }
  async function addBank(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/customers/"+id+"/banks",{method:"POST",body:JSON.stringify({accountHolderName:holder,bankName,accountReference:accountRef,ifsc:ifsc||undefined})}),"Bank account added.");setHolder("");setBankName("");setAccountRef("");setIfsc("");setAddKind(null);}catch{}}
@@ -163,6 +177,26 @@ export default function CustomerDetailPage(){
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
+  <nav aria-label="Customer profile sections" className="grid grid-cols-2 gap-2 rounded-2xl bg-[var(--surface-soft)] p-1.5">
+   <button type="button" aria-current={view==="details"?"page":undefined} onClick={()=>setView("details")} className={"min-h-11 rounded-xl px-3 text-sm font-bold transition-colors "+(view==="details"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>Saved details</button>
+   <button type="button" aria-current={view==="activity"?"page":undefined} onClick={()=>setView("activity")} className={"min-h-11 rounded-xl px-3 text-sm font-bold transition-colors "+(view==="activity"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>Activity & ledger</button>
+  </nav>
+  {view==="details"?<>
+   {setupGuide?<div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
+    <p className="text-sm font-extrabold text-emerald-900">Customer saved ✓</p>
+    <p className="mt-0.5 text-xs leading-5 text-emerald-800">Add a card, bank, UPI or recipient now—or leave it for later.</p>
+   </div>:null}
+   <Surface className="p-4 sm:p-5">
+    <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-black">Add customer details</h3><p className="mt-1 text-xs text-[var(--text-muted)]">Choose only what you need. All optional.</p></div></div>
+    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+     <button type="button" onClick={()=>{setCardError("");setAddingCard(true);}} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Card</button>
+     <button type="button" onClick={()=>setAddKind("bank")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Bank</button>
+     <button type="button" onClick={()=>setAddKind("upi")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ UPI</button>
+     <button type="button" onClick={()=>setAddKind("beneficiary")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Recipient</button>
+    </div>
+   </Surface>
+  </>:null}
+  {view==="activity"?<>
   {c.isActive?<div className="flex gap-2 overflow-x-auto pb-1">
    <Link href={"/transactions/card-swipe?"+customerParam+(primaryCard?"&cardId="+encodeURIComponent(primaryCard.id):"")} className="min-h-10 shrink-0 rounded-lg bg-[var(--text)] px-4 py-2.5 text-xs font-semibold text-[var(--surface)]">Card swipe</Link>
    <Link href={"/transactions/cash-transfer?"+customerParam} className="min-h-10 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-semibold">Cash transfer</Link>
@@ -217,8 +251,10 @@ export default function CustomerDetailPage(){
    <Surface className="overflow-hidden"><PanelHeader title="Money to pay" description="Open and recent customer payables." action={<Link href="/payables" className="text-xs font-bold text-indigo-600">View all →</Link>}/><div className="divide-y divide-slate-100">{c.payables.slice(0,5).map(x=><Link key={x.id} href={"/payables/"+x.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"><div><p className="text-sm font-semibold">{x.status.replaceAll("_"," ")}</p><p className="text-[11px] text-slate-400">Due {new Date(x.dueAt).toLocaleDateString("en-IN")}</p></div><strong className="text-sm text-amber-700">{money(x.remainingAmount)}</strong></Link>)}{!c.payables.length?<div className="p-4"><EmptyState title="No payables"/></div>:null}</div></Surface>
   </div>
 
+  </>:null}
+  {view==="details"?<>
   <div className="grid gap-4 xl:grid-cols-3">
-   <SavedList title="Saved cards" count={c.cards.length} addLabel={undefined}>{c.cards.length?c.cards.map(x=><SavedItem key={x.id} title={x.bankName+" •••• "+x.lastFourDigits} detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>):<EmptyState title="No saved cards"/>}</SavedList>
+   <SavedList title="Saved cards" count={c.cards.length} addLabel="Add card" onAdd={()=>{setCardError("");setAddingCard(true);}}>{c.cards.length?c.cards.map(x=><SavedItem key={x.id} title={x.bankName+" •••• "+x.lastFourDigits} detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>):<EmptyState title="No saved cards"/>}</SavedList>
    <SavedList title="Bank accounts" count={c.bankAccounts.length} addLabel="Add bank" onAdd={()=>setAddKind("bank")}>{c.bankAccounts.length?c.bankAccounts.map(x=><SavedItem key={x.id} title={x.bankName+" · "+x.accountReference} detail={x.accountHolderName+(x.ifsc?" · "+x.ifsc:"")} active={x.isActive} onEdit={()=>beginEdit({kind:"bank",item:x})} onToggle={()=>setToggleTarget({path:"/customers/banks/"+x.id,isActive:x.isActive,label:"bank account"})}/>):<EmptyState title="No bank accounts"/>}</SavedList>
    <SavedList title="UPI accounts" count={c.upiAccounts.length} addLabel="Add UPI" onAdd={()=>setAddKind("upi")}>{c.upiAccounts.length?c.upiAccounts.map(x=><SavedItem key={x.id} title={x.accountName} detail={(x.upiId||x.mobileNumber||"—")+(x.providerName?" · "+x.providerName:"")} active={x.isActive} onEdit={()=>beginEdit({kind:"upi",item:x})} onToggle={()=>setToggleTarget({path:"/customers/upi/"+x.id,isActive:x.isActive,label:"UPI account"})}/>):<EmptyState title="No UPI accounts"/>}</SavedList>
   </div>
@@ -229,6 +265,15 @@ export default function CustomerDetailPage(){
     <div className="mt-3 space-y-2">{b.accounts.map(a=><div key={a.id} className={!a.isActive?"rounded-xl bg-slate-50 p-3 text-xs opacity-60":"rounded-xl bg-slate-50 p-3 text-xs"}><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="font-bold">{a.accountType}</p><p className="mt-0.5 truncate text-slate-500">{a.bankName?(a.bankName+" "+(a.accountReference||"")):(a.upiId||a.mobileNumber||"—")}</p></div><div className="flex gap-1"><button onClick={()=>beginEdit({kind:"beneficiaryAccount",item:a})} className="font-bold text-indigo-600">Edit</button><button onClick={()=>setToggleTarget({path:"/customers/beneficiary-accounts/"+a.id,isActive:a.isActive,label:"recipient account"})} className="font-bold text-slate-400">{a.isActive?"Retire":"Reactivate"}</button></div></div></div>)}</div>
    </div>)}</div>:<div className="p-4"><EmptyState title="No beneficiaries saved"/></div>}
   </Surface>
+  </>:null}
+  <Modal open={addingCard} title="Add saved card" onClose={()=>{if(!busy)setAddingCard(false);}} footer={<button form="customer-add-card" disabled={busy||!cardBank.trim()||cardLastFour.length!==4} className="app-primary-button min-h-11 w-full font-bold disabled:opacity-50">{busy?"Saving…":"Save card"}</button>}>
+   <form id="customer-add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
+    <Field label="Card bank"><input className={control} name="cashledger_bank" autoComplete="on" value={cardBank} onChange={e=>setCardBank(e.target.value)} placeholder="Bank name" required/></Field>
+    <Field label="Last 4 digits"><input className={control} name="cashledger_card_last_four" inputMode="numeric" autoComplete="on" maxLength={4} value={cardLastFour} onChange={e=>setCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="1234" required/></Field>
+    <Field label="Nickname (optional)" className="sm:col-span-2"><input className={control} name="cashledger_nickname" autoComplete="on" value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="e.g. Personal card"/></Field>
+    {cardError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 sm:col-span-2">{cardError}</p>:null}
+   </form>
+  </Modal>
   <Modal open={!!ledgerEntryDirection} title={ledgerEntryDirection==="PAY_IN"?"Pay In":"Pay Out"} description={ledgerEntryDirection==="PAY_IN"?"Money received from customer · adds Credit (In).":"Money paid to customer · adds Debit (Out)."} onClose={()=>{if(!ledgerEntryBusy)resetLedgerEntry();}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={ledgerEntryBusy} onClick={resetLedgerEntry} className="app-secondary-button min-h-11 font-bold disabled:opacity-50">Cancel</button><button form="customer-ledger-entry" disabled={ledgerEntryBusy||!ledgerEntryAccountId||ledgerEntryValue<=0} className={"min-h-11 rounded-xl font-black text-white disabled:opacity-50 "+(ledgerEntryDirection==="PAY_IN"?"bg-emerald-700":"bg-rose-700")}>{ledgerEntryBusy?"Saving…":ledgerEntryDirection==="PAY_IN"?"Save Pay In":"Save Pay Out"}</button></div>}>
    <form id="customer-ledger-entry" onSubmit={submitLedgerEntry} className="space-y-4">
     <div className="grid grid-cols-2 gap-2">
