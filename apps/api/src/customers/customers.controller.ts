@@ -17,11 +17,22 @@ import { UpdateBeneficiaryAccountDto } from './dto/update-beneficiary-account.dt
 import { CreateServiceProfileDto } from './dto/create-service-profile.dto.js';
 import { SetCustomerItemActiveDto } from './dto/set-customer-item-active.dto.js';
 import { CustomersService } from './customers.service.js';
+import { BankDirectoryService } from './bank-directory.service.js';
 
 @UseGuards(JwtAuthGuard)
 @Controller('customers')
 export class CustomersController {
-  constructor(private readonly customers: CustomersService) {}
+  constructor(private readonly customers: CustomersService, private readonly bankDirectory: BankDirectoryService) {}
+
+  @Get('bank-directory')
+  banksDirectory() {
+    return this.bankDirectory.listBanks();
+  }
+
+  @Get('bank-directory/branches')
+  bankBranches(@Query('bank') bank?: string, @Query('q') q?: string) {
+    return this.bankDirectory.searchBranches(bank, q);
+  }
 
   @Get()
   list(

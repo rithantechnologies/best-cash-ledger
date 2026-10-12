@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p release/api release/web
-          cp -a apps/api/dist apps/api/prisma apps/api/package.json apps/api/package-lock.json release/api/
+          cp -a apps/api/dist apps/api/data apps/api/prisma apps/api/package.json apps/api/package-lock.json release/api/
           server_dir="apps/web/.next/standalone/apps/web"
           test -f "$server_dir/server.js"
           mkdir -p "$server_dir/.next"
