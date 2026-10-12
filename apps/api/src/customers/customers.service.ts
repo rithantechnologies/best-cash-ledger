@@ -195,6 +195,7 @@ export class CustomersService {
     const orderBy = { [sortBy]: sortDir } as Prisma.CustomerOrderByWithRelationInput;
     const include = {
       cards: true,
+      customerTypeConfig: { select: { id: true, name: true, isActive: true } },
       bankAccounts: true,
       upiAccounts: true,
       beneficiaries: { include: { accounts: true } },
@@ -477,6 +478,7 @@ export class CustomersService {
       where: { id },
       include: {
         cards: true,
+        customerTypeConfig: { select: { id: true, name: true, isActive: true } },
         bankAccounts: true,
         upiAccounts: true,
         beneficiaries: { include: { accounts: true } },
@@ -1434,9 +1436,19 @@ export class CustomersService {
           );
         }
       }
+      const typeConfig = dto.customerTypeId
+        ? await tx.customerTypeConfig.findUnique({ where: { id: dto.customerTypeId } })
+        : await tx.customerTypeConfig.findUnique({
+            where: { legacyType: dto.customerType ?? CustomerType.REGULAR },
+          });
+      if (!typeConfig?.isActive)
+        throw new BadRequestException('Choose an active customer type.');
+      const { customerTypeId: _selectedTypeId, ...customerValues } = dto;
       const customer = await tx.customer.create({
         data: {
-          ...dto,
+          ...customerValues,
+          customerType: typeConfig?.legacyType ?? (dto.customerTypeId ? CustomerType.REGULAR : dto.customerType ?? CustomerType.REGULAR),
+          customerTypeId: typeConfig?.id ?? null,
           fullName: dto.fullName.trim().toUpperCase(),
           customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
           createdById: userId,
@@ -1451,6 +1463,7 @@ export class CustomersService {
           newValues: {
             customerCode: customer.customerCode,
             customerType: customer.customerType,
+            customerTypeId: customer.customerTypeId,
             fullName: customer.fullName,
             mobile: customer.mobile,
             isActive: customer.isActive,
@@ -1545,15 +1558,29 @@ export class CustomersService {
           );
         }
       }
+      const typeConfig = dto.customerTypeId
+        ? await tx.customerTypeConfig.findUnique({ where: { id: dto.customerTypeId } })
+        : dto.customerType
+          ? await tx.customerTypeConfig.findUnique({ where: { legacyType: dto.customerType } })
+          : null;
+      if (dto.customerTypeId && (!typeConfig || (!typeConfig.isActive && old.customerTypeId !== typeConfig.id)))
+        throw new BadRequestException('Choose an active customer type.');
+      if (dto.customerType && !dto.customerTypeId && typeConfig && !typeConfig.isActive && old.customerTypeId !== typeConfig.id)
+        throw new BadRequestException('Choose an active customer type.');
+      const { customerTypeId: _selectedTypeId, ...customerValues } = dto;
       const updated = await tx.customer.update({
         where: { id },
-        data: { ...dto, ...(dto.fullName ? { fullName: dto.fullName.trim().toUpperCase() } : {}) },
+        data: {
+          ...customerValues,
+          ...(typeConfig ? { customerTypeId: typeConfig.id, customerType: typeConfig.legacyType ?? CustomerType.REGULAR } : {}),
+          ...(dto.fullName ? { fullName: dto.fullName.trim().toUpperCase() } : {}),
+        },
       });
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER', entityId: id, action: 'UPDATE',
-          oldValues: { customerType: old.customerType, fullName: old.fullName, mobile: old.mobile, notes: old.notes },
-          newValues: { customerType: updated.customerType, fullName: updated.fullName, mobile: updated.mobile, notes: updated.notes },
+          oldValues: { customerType: old.customerType, customerTypeId: old.customerTypeId, fullName: old.fullName, mobile: old.mobile, notes: old.notes },
+          newValues: { customerType: updated.customerType, customerTypeId: updated.customerTypeId, fullName: updated.fullName, mobile: updated.mobile, notes: updated.notes },
         },
       });
       return updated;

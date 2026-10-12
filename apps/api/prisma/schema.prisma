@@ -178,6 +178,8 @@ model Customer {
   id            String                @id @default(uuid())
   customerCode  String                @unique
   customerType  CustomerType
+  customerTypeId String?
+  customerTypeConfig CustomerTypeConfig? @relation(fields: [customerTypeId], references: [id])
   fullName      String
   mobile        String?
   notes         String?
@@ -198,6 +200,18 @@ model Customer {
 
   @@index([fullName])
   @@index([mobile])
+  @@index([customerTypeId])
+}
+
+model CustomerTypeConfig {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  legacyType  CustomerType? @unique
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  customers   Customer[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 model CustomerCard {

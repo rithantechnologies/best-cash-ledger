@@ -16,11 +16,35 @@ import { UpdateCashInTransferTypeDto } from './dto/update-cash-in-transfer-type.
 import { UpdateServiceCatalogDto } from './dto/update-service-catalog.dto.js';
 import { UpdatePaymentTermDto } from './dto/update-payment-term.dto.js';
 import { SettingsService } from './settings.service.js';
+import { CustomerTypeDto } from './dto/customer-type.dto.js';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('settings')
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
+
+  @Get('customer-types')
+  customerTypes(@Query('includeInactive') includeInactive?: string) {
+    return this.settings.customerTypes(includeInactive === 'true');
+  }
+
+  @Post('customer-types')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  createCustomerType(@Body() dto: CustomerTypeDto, @Req() req: any) {
+    return this.settings.createCustomerType(dto, req.user.userId);
+  }
+
+  @Patch('customer-types/:id')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  updateCustomerType(@Param('id') id: string, @Body() dto: CustomerTypeDto, @Req() req: any) {
+    return this.settings.updateCustomerType(id, dto, req.user.userId);
+  }
+
+  @Patch('customer-types/:id/active')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  setCustomerTypeActive(@Param('id') id: string, @Body() dto: SetActiveDto, @Req() req: any) {
+    return this.settings.setCustomerTypeActive(id, dto.isActive, req.user.userId);
+  }
 
   @Get('payment-terms')
   paymentTerms(@Query('includeInactive') includeInactive?: string) {

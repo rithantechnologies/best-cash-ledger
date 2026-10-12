@@ -1,8 +1,9 @@
 import { CustomerType } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
 
 export class UpdateCustomerDto {
   @IsOptional() @IsEnum(CustomerType) customerType?: CustomerType;
+  @IsOptional() @IsUUID() customerTypeId?: string;
   @IsOptional() @IsString() @MaxLength(150) fullName?: string;
   @IsOptional()
   @IsString()

@@ -16,8 +16,9 @@ type Bank={id:string;accountHolderName:string;bankName:string;accountReference:s
 type Upi={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
 type BAccount={id:string;accountType:string;bankName:string|null;accountReference:string|null;ifsc:string|null;upiId:string|null;mobileNumber:string|null;isActive:boolean};
 type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;notes:string|null;isActive:boolean;accounts:BAccount[]};
+type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
 type Customer={
- id:string;customerCode:string;customerType:string;fullName:string;mobile:string|null;notes:string|null;isActive:boolean;
+ id:string;customerCode:string;customerType:string;customerTypeId:string|null;customerTypeConfig:{id:string;name:string;isActive:boolean}|null;fullName:string;mobile:string|null;notes:string|null;isActive:boolean;
  cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];beneficiaries:Beneficiary[];
  transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;payable:{status:string;dueAt:string;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null}[];
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
@@ -43,6 +44,8 @@ export default function CustomerDetailPage(){
  const [c,setC]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
  const [view,setView]=useState<"details"|"activity">("details"),[setupGuide,setSetupGuide]=useState(false);
  const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
+ const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
+ const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
  const [ledgerAccounts,setLedgerAccounts]=useState<LedgerAccount[]>([]),[ledgerEntryDirection,setLedgerEntryDirection]=useState<LedgerEntryDirection|null>(null),[ledgerEntryBusy,setLedgerEntryBusy]=useState(false),[ledgerEntryError,setLedgerEntryError]=useState("");
@@ -61,6 +64,26 @@ export default function CustomerDetailPage(){
  useEffect(()=>{load().catch(e=>setError(e instanceof Error?e.message:"Failed to load customer"));},[id]);
  useEffect(()=>{loadCardLedger(ledgerCardId);},[id,ledgerCardId]);
  useEffect(()=>{apiFetch<LedgerAccount[]>("/accounts").then(rows=>setLedgerAccounts(rows.filter(a=>a.isActive&&["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)))).catch(()=>setLedgerAccounts([]));},[]);
+ useEffect(()=>{apiFetch<CustomerTypeChoice[]>("/settings/customer-types?includeInactive=true").then(setCustomerTypes).catch(()=>setCustomerTypes([]));},[]);
+ function openProfileEdit(){
+  if(!c)return;
+  setProfileName(c.fullName);setProfileMobile(c.mobile||"");
+  setProfileTypeId(c.customerTypeId??customerTypes.find(t=>t.legacyType===c.customerType)?.id??"");
+  setProfileNotes(c.notes||"");setProfileError("");setProfileEditing(true);
+ }
+ async function saveProfile(e:FormEvent){
+  e.preventDefault();
+  if(!profileTypeId){setProfileError("Select a customer type.");return;}
+  setBusy(true);setProfileError("");
+  try{
+   await apiFetch("/customers/"+id,{method:"PATCH",body:JSON.stringify({
+    fullName:profileName.trim(),mobile:profileMobile.trim()||undefined,customerTypeId:profileTypeId,notes:profileNotes.trim()||undefined,
+   })});
+   setProfileEditing(false);setMessage("Customer profile updated.");await load();
+  }catch(err){setProfileError(err instanceof Error?err.message:"Unable to update customer.");}
+  finally{setBusy(false);}
+ }
+
 
  function resetLedgerEntry(){
   setLedgerEntryDirection(null);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId("");setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerAllocations({});setLedgerEntryError("");
@@ -171,8 +194,12 @@ export default function CustomerDetailPage(){
  }
  return <AppShell><PageFrame>
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-   <div><Link href="/customers" className="text-xs font-bold text-indigo-600">← Customers</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{c.customerCode} · {c.customerType.replaceAll("_"," ")}</p><h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{c.fullName}</h2><p className="mt-1 text-sm text-slate-500">{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</p></div>
-   <StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge>
+   <div className="min-w-0"><Link href="/customers" className="text-xs font-bold text-indigo-600">← Customers</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{c.customerCode} · {c.customerTypeConfig?.name??c.customerType.replaceAll("_"," ")}</p><h2 className="mt-1 break-words text-2xl font-black tracking-tight sm:text-3xl">{c.fullName}</h2><p className="mt-1 text-sm text-slate-500">{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</p></div>
+   <div className="flex shrink-0 flex-wrap items-center gap-2">
+    <StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge>
+    <button type="button" onClick={openProfileEdit} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold">Edit profile</button>
+    {c.isActive?<button type="button" onClick={()=>{setCardError("");setAddingCard(true);}} className="app-primary-button min-h-10 px-4 text-xs font-black">+ Save new card</button>:null}
+   </div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
@@ -266,6 +293,16 @@ export default function CustomerDetailPage(){
    </div>)}</div>:<div className="p-4"><EmptyState title="No beneficiaries saved"/></div>}
   </Surface>
   </>:null}
+  <Modal open={profileEditing} title="Edit customer" description="Update name, mobile and customer type." onClose={()=>{if(!busy)setProfileEditing(false);}}
+   footer={<button form="edit-customer-profile" disabled={busy||!profileTypeId} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Save customer"}</button>}>
+   <form id="edit-customer-profile" onSubmit={saveProfile} className="grid gap-3 sm:grid-cols-2">
+    <Field label="Customer name"><input className={control} name="cashledger_customer_name" autoComplete="name" value={profileName} onChange={e=>setProfileName(e.target.value)} maxLength={150} required/></Field>
+    <Field label="Mobile"><input className={control} name="cashledger_customer_mobile" type="tel" autoComplete="tel" value={profileMobile} onChange={e=>setProfileMobile(e.target.value)} placeholder="Optional"/></Field>
+    <Field label="Customer type"><SearchableSelect className={control} value={profileTypeId} onChange={e=>setProfileTypeId(e.target.value)} required><option value="">Choose type</option>{customerTypes.filter(type=>type.isActive||type.id===profileTypeId).map(type=><option key={type.id} value={type.id}>{type.name}{type.isActive?"":" (Retired)"}</option>)}</SearchableSelect></Field>
+    <Field label="Notes"><input className={control} name="cashledger_notes" autoComplete="on" value={profileNotes} onChange={e=>setProfileNotes(e.target.value)} placeholder="Optional"/></Field>
+    {profileError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 sm:col-span-2">{profileError}</p>:null}
+   </form>
+  </Modal>
   <Modal open={addingCard} title="Add saved card" onClose={()=>{if(!busy)setAddingCard(false);}} footer={<button form="customer-add-card" disabled={busy||!cardBank.trim()||cardLastFour.length!==4} className="app-primary-button min-h-11 w-full font-bold disabled:opacity-50">{busy?"Saving…":"Save card"}</button>}>
    <form id="customer-add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
     <Field label="Card bank"><input className={control} name="cashledger_bank" autoComplete="on" value={cardBank} onChange={e=>setCardBank(e.target.value)} placeholder="Bank name" required/></Field>

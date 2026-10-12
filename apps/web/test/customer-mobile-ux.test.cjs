@@ -17,8 +17,9 @@ test("mobile creation is a compact bottom sheet with accessible fixed actions",(
  assert.match(customer,/name="customer_mobile" autoComplete="tel"/);
  assert.match(customer,/Save & add details/);
  assert.match(customer,/Save only/);
- assert.match(customer,/<details className="rounded-xl border/);
- assert.match(customer,/option value="WALK_IN"/);
+ assert.match(customer,/Customer type/);
+ assert.match(customer,/activeTypes.map/);
+ assert.match(customer,/settings\/customer-types/);
 });
 test("save-and-continue opens newly returned customer instead of list",()=>{
  assert.match(customer,/apiFetch<\{id:string\}>\("\/customers"/);

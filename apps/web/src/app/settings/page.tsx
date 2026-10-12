@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { Modal, PageLoader, Surface } from "@/components/ui";
 import { SettingsWorkspace } from "@/app/settings/settings-modern";
+import { CustomerTypeSettings } from "@/components/customer-type-settings";
 import { apiFetch } from "@/lib/api";
 
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string;defaultChargeType:string;isActive:boolean};
@@ -179,6 +180,7 @@ export default function SettingsPage(){
  return <AppShell><div className="page-enter mx-auto max-w-[1320px] space-y-5">
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
+  <CustomerTypeSettings />
   <Surface className="overflow-hidden">
     <div className="flex flex-col gap-3 border-b border-[var(--border)] p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
       <div><p className="text-[10px] font-black uppercase tracking-[.12em] text-[var(--accent)]">Daily Cash</p><h2 className="mt-1 text-lg font-black">Service catalog</h2><p className="mt-1 text-xs text-[var(--text-muted)]">These services appear in Cash In → Service. Default amount is optional.</p></div>

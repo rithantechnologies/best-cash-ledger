@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateExpenseCategoryDto } from './dto/create-expense-category.dto.js';
+import { CustomerTypeDto } from './dto/customer-type.dto.js';
 import { CreateCashInTransferTypeDto } from './dto/create-cash-in-transfer-type.dto.js';
 import { CreateServiceCatalogDto } from './dto/create-service-catalog.dto.js';
 import { CreatePaymentTermDto } from './dto/create-payment-term.dto.js';
@@ -15,6 +16,67 @@ import { UpdateCommissionRuleDto } from './dto/update-commission-rule.dto.js';
 @Injectable()
 export class SettingsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  customerTypes(includeInactive = false) {
+    return this.prisma.customerTypeConfig.findMany({
+      where: includeInactive ? undefined : { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+  }
+
+  async createCustomerType(dto: CustomerTypeDto, actorId: string) {
+    const name = dto.name.trim();
+    if (name.length < 2) throw new BadRequestException('Customer type name must have at least 2 characters.');
+    const existing = await this.prisma.customerTypeConfig.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
+    });
+    if (existing) throw new BadRequestException('This customer type already exists.');
+    return this.prisma.$transaction(async (tx) => {
+      const item = await tx.customerTypeConfig.create({ data: { name, sortOrder: 10 } });
+      await tx.auditLog.create({
+        data: { userId: actorId, entityType: 'CUSTOMER_TYPE', entityId: item.id,
+          action: 'CREATE', newValues: { name, isActive: true } },
+      });
+      return item;
+    });
+  }
+
+  async updateCustomerType(id: string, dto: CustomerTypeDto, actorId: string) {
+    const name = dto.name.trim();
+    if (name.length < 2) throw new BadRequestException('Customer type name must have at least 2 characters.');
+    const existing = await this.prisma.customerTypeConfig.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Customer type not found');
+    const duplicate = await this.prisma.customerTypeConfig.findFirst({
+      where: { id: { not: id }, name: { equals: name, mode: 'insensitive' } },
+    });
+    if (duplicate) throw new BadRequestException('This customer type already exists.');
+    return this.prisma.$transaction(async (tx) => {
+      const item = await tx.customerTypeConfig.update({ where: { id }, data: { name } });
+      await tx.auditLog.create({
+        data: { userId: actorId, entityType: 'CUSTOMER_TYPE', entityId: id,
+          action: 'UPDATE', oldValues: { name: existing.name }, newValues: { name } },
+      });
+      return item;
+    });
+  }
+
+  async setCustomerTypeActive(id: string, isActive: boolean, actorId: string) {
+    const existing = await this.prisma.customerTypeConfig.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Customer type not found');
+    if (!isActive && existing.isActive) {
+      const activeCount = await this.prisma.customerTypeConfig.count({ where: { isActive: true } });
+      if (activeCount <= 1) throw new BadRequestException('At least one customer type must remain active.');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const item = await tx.customerTypeConfig.update({ where: { id }, data: { isActive } });
+      await tx.auditLog.create({
+        data: { userId: actorId, entityType: 'CUSTOMER_TYPE', entityId: id,
+          action: isActive ? 'REACTIVATE' : 'DEACTIVATE',
+          oldValues: { isActive: existing.isActive }, newValues: { isActive } },
+      });
+      return item;
+    });
+  }
 
   paymentTerms(includeInactive = false) {
     return this.prisma.paymentTerm.findMany({
