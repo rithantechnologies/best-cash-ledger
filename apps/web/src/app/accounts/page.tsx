@@ -463,7 +463,7 @@ export default function AccountsPage(){
           <summary className="cursor-pointer text-sm font-semibold text-[var(--text)]">Optional account details</summary>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block"><span className="mb-1.5 block text-sm font-semibold">Reference</span><input className="app-control" value={reference} onChange={(e)=>setReference(e.target.value)} placeholder="Account / internal reference"/></label>
-            <label className="block"><span className="mb-1.5 block text-sm font-semibold">Last 4 digits</span><input className="app-control" inputMode="numeric" maxLength={4} value={last4} onChange={(e)=>setLast4(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Last 4 digits"/></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-semibold">Last 4 digits</span><input autoComplete="on" name="cashledger_account_last_four" className="app-control" inputMode="numeric" maxLength={4} value={last4} onChange={(e)=>setLast4(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Last 4 digits"/></label>
           </div>
         </details>:<div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3.5">
           <div>
@@ -491,7 +491,7 @@ export default function AccountsPage(){
           <summary className="cursor-pointer text-sm font-semibold text-[var(--text)]">Optional account details</summary>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block"><span className="mb-1.5 block text-sm font-semibold">Reference</span><input className="app-control" value={editRef} onChange={(e)=>setEditRef(e.target.value)} placeholder="Account / internal reference"/></label>
-            <label className="block"><span className="mb-1.5 block text-sm font-semibold">Last 4 digits</span><input className="app-control" inputMode="numeric" maxLength={4} value={editLast4} onChange={(e)=>setEditLast4(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Last 4 digits"/></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-semibold">Last 4 digits</span><input autoComplete="on" name="cashledger_account_last_four" className="app-control" inputMode="numeric" maxLength={4} value={editLast4} onChange={(e)=>setEditLast4(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Last 4 digits"/></label>
           </div>
         </details>:null}
         <button disabled={saving} className="app-primary-button min-h-11 w-full px-4 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Save"}</button>

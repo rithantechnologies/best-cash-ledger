@@ -441,7 +441,7 @@ export default function AepsPage(){
             </div>}
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <Field label="Aadhaar last 4"><input className={control+" font-mono text-base font-bold tracking-[.18em]"} inputMode="numeric" placeholder="0000" maxLength={4} value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
+              <Field label="Aadhaar last 4"><input autoComplete="on" name="cashledger_aadhaar_last_four" className={control+" font-mono text-base font-bold tracking-[.18em]"} inputMode="numeric" placeholder="0000" maxLength={4} value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
               <Field label="Aadhaar-linked bank"><div><input list="aeps-bank-list" className={control} placeholder="Select or type bank" value={bank} onChange={e=>setBank(e.target.value)} required/><datalist id="aeps-bank-list">{bankOptions.map(name=><option key={name} value={name}/>)}</datalist></div></Field>
             </div>
           </section>

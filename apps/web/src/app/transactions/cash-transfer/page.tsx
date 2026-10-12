@@ -554,7 +554,7 @@ export default function CashTransferPage(){
               {recipientScope==="OTHER"?<Field label="Recipient name"><input name="cashledger_recipient_name" autoComplete="on" className={control} value={recipientName} onChange={e=>setRecipientName(e.target.value)} placeholder="Recipient name" required/></Field>:null}
               {destinationType==="UPI"?<Field label="UPI / GPay / PhonePe" className={recipientScope==="SELF"?"md:col-span-2":""}><input className={control} value={destinationValue} onChange={e=>setDestinationValue(e.target.value)} placeholder="name@upi or mobile" required/></Field>:<>
                 <Field label="Bank"><input name="cashledger_bank" autoComplete="on" className={control} value={bankName} onChange={e=>setBankName(e.target.value)} placeholder="Bank name" required/></Field>
-                <Field label="Account number"><input className={control} value={destinationValue} onChange={e=>setDestinationValue(e.target.value)} placeholder="Account number" required/></Field>
+                <Field label="Account number"><input autoComplete="on" name="cashledger_bank_account_number" className={control} value={destinationValue} onChange={e=>setDestinationValue(e.target.value)} placeholder="Account number" required/></Field>
                 <Field label="IFSC (optional)"><input name="cashledger_i_f_s_c_optional" autoComplete="on" className={control} value={ifsc} onChange={e=>setIfsc(e.target.value.toUpperCase())} placeholder="IFSC"/></Field>
               </>}
             </div>}

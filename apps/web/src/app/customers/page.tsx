@@ -111,7 +111,7 @@ export default function CustomersPage(){
     <Field label="Customer"><SearchSelect value={cardCustomerId} onChange={setCardCustomerId} options={items.filter(c=>c.isActive).map(c=>({value:c.id,label:c.fullName,searchText:c.fullName+" "+(c.mobile??"")}))} placeholder="Select customer" searchPlaceholder="Search customer…"/></Field>
     <Field label="Bank"><input name="cashledger_bank" autoComplete="on" className={control} value={cardBank} onChange={e=>setCardBank(e.target.value)} required/></Field>
     <Field label="Card type"><div className={control+" flex items-center bg-slate-50 font-bold"}>CREDIT</div></Field>
-    <Field label="Last 4 digits"><input className={control} inputMode="numeric" maxLength={4} value={cardLast4} onChange={e=>setCardLast4(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
+    <Field label="Last 4 digits"><input autoComplete="on" name="cashledger_card_last_four" className={control} inputMode="numeric" maxLength={4} value={cardLast4} onChange={e=>setCardLast4(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
     <Field label="Nickname" className="sm:col-span-2"><input name="cashledger_nickname" autoComplete="on" className={control} value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="Optional"/></Field>
    </form>
   </Modal>
