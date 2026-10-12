@@ -210,10 +210,10 @@ export function QuickCashRushEntry({
                       onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();void saveRow(row.key);}else if(event.key==="ArrowDown"){event.preventDefault();focusRelative(row.key,1);}else if(event.key==="ArrowUp"){event.preventDefault();focusRelative(row.key,-1);}}}
                       className="min-w-0 flex-1 bg-transparent text-right text-[16px] font-black tabular-nums outline-none disabled:opacity-60" placeholder="0"/>
                   </div>
-                  <input value={row.customerName} disabled={row.status==="SAVED"||row.status==="SAVING"} onChange={(event)=>patchRow(row.key,{customerName:event.target.value.toUpperCase()})}
+                  <input name="cashledger_optional_name" autoComplete="on" value={row.customerName} disabled={row.status==="SAVED"||row.status==="SAVING"} onChange={(event)=>patchRow(row.key,{customerName:event.target.value.toUpperCase()})}
                     onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();void saveRow(row.key);}}}
                     className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold uppercase outline-none focus:border-[var(--accent)] disabled:opacity-60" placeholder="Optional name"/>
-                  <input type="tel" inputMode="tel" value={row.mobileNumber} disabled={row.status==="SAVED"||row.status==="SAVING"} onChange={(event)=>patchRow(row.key,{mobileNumber:event.target.value})}
+                  <input name="cashledger_optional_mobile" autoComplete="on" type="tel" inputMode="tel" value={row.mobileNumber} disabled={row.status==="SAVED"||row.status==="SAVING"} onChange={(event)=>patchRow(row.key,{mobileNumber:event.target.value})}
                     onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();void saveRow(row.key);}}}
                     className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none focus:border-[var(--accent)] disabled:opacity-60" placeholder="Optional mobile"/>
                   <div className="flex h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 focus-within:border-[var(--accent)]">

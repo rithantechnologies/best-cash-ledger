@@ -53,14 +53,14 @@ export default function EditExpense(){
     <Field label="Amount"><input className={ctl} type="number" step="0.01" min="0.01" required value={amount} onChange={e=>setAmount(e.target.value)}/></Field>
     <Field label="Expense date & time"><input className={ctl} type="datetime-local" required value={date} onChange={e=>setDate(e.target.value)}/></Field>
     <Field label="Bank / cash / wallet / payment method"><SearchableSelect mobileSheet className={ctl} value={accountId} onChange={e=>setAccountId(e.target.value)}><option value="">Not selected · pending</option>{accountsForExpense.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>
-    <Field label="Description"><input className={ctl} value={description} onChange={e=>setDescription(e.target.value)}/></Field>
-    <Field label="Payee / paid to"><input className={ctl} value={payee} onChange={e=>setPayee(e.target.value)} placeholder="Vendor, person or company"/></Field>
+    <Field label="Description"><input name="cashledger_description" autoComplete="on" className={ctl} value={description} onChange={e=>setDescription(e.target.value)}/></Field>
+    <Field label="Payee / paid to"><input name="cashledger_payee_paid_to" autoComplete="on" className={ctl} value={payee} onChange={e=>setPayee(e.target.value)} placeholder="Vendor, person or company"/></Field>
     <Field label="Reference / UTR"><input className={ctl} value={reference} onChange={e=>setReference(e.target.value)}/></Field>
-    <Field label="Notes"><textarea className={ctl+" min-h-20 py-3"} value={notes} onChange={e=>setNotes(e.target.value)}/></Field>
+    <Field label="Notes"><textarea name="cashledger_notes" autoComplete="on" className={ctl+" min-h-20 py-3"} value={notes} onChange={e=>setNotes(e.target.value)}/></Field>
    </div>
   </FormSection>
   <FormSection step="2" title="Correction reason" description="Every change keeps the before/after values, editor and timestamp.">
-   <Field label="Reason"><textarea className={ctl+" min-h-20 py-3"} required minLength={3} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Entered rough details; now correcting from the receipt."/></Field>
+   <Field label="Reason"><textarea name="cashledger_reason" autoComplete="on" className={ctl+" min-h-20 py-3"} required minLength={3} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Entered rough details; now correcting from the receipt."/></Field>
    <p className="text-xs leading-5 text-[var(--text-muted)]">The same expense and original posting are updated in place. Audit history records what changed and when. Financial edits affecting a closed cash drawer require reconciliation first.</p>
   </FormSection>
   {history.length>0?<section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"><h2 className="text-sm font-black">Edit history</h2><div className="mt-3 space-y-2">{history.slice(0,20).map(h=><div key={h.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs"><b>{h.action.replaceAll("_"," ")} · {h.editorName}</b><p className="mt-1 text-[var(--text-muted)]">{new Date(h.createdAt).toLocaleString("en-IN")}{h.reason?" · "+h.reason:""}</p>{h.action==="UPDATE_EXPENSE"?<p className="mt-1">Amount: {money(Number(h.oldValues?.amount||0))} → {money(Number(h.newValues?.amount||0))}</p>:null}</div>)}</div></section>:null}

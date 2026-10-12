@@ -40,6 +40,6 @@ export default function InternalTransferPage(){
     <Field label="Bank / transfer charge"><input className={control} type="number" step="0.01" min="0" placeholder="0.00" value={charge} onChange={e=>setCharge(e.target.value)}/></Field>
    </div>
   </FormSection>
-  <FormSection step="2" title="Reference & notes" description="Optional reconciliation details."><div className="grid gap-3 sm:grid-cols-2"><Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Reference"/></Field><Field label="Notes"><textarea className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></FormSection>
+  <FormSection step="2" title="Reference & notes" description="Optional reconciliation details."><div className="grid gap-3 sm:grid-cols-2"><Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder="Reference"/></Field><Field label="Notes"><textarea name="cashledger_notes" autoComplete="on" className={control+" min-h-24 py-3"} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field></div></FormSection>
  </TransactionFrame></form></AppShell>;
 }

@@ -76,7 +76,7 @@ export default function PayablesPage(){
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
   <Toolbar>
-   <input className={control+" bg-slate-50"} placeholder="Search customer…" value={q} onChange={e=>setQ(e.target.value)}/>
+   <input name="cashledger_q" autoComplete="on" className={control+" bg-slate-50"} placeholder="Search customer…" value={q} onChange={e=>setQ(e.target.value)}/>
    <SearchableSelect className={control} value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_PAID","PAID","OVERDUE","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</SearchableSelect>
    <SearchableSelect className={control} value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="">All services</option>{["AEPS_WITHDRAWAL","CARD_SWIPE","MICRO_ATM","ATM_WITHDRAWAL","CASH_TRANSFER"].map(x=><option key={x} value={x}>{serviceLabel(x)}</option>)}</SearchableSelect>
    <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="dueAt">Due date</option><option value="createdAt">Created</option><option value="remainingAmount">Remaining</option><option value="originalAmount">Original</option><option value="paidAmount">Paid</option><option value="offsetAmount">Advance applied</option><option value="status">Status</option></SearchableSelect>
@@ -133,13 +133,13 @@ export default function PayablesPage(){
      <Field label="Customer payout"><input className={control} type="number" step="0.01" max={selected.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
      {walletSource?<Field label="Wallet payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
      <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder={destinationType==="CASH"?"Optional cash acknowledgement":"UTR / bank reference"}/></Field>
-     <Field label="Notes" className="sm:col-span-2"><input className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Optional notes"/></Field>
+     <Field label="Notes" className="sm:col-span-2"><input name="cashledger_notes" autoComplete="on" className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Optional notes"/></Field>
     </form>
    </div>:null}
   </Modal>
   <Modal open={!!cancelTarget} title="Cancel payable?" description="Only unpaid payables can be cancelled. The source financial movement is reversed, not deleted." onClose={()=>setCancelTarget(null)}
    footer={<div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setCancelTarget(null)} className="app-secondary-button min-h-11 font-bold">Keep payable</button><button form="cancel-payable" disabled={busy} className="min-h-11 rounded-xl bg-rose-700 font-bold text-white disabled:opacity-50">{busy?"Cancelling…":"Confirm cancel"}</button></div>}>
-   <form id="cancel-payable" onSubmit={cancelPayable}><Field label="Reason"><textarea className="min-h-28 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm" value={cancelReason} onChange={e=>setCancelReason(e.target.value)} minLength={3} placeholder="Why is this payable being cancelled?" required/></Field></form>
+   <form id="cancel-payable" onSubmit={cancelPayable}><Field label="Reason"><textarea name="cashledger_reason" autoComplete="on" className="min-h-28 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm" value={cancelReason} onChange={e=>setCancelReason(e.target.value)} minLength={3} placeholder="Why is this payable being cancelled?" required/></Field></form>
   </Modal>
  </PageFrame></AppShell>;
 }

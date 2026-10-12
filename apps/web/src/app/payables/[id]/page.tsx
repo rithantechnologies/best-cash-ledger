@@ -161,7 +161,7 @@ export default function PayableDetailPage(){
     </Field>
     <Field label="Apply amount"><input className={control} type="number" step="0.01" min="0.01" max={maxAdvance.toFixed(2)} value={advanceAmount} required onChange={e=>setAdvanceAmount(e.target.value)}/></Field>
     <p className="text-xs text-[var(--text-muted)]">The selected earlier Pay Out was already paid from its cash drawer/bank/wallet. Applying it reduces this swipe’s pending payout and the unapplied advance only. Money does not leave again.</p>
-    <Field label="Notes (optional)"><input className={control} maxLength={500} value={advanceNotes} onChange={e=>setAdvanceNotes(e.target.value)}/></Field>
+    <Field label="Notes (optional)"><input name="cashledger_notes_optional" autoComplete="on" className={control} maxLength={500} value={advanceNotes} onChange={e=>setAdvanceNotes(e.target.value)}/></Field>
    </form>
   </Modal>
   <Modal open={payOpen} title={"Pay "+item.customer.fullName} description={serviceLabel(item.sourceTransaction.transactionType)+" · Remaining "+money(item.remainingAmount)} onClose={()=>setPayOpen(false)} footer={<button form="detail-pay-form" disabled={busy||sourceShort||payoutAmount<=0||!source||!destinationType} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
@@ -194,7 +194,7 @@ export default function PayableDetailPage(){
       {sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Not enough available balance.</span>:null}
      </Field>
      <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder={destinationType==="CASH"?"Optional cash acknowledgement":"UTR / bank reference"}/></Field>
-     <Field label="Notes" className="sm:col-span-2"><input className={control} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field>
+     <Field label="Notes" className="sm:col-span-2"><input name="cashledger_notes" autoComplete="on" className={control} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes"/></Field>
     </form>
    </div>
   </Modal>
