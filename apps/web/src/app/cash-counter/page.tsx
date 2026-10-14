@@ -954,6 +954,19 @@ export default function CashCounterPage(){
     </Surface>:null}
 
     {today?<>
+      {pendingQuickCash.length>0?<div className="sticky top-[calc(3.75rem+0.5rem)] z-[35] flex justify-end lg:hidden">
+        <button
+          type="button"
+          aria-expanded={pendingListOpen}
+          aria-label={pendingListOpen?"Hide pending transactions":"Show "+pendingQuickCash.length+" pending transactions"}
+          onClick={()=>{if(pendingListOpen){setPendingListOpen(false);}else{showPendingList();}}}
+          className="inline-flex min-h-11 items-center gap-2.5 rounded-2xl bg-amber-400 px-4 py-2.5 text-[13px] font-black text-amber-950 shadow-[0_8px_24px_rgba(0,0,0,.18)] ring-1 ring-amber-500/30 transition active:scale-[.98]"
+        >
+          <span aria-hidden="true" className="text-lg leading-none">✓</span>
+          <span>{pendingListOpen?"Hide pending":"Complete pending"}</span>
+          <span className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-amber-950 px-1.5 text-xs text-white">{pendingQuickCash.length}</span>
+        </button>
+      </div>:null}
       <Surface className="cash-desk-hero overflow-hidden">
         <div className="flex flex-col gap-2.5 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="min-w-0"><p className="truncate text-sm font-bold">{today.cashAccount.accountName}{today.openedBy?.fullName?" · "+today.openedBy.fullName:""}</p><p className="mt-0.5 text-[11px] font-semibold text-[#a9bfd5]">{new Date(today.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(today.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></div>
@@ -1168,12 +1181,29 @@ export default function CashCounterPage(){
       </>}
 
       {pendingQuickCash.length&&pendingListOpen?<Surface className="scroll-mt-24 overflow-hidden">
-        <div id="pending-cash" className="scroll-mt-24 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5">
+        <div id="pending-cash" className="scroll-mt-36 lg:scroll-mt-24 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-5">
           <div className="flex items-center gap-2"><h3 className="text-sm font-extrabold">Pending completion</h3><span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">{pendingQuickCash.length}</span></div>
           <button type="button" aria-label="Close pending list" onClick={()=>setPendingListOpen(false)} className="ml-auto min-h-9 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-muted)]">Close ×</button>
           <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]"><span>Showing {pendingRange.start}–{pendingRange.end} of {pendingQuickCash.length}</span>{pendingQuickCash.length>pendingPageSize?<><button type="button" disabled={currentPendingPage<=1} onClick={()=>goToPendingPage(currentPendingPage-1)} className="min-h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 font-black text-[var(--text)] disabled:opacity-35">Previous</button><span className="min-w-[76px] text-center font-black text-[var(--text)]">Page {currentPendingPage} / {pendingPageCount}</span><button type="button" disabled={currentPendingPage>=pendingPageCount} onClick={()=>goToPendingPage(currentPendingPage+1)} className="min-h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 font-black text-[var(--text)] disabled:opacity-35">Next</button></>:null}</div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="divide-y divide-[var(--border)] lg:hidden">
+          {pagedPendingQuickCash.map((item)=><div key={item.id} className="px-4 py-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <span className={"inline-flex rounded-full px-2.5 py-1 text-[10px] font-black "+(item.direction==="IN"?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700")}>{item.direction==="IN"?"Cash In":cashOutTypeLabel(item.cashOutType)}</span>
+                <p className="mt-1.5 truncate text-sm font-extrabold">{item.customerName||item.mobileNumber||"Walk-in customer"}</p>
+                <p className="mt-0.5 truncate text-[11px] font-semibold text-[var(--text-muted)]">{item.transaction.transactionNumber} · {new Date(item.transaction.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
+                {item.customerBankName?<p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{item.customerBankName}</p>:null}
+              </div>
+              <div className="shrink-0 text-right">
+                <strong className="money block text-base font-black">{money(item.amount)}</strong>
+                <span className="mt-1 block text-[11px] font-bold text-[var(--text-muted)]">{Number(item.commissionAmount)>0?"Fee "+money(item.commissionAmount):"No fee"}</span>
+              </div>
+            </div>
+            <button type="button" onClick={()=>openPendingCompletion(item)} className="mt-3 min-h-11 w-full rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-black text-amber-900 transition active:scale-[.99]">Complete transaction →</button>
+          </div>)}
+        </div>
+        <div className="hidden overflow-x-auto lg:block">
           <div className="min-w-[760px]">
             <div className="grid grid-cols-[100px_minmax(210px,1fr)_110px_150px_90px_100px] items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2 text-[9px] font-black uppercase tracking-[.06em] text-[var(--text-muted)]"><span>Type</span><span>Customer / Ref</span><span className="text-right">Amount</span><span className="text-right">Fee / Income</span><span className="text-right">Time</span><span className="text-right">Action</span></div>
             <div className="divide-y divide-[var(--border)]">{pagedPendingQuickCash.map((item)=><div key={item.id} className="grid min-h-[54px] grid-cols-[100px_minmax(210px,1fr)_110px_150px_90px_100px] items-center gap-3 px-4 py-2">
@@ -1672,9 +1702,9 @@ export default function CashCounterPage(){
 
     {pendingQuickCash.length>0&&!completePendingId?<button
       type="button"
-      aria-label={"Complete pending transactions, "+pendingQuickCash.length+" remaining"}
+      aria-label={pendingListOpen?"Hide pending transactions":"Complete pending transactions, "+pendingQuickCash.length+" remaining"}
       onClick={()=>{if(pendingListOpen){setPendingListOpen(false);}else{showPendingList();}}}
-      className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-40 inline-flex min-h-14 items-center gap-2.5 rounded-full bg-amber-400 px-4 py-3 text-sm font-black text-amber-950 shadow-[0_10px_35px_rgba(0,0,0,.24)] ring-2 ring-white/80 transition hover:bg-amber-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 active:scale-[.98] sm:bottom-6 sm:right-6"
+      className="fixed bottom-6 right-6 z-40 hidden min-h-14 lg:inline-flex items-center gap-2.5 rounded-full bg-amber-400 px-4 py-3 text-sm font-black text-amber-950 shadow-[0_10px_35px_rgba(0,0,0,.24)] ring-2 ring-white/80 transition hover:bg-amber-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 active:scale-[.98]"
     >
       <span aria-hidden="true" className="text-lg leading-none">✓</span>
       <span>{pendingListOpen?"Hide pending":"Complete pending"}</span>
