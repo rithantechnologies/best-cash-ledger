@@ -1652,7 +1652,7 @@ export class CustomersService {
     return { enabled: true, cardIds: items.map(item => item.customerCardId) };
   }
 
-  async saveDemoTestNumber(cardId: string, value: string, userId: string) {
+  async saveDemoTestNumber(cardId: string, value: string, userId: string, details?: { bankName?: string; nickname?: string }) {
     const key = this.demoCardKey();
     // The development demo supports user-entered, *non-usable* 16-digit samples.
     // Published gateway test numbers are also permitted despite their valid checksums.
@@ -1672,15 +1672,28 @@ export class CustomersService {
     };
     if (!/^\d{16}$/.test(value) || (luhnValid(value) && !publishedTestNumbers.has(value)))
       throw new BadRequestException('Enter a 16-digit dummy number that is not a real payment card number, or use a published test number.');
-    const card = await this.prisma.customerCard.findUnique({ where: { id: cardId }, select: { lastFourDigits: true, isActive: true } });
+    const card = await this.prisma.customerCard.findUnique({ where: { id: cardId }, select: { lastFourDigits: true, bankName: true, nickname: true, isActive: true } });
     if (!card || !card.isActive) throw new NotFoundException('Active card not found');
-    if (card.lastFourDigits !== value.slice(-4))
+    if (!details && card.lastFourDigits !== value.slice(-4))
       throw new BadRequestException('The saved card last four digits must match the selected synthetic test number.');
+    if (details && !details.bankName?.trim())
+      throw new BadRequestException('Card bank name is required.');
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
     const payload = [iv, cipher.getAuthTag(), encrypted].map(v => v.toString('hex')).join(':');
     await this.prisma.$transaction(async tx => {
+      if (details) {
+        const updated = await tx.customerCard.update({
+          where: { id: cardId },
+          data: { bankName: details.bankName!.trim(), nickname: details.nickname?.trim() || null, lastFourDigits: value.slice(-4) },
+        });
+        await tx.auditLog.create({ data: {
+          userId, entityType: 'CUSTOMER_CARD', entityId: cardId, action: 'UPDATE',
+          oldValues: { bankName: card.bankName, lastFourDigits: card.lastFourDigits, nickname: card.nickname },
+          newValues: { bankName: updated.bankName, lastFourDigits: updated.lastFourDigits, nickname: updated.nickname },
+        }});
+      }
       await tx.customerDemoCard.upsert({
         where: { customerCardId: cardId },
         create: { customerCardId: cardId, encryptedValue: payload },
@@ -1688,7 +1701,7 @@ export class CustomersService {
       });
       await tx.auditLog.create({
         data: { userId, entityType: 'CUSTOMER_CARD', entityId: cardId,
-          action: 'DEMO_TEST_NUMBER_SAVE', newValues: { synthetic: true, lastFourDigits: card.lastFourDigits } },
+          action: 'DEMO_TEST_NUMBER_SAVE', newValues: { synthetic: true, lastFourDigits: value.slice(-4) } },
       });
     });
     return { saved: true };
@@ -1733,6 +1746,10 @@ export class CustomersService {
   async updateCard(id: string, dto: UpdateCardDto, userId: string) {
     const old = await this.prisma.customerCard.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('Card not found');
+    if (dto.lastFourDigits !== undefined && dto.lastFourDigits !== old.lastFourDigits && process.env.DEMO_CARD_COPY_ENABLED === 'true') {
+      const existingDemo = await this.prisma.customerDemoCard.findUnique({ where: { customerCardId: id }, select: { id: true } });
+      if (existingDemo) throw new BadRequestException('This demo card has a saved test number. Enter a replacement 16-digit dummy number in Edit Card to update its last four digits together.');
+    }
     return this.prisma.$transaction(async (tx) => {
       if (dto.cardNetworkId) {
         const network = await tx.cardNetwork.findFirst({ where: { id: dto.cardNetworkId, isActive: true }, select: { id: true } });

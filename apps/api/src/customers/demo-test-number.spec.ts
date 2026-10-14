@@ -16,18 +16,20 @@ describe('development-only synthetic card numbers', () => {
 
   const fixture = () => {
     let stored = '';
+    const card = { id: 'card-1', bankName: 'Old Bank', nickname: 'Old Card', lastFourDigits: '4243', isActive: true };
     const audit: unknown[] = [];
     const prisma = {
-      customerCard: { findUnique: async () => ({ lastFourDigits: '4243', isActive: true }) },
+      customerCard: { findUnique: async () => ({ ...card }) },
       customerDemoCard: { findUnique: async () => ({ encryptedValue: stored, customerCard: { isActive: true } }) },
       auditLog: { create: async (args: unknown) => { audit.push(args); } },
       $transaction: async (cb: (tx: unknown) => Promise<unknown>) => cb({
+        customerCard: { update: async (args: { data: Partial<typeof card> }) => { Object.assign(card, args.data); return { ...card }; } },
         customerDemoCard: { upsert: async (args: { create: { encryptedValue: string } }) => { stored = args.create.encryptedValue; } },
         auditLog: { create: async (args: unknown) => { audit.push(args); } },
       }),
     };
     const service = new CustomersService(prisma as never, null as never, null as never, null as never, null as never);
-    return { service, audit, getStored: () => stored };
+    return { service, audit, getStored: () => stored, getCard: () => ({ ...card }) };
   };
 
   it('accepts a user-typed invalid-Luhn sample, masks it in audit, and decrypts for Copy', async () => {
@@ -39,6 +41,25 @@ describe('development-only synthetic card numbers', () => {
     expect((await service.copyDemoTestNumber('card-1', 'staff-1')).demoNumber).toBe('4242424242424243');
     expect(JSON.stringify(audit)).not.toContain('4242424242424243');
     expect(audit).toHaveLength(2);
+  });
+
+  it('upgrades an existing last-four-only card in one transaction without replacing its ID', async () => {
+    process.env.DEMO_CARD_COPY_ENABLED = 'true';
+    process.env.DEMO_CARD_ENCRYPTION_KEY = demoKey;
+    const { service, audit, getCard } = fixture();
+    await service.saveDemoTestNumber('card-1', '4242424242424244', 'staff-1', { bankName: 'New Bank', nickname: 'Demo Card' });
+    expect(getCard()).toMatchObject({ id: 'card-1', lastFourDigits: '4244', bankName: 'New Bank', nickname: 'Demo Card' });
+    expect((await service.copyDemoTestNumber('card-1', 'staff-1')).demoNumber).toBe('4242424242424244');
+    expect(audit).toHaveLength(3);
+    expect(JSON.stringify(audit)).not.toContain('4242424242424244');
+  });
+
+  it('does not change existing last four from a standalone demo-number request', async () => {
+    process.env.DEMO_CARD_COPY_ENABLED = 'true';
+    process.env.DEMO_CARD_ENCRYPTION_KEY = demoKey;
+    const { service, getCard } = fixture();
+    await expect(service.saveDemoTestNumber('card-1', '4242424242424244', 'staff-1')).rejects.toThrow('must match');
+    expect(getCard().lastFourDigits).toBe('4243');
   });
 
   it('rejects real-looking checksum-valid card values', async () => {

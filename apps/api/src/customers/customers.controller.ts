@@ -124,7 +124,7 @@ export class CustomersController {
   @Post('cards/:id/demo-test-number')
   @Header('Cache-Control', 'private, no-store')
   saveDemoTestNumber(@Param('id') id: string, @Body() dto: SaveDemoCardDto, @Req() req: any) {
-    return this.customers.saveDemoTestNumber(id, dto.demoNumber, req.user.userId);
+    return this.customers.saveDemoTestNumber(id, dto.demoNumber, req.user.userId, dto.bankName === undefined && dto.nickname === undefined ? undefined : { bankName: dto.bankName, nickname: dto.nickname });
   }
 
   @Post('cards/:id/copy-demo-test-number')

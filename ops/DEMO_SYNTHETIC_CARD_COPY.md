@@ -9,3 +9,7 @@ Backend access is disabled by default. For this demo only, configure `DEMO_CARD_
 The backend accepts arbitrary typed 16-digit dummy strings only when they fail the Luhn payment-card checksum, plus the published synthetic test values `4242424242424242`, `5555555555554444`, `4000000000000002`, `4111111111111111`. It rejects real-looking Luhn-valid numbers; this guard is not a substitute for a compliant card-vault integration.
 
 In the later client VPS, omit both demo environment variables; do not enable this feature for actual payment card data. Do not collect CVV, PIN, expiry, or other sensitive authentication data.
+
+## Upgrade an existing last-four-only card
+
+Open Customers → the existing profile → Saved Cards → **Edit**. In development demo mode, the edit form has an optional **Add or replace 16-digit demo number** input. Enter a dummy value: when 16 digits are entered, the last four update automatically. Saving updates the *same* customer card record and encrypted demo value in one transaction; card-linked histories are unchanged. Leaving the field blank preserves any already linked demo number. If a demo value is already attached, ordinary editing cannot change its last four without a replacement 16-digit dummy value, preventing inconsistent masked identifiers.

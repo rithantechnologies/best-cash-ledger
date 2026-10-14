@@ -72,6 +72,7 @@ export default function CustomerDetailPage(){
  const [upiName,setUpiName]=useState(""),[upiId,setUpiId]=useState(""),[upiMobile,setUpiMobile]=useState(""),[upiProvider,setUpiProvider]=useState(""),[upiError,setUpiError]=useState("");
  const [beneficiaryName,setBeneficiaryName]=useState(""),[relationship,setRelationship]=useState("");
  const [beneficiaryId,setBeneficiaryId]=useState(""),[bType,setBType]=useState("BANK"),[bBank,setBBank]=useState(""),[bRef,setBRef]=useState(""),[bIfsc,setBIfsc]=useState(""),[bUpi,setBUpi]=useState(""),[bMobile,setBMobile]=useState("");
+ const [editDemoNumber,setEditDemoNumber]=useState("");
  const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState(""),[e5,setE5]=useState("");
  const control="app-control";
 
@@ -209,7 +210,7 @@ export default function CustomerDetailPage(){
  async function addBeneficiaryAccount(e:FormEvent){e.preventDefault();if(bType==="BANK"&&!bBank.trim()){setError("Choose a bank before saving.");return;}try{await run(()=>apiFetch("/customers/beneficiaries/"+beneficiaryId+"/accounts",{method:"POST",body:JSON.stringify({accountType:bType,bankName:bBank||undefined,accountReference:bRef||undefined,ifsc:bIfsc||undefined,upiId:bUpi||undefined,mobileNumber:bMobile||undefined})}),"Recipient account added.");setBBank("");setBRef("");setBIfsc("");setBUpi("");setBMobile("");setAddKind(null);}catch{}}
 
  function beginEdit(next:Exclude<EditState,null>){
-  setEdit(next);setError("");
+  setEdit(next);setError("");setEditDemoNumber("");
   if(next.kind==="card"){setE1(next.item.bankName);setE2(next.item.lastFourDigits);setE3("CREDIT");setE4(next.item.nickname||"");setE5("");}
   if(next.kind==="bank"){setE1(next.item.accountHolderName);setE2(next.item.bankName);setE3(next.item.accountReference);setE4(next.item.ifsc||"");setE5("");}
   if(next.kind==="upi"){setE1(next.item.accountName);setE2(next.item.upiId||"");setE3(next.item.mobileNumber||"");setE4(next.item.providerName||"");setE5("");}
@@ -219,12 +220,21 @@ export default function CustomerDetailPage(){
  async function saveEdit(e:FormEvent){
   e.preventDefault();if(!edit)return;
   try{
-   if(edit.kind==="card"){if(!/^\d{4}$/.test(e2))throw new Error("Card last four digits must contain exactly 4 digits");await run(()=>apiFetch("/customers/cards/"+edit.item.id,{method:"PATCH",body:JSON.stringify({bankName:e1.trim(),lastFourDigits:e2,cardType:"CREDIT",nickname:e4.trim()||undefined})}),"Card updated.");}
+   if(edit.kind==="card"){
+    if(!/^\d{4}$/.test(e2))throw new Error("Card last four digits must contain exactly 4 digits");
+    if(editDemoNumber){
+     if(!demoEnabled||!isSafeDemoNumber(editDemoNumber)||editDemoNumber.slice(-4)!==e2)throw new Error("Enter a valid 16-digit dummy test number. Its last four digits must match the saved card.");
+     await run(()=>apiFetch("/customers/cards/"+edit.item.id+"/demo-test-number",{method:"POST",body:JSON.stringify({demoNumber:editDemoNumber,bankName:e1.trim(),nickname:e4.trim()})}),"Card updated with a synthetic demo number.");
+     await loadDemoStatus();
+    }else{
+     await run(()=>apiFetch("/customers/cards/"+edit.item.id,{method:"PATCH",body:JSON.stringify({bankName:e1.trim(),lastFourDigits:e2,cardType:"CREDIT",nickname:e4.trim()||undefined})}),"Card updated.");
+    }
+   }
    else if(edit.kind==="bank"){if(!e2.trim())throw new Error("Choose a bank.");await run(()=>apiFetch("/customers/banks/"+edit.item.id,{method:"PATCH",body:JSON.stringify({accountHolderName:e1.trim(),bankName:e2.trim(),accountReference:e3.trim(),ifsc:e4.trim()||undefined})}),"Bank account updated.");}
    else if(edit.kind==="upi")await run(()=>apiFetch("/customers/upi/"+edit.item.id,{method:"PATCH",body:JSON.stringify({accountName:e1.trim(),upiId:e2.trim()||undefined,mobileNumber:e3.trim()||undefined,providerName:e4.trim()||undefined})}),"UPI account updated.");
    else if(edit.kind==="beneficiary")await run(()=>apiFetch("/customers/beneficiaries/"+edit.item.id,{method:"PATCH",body:JSON.stringify({beneficiaryName:e1.trim(),relationshipNote:e2.trim()||undefined,notes:e3.trim()||undefined})}),"Beneficiary updated.");
    else {if(e1==="BANK"&&!e2.trim())throw new Error("Choose a bank.");await run(()=>apiFetch("/customers/beneficiary-accounts/"+edit.item.id,{method:"PATCH",body:JSON.stringify({accountType:e1,bankName:e2.trim()||undefined,accountReference:e3.trim()||undefined,upiId:e4.trim()||undefined,ifsc:e5.trim()||undefined})}),"Recipient account updated.");}
-   setEdit(null);
+   setEdit(null);setEditDemoNumber("");
   }catch(err){if(err instanceof Error)setError(err.message);}
  }
  async function confirmToggle(){
@@ -465,7 +475,7 @@ export default function CustomerDetailPage(){
   </Modal>
   <Modal open={!!edit} title={edit?"Edit "+edit.kind.replace("beneficiaryAccount","recipient account"):"Edit saved detail"} description="Update saved details without changing historical transactions." onClose={()=>setEdit(null)} footer={<button form="edit-saved-detail" disabled={busy} className="min-h-11 w-full rounded-xl bg-indigo-700 font-bold text-white">Save changes</button>}>
    <form id="edit-saved-detail" onSubmit={saveEdit} className="grid gap-3 sm:grid-cols-2">
-    {edit?.kind==="card"?<><Field label="Bank"><input name="cashledger_bank" autoComplete="on" className={control} value={e1} onChange={e=>setE1(e.target.value)} required/></Field><Field label="Last 4"><input autoComplete="on" name="cashledger_card_last_four" className={control} value={e2} onChange={e=>setE2(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} required/></Field><Field label="Type"><div className={control+" flex items-center bg-slate-50 font-bold"}>CREDIT</div></Field><Field label="Nickname"><input name="cashledger_nickname" autoComplete="on" className={control} value={e4} onChange={e=>setE4(e.target.value)}/></Field></>:null}
+    {edit?.kind==="card"?<><Field label="Bank"><input name="cashledger_bank" autoComplete="on" className={control} value={e1} onChange={e=>setE1(e.target.value)} required/></Field><Field label="Last 4"><input autoComplete="on" name="cashledger_card_last_four" className={control} value={e2} onChange={e=>setE2(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} required/></Field><Field label="Type"><div className={control+" flex items-center bg-slate-50 font-bold"}>CREDIT</div></Field><Field label="Nickname"><input name="cashledger_nickname" autoComplete="on" className={control} value={e4} onChange={e=>setE4(e.target.value)}/></Field>{demoEnabled?<Field label="Add or replace 16-digit demo number (optional)" className="sm:col-span-2"><input className={control} name="cashledger_demo_dummy_number" type="text" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={16} value={editDemoNumber} onChange={event=>{const digits=event.target.value.replace(/\D/g,"").slice(0,16);setEditDemoNumber(digits);if(digits.length===16)setE2(digits.slice(-4));}} placeholder="Type a 16-digit dummy test number"/><p className="mt-1 text-[11px] text-amber-700">Demo only. Enter a dummy number (invalid card checksum) or published gateway test value. Last four updates automatically. Leave blank to keep any existing test number. Never enter real card details.</p></Field>:null}</>:null}
     {edit?.kind==="bank"?<><Field label="Account holder"><input name="cashledger_account_holder" autoComplete="on" className={control} value={e1} onChange={e=>setE1(e.target.value)} required/></Field><BankIfscPicker bankName={e2} ifsc={e4} onBankChange={setE2} onIfscChange={setE4}/><Field label="Account reference"><input autoComplete="on" name="cashledger_bank_account_number" className={control} value={e3} onChange={e=>setE3(e.target.value)} required/></Field></>:null}
     {edit?.kind==="upi"?<><Field label="Account name"><input name="cashledger_account_name" autoComplete="on" className={control} value={e1} onChange={e=>setE1(e.target.value)} required/></Field><Field label="UPI ID"><input className={control} value={e2} onChange={e=>setE2(e.target.value)}/></Field><Field label="Mobile"><input name="cashledger_mobile" autoComplete="on" className={control} value={e3} onChange={e=>setE3(e.target.value)}/></Field><Field label="Provider"><input name="cashledger_provider" autoComplete="on" className={control} value={e4} onChange={e=>setE4(e.target.value)}/></Field></>:null}
     {edit?.kind==="beneficiary"?<><Field label="Name"><input name="cashledger_name" autoComplete="on" className={control} value={e1} onChange={e=>setE1(e.target.value)} required/></Field><Field label="Relationship"><input name="cashledger_relationship" autoComplete="on" className={control} value={e2} onChange={e=>setE2(e.target.value)}/></Field><Field label="Notes" className="sm:col-span-2"><input name="cashledger_notes" autoComplete="on" className={control} value={e3} onChange={e=>setE3(e.target.value)}/></Field></>:null}
