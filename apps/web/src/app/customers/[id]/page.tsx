@@ -12,6 +12,7 @@ import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 import { SearchSelect } from "@/components/search-select";
 import { BankIfscPicker } from "@/components/bank-ifsc-picker";
 import { matchesSavedDetailSearch } from "@/lib/saved-detail-search";
+import { formatBankCopyText } from "@/lib/bank-copy-text";
 
 type Card={id:string;bankName:string;cardType:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
 type Bank={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
@@ -396,7 +397,7 @@ export default function CustomerDetailPage(){
 function SavedList({title,count,matchingCount,addLabel,onAdd,children}:{title:string;count:number;matchingCount?:number;addLabel?:string;onAdd?:()=>void;children:React.ReactNode}){
  return <Surface className="overflow-hidden"><PanelHeader title={title} description={matchingCount!==undefined?`${matchingCount} of ${count} found`:count+" saved"} action={addLabel&&onAdd?<button onClick={onAdd} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold">+ {addLabel}</button>:undefined}/><div className="space-y-2 p-3">{children}</div></Surface>;
 }
-function CopyValueButton({value,label}:{value:string;label:string}){
+function CopyValueButton({value,label,copyAll=false}:{value:string;label:string;copyAll?:boolean}){
  const [status,setStatus]=useState<"idle"|"copied"|"failed">("idle");
  useEffect(()=>{if(status==="idle")return;const timer=window.setTimeout(()=>setStatus("idle"),2200);return()=>window.clearTimeout(timer);},[status]);
  async function copy(){
@@ -416,7 +417,7 @@ function CopyValueButton({value,label}:{value:string;label:string}){
  }
  return <button type="button" onClick={copy} title={"Copy "+label} aria-label={"Copy "+label} className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-lg border border-indigo-100 bg-white px-2 text-[10px] font-bold text-indigo-700 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
   {status==="copied"?<svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2"><path d="m5 12 5 5L20 7"/></svg>:<svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>}
-  <span role="status" aria-live="polite">{status==="copied"?"Copied":status==="failed"?"Try again":"Copy"}</span>
+  <span role="status" aria-live="polite">{status==="copied"?(copyAll?"Copied all":"Copied"):status==="failed"?"Try again":(copyAll?"Copy all":"Copy")}</span>
  </button>;
 }
 function SavedCopyField({label,value}:{label:string;value:string|null|undefined}){
@@ -427,7 +428,7 @@ function SavedCopyField({label,value}:{label:string;value:string|null|undefined}
 }
 function BankSavedItem({bank,onEdit,onToggle}:{bank:Bank;onEdit:()=>void;onToggle:()=>void}){
  return <div className={!bank.isActive?"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3 opacity-65":"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"}>
-  <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="break-words text-sm font-black">{bank.bankName}</p><div className="mt-1"><CopyValueButton value={bank.bankName} label="bank name"/></div></div><StatusBadge tone={bank.isActive?"emerald":"slate"}>{bank.isActive?"Active":"Inactive"}</StatusBadge></div>
+  <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="break-words text-sm font-black">{bank.bankName}</p><div className="mt-1"><CopyValueButton value={formatBankCopyText(bank)} label="all bank details" copyAll/></div></div><StatusBadge tone={bank.isActive?"emerald":"slate"}>{bank.isActive?"Active":"Inactive"}</StatusBadge></div>
   <div className="mt-3 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3 py-1.5">
    <SavedCopyField label="Account holder name" value={bank.accountHolderName}/>
    <SavedCopyField label="Account number" value={bank.accountReference}/>
