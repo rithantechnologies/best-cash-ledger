@@ -1697,17 +1697,6 @@ export default function CashCounterPage(){
       </form>
     </div>,document.body):null}
 
-    {pendingQuickCash.length>0&&!completePendingId?<button
-      type="button"
-      aria-label={pendingListOpen?"Hide pending transactions":"Complete pending transactions, "+pendingQuickCash.length+" remaining"}
-      onClick={()=>{if(pendingListOpen){setPendingListOpen(false);}else{showPendingList();}}}
-      className="fixed bottom-6 right-6 z-40 hidden min-h-14 lg:inline-flex items-center gap-2.5 rounded-full bg-amber-400 px-4 py-3 text-sm font-black text-amber-950 shadow-[0_10px_35px_rgba(0,0,0,.24)] ring-2 ring-white/80 transition hover:bg-amber-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 active:scale-[.98]"
-    >
-      <span aria-hidden="true" className="text-lg leading-none">✓</span>
-      <span>{pendingListOpen?"Hide pending":"Complete pending"}</span>
-      <span className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-amber-950 px-1.5 text-xs text-white">{pendingQuickCash.length}</span>
-    </button>:null}
-
     {previousHistory.length?<details className="cash-history-collapsible app-surface overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 sm:px-5">
         <div><h3 className="text-sm font-extrabold">Previous sessions</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{previousHistory.length} closed</p></div>
