@@ -1,3 +1,4 @@
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountType, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
@@ -218,7 +219,7 @@ export class CustomersService {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
       select: {
-        id: true, customerCode: true, fullName: true, mobile: true,
+        id: true, customerCode: true, fullName: true, mobile: true, ebNumber: true,
         bankAccounts: {
           where: { isActive: true },
           select: { id: true, accountHolderName: true, bankName: true, accountReference: true, ifsc: true },
@@ -424,7 +425,7 @@ export class CustomersService {
       .slice(0, 8);
 
     return {
-      customer: { id: customer.id, customerCode: customer.customerCode, fullName: customer.fullName, mobile: customer.mobile },
+      customer: { id: customer.id, customerCode: customer.customerCode, fullName: customer.fullName, mobile: customer.mobile, ebNumber: customer.ebNumber },
       savedDestinations: saved.map(({ signature, ...item }) => ({ ...item, isLastUsed: signature === latestSignature })),
       recentDestinations: recentDestinations.map(({ signature, ...item }) => ({ ...item, isLastUsed: signature === latestSignature })),
       serviceProfiles,
@@ -1592,6 +1593,71 @@ export class CustomersService {
       });
       return updated;
     });
+  }
+
+  // This cannot be used as a general-purpose PAN vault: only known synthetic
+  // gateway test cards, and only when expressly enabled on this demo instance.
+  private demoCardKey() {
+    const configured = process.env.DEMO_CARD_ENCRYPTION_KEY ?? '';
+    if (process.env.DEMO_CARD_COPY_ENABLED !== 'true' || !/^[a-fA-F0-9]{64}$/.test(configured))
+      throw new NotFoundException('Synthetic test-card demo is disabled');
+    return Buffer.from(configured, 'hex');
+  }
+
+  async demoCardStatus(customerId: string) {
+    if (process.env.DEMO_CARD_COPY_ENABLED !== 'true' || !/^[a-fA-F0-9]{64}$/.test(process.env.DEMO_CARD_ENCRYPTION_KEY ?? ''))
+      return { enabled: false, cardIds: [] as string[] };
+    const items = await this.prisma.customerDemoCard.findMany({
+      where: { customerCard: { customerId, isActive: true } },
+      select: { customerCardId: true },
+    });
+    return { enabled: true, cardIds: items.map(item => item.customerCardId) };
+  }
+
+  async saveDemoTestNumber(cardId: string, value: string, userId: string) {
+    const key = this.demoCardKey();
+    const validTestNumbers = new Set(['4242424242424242', '5555555555554444', '4000000000000002', '4111111111111111']);
+    if (!validTestNumbers.has(value))
+      throw new BadRequestException('Only the listed synthetic test card numbers are allowed. Never enter real card details.');
+    const card = await this.prisma.customerCard.findUnique({ where: { id: cardId }, select: { lastFourDigits: true, isActive: true } });
+    if (!card || !card.isActive) throw new NotFoundException('Active card not found');
+    if (card.lastFourDigits !== value.slice(-4))
+      throw new BadRequestException('The saved card last four digits must match the selected synthetic test number.');
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+    const payload = [iv, cipher.getAuthTag(), encrypted].map(v => v.toString('hex')).join(':');
+    await this.prisma.$transaction(async tx => {
+      await tx.customerDemoCard.upsert({
+        where: { customerCardId: cardId },
+        create: { customerCardId: cardId, encryptedValue: payload },
+        update: { encryptedValue: payload },
+      });
+      await tx.auditLog.create({
+        data: { userId, entityType: 'CUSTOMER_CARD', entityId: cardId,
+          action: 'DEMO_TEST_NUMBER_SAVE', newValues: { synthetic: true, lastFourDigits: card.lastFourDigits } },
+      });
+    });
+    return { saved: true };
+  }
+
+  async copyDemoTestNumber(cardId: string, userId: string) {
+    const key = this.demoCardKey();
+    const saved = await this.prisma.customerDemoCard.findUnique({
+      where: { customerCardId: cardId },
+      include: { customerCard: { select: { isActive: true } } },
+    });
+    if (!saved || !saved.customerCard.isActive) throw new NotFoundException('Saved demo test number not found');
+    const parts = saved.encryptedValue.split(':');
+    if (parts.length !== 3) throw new BadRequestException('Invalid demo test-number record');
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(parts[0], 'hex'));
+    decipher.setAuthTag(Buffer.from(parts[1], 'hex'));
+    const value = Buffer.concat([decipher.update(Buffer.from(parts[2], 'hex')), decipher.final()]).toString('utf8');
+    await this.prisma.auditLog.create({
+      data: { userId, entityType: 'CUSTOMER_CARD', entityId: cardId,
+        action: 'DEMO_TEST_NUMBER_COPY', newValues: { synthetic: true, lastFourDigits: value.slice(-4) } },
+    });
+    return { demoNumber: value };
   }
 
   addCard(customerId: string, dto: CreateCardDto, userId: string) {

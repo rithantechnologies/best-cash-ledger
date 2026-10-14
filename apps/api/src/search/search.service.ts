@@ -19,6 +19,7 @@ export class SearchService {
         customerCode: true,
         fullName: true,
         mobile: true,
+        ebNumber: true,
         cards: {
           where: { isActive: true },
           select: { id: true, bankName: true, cardType: true, cardNetworkId: true, cardNetwork: { select: { id: true, name: true } }, lastFourDigits: true, nickname: true, isActive: true },

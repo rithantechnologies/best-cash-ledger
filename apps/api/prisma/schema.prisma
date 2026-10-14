@@ -228,11 +228,22 @@ model CustomerCard {
   isActive         Boolean                 @default(true)
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
+  demoCard         CustomerDemoCard?
   cardSwipeDetails CardSwipeDetail[]
   cardDueClearings CardDueClearingDetail[]
   manualLedgerEntries CustomerLedgerEntryDetail[]
 
   @@index([cardNetworkId])
+}
+
+// DEMO ONLY: synthetic provider test card values. Never store customer PANs here.
+model CustomerDemoCard {
+  id             String       @id @default(uuid())
+  customerCardId String       @unique
+  customerCard   CustomerCard @relation(fields: [customerCardId], references: [id], onDelete: Cascade)
+  encryptedValue String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 }
 
 model CustomerBankAccount {
