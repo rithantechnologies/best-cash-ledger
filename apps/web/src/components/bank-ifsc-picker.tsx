@@ -96,7 +96,7 @@ export function BankIfscPicker({
       {manualBank || bankLoadFailed ? <>
         <input className="app-control" value={bankName} onChange={(event) => { onBankChange(event.target.value); onIfscChange(""); }} placeholder="Enter bank name" required />
         {!bankLoadFailed ? <button type="button" className="mt-1 text-xs font-semibold text-indigo-700" onClick={() => { setManualBank(false); onBankChange(""); onIfscChange(""); setManualIfsc(false); }}>Choose from bank list</button> : <p className="mt-1 text-xs text-amber-700">Bank directory unavailable. Enter the bank and IFSC manually.</p>}
-      </> : <SearchSelect value={bankName} onChange={selectBank} options={bankOptions} placeholder="Select bank" searchPlaceholder="Search Indian banks…" emptyText="Bank not found — choose manual entry" />}
+      </> : <SearchSelect value={bankName} onChange={selectBank} options={bankOptions} placeholder="Select bank" pickerTitle="Choose bank" searchPlaceholder="Search Indian banks…" emptyText="Bank not found — choose manual entry" />}
     </Field>
     <Field label="Branch / IFSC">
       {manualIfsc || manualBank || bankLoadFailed || (bankName !== "" && !inDirectory) ? <>
@@ -105,7 +105,7 @@ export function BankIfscPicker({
       </> : <>
         <SearchSelect value={ifsc} onChange={onIfscChange} onSearchChange={setBranchQuery}
           options={branchOptions} disabled={!bankName} placeholder={bankName ? "Select branch / IFSC" : "Choose bank first"}
-          searchPlaceholder="Search branch, city or IFSC…"
+          searchPlaceholder="Search branch, city or IFSC…" pickerTitle="Choose branch / IFSC"
           emptyText={branchLoading ? "Searching branches…" : branchFailed ? "Directory unavailable — use manual IFSC" : branchQuery.trim().length < 2 ? "Type 2+ characters to find a branch" : "No matching branch. Try city or IFSC."} />
         <button type="button" className="mt-1 text-xs font-semibold text-indigo-700" onClick={() => setManualIfsc(true)}>IFSC not listed? Enter manually</button>
       </>}
