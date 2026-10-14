@@ -29,4 +29,7 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional() @IsString() @Matches(/^\d{16}$/) demoCardNumber?: string;
+  @IsOptional() @IsString() @MaxLength(100) demoCardBank?: string;
 }

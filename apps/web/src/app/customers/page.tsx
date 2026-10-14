@@ -18,13 +18,24 @@ type Customer={
 };
 type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
 type Paged={items:Customer[];pagination:{page:number;pageSize:number;total:number;totalPages:number}};
+// Only synthetic demonstration values may be submitted to the test vault.
+const isSafeDemoNumber=(value:string)=>{
+ if(!/^\d{16}$/.test(value))return false;
+ if(["4242424242424242","5555555555554444","4000000000000002","4111111111111111"].includes(value))return true;
+ let sum=0;
+ for(let i=value.length-1;i>=0;i--){let digit=Number(value[i]);if((value.length-i)%2===0){digit*=2;if(digit>9)digit-=9;}sum+=digit;}
+ return sum%10!==0;
+};
+
 
 export default function CustomersPage(){
  const router=useRouter();
  const [items,setItems]=useState<Customer[]>([]),[pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
  const [q,setQ]=useState(""),[sortBy,setSortBy]=useState("createdAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("desc"),[role,setRole]=useState("");
+ const [demoEnabled,setDemoEnabled]=useState(false),[newDemoNumber,setNewDemoNumber]=useState(""),[newDemoBank,setNewDemoBank]=useState("");
  const [creating,setCreating]=useState(false),[createError,setCreateError]=useState(""),[customerTypeId,setCustomerTypeId]=useState(""),[showMobileFilters,setShowMobileFilters]=useState(false);
  const [typeChoices,setTypeChoices]=useState<CustomerTypeChoice[]>([]),[typesError,setTypesError]=useState("");
+ const [cardDemoNumber,setCardDemoNumber]=useState("");
  const [addingCard,setAddingCard]=useState(false),[cardCustomerId,setCardCustomerId]=useState(""),[cardBank,setCardBank]=useState(""),[cardLast4,setCardLast4]=useState(""),[cardNickname,setCardNickname]=useState("");
  const [editing,setEditing]=useState<Customer|null>(null),[editName,setEditName]=useState(""),[editMobile,setEditMobile]=useState(""),[editEbNumber,setEditEbNumber]=useState(""),[editTypeId,setEditTypeId]=useState(""),[editNotes,setEditNotes]=useState("");
  const [toggleTarget,setToggleTarget]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
@@ -37,6 +48,7 @@ export default function CustomersPage(){
   return apiFetch<Paged>("/customers?"+params.toString()).then(r=>{setItems(r.items);setPagination(r.pagination);setError("");}).finally(()=>setLoading(false));
  }
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
+ useEffect(()=>{apiFetch<{enabled:boolean}>("/customers/demo-card-availability").then(r=>setDemoEnabled(r.enabled)).catch(()=>setDemoEnabled(false));},[]);
  useEffect(()=>{if(!role)return;const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load customers")),180);return()=>clearTimeout(timer);},[role,q,sortBy,sortDir,pagination.pageSize]);
  useEffect(()=>{
   apiFetch<CustomerTypeChoice[]>("/settings/customer-types?includeInactive=true")
@@ -66,10 +78,11 @@ export default function CustomersPage(){
   const ebNumber=String(formValues.get("customer_eb_number")||"").trim();
   if(!fullName){setCreateError("Enter the customer's name.");return;}
   if(!customerTypeId){setCreateError("Select a customer type.");return;}
+  if(demoEnabled&&newDemoNumber&&!isSafeDemoNumber(newDemoNumber)){setCreateError("Demo card needs 16 dummy digits (not a real card number).");return;}
   setBusy(true);setCreateError("");
   try{
-   const customer=await apiFetch<{id:string}>("/customers",{method:"POST",body:JSON.stringify({customerTypeId,fullName,mobile:mobile||undefined,ebNumber:ebNumber||undefined})});
-   setCreating(false);
+   const customer=await apiFetch<{id:string}>("/customers",{method:"POST",body:JSON.stringify({customerTypeId,fullName,mobile:mobile||undefined,ebNumber:ebNumber||undefined,...(demoEnabled&&newDemoNumber?{demoCardNumber:newDemoNumber,demoCardBank:newDemoBank.trim()||"Card"}:{})})});
+   setCreating(false);setNewDemoNumber("");setNewDemoBank("");
    if(openDetails){router.push("/customers/"+customer.id+"?setup=1");}
    else{setMessage("Customer created.");await load(1);}
   }
@@ -77,8 +90,12 @@ export default function CustomersPage(){
   finally{setBusy(false);}
  }
  async function addCard(e:FormEvent){
-  e.preventDefault();setBusy(true);setError("");setMessage("");
-  try{await apiFetch("/customers/"+cardCustomerId+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank,cardType:"CREDIT",lastFourDigits:cardLast4,nickname:cardNickname||undefined})});setCardBank("");setCardLast4("");setCardNickname("");setAddingCard(false);setMessage("Card added.");await load();}
+  e.preventDefault();
+  if(!cardCustomerId){setError("Select a customer first.");return;}
+  if(!/^\d{4}$/.test(cardLast4)){setError("Enter the last four digits.");return;}
+  if(demoEnabled&&cardDemoNumber&&!isSafeDemoNumber(cardDemoNumber)){setError("Enter 16 dummy digits, not a real card number.");return;}
+  setBusy(true);setError("");setMessage("");
+  try{await apiFetch("/customers/"+cardCustomerId+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank.trim(),cardType:"CREDIT",lastFourDigits:cardLast4,nickname:cardNickname||undefined,...(demoEnabled&&cardDemoNumber?{demoCardNumber:cardDemoNumber}:{})})});setCardBank("");setCardLast4("");setCardDemoNumber("");setCardNickname("");setAddingCard(false);setMessage("Card added.");await load();}
   catch(e){setError(e instanceof Error?e.message:"Failed to add card");}finally{setBusy(false);}
  }
  function beginEdit(c:Customer){setEditing(c);setEditName(c.fullName);setEditMobile(c.mobile||"");setEditEbNumber(c.ebNumber||"");setEditTypeId(c.customerTypeId??typeChoices.find(t=>t.legacyType===c.customerType)?.id??"");setEditNotes(c.notes||"");setError("");}
@@ -99,7 +116,7 @@ export default function CustomersPage(){
 
  return <AppShell><PageFrame>
   <SectionHeading eyebrow="Customer directory" title="Customers" description="Profiles, saved cards and recipient details for repeat counter work."
-   action={<div className="flex gap-2"><button onClick={()=>setAddingCard(true)} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>{setCreateError("");setCustomerTypeId(defaultTypeId());setCreating(true);}} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
+   action={<div className="flex gap-2"><button onClick={()=>{setError("");setCardDemoNumber("");setAddingCard(true);}} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>{setCreateError("");setCustomerTypeId(defaultTypeId());setNewDemoNumber("");setNewDemoBank("");setCreating(true);}} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
@@ -145,6 +162,7 @@ export default function CustomersPage(){
       <Field label="Customer name *"><input className={control+" min-h-12 text-base"} type="text" name="customer_name" autoComplete="name" autoFocus maxLength={150} placeholder="Enter name" required onChange={()=>{if(createError)setCreateError("");}}/></Field>
       <Field label="Mobile (optional)"><input className={control+" min-h-12 text-base"} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" maxLength={20} placeholder="Mobile number"/></Field>
       <Field label="EB number (optional)"><input className={control+" min-h-12 text-base"} type="text" name="customer_eb_number" autoComplete="off" maxLength={50} placeholder="Electricity consumer number"/></Field>
+      {demoEnabled?<div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3"><p className="text-xs font-bold text-amber-800">Optional demo-only card</p><Field label="Card bank"><input className={control+" min-h-11"} value={newDemoBank} onChange={e=>setNewDemoBank(e.target.value)} maxLength={100} placeholder="Bank name (optional)" autoComplete="off"/></Field><Field label="16-digit dummy card number"><input className={control+" min-h-11 font-mono"} type="text" name="new_demo_number" value={newDemoNumber} onChange={e=>setNewDemoNumber(e.target.value.replace(/\D/g,"").slice(0,16))} inputMode="numeric" maxLength={16} autoComplete="off" spellCheck={false} placeholder="16 dummy digits"/></Field><p className="text-[11px] text-amber-700">Synthetic test data only. The last four digits will be saved automatically. No real cards.</p></div>:null}
       <Field label="Customer type"><SearchableSelect className={control+" min-h-11"} value={customerTypeId} onChange={e=>setCustomerTypeId(e.target.value)} required><option value="">Select type</option>{activeTypes.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</SearchableSelect></Field>
       {typesError?<p role="alert" className="text-xs font-semibold text-rose-700">{typesError}</p>:null}
       {createError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-700">{createError}</p>:null}
@@ -165,6 +183,8 @@ export default function CustomersPage(){
     <Field label="Card type"><div className={control+" flex items-center bg-slate-50 font-bold"}>CREDIT</div></Field>
     <Field label="Last 4 digits"><input autoComplete="on" name="cashledger_card_last_four" className={control} inputMode="numeric" maxLength={4} value={cardLast4} onChange={e=>setCardLast4(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
     <Field label="Nickname" className="sm:col-span-2"><input name="cashledger_nickname" autoComplete="on" className={control} value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="Optional"/></Field>
+    {demoEnabled?<Field label="16-digit dummy number (optional)" className="sm:col-span-2"><input className={control} type="text" inputMode="numeric" maxLength={16} autoComplete="off" spellCheck={false} value={cardDemoNumber} onChange={e=>{const digits=e.target.value.replace(/\D/g,"").slice(0,16);setCardDemoNumber(digits);if(digits.length===16)setCardLast4(digits.slice(-4));}} placeholder="Type 16 synthetic digits"/><p className="mt-1 text-[11px] text-amber-700">Demo only. No real card numbers.</p></Field>:null}
+    {error?<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs font-semibold text-rose-700 sm:col-span-2">{error}</p>:null}
    </form>
   </Modal>
   <Modal open={!!editing} title="Edit customer" description={editing?.customerCode} onClose={()=>setEditing(null)}

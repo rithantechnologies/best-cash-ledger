@@ -1443,6 +1443,7 @@ export class CustomersService {
   }
 
   create(dto: CreateCustomerDto, userId: string) {
+    const demoEncrypted = dto.demoCardNumber ? this.encryptedSyntheticDemoNumber(dto.demoCardNumber) : null;
     return this.prisma.$transaction(async (tx) => {
       if (dto.mobile) {
         const duplicateCustomer = await tx.customer.findFirst({
@@ -1465,7 +1466,7 @@ export class CustomersService {
           });
       if (!typeConfig?.isActive)
         throw new BadRequestException('Choose an active customer type.');
-      const { customerTypeId: _selectedTypeId, ...customerValues } = dto;
+      const { customerTypeId: _selectedTypeId, demoCardNumber: _demoCardNumber, demoCardBank: _demoCardBank, ...customerValues } = dto;
       const customer = await tx.customer.create({
         data: {
           ...customerValues,
@@ -1478,6 +1479,17 @@ export class CustomersService {
         },
       });
       if (customer.ebNumber) await tx.customerServiceProfile.create({ data: { customerId: customer.id, serviceName: 'Eb Bill', referenceNumber: customer.ebNumber, nickname: 'EB connection' } });
+      if (dto.demoCardNumber && demoEncrypted) {
+        const card = await tx.customerCard.create({ data: {
+          customerId: customer.id, bankName: dto.demoCardBank?.trim() || 'Card', cardType: 'CREDIT',
+          lastFourDigits: dto.demoCardNumber.slice(-4),
+        } });
+        await tx.customerDemoCard.create({ data: { customerCardId: card.id, encryptedValue: demoEncrypted } });
+        await tx.auditLog.create({ data: {
+          userId, entityType: 'CUSTOMER_CARD', entityId: card.id, action: 'CREATE',
+          newValues: { customerId: customer.id, bankName: card.bankName, lastFourDigits: card.lastFourDigits, synthetic: true },
+        } });
+      }
       await tx.auditLog.create({
         data: {
           userId,
@@ -1642,6 +1654,28 @@ export class CustomersService {
     return Buffer.from(configured, 'hex');
   }
 
+  demoCardAvailability() {
+    return { enabled: process.env.DEMO_CARD_COPY_ENABLED === 'true' && /^[a-fA-F0-9]{64}$/.test(process.env.DEMO_CARD_ENCRYPTION_KEY ?? '') };
+  }
+
+  private encryptedSyntheticDemoNumber(value: string) {
+    const key = this.demoCardKey();
+    const published = new Set(['4242424242424242', '5555555555554444', '4000000000000002', '4111111111111111']);
+    if (!/^\d{16}$/.test(value)) throw new BadRequestException('Enter a 16-digit dummy number.');
+    let checksum = 0;
+    for (let i = value.length - 1; i >= 0; i--) {
+      let digit = Number(value[i]);
+      if ((value.length - i) % 2 === 0) { digit *= 2; if (digit > 9) digit -= 9; }
+      checksum += digit;
+    }
+    if (checksum % 10 === 0 && !published.has(value))
+      throw new BadRequestException('Enter a 16-digit dummy number that is not a real payment card number, or use a published test number.');
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+    return [iv, cipher.getAuthTag(), encrypted].map(v => v.toString('hex')).join(':');
+  }
+
   async demoCardStatus(customerId: string) {
     if (process.env.DEMO_CARD_COPY_ENABLED !== 'true' || !/^[a-fA-F0-9]{64}$/.test(process.env.DEMO_CARD_ENCRYPTION_KEY ?? ''))
       return { enabled: false, cardIds: [] as string[] };
@@ -1727,16 +1761,22 @@ export class CustomersService {
   }
 
   addCard(customerId: string, dto: CreateCardDto, userId: string) {
+    const demoEncrypted = dto.demoCardNumber ? this.encryptedSyntheticDemoNumber(dto.demoCardNumber) : null;
     return this.prisma.$transaction(async (tx) => {
       if (dto.cardNetworkId) {
         const network = await tx.cardNetwork.findFirst({ where: { id: dto.cardNetworkId, isActive: true }, select: { id: true } });
         if (!network) throw new BadRequestException('Selected card network is not active');
       }
-      const item = await tx.customerCard.create({ data: { customerId, ...dto, cardType: 'CREDIT' } });
+      const { demoCardNumber: _demoCardNumber, ...cardValues } = dto;
+      const item = await tx.customerCard.create({ data: {
+        customerId, ...cardValues, cardType: 'CREDIT',
+        lastFourDigits: dto.demoCardNumber?.slice(-4) ?? dto.lastFourDigits,
+      } });
+      if (demoEncrypted) await tx.customerDemoCard.create({ data: { customerCardId: item.id, encryptedValue: demoEncrypted } });
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER_CARD', entityId: item.id, action: 'CREATE',
-          newValues: { customerId, bankName: item.bankName, cardType: item.cardType, cardNetworkId: item.cardNetworkId, lastFourDigits: item.lastFourDigits, nickname: item.nickname },
+          newValues: { customerId, bankName: item.bankName, cardType: item.cardType, cardNetworkId: item.cardNetworkId, lastFourDigits: item.lastFourDigits, nickname: item.nickname, synthetic: Boolean(demoEncrypted) },
         },
       });
       return item;

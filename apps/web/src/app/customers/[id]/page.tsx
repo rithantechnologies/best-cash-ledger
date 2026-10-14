@@ -191,14 +191,9 @@ export default function CustomerDetailPage(){
 
   setBusy(true);setCardError("");
   try{
-   const created=await apiFetch<{id:string}>("/customers/"+id+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank.trim(),cardType:"CREDIT",lastFourDigits:cardLastFour,nickname:cardNickname.trim()||undefined})});
-   let demoSaved=true;
-   if(demoEnabled&&demoAddNumber){
-    try{await apiFetch("/customers/cards/"+created.id+"/demo-test-number",{method:"POST",body:JSON.stringify({demoNumber:demoAddNumber})});}
-    catch{demoSaved=false;}
-   }
+   await apiFetch("/customers/"+id+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank.trim(),cardType:"CREDIT",lastFourDigits:cardLastFour,nickname:cardNickname.trim()||undefined,...(demoEnabled&&demoAddNumber?{demoCardNumber:demoAddNumber}:{})})});
    setAddingCard(false);setCardBank("");setCardLastFour("");setCardNickname("");setDemoAddNumber("");
-   setMessage(demoSaved?"Card added.":"Card added, but the demo test number could not be saved. Try the Test Number action.");
+   setMessage("Card added.");
    await loadDemoStatus();
    await load();
   }catch(err){setCardError(err instanceof Error?err.message:"Could not save card.");}

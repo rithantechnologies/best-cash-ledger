@@ -90,6 +90,9 @@ export class CustomersController {
     return this.customers.setEbServiceProfileActive(id, dto.isActive, req.user.userId);
   }
 
+  @Get('demo-card-availability')
+  demoCardAvailability() { return this.customers.demoCardAvailability(); }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.customers.get(id);

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class CreateCardDto {
   @IsString()
@@ -20,4 +20,6 @@ export class CreateCardDto {
   @IsOptional()
   @IsString()
   nickname?: string;
+
+  @IsOptional() @IsString() @Matches(/^\d{16}$/) demoCardNumber?: string;
 }
