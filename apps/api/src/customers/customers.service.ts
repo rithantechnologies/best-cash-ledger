@@ -21,6 +21,7 @@ import { UpdateUpiAccountDto } from './dto/update-upi-account.dto.js';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto.js';
 import { UpdateBeneficiaryAccountDto } from './dto/update-beneficiary-account.dto.js';
 import { CreateServiceProfileDto } from './dto/create-service-profile.dto.js';
+import { UpdateServiceProfileDto } from './dto/update-service-profile.dto.js';
 import { CreateCustomerLedgerEntryDto } from './dto/create-customer-ledger-entry.dto.js';
 
 @Injectable()
@@ -437,8 +438,10 @@ export class CustomersService {
     const serviceName = dto.serviceName.trim();
     const referenceNumber = dto.referenceNumber.trim();
     return this.prisma.$transaction(async (tx) => {
-      const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true } });
+      const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true, ebNumber: true } });
       if (!customer) throw new NotFoundException('Customer not found');
+      if (serviceName === 'Eb Bill' && (referenceNumber.length > 50 || (dto.nickname?.length ?? 0) > 80))
+        throw new BadRequestException('EB number must be at most 50 characters and label at most 80.');
       const item = await tx.customerServiceProfile.upsert({
         where: { customerId_serviceName_referenceNumber: { customerId, serviceName, referenceNumber } },
         create: {
@@ -452,6 +455,7 @@ export class CustomersService {
           isActive: true,
         },
       });
+      if (serviceName === 'Eb Bill' && !customer.ebNumber) await tx.customer.update({ where: { id: customerId }, data: { ebNumber: referenceNumber } });
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER_SERVICE_PROFILE', entityId: item.id, action: 'UPSERT',
@@ -459,6 +463,34 @@ export class CustomersService {
         },
       });
       return item;
+    });
+  }
+
+  async updateEbServiceProfile(id: string, dto: UpdateServiceProfileDto, userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const old = await tx.customerServiceProfile.findUnique({ where: { id } });
+      if (!old || old.serviceName !== 'Eb Bill') throw new NotFoundException('EB connection not found');
+      const referenceNumber = dto.referenceNumber?.trim() ?? old.referenceNumber;
+      if (!referenceNumber || referenceNumber.length > 50) throw new BadRequestException('Enter a valid EB number (maximum 50 characters).');
+      const updated = await tx.customerServiceProfile.update({ where: { id }, data: { referenceNumber, ...(dto.nickname !== undefined ? { nickname: dto.nickname.trim() || null } : {}) } });
+      if (old.referenceNumber !== referenceNumber) await tx.customer.updateMany({ where: { id: old.customerId, ebNumber: old.referenceNumber }, data: { ebNumber: referenceNumber } });
+      await tx.auditLog.create({ data: { userId, entityType: 'CUSTOMER_SERVICE_PROFILE', entityId: id, action: 'UPDATE', oldValues: { referenceNumber: old.referenceNumber, nickname: old.nickname }, newValues: { referenceNumber: updated.referenceNumber, nickname: updated.nickname } } });
+      return updated;
+    });
+  }
+
+  async setEbServiceProfileActive(id: string, isActive: boolean, userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const old = await tx.customerServiceProfile.findUnique({ where: { id } });
+      if (!old || old.serviceName !== 'Eb Bill') throw new NotFoundException('EB connection not found');
+      const updated = await tx.customerServiceProfile.update({ where: { id }, data: { isActive } });
+      const customer = await tx.customer.findUnique({ where: { id: old.customerId }, select: { ebNumber: true } });
+      if (customer?.ebNumber === old.referenceNumber && !isActive) {
+        const next = await tx.customerServiceProfile.findFirst({ where: { customerId: old.customerId, serviceName: 'Eb Bill', isActive: true }, orderBy: { createdAt: 'asc' } });
+        await tx.customer.update({ where: { id: old.customerId }, data: { ebNumber: next?.referenceNumber || null } });
+      } else if (isActive && !customer?.ebNumber) await tx.customer.update({ where: { id: old.customerId }, data: { ebNumber: old.referenceNumber } });
+      await tx.auditLog.create({ data: { userId, entityType: 'CUSTOMER_SERVICE_PROFILE', entityId: id, action: isActive ? 'REACTIVATE' : 'DEACTIVATE', oldValues: { isActive: old.isActive }, newValues: { isActive } } });
+      return updated;
     });
   }
 
@@ -470,6 +502,7 @@ export class CustomersService {
         customerTypeConfig: { select: { id: true, name: true, isActive: true } },
         bankAccounts: true,
         upiAccounts: true,
+        serviceProfiles: { where: { serviceName: 'Eb Bill' }, orderBy: { createdAt: 'asc' } },
         beneficiaries: { include: { accounts: true } },
         transactions: {
           orderBy: { transactionAt: 'desc' },
@@ -1444,6 +1477,7 @@ export class CustomersService {
           createdById: userId,
         },
       });
+      if (customer.ebNumber) await tx.customerServiceProfile.create({ data: { customerId: customer.id, serviceName: 'Eb Bill', referenceNumber: customer.ebNumber, nickname: 'EB connection' } });
       await tx.auditLog.create({
         data: {
           userId,
@@ -1568,6 +1602,10 @@ export class CustomersService {
           ...(dto.ebNumber !== undefined ? { ebNumber: dto.ebNumber?.trim() || null } : {}),
         },
       });
+      if (dto.ebNumber?.trim()) {
+        const number = dto.ebNumber.trim();
+        await tx.customerServiceProfile.upsert({ where: { customerId_serviceName_referenceNumber: { customerId: id, serviceName: 'Eb Bill', referenceNumber: number } }, create: { customerId: id, serviceName: 'Eb Bill', referenceNumber: number, nickname: 'EB connection' }, update: { isActive: true } });
+      }
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER', entityId: id, action: 'UPDATE',

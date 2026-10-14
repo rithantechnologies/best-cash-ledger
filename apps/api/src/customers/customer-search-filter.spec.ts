@@ -34,6 +34,12 @@ describe('customer search filter', () => {
     expect(filter).toContain('00123456789');
   });
 
+  it('matches additional saved EB connections by number or nickname', () => {
+    expect(serialized('0320700614650')).toContain('serviceProfiles');
+    expect(serialized('Owner House')).toContain('nickname');
+    expect(serialized('0320700614650')).toContain('referenceNumber');
+  });
+
   it('removes formatting from copied account numbers typed into search', () => {
     expect(serialized('0791-000602-00247')).toContain('079100060200247');
   });

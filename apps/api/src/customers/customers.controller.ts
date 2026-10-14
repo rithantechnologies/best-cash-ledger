@@ -16,6 +16,7 @@ import { UpdateUpiAccountDto } from './dto/update-upi-account.dto.js';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto.js';
 import { UpdateBeneficiaryAccountDto } from './dto/update-beneficiary-account.dto.js';
 import { CreateServiceProfileDto } from './dto/create-service-profile.dto.js';
+import { UpdateServiceProfileDto } from './dto/update-service-profile.dto.js';
 import { SetCustomerItemActiveDto } from './dto/set-customer-item-active.dto.js';
 import { CustomersService } from './customers.service.js';
 import { BankDirectoryService } from './bank-directory.service.js';
@@ -77,6 +78,16 @@ export class CustomersController {
   @Post(':id/service-profiles')
   addServiceProfile(@Param('id') id: string, @Body() dto: CreateServiceProfileDto, @Req() req: any) {
     return this.customers.addServiceProfile(id, dto, req.user.userId);
+  }
+
+  @Patch('service-profiles/:id')
+  updateServiceProfile(@Param('id') id: string, @Body() dto: UpdateServiceProfileDto, @Req() req: any) {
+    return this.customers.updateEbServiceProfile(id, dto, req.user.userId);
+  }
+
+  @Patch('service-profiles/:id/active')
+  setServiceProfileActive(@Param('id') id: string, @Body() dto: SetCustomerItemActiveDto, @Req() req: any) {
+    return this.customers.setEbServiceProfileActive(id, dto.isActive, req.user.userId);
   }
 
   @Get(':id')

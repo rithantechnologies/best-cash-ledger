@@ -26,12 +26,13 @@ const isSafeDemoNumber=(value:string)=>{
 type Card={id:string;bankName:string;cardType:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
 type Bank={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type Upi={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
+type EbConnection={id:string;serviceName:string;nickname:string|null;providerName:string|null;referenceNumber:string;isActive:boolean};
 type BAccount={id:string;accountType:string;bankName:string|null;accountReference:string|null;ifsc:string|null;upiId:string|null;mobileNumber:string|null;isActive:boolean};
 type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;notes:string|null;isActive:boolean;accounts:BAccount[]};
 type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
 type Customer={
  id:string;customerCode:string;customerType:string;customerTypeId:string|null;customerTypeConfig:{id:string;name:string;isActive:boolean}|null;fullName:string;mobile:string|null;ebNumber:string|null;notes:string|null;isActive:boolean;
- cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];beneficiaries:Beneficiary[];
+ cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];serviceProfiles:EbConnection[];beneficiaries:Beneficiary[];
  transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;payable:{status:string;dueAt:string;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null}[];
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
  receivables:{id:string;reason:string;remainingAmount:string;receivedAmount:string;originalAmount:string;dueAt:string|null;status:string}[];
@@ -59,8 +60,8 @@ export default function CustomerDetailPage(){
  const [demoEnabled,setDemoEnabled]=useState(false),[demoCardIds,setDemoCardIds]=useState<string[]>([]);
  const [demoTarget,setDemoTarget]=useState<Card|null>(null),[demoNumber,setDemoNumber]=useState(""),[demoAddNumber,setDemoAddNumber]=useState(""),[demoError,setDemoError]=useState("");
  const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
- const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileEbNumber,setProfileEbNumber]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
- const [ebEditing,setEbEditing]=useState(false),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
+ const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
+ const [ebEditing,setEbEditing]=useState(false),[ebTarget,setEbTarget]=useState<EbConnection|null>(null),[ebLabel,setEbLabel]=useState(""),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
  const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
@@ -68,7 +69,7 @@ export default function CustomerDetailPage(){
  const [ledgerEntryAmount,setLedgerEntryAmount]=useState(""),[ledgerEntryDate,setLedgerEntryDate]=useState(localDateValue),[ledgerEntryAccountId,setLedgerEntryAccountId]=useState(""),[ledgerEntryCardId,setLedgerEntryCardId]=useState(""),[ledgerEntryRemarks,setLedgerEntryRemarks]=useState(""),[ledgerEntryReference,setLedgerEntryReference]=useState(""),[ledgerEntryNote,setLedgerEntryNote]=useState(""),[ledgerAllocations,setLedgerAllocations]=useState<Record<string,string>>({});
  const [addKind,setAddKind]=useState<AddKind>(null),[toggleTarget,setToggleTarget]=useState<ToggleTarget>(null);
  const [bankName,setBankName]=useState(""),[holder,setHolder]=useState(""),[accountRef,setAccountRef]=useState(""),[ifsc,setIfsc]=useState("");
- const [upiName,setUpiName]=useState(""),[upiId,setUpiId]=useState(""),[upiMobile,setUpiMobile]=useState(""),[upiProvider,setUpiProvider]=useState("");
+ const [upiName,setUpiName]=useState(""),[upiId,setUpiId]=useState(""),[upiMobile,setUpiMobile]=useState(""),[upiProvider,setUpiProvider]=useState(""),[upiError,setUpiError]=useState("");
  const [beneficiaryName,setBeneficiaryName]=useState(""),[relationship,setRelationship]=useState("");
  const [beneficiaryId,setBeneficiaryId]=useState(""),[bType,setBType]=useState("BANK"),[bBank,setBBank]=useState(""),[bRef,setBRef]=useState(""),[bIfsc,setBIfsc]=useState(""),[bUpi,setBUpi]=useState(""),[bMobile,setBMobile]=useState("");
  const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState(""),[e5,setE5]=useState("");
@@ -105,23 +106,24 @@ export default function CustomerDetailPage(){
  useEffect(()=>{apiFetch<CustomerTypeChoice[]>("/settings/customer-types?includeInactive=true").then(setCustomerTypes).catch(()=>setCustomerTypes([]));},[]);
  function openProfileEdit(){
   if(!c)return;
-  setProfileName(c.fullName);setProfileMobile(c.mobile||"");setProfileEbNumber(c.ebNumber||"");
+  setProfileName(c.fullName);setProfileMobile(c.mobile||"");
   setProfileTypeId(c.customerTypeId??customerTypes.find(t=>t.legacyType===c.customerType)?.id??"");
   setProfileNotes(c.notes||"");setProfileError("");setProfileEditing(true);
  }
- function openEbEditor(){
-  if(!c)return;
-  setEbDraft(c.ebNumber||"");setEbError("");setEbEditing(true);
+ function openEbEditor(item?:EbConnection){
+  setEbTarget(item||null);setEbLabel(item?.nickname||"");setEbDraft(item?.referenceNumber||"");setEbError("");setEbEditing(true);
  }
  async function saveEbNumber(e:FormEvent){
   e.preventDefault();
   const ebNumber=ebDraft.trim();
-  if(ebNumber.length>50){setEbError("EB number must be 50 characters or fewer.");return;}
+  if(!ebNumber||ebNumber.length>50){setEbError("Enter an EB number up to 50 characters.");return;}
+  if(ebLabel.trim().length>80){setEbError("Connection label must be 80 characters or fewer.");return;}
   setBusy(true);setEbError("");setError("");
   try{
-   await apiFetch("/customers/"+id,{method:"PATCH",body:JSON.stringify({ebNumber:ebNumber||null})});
+   if(ebTarget)await apiFetch("/customers/service-profiles/"+ebTarget.id,{method:"PATCH",body:JSON.stringify({referenceNumber:ebNumber,nickname:ebLabel.trim()})});
+   else await apiFetch("/customers/"+id+"/service-profiles",{method:"POST",body:JSON.stringify({serviceName:"Eb Bill",referenceNumber:ebNumber,nickname:ebLabel.trim()||"EB connection"})});
    await load();
-   setEbEditing(false);setMessage(ebNumber?"EB number saved.":"EB number cleared.");
+   setEbEditing(false);setEbTarget(null);setMessage("EB connection saved.");
   }catch(err){setEbError(err instanceof Error?err.message:"Unable to save EB number.");}
   finally{setBusy(false);}
  }
@@ -131,7 +133,7 @@ export default function CustomerDetailPage(){
   setBusy(true);setProfileError("");
   try{
    await apiFetch("/customers/"+id,{method:"PATCH",body:JSON.stringify({
-    fullName:profileName.trim(),mobile:profileMobile.trim()||undefined,ebNumber:profileEbNumber.trim()||null,customerTypeId:profileTypeId,notes:profileNotes.trim()||undefined,
+    fullName:profileName.trim(),mobile:profileMobile.trim()||undefined,customerTypeId:profileTypeId,notes:profileNotes.trim()||undefined,
    })});
    setProfileEditing(false);setMessage("Customer profile updated.");await load();
   }catch(err){setProfileError(err instanceof Error?err.message:"Unable to update customer.");}
@@ -202,7 +204,7 @@ export default function CustomerDetailPage(){
   finally{setBusy(false);}
  }
  async function addBank(e:FormEvent){e.preventDefault();if(!bankName.trim()){setError("Choose a bank before saving.");return;}try{await run(()=>apiFetch("/customers/"+id+"/banks",{method:"POST",body:JSON.stringify({accountHolderName:holder,bankName,accountReference:accountRef,ifsc:ifsc||undefined})}),"Bank account added.");setHolder("");setBankName("");setAccountRef("");setIfsc("");setAddKind(null);}catch{}}
- async function addUpi(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/customers/"+id+"/upi",{method:"POST",body:JSON.stringify({accountName:upiName,upiId:upiId||undefined,mobileNumber:upiMobile||undefined,providerName:upiProvider||undefined})}),"UPI account added.");setUpiName("");setUpiId("");setUpiMobile("");setUpiProvider("");setAddKind(null);}catch{}}
+ async function addUpi(e:FormEvent){e.preventDefault();if(!upiName.trim()||(!upiId.trim()&&!upiMobile.trim())){setUpiError("Add a name and UPI ID or mobile number.");return;}setUpiError("");try{await run(()=>apiFetch("/customers/"+id+"/upi",{method:"POST",body:JSON.stringify({accountName:upiName,upiId:upiId||undefined,mobileNumber:upiMobile||undefined,providerName:upiProvider||undefined})}),"UPI account added.");setUpiName("");setUpiId("");setUpiMobile("");setUpiProvider("");setUpiError("");setAddKind(null);}catch{}}
  async function addBeneficiary(e:FormEvent){e.preventDefault();try{await run(()=>apiFetch("/customers/"+id+"/beneficiaries",{method:"POST",body:JSON.stringify({beneficiaryName,relationshipNote:relationship||undefined})}),"Beneficiary added.");setBeneficiaryName("");setRelationship("");setAddKind(null);}catch{}}
  async function addBeneficiaryAccount(e:FormEvent){e.preventDefault();if(bType==="BANK"&&!bBank.trim()){setError("Choose a bank before saving.");return;}try{await run(()=>apiFetch("/customers/beneficiaries/"+beneficiaryId+"/accounts",{method:"POST",body:JSON.stringify({accountType:bType,bankName:bBank||undefined,accountReference:bRef||undefined,ifsc:bIfsc||undefined,upiId:bUpi||undefined,mobileNumber:bMobile||undefined})}),"Recipient account added.");setBBank("");setBRef("");setBIfsc("");setBUpi("");setBMobile("");setAddKind(null);}catch{}}
 
@@ -238,12 +240,13 @@ export default function CustomerDetailPage(){
  const foundCards=c.cards.filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.lastFourDigits,x.nickname,x.cardType]));
  const foundBanks=c.bankAccounts.filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.accountHolderName,x.accountReference,x.ifsc]));
  const foundUpi=c.upiAccounts.filter(x=>matchesSavedDetailSearch(savedSearch,[x.accountName,x.upiId,x.mobileNumber,x.providerName]));
+ const foundEb=c.serviceProfiles.filter(x=>matchesSavedDetailSearch(savedSearch,[x.nickname,x.referenceNumber,x.providerName]));
  const foundBeneficiaries=c.beneficiaries.flatMap(b=>{
   const beneficiaryMatches=matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote]);
   const accounts=beneficiaryMatches?b.accounts:b.accounts.filter(a=>matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote,a.bankName,a.accountReference,a.ifsc,a.upiId,a.mobileNumber]));
   return beneficiaryMatches||accounts.length?[{...b,accounts}]:[];
  });
- const savedMatchCount=foundCards.length+foundBanks.length+foundUpi.length+foundBeneficiaries.length;
+ const savedMatchCount=foundCards.length+foundBanks.length+foundUpi.length+foundEb.length+foundBeneficiaries.length;
  const ledgerCardLabel=ledgerCardId?(cardLedger?.cards.find(card=>card.id===ledgerCardId)?.label??"Selected card"):"All cards";
  const ledgerEntryValue=Number(ledgerEntryAmount)||0;
  const ledgerEntryStartingBalance=ledgerEntryCardId?(cardLedger?.rows.filter(row=>row.cardId===ledgerEntryCardId).reduce((sum,row)=>sum+row.credit-row.debit,0)??0):Number(cardLedger?.totals.balance??0);
@@ -266,7 +269,7 @@ export default function CustomerDetailPage(){
  }
  return <AppShell><PageFrame>
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-   <div className="min-w-0"><Link href="/customers" className="text-xs font-bold text-indigo-600">← Customers</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{c.customerCode} · {c.customerTypeConfig?.name??c.customerType.replaceAll("_"," ")}</p><h2 className="mt-1 break-words text-2xl font-black tracking-tight sm:text-3xl">{c.fullName}</h2><p className="mt-1 text-sm text-slate-500">{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</p>{c.ebNumber?<p className="mt-1 text-sm font-semibold text-[var(--text-muted)]">EB number: <span className="select-all text-[var(--text)]">{c.ebNumber}</span></p>:null}</div>
+   <div className="min-w-0"><Link href="/customers" className="text-xs font-bold text-indigo-600">← Customers</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{c.customerCode} · {c.customerTypeConfig?.name??c.customerType.replaceAll("_"," ")}</p><h2 className="mt-1 break-words text-2xl font-black tracking-tight sm:text-3xl">{c.fullName}</h2><div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500"><span>{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</span>{c.mobile?<CopyValueButton value={c.mobile} label="customer mobile number"/>:null}</div></div>
    <div className="flex shrink-0 flex-wrap items-center gap-2">
     <StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge>
     <button type="button" onClick={openProfileEdit} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold">Edit profile</button>
@@ -292,9 +295,9 @@ export default function CustomerDetailPage(){
      <button type="button" onClick={()=>setAddKind("bank")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Bank</button>
      <button type="button" onClick={()=>setAddKind("upi")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ UPI</button>
      <button type="button" onClick={()=>setAddKind("beneficiary")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Recipient</button>
-     <button type="button" onClick={openEbEditor} className="col-span-2 min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold sm:col-span-1">{c.ebNumber?"Edit EB Number":"+ EB Number"}</button>
+     <button type="button" onClick={()=>openEbEditor()} className="col-span-2 min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold sm:col-span-1">+ EB Number</button>
     </div>
-    {c.ebNumber?<div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2.5"><div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Saved EB consumer number</p><p className="mt-0.5 break-all text-sm font-black text-[var(--text)]">{c.ebNumber}</p></div><div className="flex items-center gap-2"><CopyValueButton value={c.ebNumber} label="EB consumer number"/><button type="button" onClick={openEbEditor} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">Edit</button></div></div>:null}
+
    </Surface>
   </>:null}
   {view==="activity"?<>
@@ -356,19 +359,20 @@ export default function CustomerDetailPage(){
   {view==="details"?<>
   <Surface className="p-3 sm:p-4">
    <label htmlFor="customer-saved-account-search" className="block text-sm font-black">Search saved accounts and details</label>
-   <p className="mt-0.5 text-xs text-[var(--text-muted)]">Find this customer's bank accounts, cards, UPI IDs or recipients—even when several are saved.</p>
+   <p className="mt-0.5 text-xs text-[var(--text-muted)]">Find saved cards, bank details, named UPI IDs, EB connections or recipients.</p>
    <div className="relative mt-2.5">
     <svg aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
-    <input id="customer-saved-account-search" name="saved_accounts_search" type="search" inputMode="search" autoComplete="off" value={savedSearch} onChange={e=>setSavedSearch(e.target.value)} placeholder="Bank, holder name, account digits, IFSC, UPI…" className="app-control w-full !pl-10 !pr-16"/>
+    <input id="customer-saved-account-search" name="saved_accounts_search" type="search" inputMode="search" autoComplete="off" value={savedSearch} onChange={e=>setSavedSearch(e.target.value)} placeholder="Bank, UPI, owner name, EB number, card digits…" className="app-control w-full !pl-10 !pr-16"/>
     {savedSearch?<button type="button" onClick={()=>setSavedSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-50">Clear</button>:null}
    </div>
    {savedSearch.trim()?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]" role="status">{savedMatchCount} matching saved {savedMatchCount===1?"item":"items"} · Bank accounts: {foundBanks.length} of {c.bankAccounts.length}</p>:null}
   </Surface>
   <div className="grid gap-4 xl:grid-cols-3">
-   <SavedList title="Saved cards" count={c.cards.length} matchingCount={savedSearch.trim()?foundCards.length:undefined} addLabel="Add card" onAdd={()=>{setCardError("");setDemoAddNumber("");setAddingCard(true);}}>{foundCards.length?foundCards.map(x=><div key={x.id}><SavedItem title={x.bankName+" •••• "+x.lastFourDigits} copyValue={x.lastFourDigits} copyLabel="card last four digits" detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>{demoEnabled&&x.isActive?<div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 pb-3 text-[11px]"><span className="font-semibold text-amber-700">DEMO ONLY · •••• {x.lastFourDigits}</span><div className="flex items-center gap-2"><button type="button" className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 font-bold" onClick={()=>{setDemoTarget(x);setDemoError("");setDemoNumber("");}}>Test number</button>{demoCardIds.includes(x.id)?<button type="button" className="rounded-lg bg-indigo-600 px-2.5 py-1.5 font-bold text-white" onClick={()=>void copyDemoTestNumber(x.id)}>Copy 16 digits</button>:null}</div></div>:null}</div>):<EmptyState title={savedSearch.trim()?"No matching cards":"No saved cards"}/>}</SavedList>
+   <SavedList title="Saved cards" count={c.cards.length} matchingCount={savedSearch.trim()?foundCards.length:undefined} addLabel="Add card" onAdd={()=>{setCardError("");setDemoAddNumber("");setAddingCard(true);}}>{foundCards.length?foundCards.map(x=><div key={x.id}><SavedItem title={x.bankName+" •••• "+x.lastFourDigits} copyValue={x.lastFourDigits} copyLabel="card last four digits" detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>{demoEnabled&&x.isActive?<div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 pb-3 text-[11px]"><span className="font-semibold text-amber-700">DEMO ONLY · •••• {x.lastFourDigits}</span><div className="flex items-center gap-2"><button type="button" className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 font-bold" onClick={()=>{setDemoTarget(x);setDemoError("");setDemoNumber("");}}>Test number</button>{demoCardIds.includes(x.id)?<button type="button" className="rounded-lg bg-indigo-600 px-2.5 py-1.5 font-bold text-white" onClick={()=>void copyDemoTestNumber(x.id)} title="Copy synthetic test number" aria-label="Copy synthetic test number"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button>:null}</div></div>:null}</div>):<EmptyState title={savedSearch.trim()?"No matching cards":"No saved cards"}/>}</SavedList>
    <SavedList title="Bank accounts" count={c.bankAccounts.length} matchingCount={savedSearch.trim()?foundBanks.length:undefined} addLabel="Add bank" onAdd={()=>setAddKind("bank")}>{foundBanks.length?foundBanks.map(x=><BankSavedItem key={x.id} bank={x} onEdit={()=>beginEdit({kind:"bank",item:x})} onToggle={()=>setToggleTarget({path:"/customers/banks/"+x.id,isActive:x.isActive,label:"bank account"})}/>):<EmptyState title={savedSearch.trim()?"No matching bank accounts":"No bank accounts"}/>}</SavedList>
-   <SavedList title="UPI accounts" count={c.upiAccounts.length} matchingCount={savedSearch.trim()?foundUpi.length:undefined} addLabel="Add UPI" onAdd={()=>setAddKind("upi")}>{foundUpi.length?foundUpi.map(x=><SavedItem key={x.id} title={x.accountName} copyValue={x.upiId||x.mobileNumber||undefined} copyLabel={x.upiId?"UPI ID":"UPI mobile number"} detail={(x.upiId||x.mobileNumber||"—")+(x.providerName?" · "+x.providerName:"")} active={x.isActive} onEdit={()=>beginEdit({kind:"upi",item:x})} onToggle={()=>setToggleTarget({path:"/customers/upi/"+x.id,isActive:x.isActive,label:"UPI account"})}/>):<EmptyState title={savedSearch.trim()?"No matching UPI accounts":"No UPI accounts"}/>}</SavedList>
+   <SavedList title="UPI accounts" count={c.upiAccounts.length} matchingCount={savedSearch.trim()?foundUpi.length:undefined} addLabel="Add UPI" onAdd={()=>setAddKind("upi")}>{foundUpi.length?foundUpi.map(x=><div key={x.id} className={!x.isActive?"rounded-xl bg-[var(--surface-soft)] p-3 opacity-60":"rounded-xl bg-[var(--surface-soft)] p-3"}><div className="flex items-center justify-between gap-2"><strong className="min-w-0 break-words text-sm">{x.accountName}</strong><div className="flex shrink-0 items-center gap-1"><CopyValueButton value={x.accountName} label="UPI account name"/><StatusBadge tone={x.isActive?"emerald":"slate"}>{x.isActive?"Active":"Inactive"}</StatusBadge></div></div><div className="mt-2 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3"><SavedCopyField label="UPI ID" value={x.upiId}/><SavedCopyField label="UPI mobile" value={x.mobileNumber}/><SavedCopyField label="Provider" value={x.providerName}/></div><div className="mt-2 flex gap-3"><button type="button" onClick={()=>beginEdit({kind:"upi",item:x})} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={()=>setToggleTarget({path:"/customers/upi/"+x.id,isActive:x.isActive,label:"UPI account"})} className="text-xs font-bold text-[var(--text-muted)]">{x.isActive?"Retire":"Reactivate"}</button></div></div>):<EmptyState title={savedSearch.trim()?"No matching UPI accounts":"No UPI accounts"}/>}</SavedList>
   </div>
+  <SavedList title="EB connections" count={c.serviceProfiles.length} matchingCount={savedSearch.trim()?foundEb.length:undefined} addLabel="Add EB number" onAdd={()=>openEbEditor()}>{foundEb.length?foundEb.map(x=><SavedItem key={x.id} title={x.nickname||"EB connection"} detail={x.referenceNumber} copyValue={x.referenceNumber} copyLabel="EB consumer number" active={x.isActive} onEdit={()=>openEbEditor(x)} onToggle={()=>setToggleTarget({path:"/customers/service-profiles/"+x.id,isActive:x.isActive,label:"EB connection"})}/>):<EmptyState title={savedSearch.trim()?"No matching EB connections":"No EB connections saved"}/>}</SavedList>
   <Surface className="overflow-hidden">
    <PanelHeader title="Beneficiaries & family recipients" description={savedSearch.trim()?`${foundBeneficiaries.length} of ${c.beneficiaries.length} recipients match` : "People this customer commonly sends money to."} action={<div className="flex gap-2"><button onClick={()=>setAddKind("beneficiary")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold">+ Recipient</button><button onClick={()=>setAddKind("beneficiaryAccount")} className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white">+ Account</button></div>}/>
    {foundBeneficiaries.length?<div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">{foundBeneficiaries.map(b=><div key={b.id} className={!b.isActive?"rounded-2xl border border-slate-200 p-4 opacity-60":"rounded-2xl border border-slate-200 p-4"}>
@@ -389,19 +393,20 @@ export default function CustomerDetailPage(){
    </div>)}</div>:<div className="p-4"><EmptyState title={savedSearch.trim()?"No matching recipients":"No beneficiaries saved"}/></div>}
   </Surface>
   </>:null}
-  <Modal open={ebEditing} title={c.ebNumber?"Edit EB number":"Add EB number"} description="Save the electricity consumer / service connection number for this customer. It can be reused in Cash In → Eb Bill." onClose={()=>{if(!busy)setEbEditing(false);}} footer={<button type="submit" form="customer-eb-number" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save EB number"}</button>}>
+  <Modal open={ebEditing} title={ebTarget?"Edit EB connection":"Add EB connection"} description="Keep separate EB numbers for home, shop, tenant or owner. Select one when paying a bill." onClose={()=>{if(!busy)setEbEditing(false);}} footer={<button type="submit" form="customer-eb-number" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save EB number"}</button>}>
    <form id="customer-eb-number" onSubmit={saveEbNumber} className="space-y-3">
+    <Field label="Connection / owner name"><input className={control} value={ebLabel} maxLength={80} onChange={e=>setEbLabel(e.target.value)} placeholder="e.g. Owner house, Home, Shop"/></Field>
     <Field label="EB consumer number"><input className={control} name="customer_saved_eb_number" type="text" inputMode="numeric" autoComplete="off" maxLength={50} value={ebDraft} onChange={e=>{setEbDraft(e.target.value);setEbError("");}} placeholder="Enter EB / electricity consumer number" autoFocus/></Field>
-    {c.ebNumber?<p className="text-xs text-[var(--text-muted)]">To remove the saved EB number, clear this field and save.</p>:null}
+    <p className="text-xs text-[var(--text-muted)]">Numbers stay as text so leading zeros are preserved. Retire connections from the saved list when no longer used.</p>
     {ebError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{ebError}</p>:null}
    </form>
   </Modal>
-  <Modal open={profileEditing} title="Edit customer" description="Update name, mobile, EB number and customer type." onClose={()=>{if(!busy)setProfileEditing(false);}}
+  <Modal open={profileEditing} title="Edit customer" description="Update name, mobile and customer type. EB connections are managed under Saved details." onClose={()=>{if(!busy)setProfileEditing(false);}}
    footer={<button form="edit-customer-profile" disabled={busy||!profileTypeId} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Save customer"}</button>}>
    <form id="edit-customer-profile" onSubmit={saveProfile} className="grid gap-3 sm:grid-cols-2">
     <Field label="Customer name"><input className={control} name="cashledger_customer_name" autoComplete="name" value={profileName} onChange={e=>setProfileName(e.target.value)} maxLength={150} required/></Field>
     <Field label="Mobile"><input className={control} name="cashledger_customer_mobile" type="tel" autoComplete="tel" value={profileMobile} onChange={e=>setProfileMobile(e.target.value)} placeholder="Optional"/></Field>
-    <Field label="EB number"><input className={control} name="cashledger_customer_eb_number" type="text" autoComplete="off" maxLength={50} value={profileEbNumber} onChange={e=>setProfileEbNumber(e.target.value)} placeholder="Electricity consumer number (optional)"/></Field>
+
     <Field label="Customer type"><SearchableSelect className={control} value={profileTypeId} onChange={e=>setProfileTypeId(e.target.value)} required><option value="">Choose type</option>{customerTypes.filter(type=>type.isActive||type.id===profileTypeId).map(type=><option key={type.id} value={type.id}>{type.name}{type.isActive?"":" (Retired)"}</option>)}</SearchableSelect></Field>
     <Field label="Notes"><input className={control} name="cashledger_notes" autoComplete="on" value={profileNotes} onChange={e=>setProfileNotes(e.target.value)} placeholder="Optional"/></Field>
     {profileError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 sm:col-span-2">{profileError}</p>:null}
@@ -449,8 +454,8 @@ export default function CustomerDetailPage(){
   <Modal open={addKind==="bank"} title="Add bank account" description="Save a beneficiary or customer bank destination for faster future transfers." onClose={()=>setAddKind(null)} footer={<button form="add-bank" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">Save bank account</button>}>
    <form id="add-bank" onSubmit={addBank} className="grid gap-3 sm:grid-cols-2"><Field label="Account holder"><input name="cashledger_account_holder" autoComplete="on" className={control} value={holder} onChange={e=>setHolder(e.target.value)} required/></Field><BankIfscPicker bankName={bankName} ifsc={ifsc} onBankChange={setBankName} onIfscChange={setIfsc}/><Field label="Account number / reference"><input autoComplete="on" name="cashledger_bank_account_number" className={control} value={accountRef} onChange={e=>setAccountRef(e.target.value)} required/></Field></form>
   </Modal>
-  <Modal open={addKind==="upi"} title="Add UPI account" description="Save a UPI destination for quick counter transactions." onClose={()=>setAddKind(null)} footer={<button form="add-upi" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">Save UPI account</button>}>
-   <form id="add-upi" onSubmit={addUpi} className="grid gap-3 sm:grid-cols-2"><Field label="Account name"><input name="cashledger_account_name" autoComplete="on" className={control} value={upiName} onChange={e=>setUpiName(e.target.value)} required/></Field><Field label="UPI ID"><input className={control} value={upiId} onChange={e=>setUpiId(e.target.value)}/></Field><Field label="Mobile"><input name="cashledger_mobile" autoComplete="on" className={control} value={upiMobile} onChange={e=>setUpiMobile(e.target.value)}/></Field><Field label="Provider"><input name="cashledger_provider" autoComplete="on" className={control} value={upiProvider} onChange={e=>setUpiProvider(e.target.value)} placeholder="GPay / PhonePe / etc."/></Field></form>
+  <Modal open={addKind==="upi"} title="Add named UPI ID" description="Save multiple UPI IDs under this customer. Name each destination (owner, tenant, home or shop)." onClose={()=>setAddKind(null)} footer={<button form="add-upi" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">Save UPI account</button>}>
+   <form id="add-upi" onSubmit={addUpi} className="grid gap-3 sm:grid-cols-2"><Field label="Name / label (Home, owner, tenant)"><input name="cashledger_account_name" autoComplete="on" className={control} value={upiName} onChange={e=>setUpiName(e.target.value)} required/></Field><Field label="UPI ID"><input className={control} value={upiId} onChange={e=>setUpiId(e.target.value)}/></Field><Field label="Mobile"><input name="cashledger_mobile" autoComplete="on" className={control} value={upiMobile} onChange={e=>setUpiMobile(e.target.value)}/></Field><Field label="Provider"><input name="cashledger_provider" autoComplete="on" className={control} value={upiProvider} onChange={e=>setUpiProvider(e.target.value)} placeholder="GPay / PhonePe / etc."/></Field>{upiError?<p role="alert" className="text-xs font-bold text-rose-600 sm:col-span-2">{upiError}</p>:null}</form>
   </Modal>
   <Modal open={addKind==="beneficiary"} title="Add beneficiary" description="Save a regular recipient or family member." onClose={()=>setAddKind(null)} footer={<button form="add-beneficiary" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">Save beneficiary</button>}>
    <form id="add-beneficiary" onSubmit={addBeneficiary} className="grid gap-3 sm:grid-cols-2"><Field label="Beneficiary name"><input name="cashledger_beneficiary_name" autoComplete="on" className={control} value={beneficiaryName} onChange={e=>setBeneficiaryName(e.target.value)} required/></Field><Field label="Relationship"><input name="cashledger_relationship" autoComplete="on" className={control} value={relationship} onChange={e=>setRelationship(e.target.value)} placeholder="Optional"/></Field></form>
@@ -492,9 +497,9 @@ function CopyValueButton({value,label,copyAll=false}:{value:string;label:string;
   }
   setStatus(success?"copied":"failed");
  }
- return <button type="button" onClick={copy} title={"Copy "+label} aria-label={"Copy "+label} className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-lg border border-indigo-100 bg-white px-2 text-[10px] font-bold text-indigo-700 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
-  {status==="copied"?<svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2"><path d="m5 12 5 5L20 7"/></svg>:<svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>}
-  <span role="status" aria-live="polite">{status==="copied"?(copyAll?"Copied all":"Copied"):status==="failed"?"Try again":(copyAll?"Copy all":"Copy")}</span>
+ return <button type="button" onClick={copy} title={"Copy "+label} aria-label={"Copy "+label} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-100 bg-white text-indigo-700 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+  {status==="copied"?<svg aria-hidden="true" viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="2"><path d="m5 12 5 5L20 7"/></svg>:<svg aria-hidden="true" viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>}
+  <span className="sr-only" role="status" aria-live="polite">{status==="copied"?"Copied":status==="failed"?"Copy failed":"Copy"}</span>
  </button>;
 }
 function SavedCopyField({label,value}:{label:string;value:string|null|undefined}){
@@ -505,7 +510,7 @@ function SavedCopyField({label,value}:{label:string;value:string|null|undefined}
 }
 function BankSavedItem({bank,onEdit,onToggle}:{bank:Bank;onEdit:()=>void;onToggle:()=>void}){
  return <div className={!bank.isActive?"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3 opacity-65":"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"}>
-  <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="break-words text-sm font-black">{bank.bankName}</p><div className="mt-1"><CopyValueButton value={formatBankCopyText(bank)} label="all bank details" copyAll/></div></div><StatusBadge tone={bank.isActive?"emerald":"slate"}>{bank.isActive?"Active":"Inactive"}</StatusBadge></div>
+  <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="break-words text-sm font-black">{bank.bankName}</p></div><div className="flex shrink-0 items-center gap-1"><CopyValueButton value={formatBankCopyText(bank)} label="all bank details" copyAll/><StatusBadge tone={bank.isActive?"emerald":"slate"}>{bank.isActive?"Active":"Inactive"}</StatusBadge></div></div>
   <div className="mt-3 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3 py-1.5">
    <SavedCopyField label="Account holder name" value={bank.accountHolderName}/>
    <SavedCopyField label="Account number" value={bank.accountReference}/>
@@ -515,5 +520,5 @@ function BankSavedItem({bank,onEdit,onToggle}:{bank:Bank;onEdit:()=>void;onToggl
  </div>;
 }
 function SavedItem({title,detail,active,onEdit,onToggle,copyValue,copyLabel}:{title:string;detail:string;active:boolean;onEdit:()=>void;onToggle:()=>void;copyValue?:string;copyLabel?:string}){
- return <div className={!active?"rounded-xl bg-slate-50 p-3 opacity-60":"rounded-xl bg-slate-50 p-3"}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex min-w-0 flex-wrap items-center gap-1.5"><p className="min-w-0 break-all text-sm font-bold">{title}</p>{copyValue?<CopyValueButton value={copyValue} label={copyLabel||"value"}/>:null}</div><p className="mt-0.5 truncate text-[11px] text-slate-400">{detail}</p></div><StatusBadge tone={active?"emerald":"slate"}>{active?"Active":"Inactive"}</StatusBadge></div><div className="mt-2 flex gap-2"><button onClick={onEdit} className="text-xs font-bold text-indigo-600">Edit</button><button onClick={onToggle} className="text-xs font-bold text-slate-400">{active?"Retire":"Reactivate"}</button></div></div>;
+ return <div className={!active?"rounded-xl bg-slate-50 p-3 opacity-60":"rounded-xl bg-slate-50 p-3"}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex min-w-0 flex-wrap items-center gap-1.5"><p className="min-w-0 break-all text-sm font-bold">{title}</p></div><p className="mt-0.5 break-all text-[11px] text-slate-500">{detail}</p></div><div className="flex shrink-0 items-center gap-1">{copyValue?<CopyValueButton value={copyValue} label={copyLabel||"value"}/>:null}<StatusBadge tone={active?"emerald":"slate"}>{active?"Active":"Inactive"}</StatusBadge></div></div><div className="mt-2 flex gap-2"><button onClick={onEdit} className="text-xs font-bold text-indigo-600">Edit</button><button onClick={onToggle} className="text-xs font-bold text-slate-400">{active?"Retire":"Reactivate"}</button></div></div>;
 }

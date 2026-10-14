@@ -14,6 +14,7 @@ export function customerSearchFilter(input: string): Prisma.CustomerWhereInput {
         { fullName: text(term) },
         { customerCode: text(term) },
         { ebNumber: text(term) },
+        { serviceProfiles: { some: { isActive: true, serviceName: 'Eb Bill', OR: [{ referenceNumber: text(term) }, { nickname: text(term) }] } } },
         { cards: { some: { isActive: true, OR: [
           { bankName: text(term) }, { nickname: text(term) },
           ...(numeric ? [{ lastFourDigits: { contains: digits } }] : []),
