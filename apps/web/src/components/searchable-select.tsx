@@ -220,9 +220,9 @@ export function SearchableSelect({
 
     {open&&!disabled&&typeof document!=="undefined"?
       (mobileSheet&&isMobile
-        ? createPortal(<div className="fixed inset-0 z-[9999] flex items-end bg-black/45"
+        ? createPortal(<div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/45 p-3"
             onMouseDown={event=>{if(event.target===event.currentTarget){setOpen(false);setQuery("");}}}>
-            <div ref={menuRef} className="w-full overflow-hidden rounded-t-[26px] bg-[var(--surface)] shadow-2xl">
+            <div ref={menuRef} className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-[24px] bg-[var(--surface)] shadow-2xl">
               <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-[var(--border)]"/>
               <div className="flex items-center justify-between px-4 pb-2 pt-3">
                 <strong className="text-[16px] font-black">{ariaLabel??"Choose account"}</strong>

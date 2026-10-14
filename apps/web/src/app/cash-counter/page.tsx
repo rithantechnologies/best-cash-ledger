@@ -1382,8 +1382,8 @@ export default function CashCounterPage(){
       </div>
     </div>,document.body):null}
 
-    {portalReady&&quickDirection?createPortal(<div className="fixed inset-0 z-[100] grid place-items-end bg-black/45 p-0 sm:place-items-center sm:p-5" role="dialog" aria-modal="true">
-      <form onSubmit={saveQuickCash} className="cash-quick-sheet flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-[var(--surface)] shadow-2xl sm:max-h-[86dvh] sm:max-w-[520px] sm:rounded-[26px]">
+    {portalReady&&quickDirection?createPortal(<div className="fixed inset-0 z-[100] grid place-items-center bg-black/45 p-3 sm:p-5" role="dialog" aria-modal="true">
+      <form onSubmit={saveQuickCash} className="cash-quick-sheet flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-[24px] bg-[var(--surface)] shadow-2xl sm:max-h-[86dvh] sm:max-w-[520px] sm:rounded-[26px]">
         <div className="flex items-center justify-between px-5 pb-1.5 pt-4">
           <div className="flex items-center gap-3">
             <span className={"grid h-10 w-10 place-items-center rounded-full text-xl font-black "+(quickDirection==="IN"?"bg-emerald-100 text-emerald-700":"bg-rose-100 text-rose-700")}>{quickDirection==="IN"?"↓":"↑"}</span>
@@ -1577,8 +1577,8 @@ export default function CashCounterPage(){
       </form>
     </div>,document.body):null}
 
-    {portalReady&&completePendingId?createPortal(<div className="fixed inset-0 z-[100] grid place-items-end bg-black/50 p-0 sm:place-items-center sm:p-5" role="dialog" aria-modal="true">
-      <form onSubmit={completeQuickCash} className="flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-[var(--surface)] shadow-2xl sm:max-h-[86dvh] sm:max-w-3xl sm:rounded-[24px]">
+    {portalReady&&completePendingId?createPortal(<div className="fixed inset-0 z-[100] grid place-items-center bg-black/50 p-3 sm:p-5" role="dialog" aria-modal="true">
+      <form onSubmit={completeQuickCash} className="flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-[24px] bg-[var(--surface)] shadow-2xl sm:max-h-[86dvh] sm:max-w-3xl sm:rounded-[24px]">
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-4 py-3.5 sm:px-5 sm:py-4">
           <div className="min-w-0">
             <p className="text-[9px] font-black uppercase tracking-[.13em] text-amber-700">Pending cash · complete</p>

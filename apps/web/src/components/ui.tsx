@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 
 export function Spinner({size="md"}:{size?:"sm"|"md"|"lg"}) {
   const sizes={sm:"h-4 w-4 border-2",md:"h-7 w-7 border-[3px]",lg:"h-10 w-10 border-4"};
@@ -109,18 +110,18 @@ export function EmptyState({title,description}:{title:string;description?:string
 export function Modal({
   open,title,description,onClose,children,footer,
 }:{open:boolean;title:string;description?:string;onClose:()=>void;children:ReactNode;footer?:ReactNode}) {
-  if(!open)return null;
-  return <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/45 p-3 backdrop-blur-[4px] sm:p-5">
+  if(!open||typeof document==="undefined")return null;
+  return createPortal(<div className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto overscroll-contain bg-slate-950/45 p-3 backdrop-blur-[4px] sm:p-5">
     <button className="absolute inset-0" onClick={onClose} aria-label="Close dialog"/>
-    <div className="app-modal-panel relative max-h-[92vh] w-full overflow-hidden bg-[var(--surface)] shadow-2xl sm:max-w-2xl">
-      <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6 sm:py-5">
+    <section role="dialog" aria-modal="true" aria-label={title} className="app-modal-panel relative flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden bg-[var(--surface)] shadow-2xl sm:max-h-[calc(100dvh-2.5rem)] sm:max-w-2xl">
+      <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6 sm:py-5">
         <div className="min-w-0"><h3 className="text-lg font-black tracking-[-.02em]">{title}</h3>{description?<p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{description}</p>:null}</div>
         <button type="button" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-lg text-[var(--text-muted)]">×</button>
       </div>
-      <div className="max-h-[65vh] overflow-y-auto p-5 sm:p-6">{children}</div>
-      {footer?<div className="border-t border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4 sm:px-6">{footer}</div>:null}
-    </div>
-  </div>;
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 sm:p-6">{children}</div>
+      {footer?<div className="shrink-0 border-t border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">{footer}</div>:null}
+    </section>
+  </div>,document.body);
 }
 
 export function FormSection({

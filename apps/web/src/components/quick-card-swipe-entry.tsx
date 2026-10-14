@@ -202,8 +202,8 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
 
   return <>
     {showTrigger?<button type="button" onClick={()=>setOpen(true)} className={"flex min-h-10 items-center gap-2 rounded-full bg-indigo-600 px-3.5 text-[13px] font-black text-white shadow-[0_8px_22px_rgba(79,70,229,.26)] transition hover:-translate-y-0.5 active:translate-y-0 "+buttonClassName}><span className="text-base">▣</span><span>Card Swipe</span></button>:null}
-    {ready&&open?createPortal(<div className="fixed inset-0 z-[115] grid place-items-end bg-black/45 p-0 sm:place-items-center sm:p-5" role="dialog" aria-modal="true" aria-label="Quick card swipe">
-      <form onSubmit={submit} className="flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-[var(--surface)] shadow-2xl sm:max-w-[640px] sm:rounded-[26px]">
+    {ready&&open?createPortal(<div className="fixed inset-0 z-[115] grid place-items-center bg-black/45 p-3 sm:p-5" role="dialog" aria-modal="true" aria-label="Quick card swipe">
+      <form onSubmit={submit} className="flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-[24px] bg-[var(--surface)] shadow-2xl sm:max-w-[640px] sm:rounded-[26px]">
         <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4"><div><h3 className="text-[22px] font-black tracking-[-.04em]">Card Swipe</h3><p className="mt-0.5 text-[12px] font-bold text-[var(--text-muted)]">Customer, card, network, term and commission are required</p></div><button type="button" onClick={close} className="grid h-10 w-10 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)]">×</button></header>
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
           <div className="rounded-[18px] bg-[var(--surface-soft)] p-3">

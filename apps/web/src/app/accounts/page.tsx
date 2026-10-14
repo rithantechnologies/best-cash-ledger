@@ -95,14 +95,14 @@ function metaLine(account:Account){
 }
 function AccountModal({open,onClose,title,description,children}:{open:boolean;onClose:()=>void;title:string;description?:string;children:ReactNode}){
   if(!open||typeof document==="undefined")return null;
-  return createPortal(<div className="fixed inset-0 z-[500] flex items-end justify-center bg-slate-950/55 backdrop-blur-[5px] sm:items-center sm:p-5">
+  return createPortal(<div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-[5px] sm:p-5">
     <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Close dialog"/>
-    <section role="dialog" aria-modal="true" aria-label={title} onClick={(event)=>event.stopPropagation()} className="pointer-events-auto relative z-10 max-h-[92dvh] w-full overflow-hidden rounded-t-[20px] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[20px]">
-      <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6">
+    <section role="dialog" aria-modal="true" aria-label={title} onClick={(event)=>event.stopPropagation()} className="pointer-events-auto relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-w-2xl sm:rounded-[20px]">
+      <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6">
         <div className="min-w-0"><h3 className="text-lg font-bold tracking-[-.02em]">{title}</h3>{description?<p className="mt-1 text-sm text-[var(--text-muted)]">{description}</p>:null}</div>
         <button type="button" onClick={onClose} title="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-xl text-[var(--text-muted)]" aria-label="Close">×</button>
       </div>
-      <div className="max-h-[72dvh] overflow-y-auto p-5 sm:p-6">{children}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 sm:p-6">{children}</div>
     </section>
   </div>,document.body);
 }

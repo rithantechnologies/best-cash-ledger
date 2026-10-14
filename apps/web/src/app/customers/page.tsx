@@ -149,7 +149,7 @@ export default function CustomersPage(){
    </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="customer" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
   </>}
-  {creating?createPortal(<div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/50 px-3 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur-[3px] sm:px-5 sm:pb-5 sm:pt-6">
+  {creating?createPortal(<div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto overscroll-contain bg-slate-950/50 px-3 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur-[3px] sm:px-5 sm:pb-5 sm:pt-6">
    <button type="button" className="absolute inset-0 cursor-default" aria-label="Close add customer" onClick={()=>{if(!busy)setCreating(false);}}/>
    <section role="dialog" aria-modal="true" aria-labelledby="create-customer-title" className="relative flex max-h-[calc(100dvh-24px)] w-full flex-col overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-h-[calc(100dvh-48px)] sm:max-w-md">
     <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-[var(--border)] sm:hidden"/>

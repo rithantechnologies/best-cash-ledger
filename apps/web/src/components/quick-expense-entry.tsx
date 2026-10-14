@@ -140,8 +140,8 @@ export function QuickExpenseEntry({
     </button>:null}
 
     {ready&&open?createPortal(
-      <div className="fixed inset-0 z-[110] grid place-items-end bg-black/45 p-0 sm:place-items-center sm:p-5" role="dialog" aria-modal="true" aria-label="Quick expense">
-        <form onSubmit={submit} className="cash-quick-sheet flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-[var(--surface)] shadow-2xl sm:max-h-[86dvh] sm:max-w-[520px] sm:rounded-[26px]">
+      <div className="fixed inset-0 z-[110] grid place-items-center bg-black/45 p-3 sm:p-5" role="dialog" aria-modal="true" aria-label="Quick expense">
+        <form onSubmit={submit} className="cash-quick-sheet flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-[24px] bg-[var(--surface)] shadow-2xl sm:max-h-[86dvh] sm:max-w-[520px] sm:rounded-[26px]">
           <header className="flex items-center justify-between px-5 pb-1.5 pt-4">
             <div className="flex items-center gap-3">
               <span className="grid h-10 w-10 place-items-center rounded-full bg-violet-100 text-xl font-black text-violet-700">₹</span>

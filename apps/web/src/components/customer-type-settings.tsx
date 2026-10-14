@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch } from "@/lib/api";
 
 export type CustomerTypeChoice = {
@@ -47,7 +48,7 @@ export function CustomerTypeSettings(){
      <button type="button" disabled={busy} onClick={()=>void apply(()=>apiFetch("/settings/customer-types/"+type.id+"/active",{method:"PATCH",body:JSON.stringify({isActive:!type.isActive})}),type.isActive?"Customer type retired.":"Customer type activated.")} className={button}>{type.isActive?"Retire":"Activate"}</button></div>
    </div>)}
   </div>
-  {editing?<div className="fixed inset-0 z-[90] grid place-items-center bg-black/45 p-3">
+  {editing&&typeof document!=="undefined"?createPortal(<div className="fixed inset-0 z-[200] grid place-items-center bg-black/45 p-3">
     <button type="button" aria-label="Close edit type" className="absolute inset-0" onClick={()=>{if(!busy)setEditing(null);}}/>
     <form role="dialog" aria-modal="true" aria-label="Rename customer type" onSubmit={saveEdit} className="relative w-full max-w-sm space-y-3 rounded-2xl bg-[var(--surface)] p-5 shadow-xl">
      <h3 className="text-lg font-black">Rename customer type</h3>
@@ -55,6 +56,6 @@ export function CustomerTypeSettings(){
      <p className="text-xs text-[var(--text-muted)]">Existing customer profiles will show the updated name.</p>
      <div className="flex gap-2"><button type="button" onClick={()=>setEditing(null)} className={button+" flex-1"}>Cancel</button><button disabled={busy} className="app-primary-button min-h-11 flex-1 text-sm font-bold disabled:opacity-50">Save</button></div>
     </form>
-   </div>:null}
+   </div>,document.body):null}
  </section>;
 }

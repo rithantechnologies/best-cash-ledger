@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import {
   useCallback,
   useEffect,
@@ -184,7 +185,7 @@ function DrilldownSheet({
       ? detail.records.reduce((sum, record) => sum + record.amount, 0)
       : 0;
 
-  return (
+  return typeof document==="undefined"?null:createPortal(
     <div className={styles.drawerLayer} role="presentation">
       <button className={styles.drawerBackdrop} onClick={onClose} aria-label="Close details" />
       <aside className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="dashboard-detail-title">
@@ -285,7 +286,7 @@ function DrilldownSheet({
         </div>
 
       </aside>
-    </div>
+    </div>,document.body
   );
 }
 
@@ -403,7 +404,7 @@ function PositionHistorySheet({
   const low=values.length?Math.min(...values):0;
   const average=values.length?values.reduce((sum,value)=>sum+value,0)/values.length:0;
   const change=(latest?.netPosition??0)-(previous?.netPosition??0);
-  return <div className={styles.drawerLayer} role="presentation">
+  return typeof document==="undefined"?null:createPortal(<div className={styles.drawerLayer} role="presentation">
     <button className={styles.drawerBackdrop} onClick={onClose} aria-label="Close position history" />
     <aside className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="position-history-title">
       <div className={styles.drawerHandle} />
@@ -432,7 +433,7 @@ function PositionHistorySheet({
         </div>
       </div>
     </aside>
-  </div>;
+  </div>,document.body);
 }
 
 export function FinanceDashboard() {

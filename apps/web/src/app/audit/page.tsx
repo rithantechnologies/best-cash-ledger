@@ -220,9 +220,9 @@ export default function AuditPage(){
       <div className="border-t border-[var(--border)] p-4"><Pager total={filtered.length} page={visiblePage} totalPages={totalPages} label="activity" onPrevious={()=>setPage((p)=>Math.max(1,p-1))} onNext={()=>setPage((p)=>Math.min(totalPages,p+1))}/></div>
     </Surface>}
     {selected&&typeof document!=="undefined"?createPortal(
-      <div className="fixed inset-0 z-[200] bg-slate-950/40 backdrop-blur-[3px]">
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/40 p-3 backdrop-blur-[3px] sm:p-5">
         <button type="button" className="absolute inset-0" onClick={()=>setSelected(null)} aria-label="Close activity detail"/>
-        <aside className="absolute inset-y-0 right-0 z-10 flex w-full max-w-xl flex-col border-l border-[var(--border)] bg-[var(--surface)] shadow-2xl">
+        <aside className="relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-h-[calc(100dvh-2.5rem)]">
           <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-5 sm:px-6">
             <div className="min-w-0">
               <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -235,7 +235,7 @@ export default function AuditPage(){
             <button type="button" onClick={()=>setSelected(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] text-xl text-[var(--text-muted)]" aria-label="Close">×</button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 sm:p-6">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 sm:p-6">
             <div className="space-y-5">
               <Surface className="grid grid-cols-2 gap-px overflow-hidden bg-[var(--border)]">
                 <div className="bg-[var(--surface)] p-4"><div className="flex items-center gap-2 text-[var(--text-muted)]"><Icon type="clock"/><span className="text-[10px] font-bold uppercase tracking-[.09em]">Date & time</span></div><p className="mt-2 text-sm font-extrabold">{dateTime(selected.createdAt)}</p></div>
