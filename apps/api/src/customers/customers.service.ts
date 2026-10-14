@@ -218,7 +218,7 @@ export class CustomersService {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
       select: {
-        id: true, customerCode: true, fullName: true, mobile: true,
+        id: true, customerCode: true, fullName: true, mobile: true, ebNumber: true,
         bankAccounts: {
           where: { isActive: true },
           select: { id: true, accountHolderName: true, bankName: true, accountReference: true, ifsc: true },
@@ -424,7 +424,7 @@ export class CustomersService {
       .slice(0, 8);
 
     return {
-      customer: { id: customer.id, customerCode: customer.customerCode, fullName: customer.fullName, mobile: customer.mobile },
+      customer: { id: customer.id, customerCode: customer.customerCode, fullName: customer.fullName, mobile: customer.mobile, ebNumber: customer.ebNumber },
       savedDestinations: saved.map(({ signature, ...item }) => ({ ...item, isLastUsed: signature === latestSignature })),
       recentDestinations: recentDestinations.map(({ signature, ...item }) => ({ ...item, isLastUsed: signature === latestSignature })),
       serviceProfiles,

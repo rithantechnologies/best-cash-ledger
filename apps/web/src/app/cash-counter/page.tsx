@@ -50,7 +50,7 @@ type QuickCashOutType="UPI_QR"|"AEPS"|"MICRO_ATM";
 type QuickCashFieldErrors={amount?:string;commission?:string;cashReceived?:string;serviceName?:string;transferType?:string;servicePaymentAccount?:string;servicePartnerName?:string;servicePartnerCharge?:string;servicePartnerPaymentAccount?:string;aadhaarLastFour?:string;customerBank?:string;cardLastFour?:string};
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;allowPartnerFulfillment:boolean;defaultPartnerName:string|null;defaultPartnerCharge:string|number|null;isActive:boolean};
 type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";defaultCommissionRate:string|number;isActive:boolean};
-type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null};
+type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null;ebNumber?:string|null};
 type BankBeneficiary={accountHolder:string;accountNumber:string;ifsc:string};
 type CompleteSourceAllocation={sourceAccountId:string;amount:string;referenceNumber:string};
 const emptyBankBeneficiary=():BankBeneficiary=>({accountHolder:"",accountNumber:"",ifsc:""});
@@ -73,7 +73,7 @@ function serializeBankBeneficiary(accountHolder:string,accountNumber:string,ifsc
   return Object.values(value).some(Boolean)?JSON.stringify(value):"";
 }
 type QuickCashPending={
-  id:string;direction:QuickCashDirection;customerName:string|null;mobileNumber:string|null;
+  id:string;direction:QuickCashDirection;serviceName?:string|null;customerName:string|null;mobileNumber:string|null;
   amount:string|number;cashReceivedAmount?:string|number|null;customerChangeAmount?:string|number|null;commissionAmount:string|number;commissionCashAmount?:string|number|null;commissionMode?:"CASH"|"UPI"|"SPLIT";
   cashOutType?:QuickCashOutType;aadhaarLastFour?:string|null;customerBankName?:string|null;cardLastFour?:string|null;
   beneficiaryMode?:"UPI"|"BANK"|null;beneficiaryDetails?:string|null;
@@ -357,6 +357,8 @@ export default function CashCounterPage(){
   const showPendingList=()=>{setPendingListOpen(true);setPendingPage(1);requestAnimationFrame(()=>document.getElementById("pending-cash")?.scrollIntoView({behavior:"smooth",block:"start"}));};
   const completingQuickCash=useMemo(()=>pendingQuickCash.find((item)=>item.id===completePendingId)??null,[pendingQuickCash,completePendingId]);
   const selectedQuickTransferType=useMemo(()=>cashInTransferTypes.find((item)=>item.id===quickTransferTypeId)??null,[cashInTransferTypes,quickTransferTypeId]);
+  const quickIsEbBill=quickDirection==="IN"&&quickPurpose==="TRANSFER"&&selectedQuickTransferType?.name.trim().toLowerCase()==="eb bill";
+  const completingIsEbBill=completingQuickCash?.direction==="IN"&&completingQuickCash.serviceName?.trim().toLowerCase()==="eb bill";
   const quickCommissionValue=Number(quickCommission||0);
   const quickCommissionCashValue=quickCommissionMode==="CASH"?quickCommissionValue:quickCommissionMode==="SPLIT"?Number(quickCommissionCash||0):0;
   const quickCashAmountDue=quickDirection==="IN"&&quickPurpose==="TRANSFER"?Math.round((Number(quickAmount||0)+quickCommissionCashValue)*100)/100:0;
@@ -475,7 +477,7 @@ export default function CashCounterPage(){
     return()=>{document.body.style.overflow=previous;};
   },[portalReady,quickDirection,completePendingId,pendingCloseConfirm]);
   useEffect(()=>{
-    if(quickDirection!=="OUT"||quickCashOutType==="UPI_QR"||quickCustomerId){
+    if(!quickIsEbBill&&(quickDirection!=="OUT"||quickCashOutType==="UPI_QR")||quickCustomerId){
       setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);return;
     }
     const query=quickCustomerLookup.trim();
@@ -491,7 +493,7 @@ export default function CashCounterPage(){
         .finally(()=>{if(!cancelled)setQuickCustomerSearchLoading(false);});
     },180);
     return()=>{cancelled=true;window.clearTimeout(timer);};
-  },[quickDirection,quickCashOutType,quickCustomerLookup,quickCustomerId]);
+  },[quickDirection,quickCashOutType,quickIsEbBill,quickCustomerLookup,quickCustomerId]);
   useEffect(()=>{
     if(!today||today.status==="CLOSED"||typeof window==="undefined")return;
     const requested=new URLSearchParams(window.location.search).get("quick");
@@ -734,6 +736,7 @@ export default function CashCounterPage(){
     setQuickCustomerLookup(customer.fullName+(customer.mobile?" · "+customer.mobile:""));
     setQuickCustomerName(customer.fullName);
     setQuickMobile(customer.mobile||"");
+    if(quickIsEbBill)setQuickBeneficiaryUpi(customer.ebNumber||"");
     setQuickCustomerSuggestions([]);
     setQuickError("");
   }
@@ -1412,7 +1415,7 @@ export default function CashCounterPage(){
           {quickPurpose==="TRANSFER"&&quickDirection==="IN"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
             <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Transfer mode <span className="text-rose-500">*</span></span>{selectedQuickTransferType?<span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{Number(quickAmount||0)>0&&Number(quickAmount||0)<=500?"₹10 fee":Number(selectedQuickTransferType.defaultCommissionRate||0)+"% fee"}</span>:null}</div>
             {cashInTransferTypes.length?<div className={"mt-2 grid gap-1 rounded-[12px] bg-[var(--surface)] p-1 "+(cashInTransferTypes.length===2?"grid-cols-2":"grid-cols-1 sm:grid-cols-2")}>
-              {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.transferMode);setQuickCommissionOverridden(false);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
+              {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{if((item.name.trim().toLowerCase()==="eb bill")!==quickIsEbBill){setQuickBeneficiaryUpi("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);}setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.transferMode);setQuickCommissionOverridden(false);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
             </div>:<p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">No Cash In transfer types are active. Configure them in Settings.</p>}
             {quickFieldErrors.transferType?<p className="mt-1.5 px-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.transferType}</p>:null}
 
@@ -1536,9 +1539,12 @@ export default function CashCounterPage(){
           </div>:null}
 
           {quickPurpose==="TRANSFER"&&quickDirection==="IN"&&selectedQuickTransferType?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
-            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Beneficiary details</span><span className="text-[10px] font-bold text-[var(--text-muted)]">{quickBeneficiaryMode==="UPI"?"UPI / GPay":"Bank transfer"}</span></div>
+            <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">{quickIsEbBill?"Electricity bill details":"Beneficiary details"}</span><span className="text-[10px] font-bold text-[var(--text-muted)]">{quickIsEbBill?"EB consumer number":quickBeneficiaryMode==="UPI"?"UPI / GPay":"Bank transfer"}</span></div>
+            {quickIsEbBill?<div className="relative mt-2"><label className="block text-[10px] font-black text-[var(--text-muted)]">Find existing customer · name, mobile or EB number</label><input type="search" autoComplete="off" value={quickCustomerLookup} onChange={(event)=>{setQuickCustomerLookup(event.target.value);setQuickCustomerId("");setQuickCustomerSuggestions([]);}} placeholder="Search customer or EB number" className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[14px] font-bold outline-none"/>
+              {!quickCustomerId&&quickCustomerLookup.trim().length>=2?<div className="absolute inset-x-0 top-[calc(100%+.35rem)] z-30 max-h-52 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">{quickCustomerSearchLoading?<p className="px-3 py-2 text-xs text-[var(--text-muted)]">Searching…</p>:quickCustomerSuggestions.length?quickCustomerSuggestions.map((customer)=><button key={customer.id} type="button" onClick={()=>selectQuickCustomer(customer)} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-[var(--surface-soft)]"><strong className="block text-sm">{customer.fullName}</strong><span className="block text-[11px] text-[var(--text-muted)]">{customer.mobile||"No mobile"}{customer.ebNumber?" · EB "+customer.ebNumber:" · No saved EB number"}</span></button>):<p className="px-3 py-2 text-xs text-[var(--text-muted)]">No saved customer found. Enter the EB number below.</p>}</div>:null}
+              {quickCustomerId?<button type="button" onClick={()=>{setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickCustomerName("");setQuickMobile("");setQuickBeneficiaryUpi("");}} className="mt-1.5 text-[11px] font-black text-[var(--accent)]">Change customer</button>:null}</div>:null}
             {quickBeneficiaryMode==="UPI"
-              ?<input className="mt-2 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-[15px] font-bold text-[var(--text)] outline-none" value={quickBeneficiaryUpi} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>setQuickBeneficiaryUpi(event.target.value)} placeholder="UPI ID / mobile"/>
+              ?<label className="mt-2 block">{quickIsEbBill?<span className="mb-1 block text-[10px] font-black text-[var(--text-muted)]">EB consumer number</span>:null}<input className="w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-[15px] font-bold text-[var(--text)] outline-none" value={quickBeneficiaryUpi} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>setQuickBeneficiaryUpi(event.target.value)} placeholder={quickIsEbBill?"EB / service connection number":"UPI ID / mobile"}/></label>
               :<div className="mt-2 grid gap-2 sm:grid-cols-3">
                 <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Account holder</span><input name="cashledger_name" autoComplete="on" className="mt-1 w-full bg-transparent p-0 text-[14px] font-bold text-[var(--text)] outline-none" value={quickBankAccountHolder} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>setQuickBankAccountHolder(event.target.value)} placeholder="Name"/></label>
                 <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Account number</span><input autoComplete="on" name="cashledger_bank_account_number" inputMode="numeric" className="mt-1 w-full bg-transparent p-0 text-[14px] font-bold text-[var(--text)] outline-none" value={quickBankAccountNumber} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>setQuickBankAccountNumber(event.target.value.replace(/\s/g,""))} placeholder="Account no."/></label>
@@ -1657,11 +1663,11 @@ export default function CashCounterPage(){
 
           {completingQuickCash?.direction==="IN"?<div className="mt-3 border-t border-[var(--border)] pt-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-black text-[var(--text)]">Beneficiary</span>
+              <span className="text-[11px] font-black text-[var(--text)]">{completingIsEbBill?"EB bill connection":"Beneficiary"}</span>
               <div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>{setCompleteBeneficiaryMode("UPI");setCompleteSourceAllocations([]);if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId(paySwitchCompletionAccountId);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(mirrorsCompletionCommissionAccount(completingQuickCash,"UPI")?paySwitchCompletionAccountId:"");}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>{setCompleteBeneficiaryMode("BANK");if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId("");setCompleteSourceAllocations([{sourceAccountId:paySwitchCompletionAccountId,amount:String(Number(completingQuickCash?.amount||0)),referenceNumber:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(paySwitchCompletionAccountId);}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div>
             </div>
             {completeBeneficiaryMode==="UPI"
-              ?<input className="mt-2 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[15px] font-bold text-[var(--text)] outline-none" value={completeBeneficiaryUpi} onChange={(event)=>setCompleteBeneficiaryUpi(event.target.value)} placeholder="UPI ID / mobile"/>
+              ?<input className="mt-2 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[15px] font-bold text-[var(--text)] outline-none" value={completeBeneficiaryUpi} onChange={(event)=>setCompleteBeneficiaryUpi(event.target.value)} placeholder={completingIsEbBill?"EB consumer number":"UPI ID / mobile"}/>
               :<div className="mt-3 grid gap-2 sm:grid-cols-3">
                 <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Account holder</span><input name="cashledger_name" autoComplete="on" className="mt-1 w-full bg-transparent p-0 text-[15px] font-extrabold text-[var(--text)] outline-none" value={completeBankAccountHolder} onChange={(event)=>setCompleteBankAccountHolder(event.target.value)} placeholder="Name"/></label>
                 <label className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Account number</span><input autoComplete="on" name="cashledger_bank_account_number" inputMode="numeric" className="mt-1 w-full bg-transparent p-0 text-[15px] font-extrabold text-[var(--text)] outline-none" value={completeBankAccountNumber} onChange={(event)=>setCompleteBankAccountNumber(event.target.value.replace(/\s/g,""))} placeholder="Account no."/></label>
