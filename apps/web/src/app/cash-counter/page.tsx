@@ -904,7 +904,17 @@ export default function CashCounterPage(){
 
   if(loading)return <AppShell><PageLoader label="Loading daily cash desk…"/></AppShell>;
 
-  return <AppShell><div className="cash-desk-page page-enter mx-auto max-w-[1600px] space-y-3 sm:space-y-5">
+  return <AppShell headerAction={today&&pendingQuickCash.length>0&&!completePendingId&&!closing?<button
+    type="button"
+    aria-expanded={pendingListOpen}
+    aria-label={pendingListOpen?"Hide pending transactions":"Complete pending transactions, "+pendingQuickCash.length+" remaining"}
+    onClick={()=>{if(pendingListOpen){setPendingListOpen(false);}else{showPendingList();}}}
+    className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-amber-400 px-2.5 text-[12px] font-black text-amber-950 shadow-sm ring-1 ring-amber-500/30 transition active:scale-[.98]"
+  >
+    <span className="hidden min-[390px]:inline">{pendingListOpen?"Hide pending":"Complete pending"}</span>
+    <span className="min-[390px]:hidden">{pendingListOpen?"Hide":"Pending"}</span>
+    <span className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-amber-950 px-1.5 text-xs text-white">{pendingQuickCash.length}</span>
+  </button>:undefined}><div className="cash-desk-page page-enter mx-auto max-w-[1600px] space-y-3 sm:space-y-5">
     {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
 
     {cashAccounts.length?<Surface className="overflow-hidden">
@@ -954,19 +964,6 @@ export default function CashCounterPage(){
     </Surface>:null}
 
     {today?<>
-      {pendingQuickCash.length>0&&!completePendingId&&!closing?<div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-[40] flex justify-end lg:hidden">
-        <button
-          type="button"
-          aria-expanded={pendingListOpen}
-          aria-label={pendingListOpen?"Hide pending transactions":"Show "+pendingQuickCash.length+" pending transactions"}
-          onClick={()=>{if(pendingListOpen){setPendingListOpen(false);}else{showPendingList();}}}
-          className="inline-flex min-h-11 items-center gap-2.5 rounded-2xl bg-amber-400 px-4 py-2.5 text-[13px] font-black text-amber-950 shadow-[0_8px_24px_rgba(0,0,0,.18)] ring-1 ring-amber-500/30 transition active:scale-[.98]"
-        >
-          <span aria-hidden="true" className="text-lg leading-none">✓</span>
-          <span>{pendingListOpen?"Hide pending":"Complete pending"}</span>
-          <span className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full bg-amber-950 px-1.5 text-xs text-white">{pendingQuickCash.length}</span>
-        </button>
-      </div>:null}
       <Surface className="cash-desk-hero overflow-hidden">
         <div className="flex flex-col gap-2.5 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="min-w-0"><p className="truncate text-sm font-bold">{today.cashAccount.accountName}{today.openedBy?.fullName?" · "+today.openedBy.fullName:""}</p><p className="mt-0.5 text-[11px] font-semibold text-[#a9bfd5]">{new Date(today.businessDate).toLocaleDateString("en-IN",{day:"numeric",month:"short"})} · {new Date(today.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p></div>
