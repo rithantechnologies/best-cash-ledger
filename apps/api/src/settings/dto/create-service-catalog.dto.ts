@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateServiceCatalogDto {
   @IsString()
@@ -12,6 +12,15 @@ export class CreateServiceCatalogDto {
   @IsOptional()
   @IsBoolean()
   allowPartnerFulfillment?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  partnerOnly?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  partnerNames?: string[];
 
   @IsOptional()
   @IsString()
