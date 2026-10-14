@@ -5,6 +5,7 @@
 import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
@@ -130,16 +131,16 @@ export default function CustomersPage(){
    </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="customer" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
   </>}
-  {creating?<div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/50 p-0 backdrop-blur-[3px] sm:items-center sm:p-5">
+  {creating?createPortal(<div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/50 px-3 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur-[3px] sm:px-5 sm:pb-5 sm:pt-6">
    <button type="button" className="absolute inset-0 cursor-default" aria-label="Close add customer" onClick={()=>{if(!busy)setCreating(false);}}/>
-   <section role="dialog" aria-modal="true" aria-labelledby="create-customer-title" className="relative flex max-h-[calc(100dvh-0.5rem)] w-full flex-col overflow-hidden rounded-t-3xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-h-[min(90dvh,640px)] sm:max-w-md sm:rounded-3xl">
+   <section role="dialog" aria-modal="true" aria-labelledby="create-customer-title" className="relative flex max-h-[calc(100dvh-24px)] w-full flex-col overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-h-[calc(100dvh-48px)] sm:max-w-md">
     <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-[var(--border)] sm:hidden"/>
     <div className="flex shrink-0 items-center justify-between gap-3 px-5 pb-2 pt-4 sm:px-6 sm:pt-5">
      <div><h3 id="create-customer-title" className="text-xl font-black tracking-tight">New customer</h3><p className="mt-0.5 text-xs text-[var(--text-muted)]">Just the basics. Add other details after saving.</p></div>
      <button type="button" disabled={busy} aria-label="Close" onClick={()=>setCreating(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[var(--border)] text-xl text-[var(--text-muted)]">×</button>
     </div>
-    <form id="create-customer" autoComplete="on" onSubmit={submit} className="flex min-h-0 flex-col">
-     <div className="min-h-0 space-y-3 overflow-y-auto px-5 py-3 sm:px-6">
+    <form id="create-customer" autoComplete="on" onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-3 sm:px-6">
       <Field label="Customer name *"><input className={control+" min-h-12 text-base"} type="text" name="customer_name" autoComplete="name" autoFocus maxLength={150} placeholder="Enter name" required onChange={()=>{if(createError)setCreateError("");}}/></Field>
       <Field label="Mobile (optional)"><input className={control+" min-h-12 text-base"} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" maxLength={20} placeholder="Mobile number"/></Field>
       <Field label="Customer type"><SearchableSelect className={control+" min-h-11"} value={customerTypeId} onChange={e=>setCustomerTypeId(e.target.value)} required><option value="">Select type</option>{activeTypes.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</SearchableSelect></Field>
@@ -152,7 +153,7 @@ export default function CustomersPage(){
      </div>
     </form>
    </section>
-  </div>:null}
+  </div>,document.body):null}
 
   <Modal open={addingCard} title="Add saved card" description="Save only the non-sensitive card details used for identifying the card at the counter." onClose={()=>setAddingCard(false)}
    footer={<button form="add-card" disabled={busy} className="min-h-11 w-full rounded-xl bg-indigo-700 text-sm font-bold text-white disabled:opacity-50">{busy?"Saving…":"Save card"}</button>}>
