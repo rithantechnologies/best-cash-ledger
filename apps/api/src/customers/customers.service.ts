@@ -5,6 +5,7 @@ import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
 import { JournalEntry, LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { customerSearchFilter } from './customer-search-filter.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
 import { CreateQuickCustomerCardDto } from './dto/create-quick-customer-card.dto.js';
 import { CreateCardDto } from './dto/create-card.dto.js';
@@ -174,20 +175,7 @@ export class CustomersService {
   }) {
     const where: Prisma.CustomerWhereInput = {
       ...(options?.includeInactive ? {} : { isActive: true }),
-      ...(options?.search ? {
-        OR: [
-          { fullName: { contains: options.search, mode: 'insensitive' } },
-          { mobile: { contains: options.search } },
-          { customerCode: { contains: options.search, mode: 'insensitive' } },
-          {
-            cards: {
-              some: {
-                lastFourDigits: { contains: options.search },
-              },
-            },
-          },
-        ],
-      } : {}),
+      ...(options?.search?.trim() ? customerSearchFilter(options.search) : {}),
     };
     const allowedSort = new Set(['createdAt','fullName','customerCode','customerType','mobile']);
     const sortBy = allowedSort.has(options?.sortBy ?? '') ? options!.sortBy! : 'createdAt';

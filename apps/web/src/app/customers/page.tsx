@@ -109,7 +109,7 @@ export default function CustomersPage(){
   </div>
 
   <Toolbar>
-   <input inputMode="search" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Search name, mobile or card last 4…" value={q} onChange={e=>setQ(e.target.value)}/>
+   <input inputMode="search" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Search name, bank/card last 4, UPI ID, recipient…" value={q} onChange={e=>setQ(e.target.value)}/>
    <button type="button" onClick={()=>setShowMobileFilters(v=>!v)} aria-expanded={showMobileFilters} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-muted)] sm:hidden">{showMobileFilters?"Hide options":"Sort & page size"}</button>
    <div className={(showMobileFilters?"grid":"hidden")+" grid-cols-2 gap-2 sm:contents"}>
     <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="createdAt">Created date</option><option value="fullName">Name</option><option value="customerCode">Customer code</option><option value="customerType">Type</option><option value="mobile">Mobile</option></SearchableSelect>

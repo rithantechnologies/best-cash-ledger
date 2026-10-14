@@ -1,37 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { customerSearchFilter } from '../customers/customer-search-filter.js';
 
 @Injectable()
 export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
-
-  private identityFilters(query: string): Prisma.CustomerWhereInput[] {
-    const digits = query.replace(/\D/g, '');
-    const filters: Prisma.CustomerWhereInput[] = [
-      { fullName: { contains: query, mode: 'insensitive' } },
-      { customerCode: { contains: query, mode: 'insensitive' } },
-    ];
-    if (digits.length >= 3) {
-      filters.push(
-        { mobile: { contains: digits } },
-        { cards: { some: { isActive: true, lastFourDigits: { contains: digits } } } },
-      );
-    }
-    if (digits.length === 4) {
-      filters.push({
-        transactions: {
-          some: {
-            OR: [
-              { aeps: { is: { aadhaarLastFour: { contains: digits } } } },
-              { microAtm: { is: { cardLastFour: { contains: digits } } } },
-            ],
-          },
-        },
-      });
-    }
-    return filters;
-  }
 
   async customerSuggestions(q: string) {
     const query = q.trim();
@@ -40,7 +13,7 @@ export class SearchService {
     if ((hasLetters && query.length < 2) || (!hasLetters && digits.length < 3)) return [];
 
     const customers = await this.prisma.customer.findMany({
-      where: { isActive: true, OR: this.identityFilters(query) },
+      where: { isActive: true, ...customerSearchFilter(query) },
       select: {
         id: true,
         customerCode: true,
@@ -51,11 +24,11 @@ export class SearchService {
           select: { id: true, bankName: true, cardType: true, cardNetworkId: true, cardNetwork: { select: { id: true, name: true } }, lastFourDigits: true, nickname: true, isActive: true },
           orderBy: { updatedAt: 'desc' },
         },
-        bankAccounts: { where: { isActive: true }, select: { id: true } },
-        upiAccounts: { where: { isActive: true }, select: { id: true } },
+        bankAccounts: { where: { isActive: true }, select: { id: true, bankName: true, accountReference: true } },
+        upiAccounts: { where: { isActive: true }, select: { id: true, accountName: true, upiId: true, mobileNumber: true } },
         beneficiaries: {
           where: { isActive: true },
-          select: { accounts: { where: { isActive: true }, select: { id: true } } },
+          select: { accounts: { where: { isActive: true }, select: { id: true, accountReference: true, upiId: true, mobileNumber: true } } },
         },
         serviceProfiles: { where: { isActive: true }, select: { id: true } },
         transactions: { orderBy: { transactionAt: 'desc' }, take: 1, select: { transactionAt: true } },
@@ -103,6 +76,14 @@ export class SearchService {
 
     return rankedCustomers.map((customer) => {
       const card = digits ? customer.cards.find((item) => item.lastFourDigits.includes(digits)) : undefined;
+      const bank = customer.bankAccounts.find(item =>
+        (digits.length >= 3 && item.accountReference.includes(digits)) ||
+        item.bankName.toLowerCase().includes(normalizedName));
+      const upi = customer.upiAccounts.find(item =>
+        (item.upiId ?? '').toLowerCase().includes(normalizedName) ||
+        (digits.length >= 3 && (item.mobileNumber ?? '').includes(digits)));
+      const recipient = customer.beneficiaries.flatMap(item => item.accounts).find(item =>
+        digits.length >= 3 && (item.accountReference ?? '').includes(digits));
       const historical = historyByCustomer.get(customer.id);
       const savedDestinationCount =
         customer.bankAccounts.length +
@@ -116,6 +97,10 @@ export class SearchService {
         lastUsedAt: transactions[0]?.transactionAt ?? null,
         match: {
           cardLastFour: card?.lastFourDigits ?? null,
+          bankLastFour: bank?.accountReference.replace(/\D/g, '').slice(-4) ?? null,
+          bankName: bank?.bankName ?? null,
+          upiAccountName: upi?.accountName ?? null,
+          recipientLastFour: recipient?.accountReference?.replace(/\D/g, '').slice(-4) ?? null,
           aadhaarLastFour: historical?.aadhaarLastFour ?? null,
           microAtmCardLastFour: historical?.microAtmCardLastFour ?? null,
         },
@@ -128,13 +113,16 @@ export class SearchService {
     if (!query) return { customers: [], transactions: [], accounts: [], providers: [] };
 
     const customers = await this.prisma.customer.findMany({
-      where: { OR: this.identityFilters(query) },
+      where: { ...customerSearchFilter(query) },
       select: {
         id: true,
         customerCode: true,
         fullName: true,
         mobile: true,
         isActive: true,
+        bankAccounts: { where: { isActive: true }, select: { bankName: true, accountReference: true } },
+        upiAccounts: { where: { isActive: true }, select: { accountName: true, upiId: true, mobileNumber: true } },
+        beneficiaries: { where: { isActive: true }, select: { accounts: { where: { isActive: true }, select: { accountReference: true } } } },
         cards: {
           select: {
             id: true,
@@ -154,6 +142,25 @@ export class SearchService {
     });
 
     const matchedCustomerIds = customers.map((customer) => customer.id);
+    // Keep complete saved account numbers on the customer detail endpoint only.
+    const safeCustomers = customers.map(({ bankAccounts, upiAccounts, beneficiaries, ...customer }) => {
+      const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+      const digits = query.replace(/\D/g, '');
+      const bank = bankAccounts.find(item =>
+        (digits.length >= 3 && item.accountReference.includes(digits)) ||
+        terms.some(term => item.bankName.toLowerCase().includes(term)));
+      const upi = upiAccounts.find(item =>
+        terms.some(term => (item.upiId ?? '').toLowerCase().includes(term)) ||
+        (digits.length >= 3 && (item.mobileNumber ?? '').includes(digits)));
+      const recipient = beneficiaries.flatMap(item => item.accounts).find(item =>
+        digits.length >= 3 && (item.accountReference ?? '').includes(digits));
+      return { ...customer, match: {
+        bankName: bank?.bankName ?? null,
+        bankLastFour: bank?.accountReference.replace(/\D/g, '').slice(-4) ?? null,
+        upiAccountName: upi?.accountName ?? null,
+        recipientLastFour: recipient?.accountReference?.replace(/\D/g, '').slice(-4) ?? null,
+      } };
+    });
     const [transactions, accounts, providers] = await Promise.all([
       this.prisma.transaction.findMany({
         where: {
@@ -211,6 +218,6 @@ export class SearchService {
       }),
     ]);
 
-    return { customers, transactions, accounts, providers };
+    return { customers: safeCustomers, transactions, accounts, providers };
   }
 }

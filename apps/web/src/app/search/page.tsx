@@ -9,7 +9,7 @@ import { EmptyState, PageFrame, PageLoader, SectionHeading, Surface } from "@/co
 import { apiFetch } from "@/lib/api";
 
 type Result={
- customers:{id:string;customerCode:string;fullName:string;mobile:string|null;isActive:boolean;cards:{id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean}[]}[];
+ customers:{id:string;customerCode:string;fullName:string;mobile:string|null;isActive:boolean;cards:{id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean}[];match?:{bankName:string|null;bankLastFour:string|null;upiAccountName:string|null;recipientLastFour:string|null}}[];
  transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;customer:{id:string;fullName:string;mobile:string|null}|null;cardSwipe:{customerCard:{lastFourDigits:string;bankName:string}}|null}[];
  accounts:{id:string;accountCode:string;accountName:string;accountType:string}[];
  providers:{id:string;name:string;providerType:string}[];
@@ -40,9 +40,9 @@ export default function SearchPage(){
 
  const total=data?data.customers.length+data.transactions.length+data.accounts.length+data.providers.length:0;
  return <AppShell><PageFrame width="max-w-6xl">
-  <SectionHeading title="Search" description={q?total+" result(s) for “"+q+"”":"Search by customer name, mobile, card last 4 or Aadhaar last 4."}/>
+  <SectionHeading title="Search" description={q?total+" result(s) for “"+q+"”":"Search name, mobile, bank/card last 4, UPI ID, recipient details or Aadhaar last 4."}/>
   <Surface className="p-3 sm:p-4"><form onSubmit={submit} className="flex gap-2">
-   <input autoFocus inputMode="search" className="min-h-12 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-50" value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Name, mobile, card/Aadhaar last 4, transaction…"/>
+   <input autoFocus inputMode="search" className="min-h-12 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-50" value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Name, bank/card last 4, UPI, mobile, transaction…"/>
    <button className="app-primary-button min-h-12 px-5 text-sm font-bold">Search</button>
   </form></Surface>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
@@ -61,6 +61,9 @@ export default function SearchPage(){
       <Link href={"/customers/"+c.id} className="block">
        <div className="flex items-center justify-between gap-3"><strong className="truncate text-sm">{c.fullName}</strong><span className={"text-[10px] font-semibold "+(c.isActive?"text-[var(--accent)]":"text-[var(--text-muted)]")}>{c.isActive?"Customer":"Inactive"}</span></div>
        <p className="mt-1 text-xs text-[var(--text-muted)]">{c.mobile||"No mobile"} <span className="opacity-40">·</span> {c.customerCode}</p>
+       {c.match?.bankLastFour?<p className="mt-1 text-xs font-bold text-indigo-600">Matched bank: {c.match.bankName} •••• {c.match.bankLastFour}</p>:null}
+       {c.match?.recipientLastFour?<p className="mt-1 text-xs font-bold text-indigo-600">Matched recipient bank •••• {c.match.recipientLastFour}</p>:null}
+       {c.match?.upiAccountName?<p className="mt-1 text-xs font-bold text-indigo-600">Matched UPI: {c.match.upiAccountName}</p>:null}
        {shownCards.length?<div className="mt-2 flex flex-wrap gap-1.5">{shownCards.map(card=><span key={card.id} className={"rounded-lg px-2 py-1 text-[10px] font-semibold "+(matchingCards.some(x=>x.id===card.id)?"bg-[var(--accent-soft)] text-[var(--accent)]":"bg-[var(--surface-soft)] text-[var(--text-muted)]")}>{card.bankName} ••••{card.lastFourDigits}</span>)}</div>:null}
       </Link>
       {c.isActive?<div className="mt-3 grid grid-cols-4 gap-1.5 border-t border-[var(--border)] pt-3">
