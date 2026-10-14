@@ -216,7 +216,7 @@ export function BrowserEntrySuggestions() {
           aria-selected={index === menu.selected}
           type="button"
           key={value}
-          onMouseDown={e => e.preventDefault()}
+          onPointerDown={e => e.preventDefault()}
           onClick={() => document.dispatchEvent(new CustomEvent("cashledger:choose-suggestion", { detail: { value } }))}
           style={{
             display: "block", width: "100%", minHeight: 42, textAlign: "left",
@@ -230,7 +230,7 @@ export function BrowserEntrySuggestions() {
       ))}
       <button
         type="button"
-        onMouseDown={e => e.preventDefault()}
+        onPointerDown={e => e.preventDefault()}
         onClick={() => {
           const staff = currentStaffId(localStorage);
           if (staff) clearRememberedField(localStorage, staff, menu.field);

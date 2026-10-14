@@ -132,7 +132,14 @@ async function setControlled(page,selector,value){await page.$eval(selector,(el,
   // Screenshot capture can transiently move focus in headless mobile emulation.
   // Check the user workflow directly without an unrelated focus-changing action.
   await mobile.waitForSelector('[data-entry-suggestions] button:last-child',{visible:true});
-  await mobile.click('[data-entry-suggestions] button:last-child');
+  const clearPoint=await mobile.evaluate(()=>{
+    const menu=document.querySelector('[data-entry-suggestions]');
+    menu.scrollTop=menu.scrollHeight;
+    const button=menu.querySelector('button:last-child');
+    const bounds=button.getBoundingClientRect();
+    return {x:Math.round(bounds.left+bounds.width/2),y:Math.round(bounds.top+bounds.height/2)};
+  });
+  await mobile.touchscreen.tap(clearPoint.x,clearPoint.y);
   await mobile.evaluate(()=>document.activeElement.blur());
   const values=await mobile.evaluate(()=>JSON.parse(localStorage.getItem("cashledger_field_suggestions_v1:test-staff-autofill-001")||"{}").cashledger_test_partner||[]);
   assert.equal(values.length,0,"Clear action does not re-save on blur");
@@ -142,6 +149,31 @@ async function setControlled(page,selector,value){await page.$eval(selector,(el,
   });
   const memory=await mobile.evaluate(()=>localStorage.getItem("cashledger_field_suggestions_v1:test-staff-autofill-001"));
   assert.ok(!JSON.parse(memory).cashledger_bank_account_number,"Financial identifiers not cached");
+  // All non-amount field coverage: numeric last four, reference/IFSC with
+  // native autocomplete off, and exclusion of rupee amounts.
+  await mobile.evaluate(()=>{
+    for(const [name,kind,auto] of [["cashledger_card_last_four","text","on"],["cashledger_ifsc","text","off"],["cashledger_amount","number","on"]]){
+      const element=document.createElement("input");element.name=name;element.type=kind;element.autocomplete=auto;
+      element.style.cssText="position:fixed;top:70px;left:20px;width:250px;height:40px;background:white";
+      if(name.includes("last_four"))element.inputMode="numeric";
+      document.body.append(element);
+    }
+    for(const [name,value] of [["cashledger_card_last_four","9876"],["cashledger_ifsc","SBIN0001234"],["cashledger_amount","2500.00"]]){
+      const field=document.querySelector(`[name="${name}"]`);field.focus();field.value=value;field.dispatchEvent(new Event("input",{bubbles:true}));field.blur();
+    }
+  });
+  const storedFields=await mobile.evaluate(()=>JSON.parse(localStorage.getItem("cashledger_field_suggestions_v1:test-staff-autofill-001")||"{}"));
+  assert.ok(storedFields.cashledger_card_last_four?.includes("9876"),"Last four digits remembered");
+  assert.ok(storedFields.cashledger_ifsc?.includes("SBIN0001234"),"IFSC remembered even if browser native autocomplete is off");
+  assert.equal(storedFields.cashledger_amount,undefined,"Money amounts are excluded");
+  await mobile.click('input[name="cashledger_card_last_four"]');
+  await mobile.$eval('input[name="cashledger_card_last_four"]',el=>el.value="");
+  await mobile.type('input[name="cashledger_card_last_four"]',"98");
+  await mobile.waitForSelector('[data-entry-suggestions] [role="option"]',{visible:true,timeout:4000});
+  assert.ok((await mobile.$eval('[data-entry-suggestions] [role="option"]',el=>el.textContent)).includes("9876"));
+  await mobile.click('[data-entry-suggestions] [role="option"]');
+  assert.equal(await mobile.$eval('input[name="cashledger_card_last_four"]',el=>el.value),"9876");
+  console.log("PASS extended fields: numeric last four, IFSC, native off override, amount exclusion");
   console.log("PASS mobile: menu flips above, stays within viewport, clearing, bank-number protection");
   console.log("BROWSER_TESTS_PASSED Chromium 148 (Chrome-compatible), isolated mocked customer data");
  } finally{await browser.close();}
