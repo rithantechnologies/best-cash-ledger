@@ -245,7 +245,7 @@ export class CustomersService {
         },
         serviceProfiles: {
           where: { isActive: true },
-          select: { id: true, serviceName: true, nickname: true, providerName: true, referenceNumber: true, updatedAt: true },
+          select: { id: true, serviceName: true, nickname: true, ownerName: true, providerName: true, referenceNumber: true, updatedAt: true },
           orderBy: { updatedAt: 'desc' },
         },
       },
@@ -440,17 +440,19 @@ export class CustomersService {
     return this.prisma.$transaction(async (tx) => {
       const customer = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true, ebNumber: true } });
       if (!customer) throw new NotFoundException('Customer not found');
-      if (serviceName === 'Eb Bill' && (referenceNumber.length > 50 || (dto.nickname?.length ?? 0) > 80))
-        throw new BadRequestException('EB number must be at most 50 characters and label at most 80.');
+      if (serviceName === 'Eb Bill' && (referenceNumber.length > 50 || (dto.nickname?.length ?? 0) > 80 || (dto.ownerName?.length ?? 0) > 150))
+        throw new BadRequestException('EB number must be at most 50 characters, connection name 80, and owner name 150.');
       const item = await tx.customerServiceProfile.upsert({
         where: { customerId_serviceName_referenceNumber: { customerId, serviceName, referenceNumber } },
         create: {
           customerId, serviceName, referenceNumber,
           nickname: dto.nickname?.trim() || null,
+          ownerName: serviceName === 'Eb Bill' ? dto.ownerName?.trim() || null : null,
           providerName: dto.providerName?.trim() || null,
         },
         update: {
           nickname: dto.nickname?.trim() || null,
+          ...(serviceName === 'Eb Bill' && dto.ownerName !== undefined ? { ownerName: dto.ownerName.trim() || null } : {}),
           providerName: dto.providerName?.trim() || null,
           isActive: true,
         },
@@ -459,7 +461,7 @@ export class CustomersService {
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER_SERVICE_PROFILE', entityId: item.id, action: 'UPSERT',
-          newValues: { customerId, serviceName, referenceNumber, nickname: item.nickname, providerName: item.providerName },
+          newValues: { customerId, serviceName, referenceNumber, nickname: item.nickname, ownerName: item.ownerName, providerName: item.providerName },
         },
       });
       return item;
@@ -472,9 +474,9 @@ export class CustomersService {
       if (!old || old.serviceName !== 'Eb Bill') throw new NotFoundException('EB connection not found');
       const referenceNumber = dto.referenceNumber?.trim() ?? old.referenceNumber;
       if (!referenceNumber || referenceNumber.length > 50) throw new BadRequestException('Enter a valid EB number (maximum 50 characters).');
-      const updated = await tx.customerServiceProfile.update({ where: { id }, data: { referenceNumber, ...(dto.nickname !== undefined ? { nickname: dto.nickname.trim() || null } : {}) } });
+      const updated = await tx.customerServiceProfile.update({ where: { id }, data: { referenceNumber, ...(dto.nickname !== undefined ? { nickname: dto.nickname.trim() || null } : {}), ...(dto.ownerName !== undefined ? { ownerName: dto.ownerName.trim() || null } : {}) } });
       if (old.referenceNumber !== referenceNumber) await tx.customer.updateMany({ where: { id: old.customerId, ebNumber: old.referenceNumber }, data: { ebNumber: referenceNumber } });
-      await tx.auditLog.create({ data: { userId, entityType: 'CUSTOMER_SERVICE_PROFILE', entityId: id, action: 'UPDATE', oldValues: { referenceNumber: old.referenceNumber, nickname: old.nickname }, newValues: { referenceNumber: updated.referenceNumber, nickname: updated.nickname } } });
+      await tx.auditLog.create({ data: { userId, entityType: 'CUSTOMER_SERVICE_PROFILE', entityId: id, action: 'UPDATE', oldValues: { referenceNumber: old.referenceNumber, nickname: old.nickname, ownerName: old.ownerName }, newValues: { referenceNumber: updated.referenceNumber, nickname: updated.nickname, ownerName: updated.ownerName } } });
       return updated;
     });
   }

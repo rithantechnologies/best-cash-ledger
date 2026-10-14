@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateServiceProfileDto {
   @IsString()
@@ -12,6 +12,11 @@ export class CreateServiceProfileDto {
   @IsOptional()
   @IsString()
   providerName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  ownerName?: string;
 
   @IsString()
   @MinLength(1)

@@ -31,7 +31,7 @@ export class SearchService {
           where: { isActive: true },
           select: { accounts: { where: { isActive: true }, select: { id: true, accountReference: true, upiId: true, mobileNumber: true } } },
         },
-        serviceProfiles: { where: { isActive: true }, select: { id: true, serviceName: true, referenceNumber: true, nickname: true } },
+        serviceProfiles: { where: { isActive: true }, select: { id: true, serviceName: true, referenceNumber: true, nickname: true, ownerName: true } },
         transactions: { orderBy: { transactionAt: 'desc' }, take: 1, select: { transactionAt: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -95,7 +95,7 @@ export class SearchService {
         ...identity,
         savedDestinationCount,
         savedServiceProfileCount: serviceProfiles.length,
-        ebNumbers: serviceProfiles.filter(profile => profile.serviceName === 'Eb Bill').map(profile => ({ id: profile.id, number: profile.referenceNumber, label: profile.nickname })),
+        ebNumbers: serviceProfiles.filter(profile => profile.serviceName === 'Eb Bill').map(profile => ({ id: profile.id, number: profile.referenceNumber, label: profile.nickname, ownerName: profile.ownerName })),
         lastUsedAt: transactions[0]?.transactionAt ?? null,
         match: {
           cardLastFour: card?.lastFourDigits ?? null,

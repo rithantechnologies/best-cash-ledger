@@ -38,6 +38,7 @@ describe('customer search filter', () => {
     expect(serialized('0320700614650')).toContain('serviceProfiles');
     expect(serialized('Owner House')).toContain('nickname');
     expect(serialized('0320700614650')).toContain('referenceNumber');
+    expect(serialized('Owner House')).toContain('ownerName');
   });
 
   it('removes formatting from copied account numbers typed into search', () => {

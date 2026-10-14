@@ -312,6 +312,7 @@ model CustomerServiceProfile {
   customer        Customer @relation(fields: [customerId], references: [id])
   serviceName     String
   nickname        String?
+  ownerName       String?
   providerName    String?
   referenceNumber String
   isActive        Boolean  @default(true)
