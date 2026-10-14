@@ -59,7 +59,7 @@ export default function CustomerDetailPage(){
  const [copyLoadingId,setCopyLoadingId]=useState<string|null>(null),[copyFallbackCard,setCopyFallbackCard]=useState<Card|null>(null),[copyError,setCopyError]=useState("");
  const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
  const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
- const [ebEditing,setEbEditing]=useState(false),[ebTarget,setEbTarget]=useState<EbConnection|null>(null),[ebLabel,setEbLabel]=useState(""),[ebOwnerName,setEbOwnerName]=useState(""),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
+ const [ebEditing,setEbEditing]=useState(false),[ebTarget,setEbTarget]=useState<EbConnection|null>(null),[ebOwnerName,setEbOwnerName]=useState(""),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
  const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
@@ -146,18 +146,17 @@ export default function CustomerDetailPage(){
   setProfileNotes(c.notes||"");setProfileError("");setProfileEditing(true);
  }
  function openEbEditor(item?:EbConnection){
-  setEbTarget(item||null);setEbLabel(item?.nickname||"");setEbOwnerName(item?.ownerName||"");setEbDraft(item?.referenceNumber||"");setEbError("");setEbEditing(true);
+  setEbTarget(item||null);setEbOwnerName(item?.ownerName||"");setEbDraft(item?.referenceNumber||"");setEbError("");setEbEditing(true);
  }
  async function saveEbNumber(e:FormEvent){
   e.preventDefault();
   const ebNumber=ebDraft.trim();
   if(!ebNumber||ebNumber.length>50){setEbError("Enter an EB number up to 50 characters.");return;}
-  if(!ebLabel.trim()||ebLabel.trim().length>80){setEbError("Enter a connection name (maximum 80 characters).");return;}
-  if(!ebOwnerName.trim()||ebOwnerName.trim().length>150){setEbError("Enter the EB account owner name (maximum 150 characters).");return;}
+  if(!ebOwnerName.trim()||ebOwnerName.trim().length>150){setEbError("Enter a consumer name (maximum 150 characters).");return;}
   setBusy(true);setEbError("");setError("");
   try{
-   if(ebTarget)await apiFetch("/customers/service-profiles/"+ebTarget.id,{method:"PATCH",body:JSON.stringify({referenceNumber:ebNumber,nickname:ebLabel.trim(),ownerName:ebOwnerName.trim()})});
-   else await apiFetch("/customers/"+id+"/service-profiles",{method:"POST",body:JSON.stringify({serviceName:"Eb Bill",referenceNumber:ebNumber,nickname:ebLabel.trim(),ownerName:ebOwnerName.trim()})});
+   if(ebTarget)await apiFetch("/customers/service-profiles/"+ebTarget.id,{method:"PATCH",body:JSON.stringify({referenceNumber:ebNumber,ownerName:ebOwnerName.trim()})});
+   else await apiFetch("/customers/"+id+"/service-profiles",{method:"POST",body:JSON.stringify({serviceName:"Eb Bill",referenceNumber:ebNumber,ownerName:ebOwnerName.trim()})});
    await load();
    setEbEditing(false);setEbTarget(null);setMessage("EB connection saved.");
   }catch(err){setEbError(err instanceof Error?err.message:"Unable to save EB number.");}
@@ -302,7 +301,7 @@ export default function CustomerDetailPage(){
  const foundCards=c.cards.filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.lastFourDigits,x.nickname,x.cardType]));
  const foundBanks=c.bankAccounts.filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.accountHolderName,x.accountReference,x.ifsc]));
  const foundUpi=c.upiAccounts.filter(x=>matchesSavedDetailSearch(savedSearch,[x.accountName,x.upiId,x.mobileNumber,x.providerName]));
- const foundEb=c.serviceProfiles.filter(x=>matchesSavedDetailSearch(savedSearch,[x.nickname,x.ownerName,x.referenceNumber,x.providerName]));
+ const foundEb=c.serviceProfiles.filter(x=>matchesSavedDetailSearch(savedSearch,[x.ownerName,x.referenceNumber]));
  const foundBeneficiaries=c.beneficiaries.flatMap(b=>{
   const beneficiaryMatches=matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote]);
   const accounts=beneficiaryMatches?b.accounts:b.accounts.filter(a=>matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote,a.bankName,a.accountReference,a.ifsc,a.upiId,a.mobileNumber]));
@@ -455,11 +454,10 @@ export default function CustomerDetailPage(){
    </div>)}</div>:<div className="p-4"><EmptyState title={savedSearch.trim()?"No matching recipients":"No beneficiaries saved"}/></div>}
   </Surface>
   </>:null}
-  <Modal open={ebEditing} title={ebTarget?"Edit EB connection":"Add EB connection"} description="Save the connection and the person whose name appears on the electricity bill." onClose={()=>{if(!busy)setEbEditing(false);}} footer={<button type="submit" form="customer-eb-number" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save EB number"}</button>}>
+  <Modal open={ebEditing} title={ebTarget?"Edit EB account":"Add EB account"} onClose={()=>{if(!busy)setEbEditing(false);}} footer={<button type="submit" form="customer-eb-number" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save EB account"}</button>}>
    <form id="customer-eb-number" onSubmit={saveEbNumber} className="space-y-3">
-    <Field label="Connection name"><input className={control} value={ebLabel} maxLength={80} onChange={e=>{setEbLabel(e.target.value);setEbError("");}} placeholder="Home, shop, owner house" required/></Field>
-    <Field label="EB account owner name"><input className={control} name="cashledger_eb_account_owner" autoComplete="name" value={ebOwnerName} maxLength={150} onChange={e=>{setEbOwnerName(e.target.value);setEbError("");}} placeholder="Name on electricity bill" required/></Field>
-    <Field label="EB consumer number"><input className={control} name="customer_saved_eb_number" type="text" inputMode="numeric" autoComplete="off" maxLength={50} value={ebDraft} onChange={e=>{setEbDraft(e.target.value);setEbError("");}} placeholder="Enter EB / electricity consumer number" autoFocus/></Field>
+    <Field label="Consumer name"><input className={control} name="cashledger_eb_consumer_name" autoComplete="name" value={ebOwnerName} maxLength={150} onChange={e=>{setEbOwnerName(e.target.value);setEbError("");}} placeholder="Consumer name" autoFocus required/></Field>
+    <Field label="EB number"><input className={control} name="customer_saved_eb_number" type="text" inputMode="numeric" autoComplete="off" maxLength={50} value={ebDraft} onChange={e=>{setEbDraft(e.target.value);setEbError("");}} placeholder="EB consumer number" required/></Field>
 
     {ebError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{ebError}</p>:null}
    </form>
@@ -594,11 +592,11 @@ function BankSavedItem({bank,onEdit,onToggle}:{bank:Bank;onEdit:()=>void;onToggl
 function EbSavedItem({connection,onEdit,onToggle}:{connection:EbConnection;onEdit:()=>void;onToggle:()=>void}){
  return <div className={!connection.isActive?"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3 opacity-60":"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"}>
   <div className="flex items-center justify-between gap-2">
-   <p className="min-w-0 break-words text-sm font-black">{connection.nickname||"EB connection"}</p>
-   <div className="flex shrink-0 items-center gap-1"><CopyValueButton value={connection.nickname||"EB connection"} label="connection name"/><StatusBadge tone={connection.isActive?"emerald":"slate"}>{connection.isActive?"Active":"Inactive"}</StatusBadge></div>
+   <p className="min-w-0 break-words text-sm font-black">EB account</p>
+   <StatusBadge tone={connection.isActive?"emerald":"slate"}>{connection.isActive?"Active":"Inactive"}</StatusBadge>
   </div>
   <div className="mt-3 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3 py-1.5">
-   <SavedCopyField label="EB account owner" value={connection.ownerName}/>
+   <SavedCopyField label="Consumer name" value={connection.ownerName}/>
    <SavedCopyField label="EB number" value={connection.referenceNumber}/>
   </div>
   <div className="mt-3 flex items-center gap-3"><button type="button" onClick={onEdit} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={onToggle} className="text-xs font-bold text-slate-500">{connection.isActive?"Retire":"Reactivate"}</button></div>
