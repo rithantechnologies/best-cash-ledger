@@ -954,7 +954,7 @@ export default function CashCounterPage(){
     </Surface>:null}
 
     {today?<>
-      {pendingQuickCash.length>0?<div className="sticky top-[calc(3.75rem+0.5rem)] z-[35] flex justify-end lg:hidden">
+      {pendingQuickCash.length>0&&!completePendingId&&!closing?<div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-[40] flex justify-end lg:hidden">
         <button
           type="button"
           aria-expanded={pendingListOpen}
