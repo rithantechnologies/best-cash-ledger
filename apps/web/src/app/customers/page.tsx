@@ -109,7 +109,7 @@ export default function CustomersPage(){
  const cardCount=items.reduce((s,c)=>s+c.cards.filter(x=>x.isActive).length,0);
 
  return <AppShell><PageFrame>
-  <SectionHeading eyebrow="Customer directory" title="Customers" description="Profiles, saved cards and recipient details for repeat counter work."
+  <SectionHeading title="Customers"
    action={<div className="flex gap-2"><button onClick={()=>{setError("");setCardDemoNumber("");setAddingCard(true);}} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>{setCreateError("");setCustomerTypeId(defaultTypeId());setNewDemoNumber("");setNewDemoBank("");setCreating(true);}} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
@@ -132,8 +132,8 @@ export default function CustomersPage(){
   {loading?<PageLoader label="Loading customers…"/>:<>
    <div className="space-y-2 md:hidden">{items.map(c=><Surface key={c.id} className={!c.isActive?"p-3.5 opacity-60":"p-3.5"}>
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Link href={"/customers/"+c.id} className="block truncate text-sm font-black">{c.fullName}</Link><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{c.mobile||"No mobile"} · {c.customerCode}</p></div><StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge></div>
-    <p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">{typeName(c)} · {c.cards.filter(x=>x.isActive).length} saved card(s)</p>
-    <div className="mt-3 flex gap-2"><Link href={"/customers/"+c.id} className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[var(--accent-soft)] px-3 text-xs font-black text-[var(--accent)]">Open details →</Link>{admin?<button type="button" onClick={()=>beginEdit(c)} className="min-h-11 rounded-xl border border-[var(--border)] px-4 text-xs font-bold">Edit</button>:null}</div>
+    <p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">{typeName(c)} · {c.cards.filter(x=>x.isActive).length} cards</p>
+    <div className="mt-3 flex gap-2"><Link href={"/customers/"+c.id} className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[var(--accent-soft)] px-3 text-xs font-black text-[var(--accent)]">Open</Link>{admin?<button type="button" onClick={()=>beginEdit(c)} className="min-h-11 rounded-xl border border-[var(--border)] px-4 text-xs font-bold">Edit</button>:null}</div>
     {admin?<details className="mt-2"><summary className="cursor-pointer py-1 text-right text-[11px] font-semibold text-[var(--text-muted)]">More actions</summary><button type="button" onClick={()=>setToggleTarget(c)} className="mt-1 min-h-10 w-full rounded-xl border border-[var(--border)] text-xs font-bold text-[var(--text-muted)]">{c.isActive?"Retire customer":"Reactivate customer"}</button></details>:null}
    </Surface>)}{!items.length?<EmptyState title="No matching customers" description="Try a different search or create a customer."/>:null}</div>
 
@@ -148,7 +148,7 @@ export default function CustomersPage(){
    <section role="dialog" aria-modal="true" aria-labelledby="create-customer-title" className="relative flex max-h-[calc(100dvh-24px)] w-full flex-col overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl sm:max-h-[calc(100dvh-48px)] sm:max-w-md">
     <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-[var(--border)] sm:hidden"/>
     <div className="flex shrink-0 items-center justify-between gap-3 px-5 pb-2 pt-4 sm:px-6 sm:pt-5">
-     <div><h3 id="create-customer-title" className="text-xl font-black tracking-tight">New customer</h3><p className="mt-0.5 text-xs text-[var(--text-muted)]">Just the basics. Add other details after saving.</p></div>
+     <div><h3 id="create-customer-title" className="text-xl font-black tracking-tight">New customer</h3></div>
      <button type="button" disabled={busy} aria-label="Close" onClick={()=>setCreating(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[var(--border)] text-xl text-[var(--text-muted)]">×</button>
     </div>
     <form id="create-customer" autoComplete="on" onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
@@ -163,7 +163,7 @@ export default function CustomersPage(){
      </div>
      <div className="shrink-0 space-y-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5">
       <button type="submit" name="after_create" value="details" disabled={busy||!customerTypeId} className="app-primary-button min-h-12 w-full text-sm font-black disabled:opacity-50">{busy?"Saving…":"Save & add details →"}</button>
-      <button type="submit" name="after_create" value="stay" disabled={busy} className="min-h-10 w-full rounded-xl text-xs font-bold text-[var(--text-muted)] disabled:opacity-50">Save only</button>
+      <button type="submit" name="after_create" value="stay" disabled={busy} className="min-h-10 w-full rounded-xl text-xs font-bold text-[var(--text-muted)] disabled:opacity-50">Save</button>
      </div>
     </form>
    </section>
