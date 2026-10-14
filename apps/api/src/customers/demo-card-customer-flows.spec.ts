@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CustomersService } from './customers.service.js';
 
-const testNumber = '4242424242424243';
+const testNumber = '0000000000000000';
 const originalEnabled = process.env.DEMO_CARD_COPY_ENABLED;
 const originalKey = process.env.DEMO_CARD_ENCRYPTION_KEY;
 
@@ -39,7 +39,7 @@ describe('existing card and new customer synthetic demo fields', () => {
   it('creates a new customer and linked 16-digit demo card atomically, without exposing full value', async () => {
     enable(); const { service, cards, stored, audits } = mockService();
     await service.create({ fullName: 'Example Customer', customerTypeId: 'type-1', demoCardNumber: testNumber, demoCardBank: 'Test Bank' }, 'staff-1');
-    expect(cards).toMatchObject([{ customerId: 'existing-customer-1', bankName: 'Test Bank', lastFourDigits: '4243' }]);
+    expect(cards).toMatchObject([{ customerId: 'existing-customer-1', bankName: 'Test Bank', lastFourDigits: '0000' }]);
     expect(stored).toHaveLength(1);
     expect(stored[0].encryptedValue).not.toContain(testNumber);
     expect(JSON.stringify(audits)).not.toContain(testNumber);
@@ -47,8 +47,8 @@ describe('existing card and new customer synthetic demo fields', () => {
 
   it('adds an encrypted synthetic number when creating a card for an existing customer', async () => {
     enable(); const { service, cards, stored } = mockService();
-    await service.addCard('existing-customer-1', { bankName: 'Test Bank', lastFourDigits: '4243', demoCardNumber: testNumber }, 'staff-1');
-    expect(cards[0].lastFourDigits).toBe('4243');
+    await service.addCard('existing-customer-1', { bankName: 'Test Bank', lastFourDigits: '0000', demoCardNumber: testNumber }, 'staff-1');
+    expect(cards[0].lastFourDigits).toBe('0000');
     expect(stored[0].customerCardId).toBe('saved-card-1');
   });
 
@@ -56,7 +56,7 @@ describe('existing card and new customer synthetic demo fields', () => {
     enable(); const { service, stored, audits } = mockService();
     await service.saveDemoTestNumber('saved-card-1', testNumber, 'staff-1', { bankName: 'Edited Bank', nickname: 'Main' });
     expect(stored[0].customerCardId).toBe('saved-card-1');
-    expect(audits[0].newValues).toMatchObject({ lastFourDigits: '4243', bankName: 'Edited Bank' });
+    expect(audits[0].newValues).toMatchObject({ lastFourDigits: '0000', bankName: 'Edited Bank' });
     expect(JSON.stringify(audits)).not.toContain(testNumber);
   });
 });

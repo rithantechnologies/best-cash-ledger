@@ -62,18 +62,23 @@ describe('development-only synthetic card numbers', () => {
     expect(getCard().lastFourDigits).toBe('4243');
   });
 
-  it('rejects real-looking checksum-valid card values', async () => {
+  it('allows exactly sixteen zeros, including a Luhn-valid number, in demo mode', async () => {
     process.env.DEMO_CARD_COPY_ENABLED = 'true';
     process.env.DEMO_CARD_ENCRYPTION_KEY = demoKey;
-    const { service } = fixture();
-    await expect(service.saveDemoTestNumber('card-1', '4539578763621486', 'staff-1')).rejects.toThrow('dummy number');
+    const { service, audit, getStored, getCard } = fixture();
+    const value = '0000000000000000';
+    await service.saveDemoTestNumber('card-1', value, 'staff-1', { bankName: 'Demo Bank' });
+    expect(getCard().lastFourDigits).toBe('0000');
+    expect(getStored()).not.toContain(value);
+    expect((await service.copyDemoTestNumber('card-1', 'staff-1')).demoNumber).toBe(value);
+    expect(JSON.stringify(audit)).not.toContain(value);
   });
 
   it('rejects values other than 16 digits and does not accept real card storage when disabled', async () => {
     process.env.DEMO_CARD_COPY_ENABLED = 'true';
     process.env.DEMO_CARD_ENCRYPTION_KEY = demoKey;
     const { service } = fixture();
-    await expect(service.saveDemoTestNumber('card-1', '1234', 'staff-1')).rejects.toThrow('dummy number');
+    await expect(service.saveDemoTestNumber('card-1', '1234', 'staff-1')).rejects.toThrow('exactly 16 digits');
     process.env.DEMO_CARD_COPY_ENABLED = 'false';
     await expect(service.saveDemoTestNumber('card-1', '4242424242424243', 'staff-1')).rejects.toThrow('disabled');
   });

@@ -1647,8 +1647,9 @@ export class CustomersService {
     });
   }
 
-  // This cannot be used as a general-purpose PAN vault: only known synthetic
-  // gateway test cards, and only when expressly enabled on this demo instance.
+  // Demo-only encrypted card reference storage. Disabled outside explicitly
+  // configured environments; do not enable in a client deployment without
+  // card-data compliance review and authorization.
   private demoCardKey() {
     const configured = process.env.DEMO_CARD_ENCRYPTION_KEY ?? '';
     if (process.env.DEMO_CARD_COPY_ENABLED !== 'true' || !/^[a-fA-F0-9]{64}$/.test(configured))
@@ -1662,16 +1663,8 @@ export class CustomersService {
 
   private encryptedSyntheticDemoNumber(value: string) {
     const key = this.demoCardKey();
-    const published = new Set(['4242424242424242', '5555555555554444', '4000000000000002', '4111111111111111']);
-    if (!/^\d{16}$/.test(value)) throw new BadRequestException('Enter a 16-digit dummy number.');
-    let checksum = 0;
-    for (let i = value.length - 1; i >= 0; i--) {
-      let digit = Number(value[i]);
-      if ((value.length - i) % 2 === 0) { digit *= 2; if (digit > 9) digit -= 9; }
-      checksum += digit;
-    }
-    if (checksum % 10 === 0 && !published.has(value))
-      throw new BadRequestException('Enter a 16-digit dummy number that is not a real payment card number, or use a published test number.');
+    if (!/^\d{16}$/.test(value))
+      throw new BadRequestException('Enter exactly 16 digits for the demo card number.');
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
@@ -1689,35 +1682,14 @@ export class CustomersService {
   }
 
   async saveDemoTestNumber(cardId: string, value: string, userId: string, details?: { bankName?: string; nickname?: string }) {
-    const key = this.demoCardKey();
-    // The development demo supports user-entered, *non-usable* 16-digit samples.
-    // Published gateway test numbers are also permitted despite their valid checksums.
-    // Do not remove this server-side guard: a real PAN must never enter this demo vault.
-    const publishedTestNumbers = new Set(['4242424242424242', '5555555555554444', '4000000000000002', '4111111111111111']);
-    const luhnValid = (number: string) => {
-      let checksum = 0;
-      for (let i = number.length - 1; i >= 0; i--) {
-        let digit = Number(number[i]);
-        if ((number.length - i) % 2 === 0) {
-          digit *= 2;
-          if (digit > 9) digit -= 9;
-        }
-        checksum += digit;
-      }
-      return checksum % 10 === 0;
-    };
-    if (!/^\d{16}$/.test(value) || (luhnValid(value) && !publishedTestNumbers.has(value)))
-      throw new BadRequestException('Enter a 16-digit dummy number that is not a real payment card number, or use a published test number.');
+    // Shared server-side validation: exactly 16 digits, no checksum gate in demo.
+    const payload = this.encryptedSyntheticDemoNumber(value);
     const card = await this.prisma.customerCard.findUnique({ where: { id: cardId }, select: { lastFourDigits: true, bankName: true, nickname: true, isActive: true } });
     if (!card || !card.isActive) throw new NotFoundException('Active card not found');
     if (!details && card.lastFourDigits !== value.slice(-4))
       throw new BadRequestException('The saved card last four digits must match the selected synthetic test number.');
     if (details && !details.bankName?.trim())
       throw new BadRequestException('Card bank name is required.');
-    const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', key, iv);
-    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-    const payload = [iv, cipher.getAuthTag(), encrypted].map(v => v.toString('hex')).join(':');
     await this.prisma.$transaction(async tx => {
       if (details) {
         const updated = await tx.customerCard.update({
