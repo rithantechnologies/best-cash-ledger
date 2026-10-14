@@ -15,6 +15,14 @@ import { matchesSavedDetailSearch } from "@/lib/saved-detail-search";
 import { formatBankCopyText } from "@/lib/bank-copy-text";
 
 const DEMO_TEST_NUMBERS = ["4242424242424242", "5555555555554444", "4000000000000002", "4111111111111111"];
+// The development demo accepts typed 16-digit samples, not actual card PANs.
+const isSafeDemoNumber=(value:string)=>{
+ if(!/^\d{16}$/.test(value))return false;
+ if(DEMO_TEST_NUMBERS.includes(value))return true;
+ let sum=0;
+ for(let i=value.length-1;i>=0;i--){let digit=Number(value[i]);if((value.length-i)%2===0){digit*=2;if(digit>9)digit-=9;}sum+=digit;}
+ return sum%10!==0;
+};
 type Card={id:string;bankName:string;cardType:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
 type Bank={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type Upi={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
@@ -78,6 +86,7 @@ export default function CustomerDetailPage(){
  }
  async function saveDemoTestNumber(e:FormEvent){
   e.preventDefault();if(!demoTarget)return;
+  if(!isSafeDemoNumber(demoNumber)||!demoNumber.endsWith(demoTarget.lastFourDigits)){setDemoError("Enter 16 dummy digits matching this card’s last four. Real card numbers are not allowed.");return;}
   setBusy(true);setDemoError("");
   try{
    await apiFetch("/customers/cards/"+demoTarget.id+"/demo-test-number",{method:"POST",body:JSON.stringify({demoNumber})});
@@ -158,7 +167,7 @@ export default function CustomerDetailPage(){
  async function addCard(e:FormEvent){
   e.preventDefault();
   if(!/^\d{4}$/.test(cardLastFour)){setCardError("Enter the last 4 card digits.");return;}
-  if(demoAddNumber && (!DEMO_TEST_NUMBERS.includes(demoAddNumber) || !demoAddNumber.endsWith(cardLastFour))){setCardError("Demo number must be a listed test number matching the last four digits.");return;}
+  if(demoEnabled&&demoAddNumber && (!isSafeDemoNumber(demoAddNumber) || !demoAddNumber.endsWith(cardLastFour))){setCardError("Enter 16 dummy digits (not a real card number). The last four must match.");return;}
 
   setBusy(true);setCardError("");
   try{
@@ -337,7 +346,7 @@ export default function CustomerDetailPage(){
    {savedSearch.trim()?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]" role="status">{savedMatchCount} matching saved {savedMatchCount===1?"item":"items"} · Bank accounts: {foundBanks.length} of {c.bankAccounts.length}</p>:null}
   </Surface>
   <div className="grid gap-4 xl:grid-cols-3">
-   <SavedList title="Saved cards" count={c.cards.length} matchingCount={savedSearch.trim()?foundCards.length:undefined} addLabel="Add card" onAdd={()=>{setCardError("");setDemoAddNumber("");setAddingCard(true);}}>{foundCards.length?foundCards.map(x=><div key={x.id}><SavedItem title={x.bankName+" •••• "+x.lastFourDigits} copyValue={x.lastFourDigits} copyLabel="card last four digits" detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>{demoEnabled&&x.isActive?<div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 pb-3 text-[11px]"><span className="font-semibold text-amber-700">DEMO ONLY · •••• {x.lastFourDigits}</span><div className="flex items-center gap-2"><button type="button" className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 font-bold" onClick={()=>{setDemoTarget(x);setDemoError("");setDemoNumber(DEMO_TEST_NUMBERS.find(value=>value.endsWith(x.lastFourDigits))||"");}}>Test number</button>{demoCardIds.includes(x.id)?<button type="button" className="rounded-lg bg-indigo-600 px-2.5 py-1.5 font-bold text-white" onClick={()=>void copyDemoTestNumber(x.id)}>Copy 16 digits</button>:null}</div></div>:null}</div>):<EmptyState title={savedSearch.trim()?"No matching cards":"No saved cards"}/>}</SavedList>
+   <SavedList title="Saved cards" count={c.cards.length} matchingCount={savedSearch.trim()?foundCards.length:undefined} addLabel="Add card" onAdd={()=>{setCardError("");setDemoAddNumber("");setAddingCard(true);}}>{foundCards.length?foundCards.map(x=><div key={x.id}><SavedItem title={x.bankName+" •••• "+x.lastFourDigits} copyValue={x.lastFourDigits} copyLabel="card last four digits" detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>{demoEnabled&&x.isActive?<div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 pb-3 text-[11px]"><span className="font-semibold text-amber-700">DEMO ONLY · •••• {x.lastFourDigits}</span><div className="flex items-center gap-2"><button type="button" className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 font-bold" onClick={()=>{setDemoTarget(x);setDemoError("");setDemoNumber("");}}>Test number</button>{demoCardIds.includes(x.id)?<button type="button" className="rounded-lg bg-indigo-600 px-2.5 py-1.5 font-bold text-white" onClick={()=>void copyDemoTestNumber(x.id)}>Copy 16 digits</button>:null}</div></div>:null}</div>):<EmptyState title={savedSearch.trim()?"No matching cards":"No saved cards"}/>}</SavedList>
    <SavedList title="Bank accounts" count={c.bankAccounts.length} matchingCount={savedSearch.trim()?foundBanks.length:undefined} addLabel="Add bank" onAdd={()=>setAddKind("bank")}>{foundBanks.length?foundBanks.map(x=><BankSavedItem key={x.id} bank={x} onEdit={()=>beginEdit({kind:"bank",item:x})} onToggle={()=>setToggleTarget({path:"/customers/banks/"+x.id,isActive:x.isActive,label:"bank account"})}/>):<EmptyState title={savedSearch.trim()?"No matching bank accounts":"No bank accounts"}/>}</SavedList>
    <SavedList title="UPI accounts" count={c.upiAccounts.length} matchingCount={savedSearch.trim()?foundUpi.length:undefined} addLabel="Add UPI" onAdd={()=>setAddKind("upi")}>{foundUpi.length?foundUpi.map(x=><SavedItem key={x.id} title={x.accountName} copyValue={x.upiId||x.mobileNumber||undefined} copyLabel={x.upiId?"UPI ID":"UPI mobile number"} detail={(x.upiId||x.mobileNumber||"—")+(x.providerName?" · "+x.providerName:"")} active={x.isActive} onEdit={()=>beginEdit({kind:"upi",item:x})} onToggle={()=>setToggleTarget({path:"/customers/upi/"+x.id,isActive:x.isActive,label:"UPI account"})}/>):<EmptyState title={savedSearch.trim()?"No matching UPI accounts":"No UPI accounts"}/>}</SavedList>
   </div>
@@ -377,15 +386,14 @@ export default function CustomerDetailPage(){
     <Field label="Card bank"><input className={control} name="cashledger_bank" autoComplete="on" value={cardBank} onChange={e=>setCardBank(e.target.value)} placeholder="Bank name" required/></Field>
     <Field label="Last 4 digits"><input className={control} name="cashledger_card_last_four" inputMode="numeric" autoComplete="on" maxLength={4} value={cardLastFour} onChange={e=>setCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="1234" required/></Field>
     <Field label="Nickname (optional)" className="sm:col-span-2"><input className={control} name="cashledger_nickname" autoComplete="on" value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="e.g. Personal card"/></Field>
-    {demoEnabled?<Field label="Synthetic test card (optional)" className="sm:col-span-2"><select className={control} value={demoAddNumber} onChange={e=>{setDemoAddNumber(e.target.value);if(e.target.value)setCardLastFour(e.target.value.slice(-4));}}><option value="">Do not save demo number</option>{DEMO_TEST_NUMBERS.map(value=><option key={value} value={value}>Test card •••• {value.slice(-4)}</option>)}</select><p className="mt-1 text-[11px] text-amber-700">Demo-only fixed test numbers. Never enter a real customer card number.</p></Field>:null}
+    {demoEnabled?<Field label="16-digit demo number (optional)" className="sm:col-span-2"><input className={control} type="text" name="demo_card_number" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={16} value={demoAddNumber} onChange={e=>{const digits=e.target.value.replace(/\D/g,"").slice(0,16);setDemoAddNumber(digits);if(digits.length===16)setCardLastFour(digits.slice(-4));}} placeholder="Type any dummy 16-digit number"/><p className="mt-1 text-[11px] text-amber-700">Demo only. Enter your own 16-digit sample (invalid payment-card checksum) or published gateway test number. Never enter a real card.</p></Field>:null}
     {cardError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 sm:col-span-2">{cardError}</p>:null}
    </form>
   </Modal>
-  <Modal open={!!demoTarget} title="Synthetic test number — demo only" description="Only published test numbers are accepted. Real customer cards are prohibited." onClose={()=>{if(!busy)setDemoTarget(null);}} footer={<button form="customer-demo-test-card" disabled={busy||!demoNumber} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save test number"}</button>}>
+  <Modal open={!!demoTarget} title="Custom test number — demo only" description="Type a 16-digit dummy number matching the last four digits. Do not enter an actual card." onClose={()=>{if(!busy)setDemoTarget(null);}} footer={<button form="customer-demo-test-card" disabled={busy||!demoNumber} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save test number"}</button>}>
    <form id="customer-demo-test-card" onSubmit={saveDemoTestNumber} className="space-y-3">
     <p className="text-xs text-[var(--text-muted)]">Saved card: {demoTarget?.bankName} •••• {demoTarget?.lastFourDigits}. Only matching test numbers can be linked.</p>
-    <Field label="Synthetic 16-digit test number"><select className={control} value={demoNumber} onChange={e=>setDemoNumber(e.target.value)} required><option value="">Choose a test number</option>{DEMO_TEST_NUMBERS.filter(value=>value.endsWith(demoTarget?.lastFourDigits||"-")).map(value=><option key={value} value={value}>Test number •••• {value.slice(-4)}</option>)}</select></Field>
-    {!DEMO_TEST_NUMBERS.some(value=>value.endsWith(demoTarget?.lastFourDigits||"-"))?<p className="text-xs text-amber-700">To test copying, add a new demo card and select a synthetic test number in the Add Card form.</p>:null}
+    <Field label="Custom 16-digit demo number"><input className={control} type="text" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={16} value={demoNumber} onChange={e=>setDemoNumber(e.target.value.replace(/\D/g,"").slice(0,16))} placeholder="Enter 16 dummy digits" required/><p className="mt-1 text-[11px] text-amber-700">Dummy values only. Existing card last four digits must match. To change them, edit the card first.</p></Field>
     {demoError?<p role="alert" className="text-xs font-semibold text-rose-700">{demoError}</p>:null}
    </form>
   </Modal>

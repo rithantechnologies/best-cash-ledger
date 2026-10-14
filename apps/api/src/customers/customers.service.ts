@@ -1616,9 +1616,24 @@ export class CustomersService {
 
   async saveDemoTestNumber(cardId: string, value: string, userId: string) {
     const key = this.demoCardKey();
-    const validTestNumbers = new Set(['4242424242424242', '5555555555554444', '4000000000000002', '4111111111111111']);
-    if (!validTestNumbers.has(value))
-      throw new BadRequestException('Only the listed synthetic test card numbers are allowed. Never enter real card details.');
+    // The development demo supports user-entered, *non-usable* 16-digit samples.
+    // Published gateway test numbers are also permitted despite their valid checksums.
+    // Do not remove this server-side guard: a real PAN must never enter this demo vault.
+    const publishedTestNumbers = new Set(['4242424242424242', '5555555555554444', '4000000000000002', '4111111111111111']);
+    const luhnValid = (number: string) => {
+      let checksum = 0;
+      for (let i = number.length - 1; i >= 0; i--) {
+        let digit = Number(number[i]);
+        if ((number.length - i) % 2 === 0) {
+          digit *= 2;
+          if (digit > 9) digit -= 9;
+        }
+        checksum += digit;
+      }
+      return checksum % 10 === 0;
+    };
+    if (!/^\d{16}$/.test(value) || (luhnValid(value) && !publishedTestNumbers.has(value)))
+      throw new BadRequestException('Enter a 16-digit dummy number that is not a real payment card number, or use a published test number.');
     const card = await this.prisma.customerCard.findUnique({ where: { id: cardId }, select: { lastFourDigits: true, isActive: true } });
     if (!card || !card.isActive) throw new NotFoundException('Active card not found');
     if (card.lastFourDigits !== value.slice(-4))
