@@ -1126,6 +1126,15 @@ export class TransactionsService {
 
       if (purpose === 'SERVICE') {
         const serviceName = dto.serviceName!.trim();
+        const configuredService = await tx.serviceCatalog.findFirst({
+          where: { name: { equals: serviceName, mode: 'insensitive' }, isActive: true },
+        });
+        if (configuredService?.partnerOnly && serviceFulfillmentMode !== 'PARTNER') {
+          throw new BadRequestException('This service must be fulfilled by a partner');
+        }
+        if (configuredService && !configuredService.allowPartnerFulfillment && serviceFulfillmentMode === 'PARTNER') {
+          throw new BadRequestException('Partner fulfilment is disabled for this service');
+        }
         let serviceProfileId: string | null = null;
         let serviceReferenceLabel = dto.serviceReferenceLabel?.trim() || null;
         let serviceProviderName = dto.serviceProviderName?.trim() || null;

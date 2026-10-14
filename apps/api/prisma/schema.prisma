@@ -462,6 +462,8 @@ model ServiceCatalog {
   name                    String   @unique
   defaultAmount           Decimal? @db.Decimal(18, 2)
   allowPartnerFulfillment Boolean  @default(false)
+  partnerOnly             Boolean  @default(false)
+  partnerNames            String[] @default([])
   defaultPartnerName      String?
   defaultPartnerCharge    Decimal? @db.Decimal(18, 2)
   isActive                Boolean  @default(true)

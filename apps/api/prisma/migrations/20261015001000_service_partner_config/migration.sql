@@ -1,0 +1,1 @@
+ALTER TABLE "ServiceCatalog" ADD COLUMN "partnerOnly" BOOLEAN NOT NULL DEFAULT false, ADD COLUMN "partnerNames" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

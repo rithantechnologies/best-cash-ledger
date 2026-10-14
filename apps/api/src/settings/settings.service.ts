@@ -204,6 +204,16 @@ export class SettingsService {
     });
   }
 
+  private cleanServicePartners(partners?: string[]): string[] {
+    const seen = new Set<string>();
+    return (partners ?? []).map((name) => name.trim()).filter((name) => {
+      const key = name.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   services(includeInactive = false) {
     return this.prisma.serviceCatalog.findMany({
       where: includeInactive ? undefined : { isActive: true },
@@ -213,12 +223,15 @@ export class SettingsService {
 
   createService(dto: CreateServiceCatalogDto, actorId: string) {
     const name = dto.name.trim();
+    const allowPartnerFulfillment = dto.allowPartnerFulfillment ?? dto.partnerOnly ?? false;
     return this.prisma.$transaction(async (tx) => {
       const service = await tx.serviceCatalog.create({
         data: {
           name,
           defaultAmount: dto.defaultAmount === undefined ? null : dto.defaultAmount,
-          allowPartnerFulfillment: dto.allowPartnerFulfillment ?? false,
+          allowPartnerFulfillment,
+          partnerOnly: allowPartnerFulfillment && (dto.partnerOnly ?? false),
+          partnerNames: this.cleanServicePartners(dto.partnerNames),
           defaultPartnerName: dto.defaultPartnerName?.trim() || null,
           defaultPartnerCharge: dto.defaultPartnerCharge === undefined ? null : dto.defaultPartnerCharge,
         },
@@ -233,6 +246,8 @@ export class SettingsService {
             name: service.name,
             defaultAmount: service.defaultAmount?.toString() ?? null,
             allowPartnerFulfillment: service.allowPartnerFulfillment,
+            partnerOnly: service.partnerOnly,
+            partnerNames: service.partnerNames,
             defaultPartnerName: service.defaultPartnerName,
             defaultPartnerCharge: service.defaultPartnerCharge?.toString() ?? null,
             isActive: service.isActive,
@@ -246,13 +261,17 @@ export class SettingsService {
   async updateService(id: string, dto: UpdateServiceCatalogDto, actorId: string) {
     const existing = await this.prisma.serviceCatalog.findUnique({ where: { id } });
     if (!existing) throw new Error('Service not found');
+    const allowPartnerFulfillment = dto.allowPartnerFulfillment ?? (dto.partnerOnly === true ? true : existing.allowPartnerFulfillment);
+    const partnerOnly = allowPartnerFulfillment && (dto.partnerOnly ?? existing.partnerOnly);
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.serviceCatalog.update({
         where: { id },
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
           ...(dto.defaultAmount !== undefined ? { defaultAmount: dto.defaultAmount } : {}),
-          ...(dto.allowPartnerFulfillment !== undefined ? { allowPartnerFulfillment: dto.allowPartnerFulfillment } : {}),
+          allowPartnerFulfillment,
+          partnerOnly,
+          ...(dto.partnerNames !== undefined ? { partnerNames: this.cleanServicePartners(dto.partnerNames) } : {}),
           ...(dto.defaultPartnerName !== undefined ? { defaultPartnerName: dto.defaultPartnerName?.trim() || null } : {}),
           ...(dto.defaultPartnerCharge !== undefined ? { defaultPartnerCharge: dto.defaultPartnerCharge } : {}),
         },
@@ -267,6 +286,8 @@ export class SettingsService {
             name: existing.name,
             defaultAmount: existing.defaultAmount?.toString() ?? null,
             allowPartnerFulfillment: existing.allowPartnerFulfillment,
+            partnerOnly: existing.partnerOnly,
+            partnerNames: existing.partnerNames,
             defaultPartnerName: existing.defaultPartnerName,
             defaultPartnerCharge: existing.defaultPartnerCharge?.toString() ?? null,
           },
@@ -274,6 +295,8 @@ export class SettingsService {
             name: updated.name,
             defaultAmount: updated.defaultAmount?.toString() ?? null,
             allowPartnerFulfillment: updated.allowPartnerFulfillment,
+            partnerOnly: updated.partnerOnly,
+            partnerNames: updated.partnerNames,
             defaultPartnerName: updated.defaultPartnerName,
             defaultPartnerCharge: updated.defaultPartnerCharge?.toString() ?? null,
           },
