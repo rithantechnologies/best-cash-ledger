@@ -14,6 +14,7 @@ import { BankIfscPicker } from "@/components/bank-ifsc-picker";
 import { matchesSavedDetailSearch } from "@/lib/saved-detail-search";
 import { formatBankCopyText } from "@/lib/bank-copy-text";
 
+const DEMO_TEST_NUMBERS = ["4242424242424242", "5555555555554444", "4000000000000002", "4111111111111111"];
 type Card={id:string;bankName:string;cardType:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
 type Bank={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type Upi={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
@@ -47,6 +48,8 @@ export default function CustomerDetailPage(){
  const [c,setC]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
  const [view,setView]=useState<"details"|"activity">("details"),[setupGuide,setSetupGuide]=useState(false);
  const [savedSearch,setSavedSearch]=useState("");
+ const [demoEnabled,setDemoEnabled]=useState(false),[demoCardIds,setDemoCardIds]=useState<string[]>([]);
+ const [demoTarget,setDemoTarget]=useState<Card|null>(null),[demoNumber,setDemoNumber]=useState(""),[demoAddNumber,setDemoAddNumber]=useState(""),[demoError,setDemoError]=useState("");
  const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
  const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileEbNumber,setProfileEbNumber]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
  const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
@@ -63,6 +66,27 @@ export default function CustomerDetailPage(){
  const control="app-control";
 
  const load=()=>apiFetch<Customer>("/customers/"+id).then(setC);
+ const loadDemoStatus=()=>apiFetch<{enabled:boolean;cardIds:string[]}>("/customers/"+id+"/demo-card-status").then(result=>{setDemoEnabled(result.enabled);setDemoCardIds(result.cardIds);}).catch(()=>{setDemoEnabled(false);setDemoCardIds([]);});
+ useEffect(()=>{void loadDemoStatus();},[id]);
+ async function copyDemoTestNumber(cardId:string){
+  setError("");setMessage("");
+  try{
+   const response=await apiFetch<{demoNumber:string}>("/customers/cards/"+cardId+"/copy-demo-test-number",{method:"POST"});
+   await navigator.clipboard.writeText(response.demoNumber);
+   setMessage("Synthetic demo number copied. Do not use in real payments.");
+  }catch(err){setError(err instanceof Error?err.message:"Could not copy the demo number.");}
+ }
+ async function saveDemoTestNumber(e:FormEvent){
+  e.preventDefault();if(!demoTarget)return;
+  setBusy(true);setDemoError("");
+  try{
+   await apiFetch("/customers/cards/"+demoTarget.id+"/demo-test-number",{method:"POST",body:JSON.stringify({demoNumber})});
+   setDemoTarget(null);setDemoNumber("");setMessage("Synthetic demo number saved securely.");
+   await loadDemoStatus();
+  }catch(err){setDemoError(err instanceof Error?err.message:"Could not save demo number");}
+  finally{setBusy(false);}
+ }
+
  const loadCardLedger=(cardId=ledgerCardId)=>{setLedgerLoading(true);setLedgerError("");return apiFetch<CardLedger>("/customers/"+id+"/card-ledger"+(cardId?"?cardId="+encodeURIComponent(cardId):"")).then(setCardLedger).catch(e=>setLedgerError(e instanceof Error?e.message:"Failed to load card ledger")).finally(()=>setLedgerLoading(false));};
  useEffect(()=>{setSetupGuide(new URLSearchParams(window.location.search).has("setup"));},[id]);
  useEffect(()=>{load().catch(e=>setError(e instanceof Error?e.message:"Failed to load customer"));},[id]);
@@ -134,10 +158,19 @@ export default function CustomerDetailPage(){
  async function addCard(e:FormEvent){
   e.preventDefault();
   if(!/^\d{4}$/.test(cardLastFour)){setCardError("Enter the last 4 card digits.");return;}
+  if(demoAddNumber && (!DEMO_TEST_NUMBERS.includes(demoAddNumber) || !demoAddNumber.endsWith(cardLastFour))){setCardError("Demo number must be a listed test number matching the last four digits.");return;}
+
   setBusy(true);setCardError("");
   try{
-   await apiFetch("/customers/"+id+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank.trim(),cardType:"CREDIT",lastFourDigits:cardLastFour,nickname:cardNickname.trim()||undefined})});
-   setAddingCard(false);setCardBank("");setCardLastFour("");setCardNickname("");setMessage("Card added.");
+   const created=await apiFetch<{id:string}>("/customers/"+id+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank.trim(),cardType:"CREDIT",lastFourDigits:cardLastFour,nickname:cardNickname.trim()||undefined})});
+   let demoSaved=true;
+   if(demoEnabled&&demoAddNumber){
+    try{await apiFetch("/customers/cards/"+created.id+"/demo-test-number",{method:"POST",body:JSON.stringify({demoNumber:demoAddNumber})});}
+    catch{demoSaved=false;}
+   }
+   setAddingCard(false);setCardBank("");setCardLastFour("");setCardNickname("");setDemoAddNumber("");
+   setMessage(demoSaved?"Card added.":"Card added, but the demo test number could not be saved. Try the Test Number action.");
+   await loadDemoStatus();
    await load();
   }catch(err){setCardError(err instanceof Error?err.message:"Could not save card.");}
   finally{setBusy(false);}
@@ -304,7 +337,7 @@ export default function CustomerDetailPage(){
    {savedSearch.trim()?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]" role="status">{savedMatchCount} matching saved {savedMatchCount===1?"item":"items"} · Bank accounts: {foundBanks.length} of {c.bankAccounts.length}</p>:null}
   </Surface>
   <div className="grid gap-4 xl:grid-cols-3">
-   <SavedList title="Saved cards" count={c.cards.length} matchingCount={savedSearch.trim()?foundCards.length:undefined} addLabel="Add card" onAdd={()=>{setCardError("");setAddingCard(true);}}>{foundCards.length?foundCards.map(x=><SavedItem key={x.id} title={x.bankName+" •••• "+x.lastFourDigits} copyValue={x.lastFourDigits} copyLabel="card last four digits" detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>):<EmptyState title={savedSearch.trim()?"No matching cards":"No saved cards"}/>}</SavedList>
+   <SavedList title="Saved cards" count={c.cards.length} matchingCount={savedSearch.trim()?foundCards.length:undefined} addLabel="Add card" onAdd={()=>{setCardError("");setDemoAddNumber("");setAddingCard(true);}}>{foundCards.length?foundCards.map(x=><div key={x.id}><SavedItem title={x.bankName+" •••• "+x.lastFourDigits} copyValue={x.lastFourDigits} copyLabel="card last four digits" detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>{demoEnabled&&x.isActive?<div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 pb-3 text-[11px]"><span className="font-semibold text-amber-700">DEMO ONLY · •••• {x.lastFourDigits}</span><div className="flex items-center gap-2"><button type="button" className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 font-bold" onClick={()=>{setDemoTarget(x);setDemoError("");setDemoNumber(DEMO_TEST_NUMBERS.find(value=>value.endsWith(x.lastFourDigits))||"");}}>Test number</button>{demoCardIds.includes(x.id)?<button type="button" className="rounded-lg bg-indigo-600 px-2.5 py-1.5 font-bold text-white" onClick={()=>void copyDemoTestNumber(x.id)}>Copy 16 digits</button>:null}</div></div>:null}</div>):<EmptyState title={savedSearch.trim()?"No matching cards":"No saved cards"}/>}</SavedList>
    <SavedList title="Bank accounts" count={c.bankAccounts.length} matchingCount={savedSearch.trim()?foundBanks.length:undefined} addLabel="Add bank" onAdd={()=>setAddKind("bank")}>{foundBanks.length?foundBanks.map(x=><BankSavedItem key={x.id} bank={x} onEdit={()=>beginEdit({kind:"bank",item:x})} onToggle={()=>setToggleTarget({path:"/customers/banks/"+x.id,isActive:x.isActive,label:"bank account"})}/>):<EmptyState title={savedSearch.trim()?"No matching bank accounts":"No bank accounts"}/>}</SavedList>
    <SavedList title="UPI accounts" count={c.upiAccounts.length} matchingCount={savedSearch.trim()?foundUpi.length:undefined} addLabel="Add UPI" onAdd={()=>setAddKind("upi")}>{foundUpi.length?foundUpi.map(x=><SavedItem key={x.id} title={x.accountName} copyValue={x.upiId||x.mobileNumber||undefined} copyLabel={x.upiId?"UPI ID":"UPI mobile number"} detail={(x.upiId||x.mobileNumber||"—")+(x.providerName?" · "+x.providerName:"")} active={x.isActive} onEdit={()=>beginEdit({kind:"upi",item:x})} onToggle={()=>setToggleTarget({path:"/customers/upi/"+x.id,isActive:x.isActive,label:"UPI account"})}/>):<EmptyState title={savedSearch.trim()?"No matching UPI accounts":"No UPI accounts"}/>}</SavedList>
   </div>
@@ -344,7 +377,16 @@ export default function CustomerDetailPage(){
     <Field label="Card bank"><input className={control} name="cashledger_bank" autoComplete="on" value={cardBank} onChange={e=>setCardBank(e.target.value)} placeholder="Bank name" required/></Field>
     <Field label="Last 4 digits"><input className={control} name="cashledger_card_last_four" inputMode="numeric" autoComplete="on" maxLength={4} value={cardLastFour} onChange={e=>setCardLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="1234" required/></Field>
     <Field label="Nickname (optional)" className="sm:col-span-2"><input className={control} name="cashledger_nickname" autoComplete="on" value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="e.g. Personal card"/></Field>
+    {demoEnabled?<Field label="Synthetic test card (optional)" className="sm:col-span-2"><select className={control} value={demoAddNumber} onChange={e=>{setDemoAddNumber(e.target.value);if(e.target.value)setCardLastFour(e.target.value.slice(-4));}}><option value="">Do not save demo number</option>{DEMO_TEST_NUMBERS.map(value=><option key={value} value={value}>Test card •••• {value.slice(-4)}</option>)}</select><p className="mt-1 text-[11px] text-amber-700">Demo-only fixed test numbers. Never enter a real customer card number.</p></Field>:null}
     {cardError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 sm:col-span-2">{cardError}</p>:null}
+   </form>
+  </Modal>
+  <Modal open={!!demoTarget} title="Synthetic test number — demo only" description="Only published test numbers are accepted. Real customer cards are prohibited." onClose={()=>{if(!busy)setDemoTarget(null);}} footer={<button form="customer-demo-test-card" disabled={busy||!demoNumber} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save test number"}</button>}>
+   <form id="customer-demo-test-card" onSubmit={saveDemoTestNumber} className="space-y-3">
+    <p className="text-xs text-[var(--text-muted)]">Saved card: {demoTarget?.bankName} •••• {demoTarget?.lastFourDigits}. Only matching test numbers can be linked.</p>
+    <Field label="Synthetic 16-digit test number"><select className={control} value={demoNumber} onChange={e=>setDemoNumber(e.target.value)} required><option value="">Choose a test number</option>{DEMO_TEST_NUMBERS.filter(value=>value.endsWith(demoTarget?.lastFourDigits||"-")).map(value=><option key={value} value={value}>Test number •••• {value.slice(-4)}</option>)}</select></Field>
+    {!DEMO_TEST_NUMBERS.some(value=>value.endsWith(demoTarget?.lastFourDigits||"-"))?<p className="text-xs text-amber-700">To test copying, add a new demo card and select a synthetic test number in the Add Card form.</p>:null}
+    {demoError?<p role="alert" className="text-xs font-semibold text-rose-700">{demoError}</p>:null}
    </form>
   </Modal>
   <Modal open={!!ledgerEntryDirection} title={ledgerEntryDirection==="PAY_IN"?"Pay In":"Pay Out"} description={ledgerEntryDirection==="PAY_IN"?"Money received from customer · adds Credit (In).":"Money paid to customer · adds Debit (Out)."} onClose={()=>{if(!ledgerEntryBusy)resetLedgerEntry();}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={ledgerEntryBusy} onClick={resetLedgerEntry} className="app-secondary-button min-h-11 font-bold disabled:opacity-50">Cancel</button><button form="customer-ledger-entry" disabled={ledgerEntryBusy||!ledgerEntryAccountId||ledgerEntryValue<=0} className={"min-h-11 rounded-xl font-black text-white disabled:opacity-50 "+(ledgerEntryDirection==="PAY_IN"?"bg-emerald-700":"bg-rose-700")}>{ledgerEntryBusy?"Saving…":ledgerEntryDirection==="PAY_IN"?"Save Pay In":"Save Pay Out"}</button></div>}>

@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Headers, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { CreateCardDto } from './dto/create-card.dto.js';
+import { SaveDemoCardDto } from './dto/save-demo-card.dto.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
 import { CreateCustomerLedgerEntryDto } from './dto/create-customer-ledger-entry.dto.js';
 import { CreateQuickCustomerCardDto } from './dto/create-quick-customer-card.dto.js';
@@ -101,6 +102,24 @@ export class CustomersController {
   @Patch(':id/active')
   setCustomerActive(@Param('id') id: string, @Body() dto: SetCustomerItemActiveDto, @Req() req: any) {
     return this.customers.setCustomerActive(id, dto.isActive, req.user.userId);
+  }
+
+  @Get(':id/demo-card-status')
+  @Header('Cache-Control', 'private, no-store')
+  demoCardStatus(@Param('id') id: string) {
+    return this.customers.demoCardStatus(id);
+  }
+
+  @Post('cards/:id/demo-test-number')
+  @Header('Cache-Control', 'private, no-store')
+  saveDemoTestNumber(@Param('id') id: string, @Body() dto: SaveDemoCardDto, @Req() req: any) {
+    return this.customers.saveDemoTestNumber(id, dto.demoNumber, req.user.userId);
+  }
+
+  @Post('cards/:id/copy-demo-test-number')
+  @Header('Cache-Control', 'private, no-store')
+  copyDemoTestNumber(@Param('id') id: string, @Req() req: any) {
+    return this.customers.copyDemoTestNumber(id, req.user.userId);
   }
 
   @Post(':id/cards')
