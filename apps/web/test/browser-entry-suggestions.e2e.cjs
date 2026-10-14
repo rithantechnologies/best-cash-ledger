@@ -106,6 +106,8 @@ async function setControlled(page,selector,value){await page.$eval(selector,(el,
   await mobile.evaluateOnNewDocument(user=>localStorage.setItem("cashledger_user",JSON.stringify(user)),staff);
   await mobile.setViewport({width:390,height:380,isMobile:true,hasTouch:true});
   await mobile.goto(base+"/customers",{waitUntil:"networkidle2",timeout:30000});
+  await openCreate(mobile); // confirms client hydration and event listeners
+  await closeCreate(mobile);
   await mobile.evaluate(()=>{
     const field=document.createElement("input");
     field.name="cashledger_test_partner";field.setAttribute("autocomplete","on");
@@ -115,10 +117,12 @@ async function setControlled(page,selector,value){await page.$eval(selector,(el,
   await mobile.click('input[name="cashledger_test_partner"]');
   await mobile.type('input[name="cashledger_test_partner"]',"Canara Service Partner");
   await mobile.evaluate(()=>document.activeElement.blur());
+  const storedAfterBlur=await mobile.evaluate(()=>JSON.parse(localStorage.getItem("cashledger_field_suggestions_v1:test-staff-autofill-001")||"{}").cashledger_test_partner||[]);
+  assert.ok(storedAfterBlur.includes("Canara Service Partner"),"Mobile entry is stored before lookup");
   await mobile.click('input[name="cashledger_test_partner"]');
   await mobile.$eval('input[name="cashledger_test_partner"]',el=>el.value="");
   await mobile.type('input[name="cashledger_test_partner"]',"Can");
-  await mobile.waitForSelector('[data-entry-suggestions][data-placement="above"]',{visible:true});
+  await mobile.waitForSelector('[data-entry-suggestions][data-placement="above"]',{visible:true,timeout:8000});
   const rect=await mobile.evaluate(()=>{
     const field=document.querySelector('input[name="cashledger_test_partner"]').getBoundingClientRect(),menu=document.querySelector('[data-entry-suggestions]').getBoundingClientRect();
     return {fieldTop:field.top,menuBottom:menu.bottom,menuTop:menu.top,width:menu.width,screenWidth:innerWidth};
