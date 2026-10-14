@@ -1715,7 +1715,15 @@ export class CustomersService {
     return { saved: true };
   }
 
+  async viewDemoTestNumber(cardId: string, userId: string) {
+    return this.readStoredDemoCardNumber(cardId, userId, 'DEMO_TEST_NUMBER_VIEW');
+  }
+
   async copyDemoTestNumber(cardId: string, userId: string) {
+    return this.readStoredDemoCardNumber(cardId, userId, 'DEMO_TEST_NUMBER_COPY');
+  }
+
+  private async readStoredDemoCardNumber(cardId: string, userId: string, action: 'DEMO_TEST_NUMBER_VIEW' | 'DEMO_TEST_NUMBER_COPY') {
     const key = this.demoCardKey();
     const saved = await this.prisma.customerDemoCard.findUnique({
       where: { customerCardId: cardId },
@@ -1729,7 +1737,7 @@ export class CustomersService {
     const value = Buffer.concat([decipher.update(Buffer.from(parts[2], 'hex')), decipher.final()]).toString('utf8');
     await this.prisma.auditLog.create({
       data: { userId, entityType: 'CUSTOMER_CARD', entityId: cardId,
-        action: 'DEMO_TEST_NUMBER_COPY', newValues: { synthetic: true, lastFourDigits: value.slice(-4) } },
+        action, newValues: { synthetic: true, lastFourDigits: value.slice(-4) } },
     });
     return { demoNumber: value };
   }

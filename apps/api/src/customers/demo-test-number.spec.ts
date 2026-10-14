@@ -43,6 +43,19 @@ describe('development-only synthetic card numbers', () => {
     expect(audit).toHaveLength(2);
   });
 
+  it('loads existing full card number for Edit with a distinct view audit, without changing storage', async () => {
+    process.env.DEMO_CARD_COPY_ENABLED = 'true';
+    process.env.DEMO_CARD_ENCRYPTION_KEY = demoKey;
+    const { service, audit, getStored } = fixture();
+    const value = '0000000000004243';
+    await service.saveDemoTestNumber('card-1', value, 'staff-1');
+    const ciphertext = getStored();
+    expect((await service.viewDemoTestNumber('card-1', 'staff-1')).demoNumber).toBe(value);
+    expect(getStored()).toBe(ciphertext);
+    expect(JSON.stringify(audit)).not.toContain(value);
+    expect((audit[1] as { data: { action: string } }).data.action).toBe('DEMO_TEST_NUMBER_VIEW');
+  });
+
   it('upgrades an existing last-four-only card in one transaction without replacing its ID', async () => {
     process.env.DEMO_CARD_COPY_ENABLED = 'true';
     process.env.DEMO_CARD_ENCRYPTION_KEY = demoKey;

@@ -70,7 +70,9 @@ export default function CustomerDetailPage(){
  const [upiName,setUpiName]=useState(""),[upiId,setUpiId]=useState(""),[upiMobile,setUpiMobile]=useState(""),[upiProvider,setUpiProvider]=useState(""),[upiError,setUpiError]=useState("");
  const [beneficiaryName,setBeneficiaryName]=useState(""),[relationship,setRelationship]=useState("");
  const [beneficiaryId,setBeneficiaryId]=useState(""),[bType,setBType]=useState("BANK"),[bBank,setBBank]=useState(""),[bRef,setBRef]=useState(""),[bIfsc,setBIfsc]=useState(""),[bUpi,setBUpi]=useState(""),[bMobile,setBMobile]=useState("");
- const [editDemoNumber,setEditDemoNumber]=useState(""),[editError,setEditError]=useState("");
+ const [editDemoNumber,setEditDemoNumber]=useState(""),[editOriginalNumber,setEditOriginalNumber]=useState(""),[editError,setEditError]=useState("");
+ const [editNumberStatus,setEditNumberStatus]=useState<"none"|"loading"|"loaded"|"error">("none"),[showEditNumber,setShowEditNumber]=useState(false);
+ const editNumberRequestRef=useRef(0);
  const [edit,setEdit]=useState<EditState>(null),[e1,setE1]=useState(""),[e2,setE2]=useState(""),[e3,setE3]=useState(""),[e4,setE4]=useState(""),[e5,setE5]=useState("");
  const control="app-control";
 
@@ -239,19 +241,40 @@ export default function CustomerDetailPage(){
 
  function beginEdit(next:Exclude<EditState,null>){
   setEdit(next);setError("");setEditError("");setEditDemoNumber("");
-  if(next.kind==="card"){setE1(next.item.bankName);setE2(next.item.lastFourDigits);setE3("CREDIT");setE4(next.item.nickname||"");setE5("");}
+  if(next.kind==="card"){
+   setE1(next.item.bankName);setE2(next.item.lastFourDigits);setE3("CREDIT");setE4(next.item.nickname||"");setE5("");
+   if(demoEnabled && demoCardIds.includes(next.item.id))void loadEditCardNumber(next.item);
+  }
   if(next.kind==="bank"){setE1(next.item.accountHolderName);setE2(next.item.bankName);setE3(next.item.accountReference);setE4(next.item.ifsc||"");setE5("");}
   if(next.kind==="upi"){setE1(next.item.accountName);setE2(next.item.upiId||"");setE3(next.item.mobileNumber||"");setE4(next.item.providerName||"");setE5("");}
   if(next.kind==="beneficiary"){setE1(next.item.beneficiaryName);setE2(next.item.relationshipNote||"");setE3(next.item.notes||"");setE4("");setE5("");}
   if(next.kind==="beneficiaryAccount"){setE1(next.item.accountType);setE2(next.item.bankName||"");setE3(next.item.accountReference||"");setE4(next.item.upiId||"");setE5(next.item.ifsc||"");}
+ }
+ function closeEdit(){
+  editNumberRequestRef.current++;
+  setEdit(null);setEditDemoNumber("");setEditOriginalNumber("");setEditNumberStatus("none");setShowEditNumber(false);setEditError("");
+ }
+ async function loadEditCardNumber(card:Card){
+  const request=++editNumberRequestRef.current;
+  setEditNumberStatus("loading");setEditError("");setEditDemoNumber("");setEditOriginalNumber("");
+  try{
+   const result=await apiFetch<{demoNumber:string}>("/customers/cards/"+card.id+"/view-demo-test-number",{method:"POST"});
+   if(request!==editNumberRequestRef.current)return;
+   if(!/^\d{16}$/.test(result.demoNumber)||!result.demoNumber.endsWith(card.lastFourDigits))throw new Error("Saved card number is unavailable or does not match this card.");
+   setEditOriginalNumber(result.demoNumber);setEditDemoNumber(result.demoNumber);setEditNumberStatus("loaded");
+  }catch(err){
+   if(request===editNumberRequestRef.current){setEditNumberStatus("error");setEditError(err instanceof Error?err.message:"Could not load the card number.");}
+  }
  }
  async function saveEdit(e:FormEvent){
   e.preventDefault();if(!edit)return;
   setEditError("");
   try{
    if(edit.kind==="card"){
+    if(editNumberStatus==="loading")throw new Error("Please wait for the saved card number to load.");
+    if(editNumberStatus==="error")throw new Error("Retry loading the saved card number before saving.");
     if(!/^\d{4}$/.test(e2))throw new Error("Enter the last four digits.");
-    if(editDemoNumber){
+    if(editDemoNumber && editDemoNumber!==editOriginalNumber){
      if(!demoEnabled||!isSafeDemoNumber(editDemoNumber)||editDemoNumber.slice(-4)!==e2)throw new Error("Enter exactly 16 digits matching the saved last four.");
      await run(()=>apiFetch("/customers/cards/"+edit.item.id+"/demo-test-number",{method:"POST",body:JSON.stringify({demoNumber:editDemoNumber,bankName:e1.trim(),nickname:e4.trim()})}),"Card number saved.");
      await loadDemoStatus();
@@ -263,7 +286,7 @@ export default function CustomerDetailPage(){
    else if(edit.kind==="upi")await run(()=>apiFetch("/customers/upi/"+edit.item.id,{method:"PATCH",body:JSON.stringify({accountName:e1.trim(),upiId:e2.trim()||undefined,mobileNumber:e3.trim()||undefined,providerName:e4.trim()||undefined})}),"UPI account updated.");
    else if(edit.kind==="beneficiary")await run(()=>apiFetch("/customers/beneficiaries/"+edit.item.id,{method:"PATCH",body:JSON.stringify({beneficiaryName:e1.trim(),relationshipNote:e2.trim()||undefined,notes:e3.trim()||undefined})}),"Beneficiary updated.");
    else {if(e1==="BANK"&&!e2.trim())throw new Error("Choose a bank.");await run(()=>apiFetch("/customers/beneficiary-accounts/"+edit.item.id,{method:"PATCH",body:JSON.stringify({accountType:e1,bankName:e2.trim()||undefined,accountReference:e3.trim()||undefined,upiId:e4.trim()||undefined,ifsc:e5.trim()||undefined})}),"Recipient account updated.");}
-   setEdit(null);setEditDemoNumber("");
+   closeEdit();
   }catch(err){setEditError(err instanceof Error?err.message:"Could not save changes.");}
  }
  async function confirmToggle(){
@@ -500,12 +523,17 @@ export default function CustomerDetailPage(){
   <Modal open={addKind==="beneficiaryAccount"} title="Add recipient account"  onClose={()=>setAddKind(null)} footer={<button form="add-beneficiary-account" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">Save recipient account</button>}>
    <form id="add-beneficiary-account" onSubmit={addBeneficiaryAccount} className="grid gap-3 sm:grid-cols-2"><Field label="Beneficiary"><SearchSelect value={beneficiaryId} onChange={setBeneficiaryId} options={c.beneficiaries.filter(b=>b.isActive).map(b=>({value:b.id,label:b.beneficiaryName,searchText:b.beneficiaryName}))} placeholder="Select beneficiary" searchPlaceholder="Search beneficiary…"/></Field><Field label="Account type"><SearchableSelect className={control} value={bType} onChange={e=>setBType(e.target.value)}><option value="BANK">Bank</option><option value="UPI">UPI</option></SearchableSelect></Field>{bType==="BANK"?<><BankIfscPicker bankName={bBank} ifsc={bIfsc} onBankChange={setBBank} onIfscChange={setBIfsc}/><Field label="Account reference"><input autoComplete="on" name="cashledger_bank_account_number" className={control} value={bRef} onChange={e=>setBRef(e.target.value)} required/></Field></>:<><Field label="UPI ID"><input className={control} value={bUpi} onChange={e=>setBUpi(e.target.value)} required/></Field><Field label="Mobile"><input name="cashledger_mobile" autoComplete="on" className={control} value={bMobile} onChange={e=>setBMobile(e.target.value)}/></Field></>}</form>
   </Modal>
-  <Modal open={!!edit} title={edit?"Edit "+edit.kind.replace("beneficiaryAccount","recipient account"):"Edit saved detail"}  onClose={()=>setEdit(null)} footer={<button form="edit-saved-detail" disabled={busy} className="min-h-11 w-full rounded-xl bg-indigo-700 font-bold text-white">Save changes</button>}>
+  <Modal open={!!edit} title={edit?"Edit "+edit.kind.replace("beneficiaryAccount","recipient account"):"Edit saved detail"} onClose={()=>{if(!busy)closeEdit();}} footer={<button form="edit-saved-detail" disabled={busy||editNumberStatus==="loading"||editNumberStatus==="error"} className="min-h-11 w-full rounded-xl bg-indigo-700 font-bold text-white">Save changes</button>}>
    <form id="edit-saved-detail" onSubmit={saveEdit} className="grid gap-3 sm:grid-cols-2">
     {edit?.kind==="card"?<>
      <Field label="Bank"><input name="cashledger_bank" autoComplete="on" className={control} value={e1} onChange={e=>setE1(e.target.value)} required/></Field>
      <Field label="Nickname"><input name="cashledger_nickname" autoComplete="on" className={control} value={e4} onChange={e=>setE4(e.target.value)}/></Field>
-     {demoEnabled?<Field label="Card number (16 digits)" className="sm:col-span-2"><input className={control+" font-mono"} name="cashledger_demo_card_number" type="text" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={16} value={editDemoNumber} onChange={event=>{const digits=event.target.value.replace(/\D/g,"").slice(0,16);setEditDemoNumber(digits);setEditError("");if(digits.length===16)setE2(digits.slice(-4));else if(!digits)setE2(edit.item.lastFourDigits);}} placeholder={demoCardIds.includes(edit.item.id)?"Enter new number to replace saved card":"Enter 16 digits"}/></Field>:null}
+     {demoEnabled?<Field label="Card number (16 digits)" className="sm:col-span-2">
+      <div className="relative"><input className={control+" font-mono pr-20"} name="cashledger_demo_card_number" type={showEditNumber?"text":"password"} inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={16} disabled={editNumberStatus==="loading"||editNumberStatus==="error"} value={editDemoNumber} onChange={event=>{const digits=event.target.value.replace(/\D/g,"").slice(0,16);setEditDemoNumber(digits);setEditError("");if(digits.length===16)setE2(digits.slice(-4));else if(!digits)setE2(edit.item.lastFourDigits);}} placeholder={editNumberStatus==="loading"?"Loading saved number…":"Enter 16 digits"}/>
+       {editNumberStatus==="loaded"?<button type="button" className="absolute inset-y-0 right-2 px-2 text-xs font-semibold text-indigo-700" onClick={()=>setShowEditNumber(v=>!v)} aria-label={showEditNumber?"Hide card number":"Show card number"}>{showEditNumber?"Hide":"Show"}</button>:null}
+      </div>
+      {editNumberStatus==="error"?<button type="button" className="mt-1 text-xs font-bold text-indigo-700" onClick={()=>void loadEditCardNumber(edit.item)}>Retry loading number</button>:null}
+     </Field>:null}
      <Field label="Last 4 digits"><input autoComplete="off" name="cashledger_card_last_four" className={control} value={e2} onChange={e=>setE2(e.target.value.replace(/\D/g,"").slice(0,4))} maxLength={4} readOnly={Boolean(demoEnabled&&demoCardIds.includes(edit.item.id))} required/></Field>
      <Field label="Type"><div className={control+" flex items-center bg-slate-50 font-bold"}>CREDIT</div></Field>
     </>:null}

@@ -130,6 +130,12 @@ export class CustomersController {
     return this.customers.saveDemoTestNumber(id, dto.demoNumber, req.user.userId, dto.bankName === undefined && dto.nickname === undefined ? undefined : { bankName: dto.bankName, nickname: dto.nickname });
   }
 
+  @Post('cards/:id/view-demo-test-number')
+  @Header('Cache-Control', 'private, no-store')
+  viewDemoTestNumber(@Param('id') id: string, @Req() req: any) {
+    return this.customers.viewDemoTestNumber(id, req.user.userId);
+  }
+
   @Post('cards/:id/copy-demo-test-number')
   @Header('Cache-Control', 'private, no-store')
   copyDemoTestNumber(@Param('id') id: string, @Req() req: any) {
