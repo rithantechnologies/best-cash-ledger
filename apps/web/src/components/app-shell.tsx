@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { BrandMark } from "@/components/brand-mark";
 import { QuickExpenseEntry } from "@/components/quick-expense-entry";
 import { QuickCardSwipeEntry } from "@/components/quick-card-swipe-entry";
+import { BrowserEntrySuggestions } from "@/components/browser-entry-suggestions";
 import { apiFetch } from "@/lib/api";
 
 const navItems = [
@@ -215,6 +216,7 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
   };
 
   return <div className={"min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)] "+(isDashboard?"dashboard-finance-shell":"")}>
+    <BrowserEntrySuggestions/>
     {navigating?<div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-[var(--accent-soft)]"><div className="h-full w-1/2 bg-[var(--accent)] [animation:cashledger-progress_.9s_ease-in-out_infinite]"/></div>:null}
     {desktopUserOpen?<button className="fixed inset-0 z-[35] hidden cursor-default lg:block" onClick={()=>setDesktopUserOpen(false)} aria-label="Close account menu"/>:null}
     <aside className={"app-sidebar fixed inset-y-0 left-0 z-40 hidden border-r border-[var(--border)] bg-[var(--surface)] transition-[width] duration-200 ease-out lg:flex lg:flex-col "+(desktopCollapsed?"w-[72px]":"w-[288px]")}>
