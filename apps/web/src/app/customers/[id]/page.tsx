@@ -26,7 +26,7 @@ type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;
 type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
 type Customer={
  id:string;customerCode:string;customerType:string;customerTypeId:string|null;customerTypeConfig:{id:string;name:string;isActive:boolean}|null;fullName:string;mobile:string|null;ebNumber:string|null;notes:string|null;isActive:boolean;
- cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];serviceProfiles:EbConnection[];beneficiaries:Beneficiary[];
+ cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];serviceProfiles?:EbConnection[];beneficiaries:Beneficiary[];
  transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;payable:{status:string;dueAt:string;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null}[];
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
  receivables:{id:string;reason:string;remainingAmount:string;receivedAmount:string;originalAmount:string;dueAt:string|null;status:string}[];
@@ -301,7 +301,8 @@ export default function CustomerDetailPage(){
  const foundCards=c.cards.filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.lastFourDigits,x.nickname,x.cardType]));
  const foundBanks=c.bankAccounts.filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.accountHolderName,x.accountReference,x.ifsc]));
  const foundUpi=c.upiAccounts.filter(x=>matchesSavedDetailSearch(savedSearch,[x.accountName,x.upiId,x.mobileNumber,x.providerName]));
- const foundEb=c.serviceProfiles.filter(x=>matchesSavedDetailSearch(savedSearch,[x.ownerName,x.referenceNumber]));
+ const ebProfiles=Array.isArray(c.serviceProfiles)?c.serviceProfiles:null;
+ const foundEb=(ebProfiles??[]).filter(x=>matchesSavedDetailSearch(savedSearch,[x.ownerName,x.referenceNumber]));
  const foundBeneficiaries=c.beneficiaries.flatMap(b=>{
   const beneficiaryMatches=matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote]);
   const accounts=beneficiaryMatches?b.accounts:b.accounts.filter(a=>matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote,a.bankName,a.accountReference,a.ifsc,a.upiId,a.mobileNumber]));
@@ -356,7 +357,7 @@ export default function CustomerDetailPage(){
      <button type="button" onClick={()=>setAddKind("bank")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Bank</button>
      <button type="button" onClick={()=>setAddKind("upi")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ UPI</button>
      <button type="button" onClick={()=>setAddKind("beneficiary")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Recipient</button>
-     <button type="button" onClick={()=>openEbEditor()} className="col-span-2 min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold sm:col-span-1">+ EB Number</button>
+     <button type="button" onClick={()=>openEbEditor()} disabled={!ebProfiles} title={!ebProfiles?"EB records currently unavailable from the server":undefined} className="col-span-2 min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold disabled:opacity-50 sm:col-span-1">+ EB Number</button>
     </div>
 
    </Surface>
@@ -433,7 +434,7 @@ export default function CustomerDetailPage(){
    <SavedList title="Bank accounts" count={c.bankAccounts.length} matchingCount={savedSearch.trim()?foundBanks.length:undefined} addLabel="Add bank" onAdd={()=>setAddKind("bank")}>{foundBanks.length?foundBanks.map(x=><BankSavedItem key={x.id} bank={x} onEdit={()=>beginEdit({kind:"bank",item:x})} onToggle={()=>setToggleTarget({path:"/customers/banks/"+x.id,isActive:x.isActive,label:"bank account"})}/>):<EmptyState title={savedSearch.trim()?"No matching bank accounts":"No bank accounts"}/>}</SavedList>
    <SavedList title="UPI accounts" count={c.upiAccounts.length} matchingCount={savedSearch.trim()?foundUpi.length:undefined} addLabel="Add UPI" onAdd={()=>setAddKind("upi")}>{foundUpi.length?foundUpi.map(x=><div key={x.id} className={!x.isActive?"rounded-xl bg-[var(--surface-soft)] p-3 opacity-60":"rounded-xl bg-[var(--surface-soft)] p-3"}><div className="flex items-center justify-between gap-2"><strong className="min-w-0 break-words text-sm">{x.accountName}</strong><div className="flex shrink-0 items-center gap-1"><CopyValueButton value={x.accountName} label="UPI account name"/><StatusBadge tone={x.isActive?"emerald":"slate"}>{x.isActive?"Active":"Inactive"}</StatusBadge></div></div><div className="mt-2 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3"><SavedCopyField label="UPI ID" value={x.upiId}/><SavedCopyField label="UPI mobile" value={x.mobileNumber}/><SavedCopyField label="Provider" value={x.providerName}/></div><div className="mt-2 flex gap-3"><button type="button" onClick={()=>beginEdit({kind:"upi",item:x})} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={()=>setToggleTarget({path:"/customers/upi/"+x.id,isActive:x.isActive,label:"UPI account"})} className="text-xs font-bold text-[var(--text-muted)]">{x.isActive?"Retire":"Reactivate"}</button></div></div>):<EmptyState title={savedSearch.trim()?"No matching UPI accounts":"No UPI accounts"}/>}</SavedList>
   </div>
-  <SavedList title="EB connections" count={c.serviceProfiles.length} matchingCount={savedSearch.trim()?foundEb.length:undefined} addLabel="Add EB account" onAdd={()=>openEbEditor()}>{foundEb.length?foundEb.map(x=><EbSavedItem key={x.id} connection={x} onEdit={()=>openEbEditor(x)} onToggle={()=>setToggleTarget({path:"/customers/service-profiles/"+x.id,isActive:x.isActive,label:"EB connection"})}/>):<EmptyState title={savedSearch.trim()?"No matching EB connections":"No EB connections saved"}/>}</SavedList>
+  <SavedList title="EB connections" count={ebProfiles?.length??0} statusText={!ebProfiles?"Unavailable from server":undefined} matchingCount={ebProfiles&&savedSearch.trim()?foundEb.length:undefined} addLabel={ebProfiles?"Add EB account":undefined} onAdd={()=>openEbEditor()}>{!ebProfiles?<p role="status" className="text-xs font-semibold text-amber-700">EB records could not be loaded from the current API. Other saved details remain available.</p>:foundEb.length?foundEb.map(x=><EbSavedItem key={x.id} connection={x} onEdit={()=>openEbEditor(x)} onToggle={()=>setToggleTarget({path:"/customers/service-profiles/"+x.id,isActive:x.isActive,label:"EB connection"})}/>):<EmptyState title={savedSearch.trim()?"No matching EB connections":"No EB connections saved"}/>}</SavedList>
   <Surface className="overflow-hidden">
    <PanelHeader title="Beneficiaries & family recipients" description={savedSearch.trim()?`${foundBeneficiaries.length} of ${c.beneficiaries.length} recipients match` : undefined} action={<div className="flex gap-2"><button onClick={()=>setAddKind("beneficiary")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold">+ Recipient</button><button onClick={()=>setAddKind("beneficiaryAccount")} className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white">+ Account</button></div>}/>
    {foundBeneficiaries.length?<div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">{foundBeneficiaries.map(b=><div key={b.id} className={!b.isActive?"rounded-2xl border border-slate-200 p-4 opacity-60":"rounded-2xl border border-slate-200 p-4"}>
@@ -546,8 +547,8 @@ export default function CustomerDetailPage(){
  </PageFrame></AppShell>;
 }
 
-function SavedList({title,count,matchingCount,addLabel,onAdd,children}:{title:string;count:number;matchingCount?:number;addLabel?:string;onAdd?:()=>void;children:React.ReactNode}){
- return <Surface className="overflow-hidden"><PanelHeader title={title} description={matchingCount!==undefined?`${matchingCount} of ${count} found`:count+" saved"} action={addLabel&&onAdd?<button onClick={onAdd} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold">+ {addLabel}</button>:undefined}/><div className="space-y-2 p-3">{children}</div></Surface>;
+function SavedList({title,count,matchingCount,statusText,addLabel,onAdd,children}:{title:string;count:number;matchingCount?:number;statusText?:string;addLabel?:string;onAdd?:()=>void;children:React.ReactNode}){
+ return <Surface className="overflow-hidden"><PanelHeader title={title} description={statusText??(matchingCount!==undefined?`${matchingCount} of ${count} found`:count+" saved")} action={addLabel&&onAdd?<button onClick={onAdd} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold">+ {addLabel}</button>:undefined}/><div className="space-y-2 p-3">{children}</div></Surface>;
 }
 function CopyValueButton({value,label,copyAll=false}:{value:string;label:string;copyAll?:boolean}){
  const [status,setStatus]=useState<"idle"|"copied"|"failed">("idle");
