@@ -125,11 +125,9 @@ async function setControlled(page,selector,value){await page.$eval(selector,(el,
   });
   assert.ok(rect.menuBottom<=rect.fieldTop,JSON.stringify(rect));
   assert.ok(rect.menuTop>=0 && rect.width<rect.screenWidth);
-  await mobile.screenshot({path:"/tmp/cashledger-autosuggest-mobile-chromium.png"});
-  const menuAfterScreenshot=await mobile.evaluate(()=>Boolean(document.querySelector('[data-entry-suggestions]')));
-  console.log("Mobile menu visible after screenshot:",menuAfterScreenshot);
-  if(!menuAfterScreenshot)await mobile.click('input[name="cashledger_test_partner"]');
-  await mobile.waitForSelector('[data-entry-suggestions]',{visible:true});
+  // Screenshot capture can transiently move focus in headless mobile emulation.
+  // Check the user workflow directly without an unrelated focus-changing action.
+  await mobile.waitForSelector('[data-entry-suggestions] button:last-child',{visible:true});
   await mobile.click('[data-entry-suggestions] button:last-child');
   await mobile.evaluate(()=>document.activeElement.blur());
   const values=await mobile.evaluate(()=>JSON.parse(localStorage.getItem("cashledger_field_suggestions_v1:test-staff-autofill-001")||"{}").cashledger_test_partner||[]);
