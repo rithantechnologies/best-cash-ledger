@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 
 import { SearchableSelect } from "@/components/searchable-select";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -53,6 +53,10 @@ export default function CustomerDetailPage(){
  const [savedSearch,setSavedSearch]=useState("");
  const [demoEnabled,setDemoEnabled]=useState(false),[demoCardIds,setDemoCardIds]=useState<string[]>([]);
  const [demoTarget,setDemoTarget]=useState<Card|null>(null),[demoNumber,setDemoNumber]=useState(""),[demoAddNumber,setDemoAddNumber]=useState(""),[demoError,setDemoError]=useState("");
+ // Full values stay out of rendered state/DOM and are cleared after copying or closing.
+ const copyValueRef=useRef("");
+ const copyRequestRef=useRef(0);
+ const [copyLoadingId,setCopyLoadingId]=useState<string|null>(null),[copyFallbackCard,setCopyFallbackCard]=useState<Card|null>(null),[copyError,setCopyError]=useState("");
  const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
  const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
  const [ebEditing,setEbEditing]=useState(false),[ebTarget,setEbTarget]=useState<EbConnection|null>(null),[ebLabel,setEbLabel]=useState(""),[ebOwnerName,setEbOwnerName]=useState(""),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
@@ -73,14 +77,60 @@ export default function CustomerDetailPage(){
  const load=()=>apiFetch<Customer>("/customers/"+id).then(setC);
  const loadDemoStatus=()=>apiFetch<{enabled:boolean;cardIds:string[]}>("/customers/"+id+"/demo-card-status").then(result=>{setDemoEnabled(result.enabled);setDemoCardIds(result.cardIds);}).catch(()=>{setDemoEnabled(false);setDemoCardIds([]);});
  useEffect(()=>{void loadDemoStatus();},[id]);
- async function copyDemoTestNumber(cardId:string){
-  setError("");setMessage("");
-  try{
-   const response=await apiFetch<{demoNumber:string}>("/customers/cards/"+cardId+"/copy-demo-test-number",{method:"POST"});
-   await navigator.clipboard.writeText(response.demoNumber);
-   setMessage("Saved card number copied.");
-  }catch(err){setError(err instanceof Error?err.message:"Could not copy the card number.");}
+ function clearCopyFallback(){
+  copyRequestRef.current++;
+  copyValueRef.current="";
+  setCopyLoadingId(null);
+  setCopyFallbackCard(null);
+  setCopyError("");
  }
+ async function writeCardNumberToClipboard(value:string){
+  if(navigator.clipboard?.writeText){
+   try{await navigator.clipboard.writeText(value);return;}catch{/* Older mobile browsers require a direct selection fallback. */}
+  }
+  const field=document.createElement("textarea");
+  field.value=value;
+  field.readOnly=true;
+  field.setAttribute("aria-hidden","true");
+  field.style.position="fixed";
+  field.style.opacity="0";
+  field.style.left="-9999px";
+  document.body.appendChild(field);
+  let success=false;
+  try{field.focus();field.select();field.setSelectionRange(0,value.length);success=document.execCommand("copy");}
+  finally{field.remove();}
+  if(!success)throw new Error("Clipboard access was blocked. Tap Copy again or allow clipboard access in your browser.");
+ }
+ async function copyDemoTestNumber(card:Card){
+  const request=++copyRequestRef.current;
+  copyValueRef.current="";
+  setCopyFallbackCard(null);
+  setCopyLoadingId(card.id);
+  setCopyError("");setError("");setMessage("");
+  try{
+   const response=await apiFetch<{demoNumber:string}>("/customers/cards/"+card.id+"/copy-demo-test-number",{method:"POST"});
+   if(request!==copyRequestRef.current)return;
+   if(!/^\d{16}$/.test(response.demoNumber))throw new Error("Saved full card number is unavailable. Open Edit Card to add it.");
+   copyValueRef.current=response.demoNumber;
+   try{
+    await writeCardNumberToClipboard(response.demoNumber);
+    if(request===copyRequestRef.current){copyValueRef.current="";setMessage("All 16 digits copied.");}
+   }catch{
+    // A fetch preceding clipboard access can lose user activation in Safari/mobile.
+    // A fresh tap on the fallback dialog restores browser clipboard permission.
+    if(request===copyRequestRef.current){setCopyFallbackCard(card);setCopyError("");}
+   }
+  }catch(err){
+   if(request===copyRequestRef.current){copyValueRef.current="";setError(err instanceof Error?err.message:"Unable to retrieve the saved card number.");}
+  }finally{if(request===copyRequestRef.current)setCopyLoadingId(null);}
+ }
+ async function copyReadyCardNumber(){
+  const value=copyValueRef.current;
+  if(!/^\d{16}$/.test(value)){setCopyError("Card number unavailable. Close and retry.");return;}
+  try{await writeCardNumberToClipboard(value);clearCopyFallback();setMessage("All 16 digits copied.");}
+  catch(err){setCopyError(err instanceof Error?err.message:"Clipboard access is blocked.");}
+ }
+ useEffect(()=>()=>{copyRequestRef.current++;copyValueRef.current="";},[id]);
  async function saveDemoTestNumber(e:FormEvent){
   e.preventDefault();if(!demoTarget)return;
   if(!isSafeDemoNumber(demoNumber)||!demoNumber.endsWith(demoTarget.lastFourDigits)){setDemoError("Enter exactly 16 digits matching the saved last four.");return;}
@@ -368,7 +418,7 @@ export default function CustomerDetailPage(){
    {savedSearch.trim()?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]" role="status">{savedMatchCount} matching saved {savedMatchCount===1?"item":"items"} · Bank accounts: {foundBanks.length} of {c.bankAccounts.length}</p>:null}
   </Surface>
   <div className="grid gap-4 xl:grid-cols-3">
-   <SavedList title="Saved cards" count={c.cards.length} matchingCount={savedSearch.trim()?foundCards.length:undefined} addLabel="Add card" onAdd={()=>{setCardError("");setDemoAddNumber("");setAddingCard(true);}}>{foundCards.length?foundCards.map(x=><div key={x.id}><SavedItem title={x.bankName+" •••• "+x.lastFourDigits} copyValue={x.lastFourDigits} copyLabel="card last four digits" detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>{demoEnabled&&x.isActive?<div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 pb-3 text-[11px]"><span className="font-semibold text-[var(--text-muted)]">Demo</span><div className="flex items-center gap-2"><button type="button" className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 font-bold" onClick={()=>{setDemoTarget(x);setDemoError("");setDemoNumber("");}}>{demoCardIds.includes(x.id)?"Change number":"Add number"}</button>{demoCardIds.includes(x.id)?<button type="button" className="rounded-lg bg-indigo-600 px-2.5 py-1.5 font-bold text-white" onClick={()=>void copyDemoTestNumber(x.id)} title="Copy saved card number" aria-label="Copy saved card number"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button>:null}</div></div>:null}</div>):<EmptyState title={savedSearch.trim()?"No matching cards":"No saved cards"}/>}</SavedList>
+   <SavedList title="Saved cards" count={c.cards.length} matchingCount={savedSearch.trim()?foundCards.length:undefined} addLabel="Add card" onAdd={()=>{setCardError("");setDemoAddNumber("");setAddingCard(true);}}>{foundCards.length?foundCards.map(x=><div key={x.id}><SavedItem title={x.bankName+" •••• "+x.lastFourDigits} detail={(x.nickname?x.nickname+" · ":"")+"CREDIT · "+(x.isActive?"Active":"Inactive")} active={x.isActive} onEdit={()=>beginEdit({kind:"card",item:x})} onToggle={()=>setToggleTarget({path:"/customers/cards/"+x.id,isActive:x.isActive,label:"card"})}/>{demoEnabled&&x.isActive?<div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 pb-3 text-[11px]"><span className="font-semibold text-[var(--text-muted)]">Demo</span><div className="flex items-center gap-2"><button type="button" className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 font-bold" onClick={()=>{setDemoTarget(x);setDemoError("");setDemoNumber("");}}>{demoCardIds.includes(x.id)?"Change number":"Add number"}</button>{demoCardIds.includes(x.id)?<button type="button" className="rounded-lg bg-indigo-600 px-2.5 py-1.5 font-bold text-white" onClick={()=>void copyDemoTestNumber(x)} disabled={copyLoadingId===x.id} title="Copy all 16 digits" aria-label="Copy all 16 digits"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span className="ml-1">{copyLoadingId===x.id?"Loading…":"Copy 16 digits"}</span></button>:null}</div></div>:null}</div>):<EmptyState title={savedSearch.trim()?"No matching cards":"No saved cards"}/>}</SavedList>
    <SavedList title="Bank accounts" count={c.bankAccounts.length} matchingCount={savedSearch.trim()?foundBanks.length:undefined} addLabel="Add bank" onAdd={()=>setAddKind("bank")}>{foundBanks.length?foundBanks.map(x=><BankSavedItem key={x.id} bank={x} onEdit={()=>beginEdit({kind:"bank",item:x})} onToggle={()=>setToggleTarget({path:"/customers/banks/"+x.id,isActive:x.isActive,label:"bank account"})}/>):<EmptyState title={savedSearch.trim()?"No matching bank accounts":"No bank accounts"}/>}</SavedList>
    <SavedList title="UPI accounts" count={c.upiAccounts.length} matchingCount={savedSearch.trim()?foundUpi.length:undefined} addLabel="Add UPI" onAdd={()=>setAddKind("upi")}>{foundUpi.length?foundUpi.map(x=><div key={x.id} className={!x.isActive?"rounded-xl bg-[var(--surface-soft)] p-3 opacity-60":"rounded-xl bg-[var(--surface-soft)] p-3"}><div className="flex items-center justify-between gap-2"><strong className="min-w-0 break-words text-sm">{x.accountName}</strong><div className="flex shrink-0 items-center gap-1"><CopyValueButton value={x.accountName} label="UPI account name"/><StatusBadge tone={x.isActive?"emerald":"slate"}>{x.isActive?"Active":"Inactive"}</StatusBadge></div></div><div className="mt-2 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3"><SavedCopyField label="UPI ID" value={x.upiId}/><SavedCopyField label="UPI mobile" value={x.mobileNumber}/><SavedCopyField label="Provider" value={x.providerName}/></div><div className="mt-2 flex gap-3"><button type="button" onClick={()=>beginEdit({kind:"upi",item:x})} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={()=>setToggleTarget({path:"/customers/upi/"+x.id,isActive:x.isActive,label:"UPI account"})} className="text-xs font-bold text-[var(--text-muted)]">{x.isActive?"Retire":"Reactivate"}</button></div></div>):<EmptyState title={savedSearch.trim()?"No matching UPI accounts":"No UPI accounts"}/>}</SavedList>
   </div>
@@ -421,6 +471,10 @@ export default function CustomerDetailPage(){
     {demoEnabled?<Field label="Card number (16 digits, optional)" className="sm:col-span-2"><input className={control} type="text" name="demo_card_number" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={16} value={demoAddNumber} onChange={e=>{const digits=e.target.value.replace(/\D/g,"").slice(0,16);setDemoAddNumber(digits);if(digits.length===16)setCardLastFour(digits.slice(-4));}} placeholder="Enter 16-digit number"/></Field>:null}
     {cardError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 sm:col-span-2">{cardError}</p>:null}
    </form>
+  </Modal>
+  <Modal open={!!copyFallbackCard} title="Copy 16 digits" description="One more tap is needed to copy on this browser." onClose={clearCopyFallback} footer={<button type="button" onClick={()=>void copyReadyCardNumber()} className="app-primary-button min-h-11 w-full font-bold">Copy 16 digits</button>}>
+   <p className="text-sm text-[var(--text-muted)]">{copyFallbackCard?.bankName} •••• {copyFallbackCard?.lastFourDigits}</p>
+   {copyError?<p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{copyError}</p>:null}
   </Modal>
   <Modal open={!!demoTarget} title="Card number" onClose={()=>{if(!busy)setDemoTarget(null);}} footer={<button form="customer-demo-test-card" disabled={busy||!demoNumber} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save card number"}</button>}>
    <form id="customer-demo-test-card" onSubmit={saveDemoTestNumber} className="space-y-3">
