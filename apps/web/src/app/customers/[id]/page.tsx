@@ -21,7 +21,7 @@ type BAccount={id:string;accountType:string;bankName:string|null;accountReferenc
 type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;notes:string|null;isActive:boolean;accounts:BAccount[]};
 type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
 type Customer={
- id:string;customerCode:string;customerType:string;customerTypeId:string|null;customerTypeConfig:{id:string;name:string;isActive:boolean}|null;fullName:string;mobile:string|null;notes:string|null;isActive:boolean;
+ id:string;customerCode:string;customerType:string;customerTypeId:string|null;customerTypeConfig:{id:string;name:string;isActive:boolean}|null;fullName:string;mobile:string|null;ebNumber:string|null;notes:string|null;isActive:boolean;
  cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];beneficiaries:Beneficiary[];
  transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;payable:{status:string;dueAt:string;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null}[];
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
@@ -48,7 +48,7 @@ export default function CustomerDetailPage(){
  const [view,setView]=useState<"details"|"activity">("details"),[setupGuide,setSetupGuide]=useState(false);
  const [savedSearch,setSavedSearch]=useState("");
  const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
- const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
+ const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileEbNumber,setProfileEbNumber]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
  const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
@@ -71,7 +71,7 @@ export default function CustomerDetailPage(){
  useEffect(()=>{apiFetch<CustomerTypeChoice[]>("/settings/customer-types?includeInactive=true").then(setCustomerTypes).catch(()=>setCustomerTypes([]));},[]);
  function openProfileEdit(){
   if(!c)return;
-  setProfileName(c.fullName);setProfileMobile(c.mobile||"");
+  setProfileName(c.fullName);setProfileMobile(c.mobile||"");setProfileEbNumber(c.ebNumber||"");
   setProfileTypeId(c.customerTypeId??customerTypes.find(t=>t.legacyType===c.customerType)?.id??"");
   setProfileNotes(c.notes||"");setProfileError("");setProfileEditing(true);
  }
@@ -81,7 +81,7 @@ export default function CustomerDetailPage(){
   setBusy(true);setProfileError("");
   try{
    await apiFetch("/customers/"+id,{method:"PATCH",body:JSON.stringify({
-    fullName:profileName.trim(),mobile:profileMobile.trim()||undefined,customerTypeId:profileTypeId,notes:profileNotes.trim()||undefined,
+    fullName:profileName.trim(),mobile:profileMobile.trim()||undefined,ebNumber:profileEbNumber.trim()||null,customerTypeId:profileTypeId,notes:profileNotes.trim()||undefined,
    })});
    setProfileEditing(false);setMessage("Customer profile updated.");await load();
   }catch(err){setProfileError(err instanceof Error?err.message:"Unable to update customer.");}
@@ -207,7 +207,7 @@ export default function CustomerDetailPage(){
  }
  return <AppShell><PageFrame>
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-   <div className="min-w-0"><Link href="/customers" className="text-xs font-bold text-indigo-600">← Customers</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{c.customerCode} · {c.customerTypeConfig?.name??c.customerType.replaceAll("_"," ")}</p><h2 className="mt-1 break-words text-2xl font-black tracking-tight sm:text-3xl">{c.fullName}</h2><p className="mt-1 text-sm text-slate-500">{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</p></div>
+   <div className="min-w-0"><Link href="/customers" className="text-xs font-bold text-indigo-600">← Customers</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{c.customerCode} · {c.customerTypeConfig?.name??c.customerType.replaceAll("_"," ")}</p><h2 className="mt-1 break-words text-2xl font-black tracking-tight sm:text-3xl">{c.fullName}</h2><p className="mt-1 text-sm text-slate-500">{c.mobile||"No mobile"}{c.notes?" · "+c.notes:""}</p>{c.ebNumber?<p className="mt-1 text-sm font-semibold text-[var(--text-muted)]">EB number: <span className="select-all text-[var(--text)]">{c.ebNumber}</span></p>:null}</div>
    <div className="flex shrink-0 flex-wrap items-center gap-2">
     <StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge>
     <button type="button" onClick={openProfileEdit} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold">Edit profile</button>
@@ -328,11 +328,12 @@ export default function CustomerDetailPage(){
    </div>)}</div>:<div className="p-4"><EmptyState title={savedSearch.trim()?"No matching recipients":"No beneficiaries saved"}/></div>}
   </Surface>
   </>:null}
-  <Modal open={profileEditing} title="Edit customer" description="Update name, mobile and customer type." onClose={()=>{if(!busy)setProfileEditing(false);}}
+  <Modal open={profileEditing} title="Edit customer" description="Update name, mobile, EB number and customer type." onClose={()=>{if(!busy)setProfileEditing(false);}}
    footer={<button form="edit-customer-profile" disabled={busy||!profileTypeId} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Save customer"}</button>}>
    <form id="edit-customer-profile" onSubmit={saveProfile} className="grid gap-3 sm:grid-cols-2">
     <Field label="Customer name"><input className={control} name="cashledger_customer_name" autoComplete="name" value={profileName} onChange={e=>setProfileName(e.target.value)} maxLength={150} required/></Field>
     <Field label="Mobile"><input className={control} name="cashledger_customer_mobile" type="tel" autoComplete="tel" value={profileMobile} onChange={e=>setProfileMobile(e.target.value)} placeholder="Optional"/></Field>
+    <Field label="EB number"><input className={control} name="cashledger_customer_eb_number" type="text" autoComplete="off" maxLength={50} value={profileEbNumber} onChange={e=>setProfileEbNumber(e.target.value)} placeholder="Electricity consumer number (optional)"/></Field>
     <Field label="Customer type"><SearchableSelect className={control} value={profileTypeId} onChange={e=>setProfileTypeId(e.target.value)} required><option value="">Choose type</option>{customerTypes.filter(type=>type.isActive||type.id===profileTypeId).map(type=><option key={type.id} value={type.id}>{type.name}{type.isActive?"":" (Retired)"}</option>)}</SearchableSelect></Field>
     <Field label="Notes"><input className={control} name="cashledger_notes" autoComplete="on" value={profileNotes} onChange={e=>setProfileNotes(e.target.value)} placeholder="Optional"/></Field>
     {profileError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 sm:col-span-2">{profileError}</p>:null}

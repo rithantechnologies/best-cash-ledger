@@ -182,6 +182,7 @@ model Customer {
   customerTypeConfig CustomerTypeConfig? @relation(fields: [customerTypeId], references: [id])
   fullName      String
   mobile        String?
+  ebNumber      String?
   notes         String?
   isActive      Boolean               @default(true)
   createdById   String

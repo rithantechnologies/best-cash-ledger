@@ -13,6 +13,7 @@ export function customerSearchFilter(input: string): Prisma.CustomerWhereInput {
       const filters: Prisma.CustomerWhereInput[] = [
         { fullName: text(term) },
         { customerCode: text(term) },
+        { ebNumber: text(term) },
         { cards: { some: { isActive: true, OR: [
           { bankName: text(term) }, { nickname: text(term) },
           ...(numeric ? [{ lastFourDigits: { contains: digits } }] : []),

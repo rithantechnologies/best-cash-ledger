@@ -13,7 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { SearchSelect } from "@/components/search-select";
 
 type Customer={
- id:string;customerCode:string;customerType:string;fullName:string;mobile:string|null;notes:string|null;isActive:boolean;customerTypeId:string|null;customerTypeConfig:{id:string;name:string;isActive:boolean}|null;
+ id:string;customerCode:string;customerType:string;fullName:string;mobile:string|null;ebNumber:string|null;notes:string|null;isActive:boolean;customerTypeId:string|null;customerTypeConfig:{id:string;name:string;isActive:boolean}|null;
  cards:{id:string;bankName:string;lastFourDigits:string;isActive:boolean}[];
 };
 type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
@@ -26,7 +26,7 @@ export default function CustomersPage(){
  const [creating,setCreating]=useState(false),[createError,setCreateError]=useState(""),[customerTypeId,setCustomerTypeId]=useState(""),[showMobileFilters,setShowMobileFilters]=useState(false);
  const [typeChoices,setTypeChoices]=useState<CustomerTypeChoice[]>([]),[typesError,setTypesError]=useState("");
  const [addingCard,setAddingCard]=useState(false),[cardCustomerId,setCardCustomerId]=useState(""),[cardBank,setCardBank]=useState(""),[cardLast4,setCardLast4]=useState(""),[cardNickname,setCardNickname]=useState("");
- const [editing,setEditing]=useState<Customer|null>(null),[editName,setEditName]=useState(""),[editMobile,setEditMobile]=useState(""),[editTypeId,setEditTypeId]=useState(""),[editNotes,setEditNotes]=useState("");
+ const [editing,setEditing]=useState<Customer|null>(null),[editName,setEditName]=useState(""),[editMobile,setEditMobile]=useState(""),[editEbNumber,setEditEbNumber]=useState(""),[editTypeId,setEditTypeId]=useState(""),[editNotes,setEditNotes]=useState("");
  const [toggleTarget,setToggleTarget]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
  const control="app-control";
  const admin=role==="OWNER"||role==="ADMIN";
@@ -63,11 +63,12 @@ export default function CustomersPage(){
   const formValues=new FormData(e.currentTarget as HTMLFormElement);
   const fullName=String(formValues.get("customer_name")||"").trim();
   const mobile=String(formValues.get("customer_mobile")||"").trim();
+  const ebNumber=String(formValues.get("customer_eb_number")||"").trim();
   if(!fullName){setCreateError("Enter the customer's name.");return;}
   if(!customerTypeId){setCreateError("Select a customer type.");return;}
   setBusy(true);setCreateError("");
   try{
-   const customer=await apiFetch<{id:string}>("/customers",{method:"POST",body:JSON.stringify({customerTypeId,fullName,mobile:mobile||undefined})});
+   const customer=await apiFetch<{id:string}>("/customers",{method:"POST",body:JSON.stringify({customerTypeId,fullName,mobile:mobile||undefined,ebNumber:ebNumber||undefined})});
    setCreating(false);
    if(openDetails){router.push("/customers/"+customer.id+"?setup=1");}
    else{setMessage("Customer created.");await load(1);}
@@ -80,10 +81,10 @@ export default function CustomersPage(){
   try{await apiFetch("/customers/"+cardCustomerId+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank,cardType:"CREDIT",lastFourDigits:cardLast4,nickname:cardNickname||undefined})});setCardBank("");setCardLast4("");setCardNickname("");setAddingCard(false);setMessage("Card added.");await load();}
   catch(e){setError(e instanceof Error?e.message:"Failed to add card");}finally{setBusy(false);}
  }
- function beginEdit(c:Customer){setEditing(c);setEditName(c.fullName);setEditMobile(c.mobile||"");setEditTypeId(c.customerTypeId??typeChoices.find(t=>t.legacyType===c.customerType)?.id??"");setEditNotes(c.notes||"");setError("");}
+ function beginEdit(c:Customer){setEditing(c);setEditName(c.fullName);setEditMobile(c.mobile||"");setEditEbNumber(c.ebNumber||"");setEditTypeId(c.customerTypeId??typeChoices.find(t=>t.legacyType===c.customerType)?.id??"");setEditNotes(c.notes||"");setError("");}
  async function saveEdit(e:FormEvent){
   e.preventDefault();if(!editing)return;setBusy(true);setError("");
-  try{await apiFetch("/customers/"+editing.id,{method:"PATCH",body:JSON.stringify({fullName:editName.trim(),mobile:editMobile.trim()||undefined,customerTypeId:editTypeId||undefined,notes:editNotes.trim()||undefined})});setEditing(null);setMessage("Customer updated.");await load();}
+  try{await apiFetch("/customers/"+editing.id,{method:"PATCH",body:JSON.stringify({fullName:editName.trim(),mobile:editMobile.trim()||undefined,ebNumber:editEbNumber.trim()||null,customerTypeId:editTypeId||undefined,notes:editNotes.trim()||undefined})});setEditing(null);setMessage("Customer updated.");await load();}
   catch(e){setError(e instanceof Error?e.message:"Failed to update customer");}finally{setBusy(false);}
  }
  async function confirmToggle(){
@@ -143,6 +144,7 @@ export default function CustomersPage(){
      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-3 sm:px-6">
       <Field label="Customer name *"><input className={control+" min-h-12 text-base"} type="text" name="customer_name" autoComplete="name" autoFocus maxLength={150} placeholder="Enter name" required onChange={()=>{if(createError)setCreateError("");}}/></Field>
       <Field label="Mobile (optional)"><input className={control+" min-h-12 text-base"} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" maxLength={20} placeholder="Mobile number"/></Field>
+      <Field label="EB number (optional)"><input className={control+" min-h-12 text-base"} type="text" name="customer_eb_number" autoComplete="off" maxLength={50} placeholder="Electricity consumer number"/></Field>
       <Field label="Customer type"><SearchableSelect className={control+" min-h-11"} value={customerTypeId} onChange={e=>setCustomerTypeId(e.target.value)} required><option value="">Select type</option>{activeTypes.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</SearchableSelect></Field>
       {typesError?<p role="alert" className="text-xs font-semibold text-rose-700">{typesError}</p>:null}
       {createError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-700">{createError}</p>:null}
@@ -167,7 +169,7 @@ export default function CustomersPage(){
   </Modal>
   <Modal open={!!editing} title="Edit customer" description={editing?.customerCode} onClose={()=>setEditing(null)}
    footer={<button form="edit-customer" disabled={busy} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Save changes"}</button>}>
-   <form id="edit-customer" onSubmit={saveEdit} className="grid gap-3 sm:grid-cols-2"><Field label="Name"><input name="cashledger_name" autoComplete="on" className={control} value={editName} onChange={e=>setEditName(e.target.value)} required/></Field><Field label="Mobile"><input name="cashledger_mobile" autoComplete="on" className={control} value={editMobile} onChange={e=>setEditMobile(e.target.value)}/></Field><Field label="Customer type"><SearchableSelect className={control} value={editTypeId} onChange={e=>setEditTypeId(e.target.value)} required><option value="">Choose type</option>{typeChoices.filter(t=>t.isActive||t.id===editTypeId).map(t=><option key={t.id} value={t.id}>{t.name}{t.isActive?"":" (Retired)"}</option>)}</SearchableSelect></Field><Field label="Notes"><input name="cashledger_notes" autoComplete="on" className={control} value={editNotes} onChange={e=>setEditNotes(e.target.value)}/></Field></form>
+   <form id="edit-customer" onSubmit={saveEdit} className="grid gap-3 sm:grid-cols-2"><Field label="Name"><input name="cashledger_name" autoComplete="on" className={control} value={editName} onChange={e=>setEditName(e.target.value)} required/></Field><Field label="Mobile"><input name="cashledger_mobile" autoComplete="on" className={control} value={editMobile} onChange={e=>setEditMobile(e.target.value)}/></Field><Field label="EB number"><input name="cashledger_eb_number" autoComplete="off" className={control} value={editEbNumber} maxLength={50} onChange={e=>setEditEbNumber(e.target.value)} placeholder="Optional"/></Field><Field label="Customer type"><SearchableSelect className={control} value={editTypeId} onChange={e=>setEditTypeId(e.target.value)} required><option value="">Choose type</option>{typeChoices.filter(t=>t.isActive||t.id===editTypeId).map(t=><option key={t.id} value={t.id}>{t.name}{t.isActive?"":" (Retired)"}</option>)}</SearchableSelect></Field><Field label="Notes"><input name="cashledger_notes" autoComplete="on" className={control} value={editNotes} onChange={e=>setEditNotes(e.target.value)}/></Field></form>
   </Modal>
 
   <Modal open={!!toggleTarget} title={toggleTarget?.isActive?"Retire customer?":"Reactivate customer?"} description="Historical transactions and ledgers are preserved." onClose={()=>setToggleTarget(null)}

@@ -11,5 +11,6 @@ export class UpdateCustomerDto {
     message: 'Mobile must be a valid 10-digit Indian number',
   })
   mobile?: string;
+  @IsOptional() @IsString() @MaxLength(50) ebNumber?: string | null;
   @IsOptional() @IsString() notes?: string;
 }

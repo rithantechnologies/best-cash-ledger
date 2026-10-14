@@ -1438,6 +1438,7 @@ export class CustomersService {
           customerType: typeConfig?.legacyType ?? (dto.customerTypeId ? CustomerType.REGULAR : dto.customerType ?? CustomerType.REGULAR),
           customerTypeId: typeConfig?.id ?? null,
           fullName: dto.fullName.trim().toUpperCase(),
+          ebNumber: dto.ebNumber?.trim() || null,
           customerCode: 'CUS-' + Date.now().toString(36).toUpperCase(),
           createdById: userId,
         },
@@ -1454,6 +1455,7 @@ export class CustomersService {
             customerTypeId: customer.customerTypeId,
             fullName: customer.fullName,
             mobile: customer.mobile,
+            ebNumber: customer.ebNumber,
             isActive: customer.isActive,
           },
         },
@@ -1562,13 +1564,14 @@ export class CustomersService {
           ...customerValues,
           ...(typeConfig ? { customerTypeId: typeConfig.id, customerType: typeConfig.legacyType ?? CustomerType.REGULAR } : {}),
           ...(dto.fullName ? { fullName: dto.fullName.trim().toUpperCase() } : {}),
+          ...(dto.ebNumber !== undefined ? { ebNumber: dto.ebNumber?.trim() || null } : {}),
         },
       });
       await tx.auditLog.create({
         data: {
           userId, entityType: 'CUSTOMER', entityId: id, action: 'UPDATE',
-          oldValues: { customerType: old.customerType, customerTypeId: old.customerTypeId, fullName: old.fullName, mobile: old.mobile, notes: old.notes },
-          newValues: { customerType: updated.customerType, customerTypeId: updated.customerTypeId, fullName: updated.fullName, mobile: updated.mobile, notes: updated.notes },
+          oldValues: { customerType: old.customerType, customerTypeId: old.customerTypeId, fullName: old.fullName, mobile: old.mobile, ebNumber: old.ebNumber, notes: old.notes },
+          newValues: { customerType: updated.customerType, customerTypeId: updated.customerTypeId, fullName: updated.fullName, mobile: updated.mobile, ebNumber: updated.ebNumber, notes: updated.notes },
         },
       });
       return updated;

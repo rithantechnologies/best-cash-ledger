@@ -23,5 +23,10 @@ export class CreateCustomerDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
+  ebNumber?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
