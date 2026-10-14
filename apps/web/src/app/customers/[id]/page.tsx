@@ -60,6 +60,7 @@ export default function CustomerDetailPage(){
  const [demoTarget,setDemoTarget]=useState<Card|null>(null),[demoNumber,setDemoNumber]=useState(""),[demoAddNumber,setDemoAddNumber]=useState(""),[demoError,setDemoError]=useState("");
  const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
  const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileEbNumber,setProfileEbNumber]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
+ const [ebEditing,setEbEditing]=useState(false),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
  const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
@@ -107,6 +108,22 @@ export default function CustomerDetailPage(){
   setProfileName(c.fullName);setProfileMobile(c.mobile||"");setProfileEbNumber(c.ebNumber||"");
   setProfileTypeId(c.customerTypeId??customerTypes.find(t=>t.legacyType===c.customerType)?.id??"");
   setProfileNotes(c.notes||"");setProfileError("");setProfileEditing(true);
+ }
+ function openEbEditor(){
+  if(!c)return;
+  setEbDraft(c.ebNumber||"");setEbError("");setEbEditing(true);
+ }
+ async function saveEbNumber(e:FormEvent){
+  e.preventDefault();
+  const ebNumber=ebDraft.trim();
+  if(ebNumber.length>50){setEbError("EB number must be 50 characters or fewer.");return;}
+  setBusy(true);setEbError("");setError("");
+  try{
+   await apiFetch("/customers/"+id,{method:"PATCH",body:JSON.stringify({ebNumber:ebNumber||null})});
+   await load();
+   setEbEditing(false);setMessage(ebNumber?"EB number saved.":"EB number cleared.");
+  }catch(err){setEbError(err instanceof Error?err.message:"Unable to save EB number.");}
+  finally{setBusy(false);}
  }
  async function saveProfile(e:FormEvent){
   e.preventDefault();
@@ -266,16 +283,18 @@ export default function CustomerDetailPage(){
   {view==="details"?<>
    {setupGuide?<div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
     <p className="text-sm font-extrabold text-emerald-900">Customer saved ✓</p>
-    <p className="mt-0.5 text-xs leading-5 text-emerald-800">Add a card, bank, UPI or recipient now—or leave it for later.</p>
+    <p className="mt-0.5 text-xs leading-5 text-emerald-800">Add a card, bank, UPI, recipient or EB number now—or leave it for later.</p>
    </div>:null}
    <Surface className="p-4 sm:p-5">
     <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-black">Add customer details</h3><p className="mt-1 text-xs text-[var(--text-muted)]">Choose only what you need. All optional.</p></div></div>
-    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
      <button type="button" onClick={()=>{setCardError("");setAddingCard(true);}} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Card</button>
      <button type="button" onClick={()=>setAddKind("bank")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Bank</button>
      <button type="button" onClick={()=>setAddKind("upi")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ UPI</button>
      <button type="button" onClick={()=>setAddKind("beneficiary")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Recipient</button>
+     <button type="button" onClick={openEbEditor} className="col-span-2 min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold sm:col-span-1">{c.ebNumber?"Edit EB Number":"+ EB Number"}</button>
     </div>
+    {c.ebNumber?<div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2.5"><div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Saved EB consumer number</p><p className="mt-0.5 break-all text-sm font-black text-[var(--text)]">{c.ebNumber}</p></div><div className="flex items-center gap-2"><CopyValueButton value={c.ebNumber} label="EB consumer number"/><button type="button" onClick={openEbEditor} className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">Edit</button></div></div>:null}
    </Surface>
   </>:null}
   {view==="activity"?<>
@@ -370,6 +389,13 @@ export default function CustomerDetailPage(){
    </div>)}</div>:<div className="p-4"><EmptyState title={savedSearch.trim()?"No matching recipients":"No beneficiaries saved"}/></div>}
   </Surface>
   </>:null}
+  <Modal open={ebEditing} title={c.ebNumber?"Edit EB number":"Add EB number"} description="Save the electricity consumer / service connection number for this customer. It can be reused in Cash In → Eb Bill." onClose={()=>{if(!busy)setEbEditing(false);}} footer={<button type="submit" form="customer-eb-number" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save EB number"}</button>}>
+   <form id="customer-eb-number" onSubmit={saveEbNumber} className="space-y-3">
+    <Field label="EB consumer number"><input className={control} name="customer_saved_eb_number" type="text" inputMode="numeric" autoComplete="off" maxLength={50} value={ebDraft} onChange={e=>{setEbDraft(e.target.value);setEbError("");}} placeholder="Enter EB / electricity consumer number" autoFocus/></Field>
+    {c.ebNumber?<p className="text-xs text-[var(--text-muted)]">To remove the saved EB number, clear this field and save.</p>:null}
+    {ebError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{ebError}</p>:null}
+   </form>
+  </Modal>
   <Modal open={profileEditing} title="Edit customer" description="Update name, mobile, EB number and customer type." onClose={()=>{if(!busy)setProfileEditing(false);}}
    footer={<button form="edit-customer-profile" disabled={busy||!profileTypeId} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Save customer"}</button>}>
    <form id="edit-customer-profile" onSubmit={saveProfile} className="grid gap-3 sm:grid-cols-2">
