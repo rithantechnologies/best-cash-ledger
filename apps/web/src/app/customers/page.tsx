@@ -72,7 +72,7 @@ export default function CustomersPage(){
   const ebNumber=String(formValues.get("customer_eb_number")||"").trim();
   if(!fullName){setCreateError("Enter the customer's name.");return;}
   if(!customerTypeId){setCreateError("Select a customer type.");return;}
-  if(demoEnabled&&newDemoNumber&&!isSafeDemoNumber(newDemoNumber)){setCreateError("Enter exactly 16 digits for the demo card.");return;}
+  if(demoEnabled&&newDemoNumber&&!isSafeDemoNumber(newDemoNumber)){setCreateError("Enter a 16-digit card number.");return;}
   setBusy(true);setCreateError("");
   try{
    const customer=await apiFetch<{id:string}>("/customers",{method:"POST",body:JSON.stringify({customerTypeId,fullName,mobile:mobile||undefined,ebNumber:ebNumber||undefined,...(demoEnabled&&newDemoNumber?{demoCardNumber:newDemoNumber,demoCardBank:newDemoBank.trim()||"Card"}:{})})});
@@ -87,7 +87,7 @@ export default function CustomersPage(){
   e.preventDefault();
   if(!cardCustomerId){setError("Select a customer first.");return;}
   if(!/^\d{4}$/.test(cardLast4)){setError("Enter the last four digits.");return;}
-  if(demoEnabled&&cardDemoNumber&&!isSafeDemoNumber(cardDemoNumber)){setError("Enter exactly 16 digits for the demo card.");return;}
+  if(demoEnabled&&cardDemoNumber&&!isSafeDemoNumber(cardDemoNumber)){setError("Enter a 16-digit card number.");return;}
   setBusy(true);setError("");setMessage("");
   try{await apiFetch("/customers/"+cardCustomerId+"/cards",{method:"POST",body:JSON.stringify({bankName:cardBank.trim(),cardType:"CREDIT",lastFourDigits:cardLast4,nickname:cardNickname||undefined,...(demoEnabled&&cardDemoNumber?{demoCardNumber:cardDemoNumber}:{})})});setCardBank("");setCardLast4("");setCardDemoNumber("");setCardNickname("");setAddingCard(false);setMessage("Card added.");await load();}
   catch(e){setError(e instanceof Error?e.message:"Failed to add card");}finally{setBusy(false);}
@@ -156,7 +156,7 @@ export default function CustomersPage(){
       <Field label="Customer name *"><input className={control+" min-h-12 text-base"} type="text" name="customer_name" autoComplete="name" autoFocus maxLength={150} placeholder="Enter name" required onChange={()=>{if(createError)setCreateError("");}}/></Field>
       <Field label="Mobile (optional)"><input className={control+" min-h-12 text-base"} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" maxLength={20} placeholder="Mobile number"/></Field>
       <Field label="EB number (optional)"><input className={control+" min-h-12 text-base"} type="text" name="customer_eb_number" autoComplete="off" maxLength={50} placeholder="Electricity consumer number"/></Field>
-      {demoEnabled?<div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3"><p className="text-xs font-bold text-amber-800">Optional demo-only card</p><Field label="Card bank"><input className={control+" min-h-11"} value={newDemoBank} onChange={e=>setNewDemoBank(e.target.value)} maxLength={100} placeholder="Bank name (optional)" autoComplete="off"/></Field><Field label="16-digit card number (demo)"><input className={control+" min-h-11 font-mono"} type="text" name="new_demo_number" value={newDemoNumber} onChange={e=>setNewDemoNumber(e.target.value.replace(/\D/g,"").slice(0,16))} inputMode="numeric" maxLength={16} autoComplete="off" spellCheck={false} placeholder="16 digits"/></Field><p className="text-[11px] text-amber-700">Demo instance only. The last four digits are saved automatically.</p></div>:null}
+      {demoEnabled?<div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"><p className="text-xs font-bold">Card (optional)</p><Field label="Card bank"><input className={control+" min-h-11"} value={newDemoBank} onChange={e=>setNewDemoBank(e.target.value)} maxLength={100} placeholder="Bank name (optional)" autoComplete="off"/></Field><Field label="Card number (16 digits)"><input className={control+" min-h-11 font-mono"} type="text" name="new_demo_number" value={newDemoNumber} onChange={e=>setNewDemoNumber(e.target.value.replace(/\D/g,"").slice(0,16))} inputMode="numeric" maxLength={16} autoComplete="off" spellCheck={false} placeholder="16 digits"/></Field></div>:null}
       <Field label="Customer type"><SearchableSelect className={control+" min-h-11"} value={customerTypeId} onChange={e=>setCustomerTypeId(e.target.value)} required><option value="">Select type</option>{activeTypes.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</SearchableSelect></Field>
       {typesError?<p role="alert" className="text-xs font-semibold text-rose-700">{typesError}</p>:null}
       {createError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-700">{createError}</p>:null}
@@ -169,7 +169,7 @@ export default function CustomersPage(){
    </section>
   </div>,document.body):null}
 
-  <Modal open={addingCard} title="Add saved card" description="Save only the non-sensitive card details used for identifying the card at the counter." onClose={()=>setAddingCard(false)}
+  <Modal open={addingCard} title="Add saved card" onClose={()=>setAddingCard(false)}
    footer={<button form="add-card" disabled={busy} className="min-h-11 w-full rounded-xl bg-indigo-700 text-sm font-bold text-white disabled:opacity-50">{busy?"Saving…":"Save card"}</button>}>
    <form id="add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
     <Field label="Customer"><SearchSelect value={cardCustomerId} onChange={setCardCustomerId} options={items.filter(c=>c.isActive).map(c=>({value:c.id,label:c.fullName,searchText:c.fullName+" "+(c.mobile??"")}))} placeholder="Select customer" searchPlaceholder="Search customer…"/></Field>
@@ -177,7 +177,7 @@ export default function CustomersPage(){
     <Field label="Card type"><div className={control+" flex items-center bg-slate-50 font-bold"}>CREDIT</div></Field>
     <Field label="Last 4 digits"><input autoComplete="on" name="cashledger_card_last_four" className={control} inputMode="numeric" maxLength={4} value={cardLast4} onChange={e=>setCardLast4(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
     <Field label="Nickname" className="sm:col-span-2"><input name="cashledger_nickname" autoComplete="on" className={control} value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="Optional"/></Field>
-    {demoEnabled?<Field label="16-digit card number (optional)" className="sm:col-span-2"><input className={control} type="text" inputMode="numeric" maxLength={16} autoComplete="off" spellCheck={false} value={cardDemoNumber} onChange={e=>{const digits=e.target.value.replace(/\D/g,"").slice(0,16);setCardDemoNumber(digits);if(digits.length===16)setCardLast4(digits.slice(-4));}} placeholder="Enter 16 digits"/><p className="mt-1 text-[11px] text-amber-700">Available only while the demo feature is enabled.</p></Field>:null}
+    {demoEnabled?<Field label="Card number (16 digits, optional)" className="sm:col-span-2"><input className={control} type="text" inputMode="numeric" maxLength={16} autoComplete="off" spellCheck={false} value={cardDemoNumber} onChange={e=>{const digits=e.target.value.replace(/\D/g,"").slice(0,16);setCardDemoNumber(digits);if(digits.length===16)setCardLast4(digits.slice(-4));}} placeholder="Enter 16 digits"/></Field>:null}
     {error?<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs font-semibold text-rose-700 sm:col-span-2">{error}</p>:null}
    </form>
   </Modal>
