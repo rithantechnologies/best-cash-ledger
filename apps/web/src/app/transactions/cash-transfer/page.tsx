@@ -389,15 +389,33 @@ export default function CashTransferPage(){
         });
         return {customerBankAccountId:item.id};
       }
-      const item=await apiFetch<Created>("/customers/"+cid+"/upi",{
+      const exactUpiValue=destinationValue.trim();
+      const matchingUpi=(item:Customer["upiAccounts"][number])=>
+        item.isActive&&(mobileLike
+          ?item.mobileNumber===exactUpiValue
+          :item.upiId?.trim().toLowerCase()===exactUpiValue.toLowerCase());
+      // Reuse an already saved UPI, including one created by an earlier failed attempt.
+      const currentCustomer=await apiFetch<Pick<Customer,"upiAccounts">>("/customers/"+cid);
+      const existing=currentCustomer?.upiAccounts?.find(matchingUpi);
+      if(existing?.id)return {customerUpiAccountId:existing.id};
+
+      const item=await apiFetch<Created|null>("/customers/"+cid+"/upi",{
         method:"POST",
         body:JSON.stringify({
           accountName:customerName||"Customer",
-          upiId:mobileLike?undefined:destinationValue.trim(),
-          mobileNumber:mobileLike?destinationValue.trim():undefined,
+          upiId:mobileLike?undefined:exactUpiValue,
+          mobileNumber:mobileLike?exactUpiValue:undefined,
         }),
       });
-      return {customerUpiAccountId:item.id};
+      if(item?.id)return {customerUpiAccountId:item.id};
+
+      // A missing response does not mean the destination was not saved.
+      const savedCustomer=await apiFetch<Pick<Customer,"upiAccounts">>("/customers/"+cid);
+      const saved=savedCustomer?.upiAccounts?.find(matchingUpi);
+      if(!saved?.id){
+        throw new Error("UPI destination could not be confirmed. No transfer was recorded. Check the customer's saved UPI details before retrying.");
+      }
+      return {customerUpiAccountId:saved.id};
     }
 
     const beneficiary=await apiFetch<Created>("/customers/"+cid+"/beneficiaries",{
@@ -443,8 +461,11 @@ export default function CashTransferPage(){
           notes:notes.trim()||undefined,
         }),
       });
-      const txId=result.transaction?.id??result.id;
-      router.push(txId?"/transactions/"+txId:"/transactions");
+      const txId=result?.transaction?.id??result?.id;
+      if(!txId){
+        throw new Error("Transfer confirmation was not received. Check Transactions before retrying to avoid recording it twice.");
+      }
+      router.push("/transactions/"+txId);
     }catch(err){
       setError(err instanceof Error?err.message:"Failed to save transfer");
     }finally{
