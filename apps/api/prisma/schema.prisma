@@ -1032,6 +1032,7 @@ model CustomerLedgerEntryDetail {
   financialAccountId String
   financialAccount FinancialAccount @relation("CustomerLedgerEntryAccount", fields: [financialAccountId], references: [id])
   direction        String
+  payoutDestination Json?
   amount           Decimal          @db.Decimal(18, 2)
   remarks          String
   receivableAmount Decimal          @default(0) @db.Decimal(18, 2)

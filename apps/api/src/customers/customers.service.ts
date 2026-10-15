@@ -630,6 +630,41 @@ export class CustomersService {
         );
       }
 
+      // Save a validated, human-readable recipient snapshot separately from the
+      // business account being debited. Never mistake a provider wallet for the
+      // customer's bank/UPI destination.
+      let payoutDestination: { type: string; label: string; destinationId?: string } | null = null;
+      if (dto.payoutDestinationType && dto.direction !== 'PAY_OUT') {
+        throw new BadRequestException('Paid-to destination is only valid for Pay Out');
+      }
+      if (dto.direction === 'PAY_OUT' && dto.payoutDestinationType) {
+        const kind = dto.payoutDestinationType;
+        const destinationId = dto.payoutDestinationId?.trim();
+        const details = dto.payoutDestinationDetails?.trim();
+        if (kind === 'CASH') {
+          payoutDestination = { type: kind, label: 'Cash handed to customer' };
+        } else if (kind === 'OTHER') {
+          if (!details || details.length > 160) throw new BadRequestException('Enter a recipient or payment destination (maximum 160 characters)');
+          payoutDestination = { type: kind, label: details };
+        } else {
+          if (!destinationId) throw new BadRequestException('Choose a saved customer destination');
+          if (kind === 'BANK') {
+            const saved = await tx.customerBankAccount.findFirst({ where: { id: destinationId, customerId, isActive: true } });
+            if (!saved) throw new BadRequestException('Customer bank account not found or inactive');
+            payoutDestination = { type: kind, destinationId, label: saved.accountHolderName + ' · ' + saved.bankName + ' ••••' + saved.accountReference.replace(/\D/g, '').slice(-4) };
+          } else if (kind === 'UPI') {
+            const saved = await tx.customerUpiAccount.findFirst({ where: { id: destinationId, customerId, isActive: true } });
+            if (!saved) throw new BadRequestException('Customer UPI destination not found or inactive');
+            payoutDestination = { type: kind, destinationId, label: saved.accountName + ' · ' + (saved.upiId || saved.mobileNumber || 'UPI') };
+          } else {
+            const saved = await tx.beneficiaryAccount.findFirst({ where: { id: destinationId, isActive: true, beneficiary: { customerId, isActive: true } }, include: { beneficiary: true } });
+            if (!saved) throw new BadRequestException('Customer beneficiary account not found or inactive');
+            const reference = saved.accountType === 'BANK' ? '••••' + (saved.accountReference || '').replace(/\D/g, '').slice(-4) : (saved.upiId || saved.mobileNumber || 'UPI');
+            payoutDestination = { type: kind, destinationId, label: saved.beneficiary.beneficiaryName + ' · ' + (saved.bankName || 'UPI') + ' ' + reference };
+          }
+        }
+      }
+
       const currentBalance = await this.cardLedgerBalance(
         tx,
         customerId,
@@ -836,6 +871,7 @@ export class CustomersService {
           customerCardId: dto.customerCardId || null,
           financialAccountId: account.id,
           direction: dto.direction,
+          payoutDestination: payoutDestination ?? undefined,
           amount: new Prisma.Decimal(amount),
           remarks,
           receivableAmount: new Prisma.Decimal(receivableAmount),
@@ -960,6 +996,7 @@ export class CustomersService {
             direction: dto.direction,
             amount,
             financialAccountId: account.id,
+            payoutDestination,
             remarks,
             referenceNumber: transaction.referenceNumber,
             startingBalance: currentBalance,
@@ -1297,8 +1334,9 @@ export class CustomersService {
         detail: [
           cardLabel,
           (isPayIn ? 'Received in ' : 'Paid from ') + entry.financialAccount.accountName,
+          !isPayIn && entry.payoutDestination && typeof entry.payoutDestination === 'object' && !Array.isArray(entry.payoutDestination) && 'label' in entry.payoutDestination ? 'Paid to ' + String(entry.payoutDestination.label) : null,
           matchedLabels.length ? 'Matched ' + matchedLabels.join(', ') : 'Unallocated / on-account',
-        ].join(' · '),
+        ].filter(Boolean).join(' · '),
         debit: isPayIn ? 0 : movementAmount,
         credit: isPayIn ? movementAmount : 0,
         cardId: entry.customerCardId ?? (cardId || null),

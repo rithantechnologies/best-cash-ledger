@@ -25,6 +25,18 @@ export class CreateCustomerLedgerEntryDto {
   financialAccountId!: string;
 
   @IsOptional()
+  @IsIn(['CASH', 'BANK', 'UPI', 'BENEFICIARY_ACCOUNT', 'OTHER'])
+  payoutDestinationType?: 'CASH' | 'BANK' | 'UPI' | 'BENEFICIARY_ACCOUNT' | 'OTHER';
+
+  @IsOptional()
+  @IsString()
+  payoutDestinationId?: string;
+
+  @IsOptional()
+  @IsString()
+  payoutDestinationDetails?: string;
+
+  @IsOptional()
   @IsString()
   customerCardId?: string;
 
