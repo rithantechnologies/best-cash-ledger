@@ -665,6 +665,35 @@ export class CustomersService {
         }
       }
 
+      if (dto.sourcePayInTransactionId) {
+        if (dto.direction !== 'PAY_OUT') {
+          throw new BadRequestException('Pay In source is only applicable to Pay Out');
+        }
+        const source = await tx.customerLedgerEntryDetail.findFirst({
+          where: {
+            transactionId: dto.sourcePayInTransactionId,
+            direction: 'PAY_IN',
+            transaction: { customerId, status: TransactionStatus.COMPLETED },
+          },
+          select: {
+            financialAccountId: true,
+            customerCardId: true,
+            transaction: { select: { transactionAt: true } },
+          },
+        });
+        if (!source || source.financialAccountId !== account.id) {
+          throw new BadRequestException('Selected Pay In source no longer matches the payout account');
+        }
+        if (dto.customerCardId && source.customerCardId && source.customerCardId !== dto.customerCardId) {
+          throw new BadRequestException('Selected Pay In belongs to another customer card');
+        }
+        const businessDate = (value: Date) =>
+          new Date(value.getTime() + 330 * 60 * 1000).toISOString().slice(0, 10);
+        if (businessDate(source.transaction.transactionAt) > businessDate(transactionAt)) {
+          throw new BadRequestException('Pay In source cannot be later than the payout date');
+        }
+      }
+
       const currentBalance = await this.cardLedgerBalance(
         tx,
         customerId,
@@ -996,6 +1025,7 @@ export class CustomersService {
             direction: dto.direction,
             amount,
             financialAccountId: account.id,
+            sourcePayInTransactionId: dto.sourcePayInTransactionId ?? null,
             payoutDestination,
             remarks,
             referenceNumber: transaction.referenceNumber,
@@ -1430,6 +1460,29 @@ export class CustomersService {
       }))
       .sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime() || new Date(a.transactionAt).getTime() - new Date(b.transactionAt).getTime());
 
+    // Use completed Pay In movements as the only candidates for the
+    // Pay Out source suggestion. Never infer a debit account from a swipe,
+    // unrelated customer or a reversed entry.
+    const payInSources = manualEntries
+      .filter(entry =>
+        entry.direction === 'PAY_IN' &&
+        entry.transaction.status === TransactionStatus.COMPLETED,
+      )
+      .sort((a, b) =>
+        b.transaction.transactionAt.getTime() - a.transaction.transactionAt.getTime() ||
+        b.createdAt.getTime() - a.createdAt.getTime() ||
+        b.id.localeCompare(a.id),
+      )
+      .map(entry => ({
+        financialAccountId: entry.financialAccountId,
+        accountName: entry.financialAccount.accountName,
+        accountType: entry.financialAccount.accountType,
+        customerCardId: entry.customerCardId,
+        transactionId: entry.transactionId,
+        transactionNumber: entry.transaction.transactionNumber,
+        transactionAt: entry.transaction.transactionAt.toISOString(),
+      }));
+
     const availableAdvances = manualEntries
       .filter(entry =>
         entry.direction === 'PAY_OUT' &&
@@ -1456,6 +1509,7 @@ export class CustomersService {
         mobile: customer.mobile,
       },
       availableAdvances,
+      payInSources,
       cards: customer.cards.map((card) => ({
         ...card,
         label:

@@ -13,6 +13,7 @@ import { SearchSelect } from "@/components/search-select";
 import { BankIfscPicker } from "@/components/bank-ifsc-picker";
 import { matchesSavedDetailSearch } from "@/lib/saved-detail-search";
 import { formatBankCopyText } from "@/lib/bank-copy-text";
+import { suggestedPayOutSource, type PayInSource } from "@/lib/pay-out-source";
 
 const DEMO_TEST_NUMBERS = ["4242424242424242", "5555555555554444", "4000000000000002", "4111111111111111"];
 // The development demo accepts typed 16-digit samples, not actual card PANs.
@@ -35,7 +36,7 @@ type CardLedgerCard={id:string;bankName:string;lastFourDigits:string;nickname:st
 type CardLedgerRow={id:string;at:string;kind:"CARD_SWIPE"|"CUSTOMER_PAYOUT"|"CARD_DUE_PAYMENT"|"CARD_DUE_RECOVERY"|"PAY_IN"|"PAY_OUT";remarks:string;detail:string;debit:number;credit:number;closingBalance:number;cardId:string|null;cardLabel:string;transactionId:string;transactionNumber:string;referenceNumber:string|null};
 type CardLedgerOpenItem={targetType:"PAYABLE"|"CARD_DUE";targetId:string;sourceKind:"CARD_SWIPE"|"EXCESS_RECOVERY"|"CARD_DUE";transactionId:string;transactionNumber:string;transactionAt:string;dueAt:string;originalAmount:number;remainingAmount:number;cardId:string;cardLabel:string;label:string};
 type Advance={id:string;customerCardId:string|null;amount:number;applied:number;remaining:number;transactionId:string;transactionNumber:string;date:string;source:string};
-type CardLedger={availableAdvances:Advance[];customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;openPayOutItems:CardLedgerOpenItem[];openPayInItems:CardLedgerOpenItem[];totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
+type CardLedger={payInSources:PayInSource[];availableAdvances:Advance[];customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;openPayOutItems:CardLedgerOpenItem[];openPayInItems:CardLedgerOpenItem[];totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
 type EditState={kind:"card";item:Card}|{kind:"bank";item:Bank}|{kind:"upi";item:Upi}|{kind:"beneficiary";item:Beneficiary}|{kind:"beneficiaryAccount";item:BAccount}|null;
 type AddKind="bank"|"upi"|"beneficiary"|"beneficiaryAccount"|null;
 type ToggleTarget={path:string;isActive:boolean;label:string}|null;
@@ -65,6 +66,7 @@ export default function CustomerDetailPage(){
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
  const [ledgerAccounts,setLedgerAccounts]=useState<LedgerAccount[]>([]),[ledgerEntryDirection,setLedgerEntryDirection]=useState<LedgerEntryDirection|null>(null),[ledgerEntryBusy,setLedgerEntryBusy]=useState(false),[ledgerEntryError,setLedgerEntryError]=useState("");
  const [ledgerPayoutDestination,setLedgerPayoutDestination]=useState(""),[ledgerPayoutDetails,setLedgerPayoutDetails]=useState("");
+ const [ledgerPaidFromManual,setLedgerPaidFromManual]=useState(false);
  const [ledgerEntryAmount,setLedgerEntryAmount]=useState(""),[ledgerEntryDate,setLedgerEntryDate]=useState(localDateValue),[ledgerEntryAccountId,setLedgerEntryAccountId]=useState(""),[ledgerEntryCardId,setLedgerEntryCardId]=useState(""),[ledgerEntryRemarks,setLedgerEntryRemarks]=useState(""),[ledgerEntryReference,setLedgerEntryReference]=useState(""),[ledgerEntryNote,setLedgerEntryNote]=useState(""),[ledgerAllocations,setLedgerAllocations]=useState<Record<string,string>>({});
  const [addKind,setAddKind]=useState<AddKind>(null),[toggleTarget,setToggleTarget]=useState<ToggleTarget>(null);
  const [bankName,setBankName]=useState(""),[holder,setHolder]=useState(""),[accountRef,setAccountRef]=useState(""),[ifsc,setIfsc]=useState("");
@@ -178,10 +180,10 @@ export default function CustomerDetailPage(){
 
 
  function resetLedgerEntry(){
-  setLedgerPayoutDestination("");setLedgerPayoutDetails("");setLedgerEntryDirection(null);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId("");setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerAllocations({});setLedgerEntryError("");
+  setLedgerPayoutDestination("");setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerEntryDirection(null);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId("");setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerAllocations({});setLedgerEntryError("");
  }
  function openLedgerEntry(direction:LedgerEntryDirection){
-  setLedgerPayoutDestination("");setLedgerPayoutDetails("");setLedgerEntryDirection(direction);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerAllocations({});setLedgerEntryError("");
+  setLedgerPayoutDestination("");setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerEntryDirection(direction);setLedgerEntryAmount("");setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerAllocations({});setLedgerEntryError("");
  }
  function matchingLedgerItems(direction=ledgerEntryDirection,cardId=ledgerEntryCardId){
   const items=direction==="PAY_IN"?(cardLedger?.openPayInItems??[]):(cardLedger?.openPayOutItems??[]);
@@ -196,7 +198,7 @@ export default function CustomerDetailPage(){
   e.preventDefault();if(!ledgerEntryDirection)return;
   const amount=Number(ledgerEntryAmount);
   if(!Number.isFinite(amount)||amount<=0){setLedgerEntryError("Enter a valid amount.");return;}
-  if(!ledgerEntryAccountId){setLedgerEntryError(ledgerEntryDirection==="PAY_IN"?"Choose where the money was received.":"Choose where the money was paid from.");return;}
+  if(!effectiveLedgerEntryAccountId){setLedgerEntryError(ledgerEntryDirection==="PAY_IN"?"Choose where the money was received.":"No usable Pay In source found. Choose where the money will be paid from.");return;}
   if(ledgerEntryDirection==="PAY_OUT"&&!ledgerPayoutDestination){setLedgerEntryError("Choose where the customer received this payout.");return;}
   if(ledgerEntryDirection==="PAY_OUT"&&ledgerPayoutDestination==="OTHER"&&!ledgerPayoutDetails.trim()){setLedgerEntryError("Enter who received the payout or the destination details.");return;}
   if(!ledgerEntryDate){setLedgerEntryError("Choose the entry date.");return;}
@@ -208,7 +210,7 @@ export default function CustomerDetailPage(){
   setLedgerEntryBusy(true);setLedgerEntryError("");
   try{
    const [payoutKind,payoutId]=ledgerPayoutDestination.split(":");
-   await apiFetch("/customers/"+id+"/card-ledger-entry",{method:"POST",body:JSON.stringify({direction:ledgerEntryDirection,amount,financialAccountId:ledgerEntryAccountId,customerCardId:ledgerEntryCardId||undefined,allocations,remarks:ledgerEntryRemarks.trim()||undefined,transactionAt:dateWithCurrentLocalTime(ledgerEntryDate),referenceNumber:ledgerEntryReference.trim()||undefined,notes:ledgerEntryNote.trim()||undefined,...(ledgerEntryDirection==="PAY_OUT"?{payoutDestinationType:payoutKind,payoutDestinationId:payoutId||undefined,payoutDestinationDetails:payoutKind==="OTHER"?ledgerPayoutDetails.trim():undefined}:{})})});
+   await apiFetch("/customers/"+id+"/card-ledger-entry",{method:"POST",body:JSON.stringify({direction:ledgerEntryDirection,amount,financialAccountId:effectiveLedgerEntryAccountId,sourcePayInTransactionId:ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual&&validPayOutSource?payOutSuggestion?.transactionId:undefined,customerCardId:ledgerEntryCardId||undefined,allocations,remarks:ledgerEntryRemarks.trim()||undefined,transactionAt:dateWithCurrentLocalTime(ledgerEntryDate),referenceNumber:ledgerEntryReference.trim()||undefined,notes:ledgerEntryNote.trim()||undefined,...(ledgerEntryDirection==="PAY_OUT"?{payoutDestinationType:payoutKind,payoutDestinationId:payoutId||undefined,payoutDestinationDetails:payoutKind==="OTHER"?ledgerPayoutDetails.trim():undefined}:{})})});
    const success=ledgerEntryDirection==="PAY_IN"?"Pay In recorded.":"Pay Out recorded.";
    resetLedgerEntry();setMessage(success);window.setTimeout(()=>setMessage(""),2500);
    await Promise.all([load(),loadCardLedger(ledgerCardId)]);
@@ -314,6 +316,12 @@ export default function CustomerDetailPage(){
  });
  const savedMatchCount=foundCards.length+foundBanks.length+foundUpi.length+foundEb.length+foundBeneficiaries.length;
  const ledgerCardLabel=ledgerCardId?(cardLedger?.cards.find(card=>card.id===ledgerCardId)?.label??"Selected card"):"All cards";
+ const payOutSuggestion=suggestedPayOutSource(cardLedger?.payInSources??[],ledgerEntryCardId,ledgerEntryDate);
+ const validPayOutSource=payOutSuggestion?ledgerAccounts.find(account=>account.id===payOutSuggestion.financialAccountId):null;
+ const payOutSourceAvailable=Boolean(validPayOutSource);
+ const effectiveLedgerEntryAccountId=ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual
+   ?(payOutSourceAvailable?payOutSuggestion!.financialAccountId:"")
+   :ledgerEntryAccountId;
  const ledgerEntryValue=Number(ledgerEntryAmount)||0;
  const ledgerEntryStartingBalance=ledgerEntryCardId?(cardLedger?.rows.filter(row=>row.cardId===ledgerEntryCardId).reduce((sum,row)=>sum+row.credit-row.debit,0)??0):Number(cardLedger?.totals.balance??0);
  const ledgerEntryStartingLabel=ledgerEntryStartingBalance>0.001?"Pay to customer":ledgerEntryStartingBalance<-.001?"Customer to pay us":"Settled";
@@ -491,7 +499,7 @@ export default function CustomerDetailPage(){
    <p className="text-sm text-[var(--text-muted)]">{copyFallbackCard?.bankName} •••• {copyFallbackCard?.lastFourDigits}</p>
    {copyError?<p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{copyError}</p>:null}
   </Modal>
-  <Modal open={!!ledgerEntryDirection} title={ledgerEntryDirection==="PAY_IN"?"Pay In":"Pay Out"} description={ledgerEntryDirection==="PAY_IN"?"Money received from customer · adds Credit (In).":"Money paid to customer · adds Debit (Out)."} onClose={()=>{if(!ledgerEntryBusy)resetLedgerEntry();}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={ledgerEntryBusy} onClick={resetLedgerEntry} className="app-secondary-button min-h-11 font-bold disabled:opacity-50">Cancel</button><button form="customer-ledger-entry" disabled={ledgerEntryBusy||!ledgerEntryAccountId||ledgerEntryValue<=0||(ledgerEntryDirection==="PAY_OUT"&&(!ledgerPayoutDestination||(ledgerPayoutDestination==="OTHER"&&!ledgerPayoutDetails.trim())))} className={"min-h-11 rounded-xl font-black text-white disabled:opacity-50 "+(ledgerEntryDirection==="PAY_IN"?"bg-emerald-700":"bg-rose-700")}>{ledgerEntryBusy?"Saving…":ledgerEntryDirection==="PAY_IN"?"Save Pay In":"Save Pay Out"}</button></div>}>
+  <Modal open={!!ledgerEntryDirection} title={ledgerEntryDirection==="PAY_IN"?"Pay In":"Pay Out"} description={ledgerEntryDirection==="PAY_IN"?"Money received from customer · adds Credit (In).":"Money paid to customer · adds Debit (Out)."} onClose={()=>{if(!ledgerEntryBusy)resetLedgerEntry();}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={ledgerEntryBusy} onClick={resetLedgerEntry} className="app-secondary-button min-h-11 font-bold disabled:opacity-50">Cancel</button><button form="customer-ledger-entry" disabled={ledgerEntryBusy||!effectiveLedgerEntryAccountId||ledgerEntryValue<=0||(ledgerEntryDirection==="PAY_OUT"&&(!ledgerPayoutDestination||(ledgerPayoutDestination==="OTHER"&&!ledgerPayoutDetails.trim())))} className={"min-h-11 rounded-xl font-black text-white disabled:opacity-50 "+(ledgerEntryDirection==="PAY_IN"?"bg-emerald-700":"bg-rose-700")}>{ledgerEntryBusy?"Saving…":ledgerEntryDirection==="PAY_IN"?"Save Pay In":"Save Pay Out"}</button></div>}>
    <form id="customer-ledger-entry" onSubmit={submitLedgerEntry} className="space-y-4">
     <div className="grid grid-cols-2 gap-2">
      <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Current balance</p><p className={"money mt-1 text-lg font-black "+(ledgerEntryStartingBalance<0?"text-rose-700":ledgerEntryStartingBalance>0?"text-emerald-700":"")}>{money(ledgerEntryStartingBalance)}</p><p className="mt-0.5 text-[10px] font-semibold text-[var(--text-muted)]">{ledgerEntryStartingLabel}</p></div>
@@ -501,7 +509,19 @@ export default function CustomerDetailPage(){
      <Field label="Amount"><input className={control} type="number" min="0.01" step="0.01" inputMode="decimal" value={ledgerEntryAmount} onChange={e=>{const value=e.target.value;setLedgerEntryAmount(value);setLedgerAllocations(suggestedLedgerAllocations(value,ledgerEntryDirection,ledgerEntryCardId));setLedgerEntryError("");}} placeholder="₹ 0.00" required/></Field>
      <Field label="Date"><input className={control} type="date" max={localDateValue()} value={ledgerEntryDate} onChange={e=>{setLedgerEntryDate(e.target.value);setLedgerEntryError("");}} required/></Field>
     </div>
-    <Field label={ledgerEntryDirection==="PAY_IN"?"Received in (our account)":"Paid from (our cash / bank / wallet)"}><SearchableSelect className={control} value={ledgerEntryAccountId} onChange={e=>{setLedgerEntryAccountId(e.target.value);setLedgerEntryError("");}}><option value="">Choose account…</option>{ledgerAccounts.map(account=><option key={account.id} value={account.id}>{account.accountName+" · "+account.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>
+    {ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual&&validPayOutSource&&payOutSuggestion
+     ?<div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+       <div className="flex items-center justify-between gap-2"><span className="text-xs font-black text-emerald-900">Paid from · Auto from Pay In</span><button type="button" onClick={()=>{setLedgerPaidFromManual(true);setLedgerEntryAccountId(payOutSuggestion.financialAccountId);setLedgerEntryError("");}} className="min-h-9 rounded-lg border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-800">Change</button></div>
+       <p className="mt-1 text-base font-black text-emerald-900">{validPayOutSource.accountName} <span className="text-xs font-semibold">· {validPayOutSource.accountType.replaceAll("_"," ")}</span></p>
+       <p className="mt-1 text-[11px] font-medium text-emerald-800">From <Link href={"/transactions/"+payOutSuggestion.transactionId} className="font-black underline">{payOutSuggestion.transactionNumber}</Link> · {new Date(payOutSuggestion.transactionAt).toLocaleDateString("en-IN")}. This account will be debited.</p>
+      </div>
+     :<div className="space-y-1">
+       <Field label={ledgerEntryDirection==="PAY_IN"?"Received in (our account)":"Paid from (our account) *"}><SearchableSelect className={control} value={ledgerEntryAccountId} onChange={e=>{setLedgerEntryAccountId(e.target.value);if(ledgerEntryDirection==="PAY_OUT")setLedgerPaidFromManual(true);setLedgerEntryError("");}}><option value="">Choose account…</option>{ledgerAccounts.map(account=><option key={account.id} value={account.id}>{account.accountName+" · "+account.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>
+       {ledgerEntryDirection==="PAY_OUT"?<div className="flex items-center justify-between gap-2">
+         <p className="text-[11px] font-semibold text-amber-700">{ledgerPaidFromManual&&validPayOutSource?"Source manually changed.":"Auto source unavailable: choose a source account."}</p>
+         {ledgerPaidFromManual&&validPayOutSource?<button type="button" onClick={()=>{setLedgerPaidFromManual(false);setLedgerEntryAccountId("");setLedgerEntryError("");}} className="shrink-0 text-xs font-black text-[var(--accent)]">Use Pay In source</button>:null}
+        </div>:null}
+      </div>}
     {ledgerEntryDirection==="PAY_OUT"?<div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
      <Field label="Paid to (customer destination) *"><SearchableSelect className={control+" bg-[var(--surface)]"} value={ledgerPayoutDestination} onChange={e=>{setLedgerPayoutDestination(e.target.value);setLedgerPayoutDetails("");setLedgerEntryError("");}} required>
       <option value="">Choose where customer received money…</option>
