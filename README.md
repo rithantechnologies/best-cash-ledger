@@ -46,3 +46,9 @@ This repository intentionally excludes environment files, database dumps, backup
 ## Deployment
 
 The current application is designed to run the API and web processes separately behind a reverse proxy. Deployment-specific credentials and server configuration should remain outside source control.
+
+## Install on a separate client VPS
+
+See [Client VPS installation checklist](ops/CLIENT_VPS_INSTALL.md) for the
+portable release workflow, database migration versus new setup, and preflight.
+The source repository does not contain production credentials or business data.

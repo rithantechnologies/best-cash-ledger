@@ -65,3 +65,9 @@ Do not package source-code archives into every client backup; GitHub `main` is t
 ## Keep the server lean
 
 Avoid Redis, Docker management panels, Prometheus/Grafana, Coolify/Dokploy and other always-on infrastructure unless the application develops a concrete need for it. Nginx + systemd + PostgreSQL is lighter and easier to migrate.
+
+## Deployment verification
+
+See [CLIENT_VPS_INSTALL.md](CLIENT_VPS_INSTALL.md) for the step-by-step
+new VPS checklist, schema-scoped database transfer, and the non-destructive
+release preflight script. The target API must include its tracked IFSC data asset.
