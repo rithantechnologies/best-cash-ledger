@@ -28,6 +28,7 @@ export default function CustomersPage(){
  const [q,setQ]=useState(""),[sortBy,setSortBy]=useState("createdAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("desc"),[role,setRole]=useState("");
  const [demoEnabled,setDemoEnabled]=useState(false),[newDemoNumber,setNewDemoNumber]=useState(""),[newDemoBank,setNewDemoBank]=useState("");
  const [creating,setCreating]=useState(false),[createError,setCreateError]=useState(""),[customerTypeId,setCustomerTypeId]=useState(""),[showMobileFilters,setShowMobileFilters]=useState(false);
+ const [newCustomerName,setNewCustomerName]=useState(""),[newCustomerMobile,setNewCustomerMobile]=useState(""),[newCustomerEb,setNewCustomerEb]=useState("");
  const [typeChoices,setTypeChoices]=useState<CustomerTypeChoice[]>([]),[typesError,setTypesError]=useState("");
  const [cardDemoNumber,setCardDemoNumber]=useState("");
  const [addingCard,setAddingCard]=useState(false),[cardCustomerId,setCardCustomerId]=useState(""),[cardBank,setCardBank]=useState(""),[cardLast4,setCardLast4]=useState(""),[cardNickname,setCardNickname]=useState("");
@@ -52,6 +53,17 @@ export default function CustomersPage(){
  const activeTypes=typeChoices.filter(t=>t.isActive);
  function defaultTypeId(){return (activeTypes.find(t=>t.legacyType==="REGULAR")??activeTypes[0])?.id??"";}
  function typeName(customer:Customer){return customer.customerTypeConfig?.name??customer.customerType.replaceAll("_"," ");}
+ function openCustomerCreate(search=""){
+  const query=search.trim();
+  const phoneMatch=query.match(/(?:\+?91[\s.-]?)?[6-9]\d{9}$/);
+  const phone=phoneMatch?.[0].replace(/\D/g,"")??"";
+  const isPhone=phone.length===10||(phone.length===12&&phone.startsWith("91"));
+  const numericOnly=/^[\d\s+.-]+$/.test(query);
+  setNewCustomerName(isPhone?query.slice(0,phoneMatch!.index).trim():numericOnly?"":query);
+  setNewCustomerMobile(isPhone?phone.slice(-10):"");
+  setNewCustomerEb(numericOnly&&!isPhone?query.replace(/\s/g,""):"");
+  setCreateError("");setCustomerTypeId(defaultTypeId());setNewDemoNumber("");setNewDemoBank("");setCreating(true);
+ }
 
  useEffect(()=>{
   if(!creating)return;
@@ -110,7 +122,7 @@ export default function CustomersPage(){
 
  return <AppShell><PageFrame>
   <SectionHeading title="Customers"
-   action={<div className="flex gap-2"><button onClick={()=>{setError("");setCardDemoNumber("");setAddingCard(true);}} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>{setCreateError("");setCustomerTypeId(defaultTypeId());setNewDemoNumber("");setNewDemoBank("");setCreating(true);}} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
+   action={<div className="flex gap-2"><button onClick={()=>{setError("");setCardDemoNumber("");setAddingCard(true);}} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>openCustomerCreate()} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
@@ -129,6 +141,7 @@ export default function CustomersPage(){
     <SearchableSelect className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
    </div>
   </Toolbar>
+  {admin&&!loading&&pagination.total===0&&q.trim().length>=2?<div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-3" role="status"><span className="text-sm font-semibold text-[var(--text-muted)]">No customer found for <strong className="text-[var(--text)]">{q.trim()}</strong></span><button type="button" onClick={()=>openCustomerCreate(q)} className="app-primary-button min-h-11 px-4 text-sm font-black">+ Create customer</button></div>:null}
   {loading?<PageLoader label="Loading customers…"/>:<>
    <div className="space-y-2 md:hidden">{items.map(c=><Surface key={c.id} className={!c.isActive?"p-3.5 opacity-60":"p-3.5"}>
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Link href={"/customers/"+c.id} className="block truncate text-sm font-black">{c.fullName}</Link><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{c.mobile||"No mobile"} · {c.customerCode}</p></div><StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge></div>
@@ -153,9 +166,9 @@ export default function CustomersPage(){
     </div>
     <form id="create-customer" autoComplete="on" onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-3 sm:px-6">
-      <Field label="Customer name *"><input className={control+" min-h-12 text-base"} type="text" name="customer_name" autoComplete="name" autoFocus maxLength={150} placeholder="Enter name" required onChange={()=>{if(createError)setCreateError("");}}/></Field>
-      <Field label="Mobile (optional)"><input className={control+" min-h-12 text-base"} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" maxLength={20} placeholder="Mobile number"/></Field>
-      <Field label="EB number (optional)"><input className={control+" min-h-12 text-base"} type="text" name="customer_eb_number" autoComplete="off" maxLength={50} placeholder="Electricity consumer number"/></Field>
+      <Field label="Customer name *"><input className={control+" min-h-12 text-base"} type="text" name="customer_name" autoComplete="name" autoFocus defaultValue={newCustomerName} maxLength={150} placeholder="Enter name" required onChange={()=>{if(createError)setCreateError("");}}/></Field>
+      <Field label="Mobile (optional)"><input className={control+" min-h-12 text-base"} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" defaultValue={newCustomerMobile} maxLength={20} placeholder="Mobile number"/></Field>
+      <Field label="EB number (optional)"><input className={control+" min-h-12 text-base"} type="text" name="customer_eb_number" autoComplete="off" defaultValue={newCustomerEb} maxLength={50} placeholder="Electricity consumer number"/></Field>
       {demoEnabled?<div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"><p className="text-xs font-bold">Card (optional)</p><Field label="Card bank"><input className={control+" min-h-11"} value={newDemoBank} onChange={e=>setNewDemoBank(e.target.value)} maxLength={100} placeholder="Bank name (optional)" autoComplete="off"/></Field><Field label="Card number (16 digits)"><input className={control+" min-h-11 font-mono"} type="text" name="new_demo_number" value={newDemoNumber} onChange={e=>setNewDemoNumber(e.target.value.replace(/\D/g,"").slice(0,16))} inputMode="numeric" maxLength={16} autoComplete="off" spellCheck={false} placeholder="16 digits"/></Field></div>:null}
       <Field label="Customer type"><SearchableSelect className={control+" min-h-11"} value={customerTypeId} onChange={e=>setCustomerTypeId(e.target.value)} required><option value="">Select type</option>{activeTypes.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</SearchableSelect></Field>
       {typesError?<p role="alert" className="text-xs font-semibold text-rose-700">{typesError}</p>:null}

@@ -234,10 +234,12 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     const type=activeTransferTypes.find((item)=>item.id===id);
     setRows((current)=>keepTrailingBlank(current.map((row)=>{
       if(row.key===key&&row.status!=="SAVED"){
-        const mode=type?.transferMode??"UPI";
+        const mode=isEbBill(type)?"UPI":type?.transferMode??"UPI";
         const options=isEbBill(type)?[]:compatibleDestinations(row.customerProfile,mode);
         const blank=mode==="UPI"?{beneficiaryMode:"UPI" as BeneficiaryMode,beneficiaryUpi:"",bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",selectedDestinationKey:"",destinationHighlightKey:""}:{beneficiaryMode:"BANK" as BeneficiaryMode,beneficiaryUpi:"",bankAccountHolder:"",bankAccountNumber:"",bankIfsc:"",selectedDestinationKey:"",destinationHighlightKey:""};
-        return {...row,purpose:"TRANSFER",transferTypeId:id,...blank,...(isEbBill(type)&&row.customerProfile?.customer.ebNumber?{beneficiaryUpi:row.customerProfile.customer.ebNumber}:{}),...(options.length===1?destinationPatch(options[0]):{}),expanded:true,
+        const ebProfiles=row.customerProfile?.serviceProfiles.filter(item=>item.serviceName.trim().toLowerCase()==="eb bill")||[];
+        const ebNumber=ebProfiles.length===1?ebProfiles[0].referenceNumber:!ebProfiles.length?row.customerProfile?.customer.ebNumber||"":"";
+        return {...row,purpose:"TRANSFER",transferTypeId:id,...blank,...(isEbBill(type)&&ebNumber?{beneficiaryUpi:ebNumber}:{}),...(options.length===1?destinationPatch(options[0]):{}),expanded:true,
           commission:type?transferFee(row.amount,type):row.commission,commissionOverridden:false,cashReceivedOverridden:false,status:"READY",message:undefined};
       }
       return row.expanded?{...row,expanded:false}:row;
@@ -296,8 +298,9 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
         if(row.key!==key||row.customerId!==customer.id||row.status==="SAVED")return row;
         const ebBill=row.direction==="IN"&&row.purpose==="TRANSFER"&&isEbBill(activeTransferTypes.find((type)=>type.id===row.transferTypeId));
         const options=ebBill?[]:compatibleDestinations(profile,row.beneficiaryMode);
-        const firstEb=profile.serviceProfiles.find(item=>item.serviceName.trim().toLowerCase()==="eb bill");
-        const destination=ebBill?{beneficiaryUpi:firstEb?.referenceNumber||profile.customer.ebNumber||"",selectedDestinationKey:"",destinationHighlightKey:""}:options.length===1?destinationPatch(options[0]):{destinationHighlightKey:options[0]?.key||""};
+        const ebProfiles=profile.serviceProfiles.filter(item=>item.serviceName.trim().toLowerCase()==="eb bill");
+        const ebNumber=ebProfiles.length===1?ebProfiles[0].referenceNumber:!ebProfiles.length?profile.customer.ebNumber||"":"";
+        const destination=ebBill?{beneficiaryUpi:ebNumber,selectedDestinationKey:"",destinationHighlightKey:""}:options.length===1?destinationPatch(options[0]):{destinationHighlightKey:options[0]?.key||""};
         const serviceMatches=[...profile.serviceProfiles,...profile.recentServiceReferences].filter((item)=>item.serviceName.trim().toLowerCase()===row.serviceName.trim().toLowerCase());
         const serviceReference=row.purpose==="SERVICE"&&serviceMatches.length===1?serviceReferencePatch(serviceMatches[0]):{};
         return {...row,customerProfile:profile,customerProfileLoading:false,...destination,...serviceReference};
