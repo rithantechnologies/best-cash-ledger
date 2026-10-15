@@ -622,6 +622,16 @@ export class CustomersService {
         throw new BadRequestException('Main Cash Reserve is owner-only');
       }
       if (account.accountType === AccountType.CASH) {
+        if (dto.physicalCashConfirmed !== true) {
+          throw new BadRequestException(
+            'This would change the physical cash drawer. Confirm that real cash notes were received or handed over. For a credit-card swipe, use the Card Swipe transaction instead.',
+          );
+        }
+        if (dto.direction === 'PAY_OUT' && dto.payoutDestinationType && dto.payoutDestinationType !== 'CASH') {
+          throw new BadRequestException(
+            'Cash drawer Pay Out requires cash handed to customer. For bank or UPI payouts, choose the actual bank or wallet as Paid from.',
+          );
+        }
         await this.validation.requireOpenCashDesk(
           tx,
           account.id,
@@ -1025,6 +1035,8 @@ export class CustomersService {
             direction: dto.direction,
             amount,
             financialAccountId: account.id,
+            financialAccountType: account.accountType,
+            physicalCashConfirmed: account.accountType === AccountType.CASH,
             sourcePayInTransactionId: dto.sourcePayInTransactionId ?? null,
             payoutDestination,
             remarks,

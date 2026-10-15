@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsDateString, IsIn, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 
 export class CustomerLedgerAllocationDto {
   @IsIn(['PAYABLE', 'CARD_DUE'])
@@ -23,6 +23,11 @@ export class CreateCustomerLedgerEntryDto {
 
   @IsString()
   financialAccountId!: string;
+
+  // Required only when the selected account is a physical cash drawer.
+  @IsOptional()
+  @IsBoolean()
+  physicalCashConfirmed?: boolean;
 
   @IsOptional()
   @IsString()
