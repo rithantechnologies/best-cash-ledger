@@ -1,5 +1,7 @@
-import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { RoleName, TransactionType } from '@prisma/client';
+import type { Response } from 'express';
+import { ExcelExportService } from './excel-export.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -8,7 +10,13 @@ import { ReportsService } from './reports.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('reports')
 export class ReportsController {
-  constructor(private readonly reports: ReportsService) {}
+  constructor(private readonly reports: ReportsService, private readonly excelExport: ExcelExportService) {}
+
+  @Get('export/excel')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  downloadExcel(@Res() response: Response, @Req() req: any, @Query('from') from: string, @Query('to') to: string, @Query('scope') scope?: string) {
+    return this.excelExport.write(response, from, to, scope ?? 'all', req.user.userId);
+  }
 
   @Get('transactions')
   transactions(

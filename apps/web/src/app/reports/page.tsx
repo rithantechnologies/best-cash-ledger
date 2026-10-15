@@ -81,7 +81,7 @@ export default function ReportsPage(){
  if(loading)return <AppShell><PageLoader label="Preparing reports…"/></AppShell>;
 
  return <AppShell><PageFrame>
-  <SectionHeading title="Reports" action={<button onClick={downloadCsv} className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-semibold">Export CSV</button>}/>
+  <SectionHeading title="Reports" action={<div className="flex flex-wrap items-center gap-2">{canSeeEod?<Link href="/reports/export" className="min-h-10 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white">Export Excel</Link>:null}<button onClick={downloadCsv} title="Only the currently loaded report rows; not a complete data export" className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-semibold">Current View CSV</button></div>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <SegmentedTabs<Tab> value={tab} onChange={value=>{setTab(value);setUnderlyingOpen(false);}} items={[
    {value:"earnings",label:"Earnings"},{value:"settlements",label:"Provider clearing",count:settlements.length},{value:"accounting",label:"Account ledger"},
