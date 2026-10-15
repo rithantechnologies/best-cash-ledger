@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
+import { AppUppercaseInput } from "@/components/app-uppercase-input";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -26,7 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={geist.variable} suppressHydrationWarning>
       <head><script dangerouslySetInnerHTML={{__html:themeScript}} /></head>
-      <body>{children}</body>
+      <body><AppUppercaseInput />{children}</body>
     </html>
   );
 }

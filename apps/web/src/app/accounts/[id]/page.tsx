@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Modal, PageFrame, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { transactionDetailHref } from "@/lib/transaction-return";
 import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 import { MoneyFlowIcon } from "@/components/money-flow-icon";
 
@@ -291,7 +292,7 @@ function movementSummary(tx:RowTx,row:Row){
 function DetailStat({label,value,tone=""}:{label:string;value:string;tone?:string}){
   return <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p><p className={"mt-1 text-sm font-black "+tone}>{value}</p></div>;
 }
-function AccountMovementDetail({detail,account}:{detail:DrillDetail;account:Account}){
+function AccountMovementDetail({detail,account,returnTo}:{detail:DrillDetail;account:Account;returnTo:string}){
   const {movement,source,row,isIn}=detail;
   const tx=source??movement;
   const summary=movementSummary(row.journal.transaction,row);
@@ -336,7 +337,7 @@ function AccountMovementDetail({detail,account}:{detail:DrillDetail;account:Acco
     {movementPayoutFees>0?<div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3 text-xs text-rose-800"><div className="flex items-center justify-between gap-3"><span><b>Payout charge</b>{movement.charges.find(c=>c.chargeType==="PAYOUT")?.sourceAccount?.accountName?" · "+movement.charges.find(c=>c.chargeType==="PAYOUT")?.sourceAccount?.accountName:""}</span><strong className="money text-rose-700">−{money(movementPayoutFees)}</strong></div><p className="mt-1 text-[10px] text-rose-700/80">Deducted in addition to the payout principal.</p></div>:null}
     {movement.payablePayment?<div className="rounded-xl border border-[var(--border)] p-3 text-xs text-[var(--text-muted)]">Paid from <b className="text-[var(--text)]">{movement.payablePayment.sourceAccount.accountName}</b> · payout {money(movement.payablePayment.amount)}{movementPayoutFees>0?" · payout charge "+money(movementPayoutFees):""}</div>:null}
     {(tx.notes||movement.notes)?<div className="rounded-xl border border-[var(--border)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Notes</p><p className="mt-1 text-sm text-[var(--text-muted)]">{tx.notes??movement.notes}</p></div>:null}
-    <Link href={"/transactions/"+tx.id} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--accent)]">Open full transaction →</Link>
+    <Link href={transactionDetailHref(tx.id,returnTo)} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--accent)]">Open full transaction →</Link>
   </div>;
 }
 
@@ -679,7 +680,7 @@ export default function AccountLedgerPage(){
       </form>
     </Modal>:null}
     {detailOpen&&typeof document!=="undefined"?createPortal(<Modal open title="Account transaction details" description="Trace this account movement back to the customer or source transaction." onClose={()=>{setDetailOpen(false);setDetail(null);setDetailError("");}}>
-      {detailLoading?<div className="py-10 text-center text-sm font-semibold text-[var(--text-muted)]">Loading transaction details…</div>:detailError?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{detailError}</div>:detail&&account?<AccountMovementDetail detail={detail} account={account}/>:null}
+      {detailLoading?<div className="py-10 text-center text-sm font-semibold text-[var(--text-muted)]">Loading transaction details…</div>:detailError?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{detailError}</div>:detail&&account?<AccountMovementDetail detail={detail} account={account} returnTo={"/accounts/"+id}/>:null}
     </Modal>,document.body):null}
   </PageFrame></AppShell>;
 }

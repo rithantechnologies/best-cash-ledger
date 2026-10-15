@@ -6,6 +6,7 @@ import {AppShell} from "@/components/app-shell";
 import {SearchableSelect} from "@/components/searchable-select";
 import {Field,FormSection,PageLoader,TransactionFrame,SummaryRow,Modal} from "@/components/ui";
 import {apiFetch} from "@/lib/api";
+import {transactionReturnPath} from "@/lib/transaction-return";
 type Expense={expenseCategoryId:string;expenseType:string;paymentAccountId:string|null;amount:string;description:string|null;payee:string|null};
 type Tx={id:string;transactionNumber:string;transactionAt:string;createdAt:string;status:string;referenceNumber:string|null;notes:string|null;expense:Expense|null};
 type Account={id:string;accountName:string;accountType:string;isActive?:boolean};
@@ -21,8 +22,9 @@ export default function EditExpense(){
  const [date,setDate]=useState(""),[description,setDescription]=useState(""),[payee,setPayee]=useState("");
  const [reference,setReference]=useState(""),[notes,setNotes]=useState(""),[reason,setReason]=useState("");
  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState("");
+ const [returnTo,setReturnTo]=useState("/expenses");
  const [role,setRole]=useState(""),[deleteOpen,setDeleteOpen]=useState(false),[deleteReason,setDeleteReason]=useState("");
- useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"")}catch{}},[]);
+ useEffect(()=>{setReturnTo(transactionReturnPath());try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"")}catch{}},[]);
  useEffect(()=>{let active=true;Promise.all([
   apiFetch<Tx>("/transactions/"+id),apiFetch<Account[]>("/dashboard/accounts"),
   apiFetch<Category[]>("/settings/expense-categories?includeInactive=true"),
@@ -39,11 +41,11 @@ export default function EditExpense(){
   try{await apiFetch("/transactions/expense/"+id,{method:"PATCH",body:JSON.stringify({
    expenseCategoryId:categoryId,amount:Number(amount),transactionAt:new Date(date).toISOString(),paymentAccountId:accountId||null,
    description:description.trim()||null,payee:payee.trim()||null,referenceNumber:reference.trim()||null,notes:notes.trim()||null,reason:reason.trim()
-  })});router.push("/transactions/"+id);router.refresh();
+  })});router.replace(returnTo);router.refresh();
   }catch(e){setError(e instanceof Error?e.message:"Expense update failed")}finally{setSaving(false)}
  }
  async function deleteExpense(){setSaving(true);setError("");
-  try{await apiFetch("/transactions/expense/"+id+"/delete",{method:"POST",body:JSON.stringify({reason:deleteReason.trim()})});router.replace("/expenses");router.refresh();}
+  try{await apiFetch("/transactions/expense/"+id+"/delete",{method:"POST",body:JSON.stringify({reason:deleteReason.trim()})});router.replace(returnTo);router.refresh();}
   catch(e){setError(e instanceof Error?e.message:"Delete failed");setDeleteOpen(false)}finally{setSaving(false)}
  }
  if(loading)return <AppShell><PageLoader label="Loading expense…"/></AppShell>;
@@ -51,7 +53,7 @@ export default function EditExpense(){
  return <AppShell><form onSubmit={save}><TransactionFrame eyebrow="Expense correction" title={"Edit "+tx.transactionNumber}
   description="Update this same expense. Its original business date stays unless you change it; edits appear in the audit history."
   summary={<><SummaryRow label="Amount" value={money(Number(amount)||0)} tone="rose"/><SummaryRow label="Paid from" value={accounts.find(a=>a.id===accountId)?.accountName||"Pending · choose later"}/><SummaryRow label="Originally entered" value={new Date(tx.createdAt).toLocaleString("en-IN")}/></>}
-  footer={<div className="grid gap-2 sm:grid-cols-2"><Link href={"/transactions/"+id} className="flex min-h-12 items-center justify-center rounded-xl border border-[var(--border)] text-sm font-bold">Cancel</Link><button disabled={saving||!categoryId||Number(amount)<=0||reason.trim().length<3} className="app-primary-button min-h-12 px-4 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Save all changes"}</button></div>}>
+  footer={<div className="grid gap-2 sm:grid-cols-2"><Link href={returnTo} className="flex min-h-12 items-center justify-center rounded-xl border border-[var(--border)] text-sm font-bold">Cancel</Link><button disabled={saving||!categoryId||Number(amount)<=0||reason.trim().length<3} className="app-primary-button min-h-12 px-4 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Save all changes"}</button></div>}>
   {error?<p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
   <FormSection step="1" title="Expense fields" description="Amount, category, date, payment account and all other details can be corrected.">
    <div className="grid gap-4 sm:grid-cols-2">

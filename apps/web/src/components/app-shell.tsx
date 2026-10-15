@@ -10,6 +10,7 @@ import { QuickExpenseEntry } from "@/components/quick-expense-entry";
 import { QuickCardSwipeEntry } from "@/components/quick-card-swipe-entry";
 import { BrowserEntrySuggestions } from "@/components/browser-entry-suggestions";
 import { apiFetch } from "@/lib/api";
+import { canRememberTransactionOrigin, rememberTransactionOrigin } from "@/lib/transaction-return";
 
 const navItems = [
   { group:"Overview", label:"Dashboard", short:"Home", href:"/", icon:"home" },
@@ -153,6 +154,9 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
     }catch{}
   },[]);
   useEffect(()=>{setMenuOpen(false);setNewOpen(false);setSpeedDialOpen(false);setDesktopUserOpen(false);setCustomerSearchOpen(false);setNavigating(false);},[pathname]);
+  useEffect(()=>{
+    if(canRememberTransactionOrigin(pathname))rememberTransactionOrigin(window.location.pathname+window.location.search);
+  },[pathname]);
   useEffect(()=>{
     const locked=menuOpen||newOpen;
     document.body.style.overflow=locked?"hidden":"";

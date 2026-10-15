@@ -19,6 +19,7 @@ import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleServicePartnerPayableDto } from './dto/quick-cash-transfer.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
+import { UpdateTransactionDetailsDto } from './dto/update-transaction-details.dto.js';
 
 @Injectable()
 export class TransactionsService {
@@ -4756,6 +4757,35 @@ export class TransactionsService {
       correctedTransaction,
       expenseAdjustments,
     };
+  }
+
+  async updateDetails(id: string, dto: UpdateTransactionDetailsDto, userId: string) {
+    return this.prisma.$transaction(async (db) => {
+      const original = await db.transaction.findUnique({
+        where: { id }, select: { referenceNumber: true, notes: true, transactionNumber: true },
+      });
+      if (!original) throw new NotFoundException('Transaction not found');
+      const changes = {
+        ...(dto.referenceNumber !== undefined ? { referenceNumber: dto.referenceNumber?.trim().toUpperCase() || null } : {}),
+        ...(dto.notes !== undefined ? { notes: dto.notes?.trim().toUpperCase() || null } : {}),
+      };
+      if (!Object.keys(changes).length || Object.entries(changes).every(([key, value]) =>
+        original[key as 'notes' | 'referenceNumber'] === value)) {
+        throw new BadRequestException('Change at least one reference or notes field');
+      }
+      const updated = await db.transaction.update({
+        where: { id }, data: { ...changes, updatedById: userId },
+      });
+      await db.auditLog.create({
+        data: {
+          userId, entityType: 'TRANSACTION', entityId: id, action: 'UPDATE_DETAILS',
+          oldValues: { referenceNumber: original.referenceNumber, notes: original.notes, transactionNumber: original.transactionNumber },
+          newValues: { referenceNumber: updated.referenceNumber, notes: updated.notes, transactionNumber: original.transactionNumber },
+          reason: dto.reason.trim(),
+        },
+      });
+      return updated;
+    });
   }
 
   async updateDateTime(id: string, dto: UpdateTransactionDateTimeDto, userId: string) {

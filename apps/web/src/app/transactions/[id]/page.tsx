@@ -9,6 +9,7 @@ import { AppShell } from "@/components/app-shell";
 import { Modal, PageFrame, PageLoader, StatusBadge, Surface } from "@/components/ui";
 import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
+import { transactionReturnPath } from "@/lib/transaction-return";
 
 type Account={id:string;accountName:string;accountType?:string;isActive?:boolean;currentBalance?:string|number};
 type Entry={id:string;entryType:string;amount:string;description:string|null;ledgerAccount:{ledgerName:string}};
@@ -204,11 +205,33 @@ function MoneyFlow({tx}:{tx:Tx}){
 
 export default function TransactionDetailPage(){
  const {id}=useParams<{id:string}>();const router=useRouter();const [tx,setTx]=useState<Tx|null>(null),[reason,setReason]=useState(""),[error,setError]=useState(""),[role,setRole]=useState(""),[saving,setSaving]=useState(false),[reverseOpen,setReverseOpen]=useState(false),[deleteOpen,setDeleteOpen]=useState(false),[dateTimeOpen,setDateTimeOpen]=useState(false),[editDateTime,setEditDateTime]=useState(""),[dateTimeReason,setDateTimeReason]=useState("");
+ const [returnTo,setReturnTo]=useState("/transactions");
+ const [detailsOpen,setDetailsOpen]=useState(false),[editReference,setEditReference]=useState(""),[editNotes,setEditNotes]=useState(""),[detailsReason,setDetailsReason]=useState("");
  const [correctOpen,setCorrectOpen]=useState(false),[correctedAmount,setCorrectedAmount]=useState(""),[correctReason,setCorrectReason]=useState("");
  const [expenseSourceOpen,setExpenseSourceOpen]=useState(false),[expenseSourceId,setExpenseSourceId]=useState(""),[expenseSourceNote,setExpenseSourceNote]=useState(""),[expenseAccounts,setExpenseAccounts]=useState<Account[]>([]);
  const [partnerPaymentOpen,setPartnerPaymentOpen]=useState(false),[partnerPaymentAccountId,setPartnerPaymentAccountId]=useState(""),[partnerPaymentNote,setPartnerPaymentNote]=useState(""),[partnerPaymentAccounts,setPartnerPaymentAccounts]=useState<Account[]>([]);
  const load=()=>apiFetch<Tx>("/transactions/"+id).then(setTx);
- useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}load().catch(e=>setError(e instanceof Error?e.message:"Failed to load transaction"));},[id]);
+ useEffect(()=>{setReturnTo(transactionReturnPath());try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}load().catch(e=>setError(e instanceof Error?e.message:"Failed to load transaction"));},[id]);
+ function openDetailsEditor(){
+   if(!tx)return;
+   setEditReference(tx.referenceNumber||"");
+   setEditNotes(tx.notes||"");
+   setDetailsReason("");
+   setError("");
+   setDetailsOpen(true);
+ }
+ async function saveDetails(e:FormEvent){
+   e.preventDefault();setSaving(true);setError("");
+   try{
+     await apiFetch("/transactions/"+id+"/details",{method:"PATCH",body:JSON.stringify({
+       referenceNumber:editReference.trim().toUpperCase()||null,
+       notes:editNotes.trim().toUpperCase()||null,
+       reason:detailsReason.trim(),
+     })});
+     setDetailsOpen(false);router.replace(returnTo);router.refresh();
+   }catch(err){setError(err instanceof Error?err.message:"Could not update transaction details");}
+   finally{setSaving(false);}
+ }
  async function reverse(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/reverse",{method:"POST",body:JSON.stringify({reason})});setReason("");setReverseOpen(false);await load();}catch(err){setError(err instanceof Error?err.message:"Reversal failed");}finally{setSaving(false);}}
  function openAmountCorrection(){
    if(!tx)return;
@@ -226,11 +249,11 @@ export default function TransactionDetailPage(){
    try{
      const result=await apiFetch<{correctedTransactionId:string;inPlace:boolean}>("/transactions/"+id+"/correct-amount",{method:"POST",body:JSON.stringify({correctedAmount:amount,reason:correctReason.trim()})});
      setCorrectOpen(false);setCorrectReason("");
-     if(result.correctedTransactionId===id||result.inPlace){await load();return;}
-     router.replace("/transactions/"+result.correctedTransactionId);
+     // The source ledger reloads its new replacement transaction on return.
+     router.replace(returnTo);router.refresh();
    }catch(err){setError(err instanceof Error?err.message:"Amount correction failed");}finally{setSaving(false);}
  }
- async function deleteTransaction(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/delete",{method:"POST",body:JSON.stringify({reason})});setReason("");setDeleteOpen(false);router.replace(tx?.expense?"/expenses":"/transactions");}catch(err){setError(err instanceof Error?err.message:"Delete failed");}finally{setSaving(false);}}
+ async function deleteTransaction(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/delete",{method:"POST",body:JSON.stringify({reason})});setReason("");setDeleteOpen(false);router.replace(returnTo);}catch(err){setError(err instanceof Error?err.message:"Delete failed");}finally{setSaving(false);}}
  function openDateTimeEditor(){
    if(!tx)return;
    const d=new Date(tx.transactionAt);
@@ -241,7 +264,7 @@ export default function TransactionDetailPage(){
    e.preventDefault();if(!editDateTime)return;setSaving(true);setError("");
    try{
      await apiFetch("/transactions/"+id+"/date-time",{method:"POST",body:JSON.stringify({transactionAt:new Date(editDateTime).toISOString(),reason:dateTimeReason.trim()})});
-     setDateTimeOpen(false);setDateTimeReason("");await load();
+     setDateTimeOpen(false);setDateTimeReason("");router.replace(returnTo);router.refresh();
    }catch(err){setError(err instanceof Error?err.message:"Date/time update failed");}finally{setSaving(false);}
  }
  async function openExpenseSource(){
@@ -282,6 +305,7 @@ export default function TransactionDetailPage(){
 
  const cardDueType=["CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION"].includes(tx.transactionType);
  const canEditDateTime=role==="OWNER"||role==="ADMIN";
+ const expenseEditHref="/expenses/"+tx.id+"/edit?returnTo="+encodeURIComponent(returnTo);
  const correctionManagedElsewhere=["CUSTOMER_PAYOUT","CUSTOMER_RECEIVABLE","CUSTOMER_RECEIPT","PROVIDER_SETTLEMENT","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_ADJUSTMENT","ACCOUNT_ENTRY","CUSTOMER_LEDGER_ENTRY"].includes(tx.transactionType);
  const canCorrect=!tx.expense&&(role==="OWNER"||role==="ADMIN")&&!correctionManagedElsewhere&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL"&&!tx.correctedTransaction;
  const canDelete=role==="OWNER"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
@@ -296,8 +320,8 @@ export default function TransactionDetailPage(){
 
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-   <div><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">← Transactions</Link><p className="mt-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--text-muted)]">{["BUSINESS_EXPENSE","PERSONAL_EXPENSE"].includes(tx.transactionType)?"Expense":displayService(tx)}</p><h1 className="mt-1 text-2xl font-black tracking-[-.035em] sm:text-3xl">{tx.transactionNumber}</h1><p className="mt-1 text-xs text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleString("en-IN")} · {tx.createdBy?.fullName??tx.createdById}</p></div>
-   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{partnerPayablePending?<button onClick={()=>void openPartnerPayment()} className="min-h-10 rounded-xl bg-violet-100 px-3 text-xs font-black text-violet-800">Pay partner {money(tx.quickCashTransfer?.servicePartnerCharge??0)}</button>:null}{tx.expense&&tx.status==="PENDING"&&!tx.journal?<button onClick={()=>void openExpenseSource()} className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-800">Add payment source</button>:null}{tx.expense&&tx.status!=="REVERSED"?<Link href={"/expenses/"+tx.id+"/edit"} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2.5 text-xs font-black text-[var(--accent)]">Edit all fields</Link>:null}{canCorrect?<button onClick={openAmountCorrection} className="min-h-10 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800">Correct amount</button>:null}{canEditDateTime&&!tx.expense?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canDelete?<button onClick={()=>{setReason("");setDeleteOpen(true)}} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">Delete</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
+   <div><Link href={returnTo} className="text-xs font-bold text-[var(--accent)]">← Back to previous view</Link><p className="mt-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--text-muted)]">{["BUSINESS_EXPENSE","PERSONAL_EXPENSE"].includes(tx.transactionType)?"Expense":displayService(tx)}</p><h1 className="mt-1 text-2xl font-black tracking-[-.035em] sm:text-3xl">{tx.transactionNumber}</h1><p className="mt-1 text-xs text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleString("en-IN")} · {tx.createdBy?.fullName??tx.createdById}</p></div>
+   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{partnerPayablePending?<button onClick={()=>void openPartnerPayment()} className="min-h-10 rounded-xl bg-violet-100 px-3 text-xs font-black text-violet-800">Pay partner {money(tx.quickCashTransfer?.servicePartnerCharge??0)}</button>:null}{tx.expense&&tx.status==="PENDING"&&!tx.journal?<button onClick={()=>void openExpenseSource()} className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-800">Add payment source</button>:null}{canEditDateTime?<button onClick={openDetailsEditor} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 text-xs font-black text-[var(--accent)]">Edit transaction</button>:null}{tx.expense&&tx.status!=="REVERSED"?<Link href={expenseEditHref} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2.5 text-xs font-black text-[var(--accent)]">Edit all fields</Link>:null}{canCorrect?<button onClick={openAmountCorrection} className="min-h-10 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800">Correct amount</button>:null}{canEditDateTime&&!tx.expense?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canDelete?<button onClick={()=>{setReason("");setDeleteOpen(true)}} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">Delete</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {tx.correctionSource?<div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This is the corrected replacement for <Link className="font-black underline" href={"/transactions/"+tx.correctionSource.id}>{tx.correctionSource.transactionNumber}</Link>{tx.correctionReason?" · "+tx.correctionReason:""}.</div>:null}
@@ -318,7 +342,7 @@ export default function TransactionDetailPage(){
     <h3 className="text-sm font-black">Expense details</h3>
     <p className="mt-1 text-xs text-[var(--text-muted)]">{tx.expense.expenseCategory.name} · {tx.expense.paymentAccount?.accountName??"Pending payment source"}</p>
     <p className="mt-1 text-xs text-[var(--text-muted)]">Payee: {tx.expense.payee||"—"} · {tx.expense.description||"Expense"}</p>
-   </div><Link href={"/expenses/"+tx.id+"/edit"} className="text-xs font-bold text-[var(--accent)]">Edit / view history →</Link></div>
+   </div><Link href={expenseEditHref} className="text-xs font-bold text-[var(--accent)]">Edit / view history →</Link></div>
    {Boolean(tx.expenseAdjustments?.length)?<details className="mt-3 border-t border-[var(--border)] pt-3">
     <summary className="cursor-pointer text-xs font-bold text-[var(--accent)]">View {tx.expenseAdjustments?.length} earlier correction record(s)</summary>
     <div className="mt-3 space-y-2">{tx.expenseAdjustments?.map(a=><div key={a.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs">
@@ -358,6 +382,16 @@ export default function TransactionDetailPage(){
    </form>
   </Modal>
 
+  <Modal open={detailsOpen} title="Edit transaction details" description="Available for every transaction type. References and notes are audited; amounts use separate accounting-safe correction actions." onClose={()=>!saving&&setDetailsOpen(false)}
+   footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={saving} onClick={()=>setDetailsOpen(false)} className="app-secondary-button min-h-11 text-sm font-bold">Cancel</button><button form="edit-transaction-details" disabled={saving||detailsReason.trim().length<3||(editReference.trim().toUpperCase()===(tx.referenceNumber||"")&&editNotes.trim().toUpperCase()===(tx.notes||""))} className="app-primary-button min-h-11 text-sm font-bold disabled:opacity-40">{saving?"Saving…":"Save & return"}</button></div>}>
+   <form id="edit-transaction-details" onSubmit={saveDetails} className="space-y-3">
+    <label className="block"><span className="mb-1 text-xs font-bold">Reference / UTR</span><input className="app-control w-full" maxLength={150} value={editReference} onChange={e=>setEditReference(e.target.value)}/></label>
+    <label className="block"><span className="mb-1 text-xs font-bold">Notes</span><textarea className="app-control min-h-24 w-full p-3" maxLength={4000} value={editNotes} onChange={e=>setEditNotes(e.target.value)}/></label>
+    <label className="block"><span className="mb-1 text-xs font-bold">Why are you editing?</span><textarea className="app-control min-h-20 w-full p-3" minLength={3} value={detailsReason} onChange={e=>setDetailsReason(e.target.value)} required/></label>
+    {error?<p role="alert" className="text-xs text-rose-700">{error}</p>:null}
+    <p className="text-xs text-[var(--text-muted)]">Amounts and account movements cannot be overwritten here. Use the existing Correct amount, Edit expense or date/time correction controls when allowed.</p>
+   </form>
+  </Modal>
   <Modal open={correctOpen} title="Correct transaction amount" description="The posted transaction is not overwritten. Cash Ledger reverses it safely and creates a linked corrected replacement." onClose={()=>{if(!saving)setCorrectOpen(false)}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={saving} onClick={()=>setCorrectOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold disabled:opacity-50">Cancel</button><button form="correct-amount" disabled={saving||!correctedAmount||Number(correctedAmount)<=0||correctReason.trim().length<3||Math.abs(Number(correctedAmount)-correctionBaseAmount(tx))<.001} className="min-h-11 rounded-xl bg-amber-600 text-sm font-black text-white disabled:opacity-50">{saving?"Correcting…":"Confirm correction"}</button></div>}>
    <form id="correct-amount" onSubmit={correctAmount} className="space-y-3">
     <div className="grid grid-cols-2 gap-2"><div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Current amount</p><p className="money mt-1 text-lg font-black">{money(correctionBaseAmount(tx))}</p></div><div className="rounded-xl bg-amber-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Difference</p><p className={"money mt-1 text-lg font-black "+(Number(correctedAmount)-correctionBaseAmount(tx)>=0?"text-emerald-700":"text-rose-700")}>{Number.isFinite(Number(correctedAmount))?money(Number(correctedAmount)-correctionBaseAmount(tx)):"—"}</p></div></div>

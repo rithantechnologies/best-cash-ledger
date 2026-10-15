@@ -22,6 +22,7 @@ import { CreateMicroAtmDto } from './dto/create-micro-atm.dto.js';
 import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleServicePartnerPayableDto } from './dto/quick-cash-transfer.dto.js';
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
+import { UpdateTransactionDetailsDto } from './dto/update-transaction-details.dto.js';
 import { CardDueClearingService } from './card-due-clearing.service.js';
 import { TransactionsService } from './transactions.service.js';
 
@@ -264,6 +265,12 @@ export class TransactionsController {
   @Post('owner-credit-card-payment')
   createCreditCardPayment(@Body() dto: CreateCreditCardPaymentDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
     return this.transactions.createCreditCardPayment(dto, req.user.userId, key);
+  }
+
+  @Patch(':id/details')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  updateDetails(@Param('id') id: string, @Body() dto: UpdateTransactionDetailsDto, @Req() req: any) {
+    return this.transactions.updateDetails(id, dto, req.user.userId);
   }
 
   @Post(':id/date-time')
