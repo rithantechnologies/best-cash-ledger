@@ -39,6 +39,7 @@ function customDueDate(value:string){return new Date(value+"T23:59:59.999").toIS
 function dueDate(term:Term){const unit=term.durationUnit==="DAYS"?24*60*60*1000:60*60*1000;return new Date(Date.now()+term.durationValue*unit).toISOString();}
 
 export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""}:{onSaved?:()=>void;showTrigger?:boolean;buttonClassName?:string}){
+  const [presetCustomerId,setPresetCustomerId]=useState("");
   const [ready,setReady]=useState(false),[open,setOpen]=useState(false),[loading,setLoading]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState("");
   const [providers,setProviders]=useState<Provider[]>([]),[terms,setTerms]=useState<Term[]>([]),[networks,setNetworks]=useState<Network[]>([]);
   const [mode,setMode]=useState<"existing"|"new">("existing"),[query,setQuery]=useState(""),[matches,setMatches]=useState<Customer[]>([]),[searching,setSearching]=useState(false),[customer,setCustomer]=useState<Customer|null>(null),[cardId,setCardId]=useState("");
@@ -50,7 +51,26 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const {values:rememberedCustomerNames,remember:rememberCustomerName}=useRememberedValues("cashledger_recent_customer_names",8);
 
   useEffect(()=>setReady(true),[]);
-  useEffect(()=>{const fn=()=>setOpen(true);window.addEventListener("cashledger:open-quick-card-swipe",fn);return()=>window.removeEventListener("cashledger:open-quick-card-swipe",fn);},[]);
+  useEffect(()=>{
+    const fn=(event:Event)=>{
+      const hint=(event as CustomEvent<{customerId?:string}>).detail?.customerId;
+      setPresetCustomerId(typeof hint==="string"&&/^[0-9a-z-]{10,100}$/i.test(hint)?hint:"");
+      setOpen(true);
+    };
+    window.addEventListener("cashledger:open-quick-card-swipe",fn);
+    return()=>window.removeEventListener("cashledger:open-quick-card-swipe",fn);
+  },[]);
+  useEffect(()=>{
+    if(!open||!presetCustomerId)return;
+    let cancelled=false;setLoading(true);
+    apiFetch<Customer>("/customers/"+encodeURIComponent(presetCustomerId))
+      .then(next=>{if(!cancelled){chooseCustomer(next);setMode("existing");}})
+      .catch(err=>{if(!cancelled)setError(err instanceof Error?err.message:"Could not load customer's saved card details");})
+      .finally(()=>{if(!cancelled)setLoading(false);});
+    return()=>{cancelled=true;};
+  // Only reload when a different customer was requested; manual card selection remains editable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[open,presetCustomerId]);
   useEffect(()=>{if(!open)return;const prev=document.body.style.overflow;document.body.style.overflow="hidden";const key=(e:KeyboardEvent)=>{if(e.key==="Escape")close();};window.addEventListener("keydown",key);return()=>{document.body.style.overflow=prev;window.removeEventListener("keydown",key);};},[open]);
   useEffect(()=>{
     if(!open||providers.length)return;
@@ -141,7 +161,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
     return()=>{cancelled=true;};
   },[customer?.id,providerId,gatewayId,termId,term,historySetup,selectedCardHistory,commissionTouched,customPayment]);
 
-  function reset(){setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setCustomPaymentDate("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setAddingCard(false);setAddingCardBusy(false);setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId("");setError("");}
+  function reset(){setPresetCustomerId("");setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setCustomPaymentDate("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setAddingCard(false);setAddingCardBusy(false);setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId("");setError("");}
   function startAddExistingCard(){
     if(!customer)return;
     setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId(network||visaNetworkId);

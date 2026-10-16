@@ -149,6 +149,11 @@ export default function CustomerDetailPage(){
   const params=new URLSearchParams(window.location.search);
   setSetupGuide(params.has("setup"));
   if(params.get("tab")==="activity")setView("activity");
+  if(params.get("saved")==="quick"){
+   setMessage("Quick entry saved. Check Daily Cash for any pending settlement details.");
+   const url=new URL(window.location.href);url.searchParams.delete("saved");
+   window.history.replaceState(window.history.state,"",url.pathname+url.search+url.hash);
+  }
 },[id]);
 function switchView(next:"details"|"activity"){
   setView(next);
@@ -158,6 +163,13 @@ function switchView(next:"details"|"activity"){
   window.history.replaceState(window.history.state,"",url.pathname+url.search);
 }
  useEffect(()=>{load().catch(e=>setError(e instanceof Error?e.message:"Failed to load customer"));},[id]);
+ useEffect(()=>{
+  const refresh=()=>{setMessage("Card Swipe saved.");void load().catch(()=>{});void loadCardLedger(ledgerCardId);};
+  window.addEventListener("cashledger:card-swipe-saved",refresh);
+  return()=>window.removeEventListener("cashledger:card-swipe-saved",refresh);
+ // The event originates from the globally mounted quick Card Swipe modal.
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[id,ledgerCardId]);
  useEffect(()=>{loadCardLedger(ledgerCardId);},[id,ledgerCardId]);
  useEffect(()=>{apiFetch<LedgerAccount[]>("/accounts").then(rows=>setLedgerAccounts(rows.filter(a=>a.isActive&&["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)))).catch(()=>setLedgerAccounts([]));},[]);
  useEffect(()=>{apiFetch<CustomerTypeChoice[]>("/settings/customer-types?includeInactive=true").then(setCustomerTypes).catch(()=>setCustomerTypes([]));},[]);
@@ -424,16 +436,29 @@ function switchView(next:"details"|"activity"){
       <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-extrabold text-emerald-800">Customer selected</span>
     </div>
     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-      <Link href={"/cash-counter?quick=IN&"+customerParam} className="flex min-h-12 items-center justify-center rounded-xl bg-emerald-600 px-3 text-center text-sm font-black text-white">↓ Quick Cash In</Link>
-      <Link href={"/cash-counter?quick=OUT&"+customerParam} className="flex min-h-12 items-center justify-center rounded-xl bg-rose-600 px-3 text-center text-sm font-black text-white">↑ Quick Cash Out</Link>
-      <Link href={"/cash-counter?rush=1&"+customerParam} className="flex min-h-12 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-center text-sm font-bold">Bulk quick entry</Link>
-      <Link href={"/transactions/card-swipe?"+customerParam+(primaryCard?"&cardId="+encodeURIComponent(primaryCard.id):"")} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] px-3 text-center text-xs font-bold">Card Swipe</Link>
-      <Link href={"/transactions/aeps?"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] px-3 text-center text-xs font-bold">AEPS Withdrawal</Link>
-      <Link href={"/transactions/cash-transfer?"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] px-3 text-center text-xs font-bold">Detailed Transfer</Link>
-      <Link href={"/transactions/micro-atm?"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] px-3 text-center text-xs font-bold">Micro ATM</Link>
-      <Link href={"/cash-counter?quick=IN&entry=EB_BILL&"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] px-3 text-center text-xs font-bold">EB Bill</Link>
+      <Link href={"/cash-counter?quick=IN&origin=customer&"+customerParam} className="flex min-h-12 items-center justify-center rounded-xl bg-emerald-600 px-3 text-center text-sm font-black text-white">↓ Cash In</Link>
+      <Link href={"/cash-counter?quick=OUT&origin=customer&"+customerParam} className="flex min-h-12 items-center justify-center rounded-xl bg-rose-600 px-3 text-center text-sm font-black text-white">↑ Cash Out</Link>
+      <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-card-swipe",{detail:{customerId:c.id}}))} className="col-span-2 flex min-h-12 items-center justify-center rounded-xl bg-indigo-600 px-3 text-center text-sm font-black text-white sm:col-span-1">▣ Card Swipe</button>
     </div>
-    <p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">Saved destinations are suggestions, not instructions to send money. Confirm the recipient before completing a payout.</p>
+    <div className="mt-2 grid grid-cols-3 gap-2">
+      <Link href={"/cash-counter?quick=OUT&cashOutType=AEPS&origin=customer&"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">AEPS</Link>
+      <Link href={"/cash-counter?quick=OUT&cashOutType=MICRO_ATM&origin=customer&"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">Micro ATM</Link>
+      <Link href={"/cash-counter?quick=IN&entry=EB_BILL&origin=customer&"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">EB Bill</Link>
+    </div>
+    <details className="mt-2 rounded-xl border border-[var(--border)]">
+      <summary className="min-h-10 cursor-pointer select-none px-3 py-2.5 text-xs font-bold text-[var(--accent)]">More entry options · Bulk / detailed</summary>
+      <div className="grid gap-2 border-t border-[var(--border)] p-2 sm:grid-cols-2">
+        <Link href={"/cash-counter?rush=1&origin=customer&"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Bulk Quick Entry</Link>
+        <Link href={"/transactions/cash-transfer?"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Detailed Cash Transfer</Link>
+        <Link href={"/transactions/aeps?"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Detailed AEPS Settlement</Link>
+        <Link href={"/transactions/micro-atm?"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Detailed Micro ATM</Link>
+      </div>
+    </details>
+    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[var(--text-muted)]">
+      <span>Choose an action above. Save or Cancel returns to this customer.</span>
+      <span>·</span>
+      <span>Confirm saved recipients and cards before payout.</span>
+    </div>
   </Surface>:null}
   <nav aria-label="Customer profile sections" className="grid grid-cols-2 gap-2 rounded-2xl bg-[var(--surface-soft)] p-1.5">
    <button type="button" aria-current={view==="details"?"page":undefined} onClick={()=>switchView("details")} className={"min-h-11 rounded-xl px-3 text-sm font-bold transition-colors "+(view==="details"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>Saved details</button>
@@ -459,11 +484,8 @@ function switchView(next:"details"|"activity"){
    </Surface>
   </>:null}
   {view==="activity"?<>
-  {c.isActive?<div className="flex gap-2 overflow-x-auto pb-1">
-   <Link href={"/transactions/card-swipe?"+customerParam+(primaryCard?"&cardId="+encodeURIComponent(primaryCard.id):"")} className="min-h-10 shrink-0 rounded-lg bg-[var(--text)] px-4 py-2.5 text-xs font-semibold text-[var(--surface)]">Card swipe</Link>
-   <Link href={"/transactions/cash-transfer?"+customerParam} className="min-h-10 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-semibold">Cash transfer</Link>
-   <Link href={"/transactions/aeps?"+customerParam} className="min-h-10 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-semibold">AePS</Link>
-   <Link href={"/transactions/micro-atm?"+customerParam+(primaryCard?"&cardLastFour="+encodeURIComponent(primaryCard.lastFourDigits):"")} className="min-h-10 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-semibold">Micro ATM</Link>
+  {c.isActive?<div className="flex justify-end">
+   <Link href={"/transactions/cash-transfer?"+customerParam} className="inline-flex min-h-9 items-center text-[11px] font-bold text-[var(--accent)]">Advanced transaction form →</Link>
   </div>:null}
 
   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">

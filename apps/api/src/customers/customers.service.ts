@@ -223,6 +223,7 @@ export class CustomersService {
       where: { id },
       select: {
         id: true, customerCode: true, fullName: true, mobile: true, ebNumber: true,
+        cards: { where: { isActive: true, cardType: { in: ['DEBIT', 'ATM', 'DEBIT_CARD'] } }, select: { id: true, bankName: true, lastFourDigits: true, nickname: true }, orderBy: { updatedAt: 'desc' } },
         aepsAccounts: {
           where: { isActive: true },
           select: { id: true, bankName: true, holderName: true, prNumber: true, aadhaarLastSix: true },
@@ -438,6 +439,7 @@ export class CustomersService {
       recentDestinations: recentDestinations.map(({ signature, ...item }) => ({ ...item, isLastUsed: signature === latestSignature })),
       serviceProfiles,
       recentServiceReferences,
+      cards: customer.cards,
       aepsAccounts: customer.aepsAccounts.map(item=>({ id:item.id, bankName:item.bankName, holderName:item.holderName, prNumberLastFour:item.prNumber?.slice(-4)||null })),
     };
   }

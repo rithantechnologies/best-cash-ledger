@@ -118,7 +118,7 @@ function rowError(row:RushRow,services:ServiceConfig[]){
   }
   return "";
 }
-export function QuickCashRushEntryV2({cashAccountId,disabled=false,profileCustomerId="",onSaved,onCompleteTransaction,onShowPending,completedTransactionIds=[],pendingTransactionIds=[]}:{cashAccountId:string;disabled?:boolean;profileCustomerId?:string;onSaved?:()=>void|Promise<void>;onCompleteTransaction?:(transactionId:string)=>void|Promise<void>;onShowPending?:()=>void;completedTransactionIds?:string[];pendingTransactionIds?:string[]}){
+export function QuickCashRushEntryV2({cashAccountId,disabled=false,profileCustomerId="",onClose,onSaved,onCompleteTransaction,onShowPending,completedTransactionIds=[],pendingTransactionIds=[]}:{cashAccountId:string;disabled?:boolean;profileCustomerId?:string;onClose?:()=>void;onSaved?:()=>void|Promise<void>;onCompleteTransaction?:(transactionId:string)=>void|Promise<void>;onShowPending?:()=>void;completedTransactionIds?:string[];pendingTransactionIds?:string[]}){
   const router=useRouter();
   const [open,setOpen]=useState(false);
   const [minimized,setMinimized]=useState(false);
@@ -202,6 +202,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,profileCustom
   async function closeRush(){
     setOpen(false);setMinimized(false);setMaximized(false);
     if(savedSinceRefresh){await onSaved?.();setSavedSinceRefresh(false);}
+    onClose?.();
   }
   function minimizeRush(){setMinimized(true);setRowFilter("ACTIVE");}
   function restoreRush(){setMinimized(false);setOpen(true);}
