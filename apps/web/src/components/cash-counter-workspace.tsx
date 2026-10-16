@@ -51,8 +51,9 @@ type QuickCashFieldErrors={amount?:string;commission?:string;cashReceived?:strin
 type ServiceConfig={id:string;name:string;defaultAmount:string|number|null;allowPartnerFulfillment:boolean;partnerOnly:boolean;partnerNames:string[];defaultPartnerName:string|null;defaultPartnerCharge:string|number|null;isActive:boolean};
 type CashInTransferTypeConfig={id:string;name:string;transferMode:"UPI"|"BANK";defaultCommissionRate:string|number;isActive:boolean};
 type QuickSavedDestination={key:string;mode:"BANK"|"UPI";source:"SAVED"|"RECENT";title:string;subtitle:string;accountHolder?:string;accountNumber?:string;ifsc?:string;upi?:string;isLastUsed?:boolean};
-type QuickAepsAccount={id:string;bankName:string;holderName:string;prNumberLastFour?:string|null};
-type QuickCustomerProfile={cards?:{id:string;bankName:string;lastFourDigits:string;nickname:string|null}[];customer:{id:string;fullName:string;mobile:string|null;ebNumber?:string|null};savedDestinations:QuickSavedDestination[];recentDestinations:QuickSavedDestination[];aepsAccounts:QuickAepsAccount[];serviceProfiles?:{id:string;serviceName:string;referenceNumber:string;nickname?:string|null;ownerName?:string|null}[]};
+type QuickAepsAccount={id:string;bankName:string;holderName:string;prNumberLastFour?:string|null;aadhaarLastFour?:string|null};
+type QuickServiceReference={id?:string;key?:string;serviceName:string;referenceNumber:string;nickname?:string|null;ownerName?:string|null;providerName?:string|null};
+type QuickCustomerProfile={cards?:{id:string;bankName:string;lastFourDigits:string;nickname:string|null}[];customer:{id:string;fullName:string;mobile:string|null;ebNumber?:string|null};savedDestinations:QuickSavedDestination[];recentDestinations:QuickSavedDestination[];aepsAccounts:QuickAepsAccount[];serviceProfiles?:(QuickServiceReference&{id:string})[];recentServiceReferences?:QuickServiceReference[]};
 type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null;ebNumber?:string|null;ebNumbers?:{id:string;number:string;label:string|null;ownerName?:string|null}[]};
 type BankBeneficiary={accountHolder:string;accountNumber:string;ifsc:string};
 type CompleteSourceAllocation={sourceAccountId:string;amount:string;referenceNumber:string};
@@ -243,7 +244,7 @@ export type CustomerCashModalRequest={
   customerId:string;
   action:"IN"|"OUT"|"RUSH";
   cashOutType?:"UPI_QR"|"AEPS"|"MICRO_ATM";
-  entry?:"EB_BILL";
+  entry?:"EB_BILL"|"SERVICE";
 };
 export default function CashCounterWorkspace({
   modalOnly=false,modalRequest,onModalFinished,
@@ -298,6 +299,10 @@ export default function CashCounterWorkspace({
   const [quickAmount,setQuickAmount]=useState("");
   const [quickPurpose,setQuickPurpose]=useState<"TRANSFER"|"SERVICE">("TRANSFER");
   const [quickServiceName,setQuickServiceName]=useState("");
+  const [quickServiceProfileId,setQuickServiceProfileId]=useState("");
+  const [quickServiceReference,setQuickServiceReference]=useState("");
+  const [quickServiceReferenceLabel,setQuickServiceReferenceLabel]=useState("");
+  const [quickServiceProviderName,setQuickServiceProviderName]=useState("");
   const [quickCommission,setQuickCommission]=useState("");
   const [quickCommissionOverridden,setQuickCommissionOverridden]=useState(false);
   const [quickCommissionMode,setQuickCommissionMode]=useState<"CASH"|"UPI"|"SPLIT">("CASH");
@@ -382,6 +387,8 @@ export default function CashCounterWorkspace({
   const completingQuickCash=useMemo(()=>pendingQuickCash.find((item)=>item.id===completePendingId)??null,[pendingQuickCash,completePendingId]);
   const selectedQuickTransferType=useMemo(()=>cashInTransferTypes.find((item)=>item.id===quickTransferTypeId)??null,[cashInTransferTypes,quickTransferTypeId]);
   const quickIsEbBill=quickDirection==="IN"&&quickPurpose==="TRANSFER"&&selectedQuickTransferType?.name.trim().toLowerCase()==="eb bill";
+  const quickMatchingServiceReferences=useMemo(()=>[...(quickProfile?.serviceProfiles||[]),...(quickProfile?.recentServiceReferences||[])]
+    .filter(item=>item.serviceName.trim().toLowerCase()===quickServiceName.trim().toLowerCase()),[quickProfile,quickServiceName]);
   const completingIsEbBill=completingQuickCash?.direction==="IN"&&completingQuickCash.serviceName?.trim().toLowerCase()==="eb bill";
   const quickCommissionValue=Number(quickCommission||0);
   const quickCommissionCashValue=quickCommissionMode==="CASH"?quickCommissionValue:quickCommissionMode==="SPLIT"?Number(quickCommissionCash||0):0;
@@ -584,7 +591,7 @@ export default function CashCounterWorkspace({
           if(requestedOutType==="MICRO_ATM"&&profile.cards?.length===1){
             setQuickCardLastFour(profile.cards[0].lastFourDigits);setQuickCustomerBank(profile.cards[0].bankName);
           }else if(requestedOutType==="AEPS"&&profile.aepsAccounts?.length===1){
-            setQuickAepsAccountId(profile.aepsAccounts[0].id);setQuickCustomerBank(profile.aepsAccounts[0].bankName);
+            applySavedAepsAccount(profile.aepsAccounts[0]);
           }
         }).catch(()=>{}).finally(()=>{if(quickSelectedCustomerRef.current===presetCustomerId)setQuickProfileLoading(false);});
       }
@@ -602,6 +609,7 @@ export default function CashCounterWorkspace({
     const kind=request.action==="OUT"?(request.cashOutType||"UPI_QR"):"UPI_QR";
     setQuickCashOutType(kind);
     if(kind==="MICRO_ATM"){setQuickCommissionMode("UPI");setQuickCommissionCash("");}
+    if(request.entry==="SERVICE")setQuickPurpose("SERVICE");
     if(request.entry==="EB_BILL"){
       const eb=cashInTransferTypes.find(item=>item.isActive&&item.name.trim().toLowerCase()==="eb bill");
       if(eb){setQuickTransferTypeId(eb.id);setQuickBeneficiaryMode("UPI");}
@@ -625,13 +633,24 @@ export default function CashCounterWorkspace({
           else if(ebProfiles.length===0&&profile.customer.ebNumber)setQuickBeneficiaryUpi(profile.customer.ebNumber);
           return;
         }
+        if(request.entry==="SERVICE"){
+          const saved=[...(profile.serviceProfiles||[]),...(profile.recentServiceReferences||[])]
+            .filter(item=>item.serviceName.trim().toLowerCase()!=="eb bill");
+          if(saved.length===1){
+            const config=serviceCatalog.find(item=>item.isActive!==false&&item.name.trim().toLowerCase()===saved[0].serviceName.trim().toLowerCase());
+            if(config)selectQuickService(config);
+            else setQuickServiceName(saved[0].serviceName);
+            chooseQuickServiceReference(saved[0]);
+          }
+          return;
+        }
         if(request.action==="IN"){
           const activeType=cashInTransferTypes.find(item=>item.id===quickTransferTypeId)||cashInTransferTypes.find(item=>item.isActive);
           const mode=activeType?.transferMode||"UPI";
           const matches=[...(profile.savedDestinations||[]),...(profile.recentDestinations||[])].filter(item=>item.mode===mode);
           if(matches.length===1)applyQuickDestination(matches[0]);
         }else if(kind==="AEPS"&&profile.aepsAccounts?.length===1){
-          setQuickAepsAccountId(profile.aepsAccounts[0].id);setQuickCustomerBank(profile.aepsAccounts[0].bankName);
+          applySavedAepsAccount(profile.aepsAccounts[0]);
         }else if(kind==="MICRO_ATM"&&profile.cards?.length===1){
           setQuickCardLastFour(profile.cards[0].lastFourDigits);setQuickCustomerBank(profile.cards[0].bankName);
         }
@@ -790,8 +809,23 @@ export default function CashCounterWorkspace({
   const quickServicePartnerCost=quickServiceFulfillmentMode==="PARTNER"?Number(quickServicePartnerCharge||0):0;
   const quickServiceEarning=Number(quickAmount||0)-quickServicePartnerCost;
   const quickServicePartnerPaymentAccounts=useMemo(()=>accounts.filter((account)=>account.isActive!==false&&(account.id===today?.cashAccountId||["BANK","UPI","PROVIDER_WALLET"].includes(account.accountType))),[accounts,today?.cashAccountId]);
+  function chooseQuickServiceReference(item:QuickServiceReference){
+    setQuickServiceProfileId(item.id||"");
+    setQuickServiceReference(item.referenceNumber);
+    setQuickServiceReferenceLabel(item.nickname||"");
+    setQuickServiceProviderName(item.providerName||"");
+  }
+  function applySavedAepsAccount(account:QuickAepsAccount){
+    setQuickAepsAccountId(account.id);
+    setQuickCustomerBank(account.bankName);
+    setQuickAadhaarLastFour(/^\d{4}$/.test(account.aadhaarLastFour||"")?account.aadhaarLastFour!:"");
+  }
   function selectQuickService(item:ServiceConfig){
     setQuickServiceName(item.name);
+    setQuickServiceProfileId("");setQuickServiceReference("");setQuickServiceReferenceLabel("");setQuickServiceProviderName("");
+    const references=[...(quickProfile?.serviceProfiles||[]),...(quickProfile?.recentServiceReferences||[])]
+      .filter(profile=>profile.serviceName.trim().toLowerCase()===item.name.trim().toLowerCase());
+    if(references.length===1)chooseQuickServiceReference(references[0]);
     if(item.defaultAmount!==null&&Number(item.defaultAmount)>0)setQuickAmount(String(Number(item.defaultAmount)));
     setQuickServiceFulfillmentMode(item.partnerOnly?"PARTNER":"INTERNAL");
     setQuickServicePartnerName(item.defaultPartnerName||item.partnerNames?.[0]||"");
@@ -865,7 +899,7 @@ export default function CashCounterWorkspace({
   }
 
   function resetQuickCash(){
-    quickSelectedCustomerRef.current="";setQuickProfile(null);setQuickProfileLoading(false);setQuickDestinationKey("");setQuickAepsAccountId("");setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickServiceFulfillmentMode("INTERNAL");setQuickServicePartnerName("");setQuickServicePartnerCharge("");setQuickServicePartnerPaymentTiming("PAID_NOW");setQuickServicePartnerPaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickEbConnections([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
+    quickSelectedCustomerRef.current="";setQuickProfile(null);setQuickProfileLoading(false);setQuickDestinationKey("");setQuickAepsAccountId("");setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickServiceProfileId("");setQuickServiceReference("");setQuickServiceReferenceLabel("");setQuickServiceProviderName("");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickServiceFulfillmentMode("INTERNAL");setQuickServicePartnerName("");setQuickServicePartnerCharge("");setQuickServicePartnerPaymentTiming("PAID_NOW");setQuickServicePartnerPaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickEbConnections([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
   }
   function closeQuickCash(){
     const customerId=returnCustomerProfileRef.current;
@@ -897,7 +931,7 @@ export default function CashCounterWorkspace({
         setQuickEbConnections(eb);
         const aeps=profile.aepsAccounts||[];
         if(quickDirection==="OUT"&&quickCashOutType==="AEPS"&&aeps.length===1){
-          setQuickAepsAccountId(aeps[0].id);setQuickCustomerBank(aeps[0].bankName);
+          applySavedAepsAccount(aeps[0]);
         }else if(quickDirection==="OUT"&&quickCashOutType==="MICRO_ATM"&&profile.cards?.length===1){
           setQuickCardLastFour(profile.cards[0].lastFourDigits);setQuickCustomerBank(profile.cards[0].bankName);
         }
@@ -1003,6 +1037,10 @@ export default function CashCounterWorkspace({
         cashReceivedAmount:quickDirection==="IN"&&purpose==="TRANSFER"?cashReceivedAmount:undefined,
         purpose,
         serviceName:purpose==="SERVICE"?quickServiceName.trim():(quickDirection==="IN"&&purpose==="TRANSFER"?selectedQuickTransferType?.name:undefined),
+        serviceProfileId:purpose==="SERVICE"&&quickServiceProfileId?quickServiceProfileId:undefined,
+        serviceReferenceNumber:purpose==="SERVICE"?quickServiceReference.trim()||undefined:undefined,
+        serviceReferenceLabel:purpose==="SERVICE"?quickServiceReferenceLabel.trim()||undefined:undefined,
+        serviceProviderName:purpose==="SERVICE"?quickServiceProviderName.trim()||undefined:undefined,
         cashOutType:quickDirection==="OUT"?quickCashOutType:undefined,
         successful:quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?quickSuccessful:undefined,
         customerId:quickCustomerId||undefined,
@@ -1148,8 +1186,8 @@ export default function CashCounterWorkspace({
               else {setQuickCardLastFour("");setQuickCustomerBank("");}
             }else if(kind==="AEPS"){
               setQuickCommissionMode("CASH");setQuickCommissionCash("");
-              if(quickProfile?.aepsAccounts?.length===1){setQuickAepsAccountId(quickProfile.aepsAccounts[0].id);setQuickCustomerBank(quickProfile.aepsAccounts[0].bankName);}
-              else {setQuickAepsAccountId("");setQuickCustomerBank("");}
+              if(quickProfile?.aepsAccounts?.length===1)applySavedAepsAccount(quickProfile.aepsAccounts[0]);
+              else {setQuickAepsAccountId("");setQuickCustomerBank("");setQuickAadhaarLastFour("");}
             }setQuickError("");setQuickFieldErrors({});}} className={"min-h-10 rounded-[10px] px-2 text-[12px] font-black transition "+(quickCashOutType===kind?"bg-[var(--surface)] text-[var(--text)] shadow-[0_2px_8px_rgba(15,23,42,.08)]":"text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]")}>{cashOutTypeLabel(kind)}</button>)}
         </div>}
 
@@ -1166,7 +1204,7 @@ export default function CashCounterWorkspace({
           {quickPurpose==="TRANSFER"&&quickDirection==="IN"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
             <div className="flex items-center justify-between gap-3 px-1"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Transfer mode <span className="text-rose-500">*</span></span>{selectedQuickTransferType?<span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-700">{Number(quickAmount||0)>0&&Number(quickAmount||0)<=500?"₹10 fee":Number(selectedQuickTransferType.defaultCommissionRate||0)+"% fee"}</span>:null}</div>
             {cashInTransferTypes.length?<div className={"mt-2 grid gap-1 rounded-[12px] bg-[var(--surface)] p-1 "+(cashInTransferTypes.length===2?"grid-cols-2":"grid-cols-1 sm:grid-cols-2")}>
-              {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{if((item.name.trim().toLowerCase()==="eb bill")!==quickIsEbBill){setQuickBeneficiaryUpi("");}if(item.name.trim().toLowerCase()==="eb bill"){const eb=quickProfile?.serviceProfiles?.filter(profile=>profile.serviceName.trim().toLowerCase()==="eb bill").map(profile=>({id:profile.id,number:profile.referenceNumber,label:profile.nickname||null,ownerName:profile.ownerName}))||[];setQuickEbConnections(eb);if(eb.length===1)setQuickBeneficiaryUpi(eb[0].number);else if(!eb.length&&quickProfile?.customer.ebNumber)setQuickBeneficiaryUpi(quickProfile.customer.ebNumber);}setQuickDestinationKey("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");if(item.name.trim().toLowerCase()!=="eb bill"){const choices=[...(quickProfile?.savedDestinations||[]),...(quickProfile?.recentDestinations||[])].filter(x=>x.mode===item.transferMode);if(choices.length===1)applyQuickDestination(choices[0]);}setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.name.trim().toLowerCase()==="eb bill"?"UPI":item.transferMode);setQuickCommissionOverridden(false);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
+              {cashInTransferTypes.map((item)=><button key={item.id} type="button" onClick={()=>{setQuickBeneficiaryUpi("");if(item.name.trim().toLowerCase()==="eb bill"){const eb=quickProfile?.serviceProfiles?.filter(profile=>profile.serviceName.trim().toLowerCase()==="eb bill").map(profile=>({id:profile.id,number:profile.referenceNumber,label:profile.nickname||null,ownerName:profile.ownerName}))||[];setQuickEbConnections(eb);if(eb.length===1)setQuickBeneficiaryUpi(eb[0].number);else if(!eb.length&&quickProfile?.customer.ebNumber)setQuickBeneficiaryUpi(quickProfile.customer.ebNumber);}setQuickDestinationKey("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");if(item.name.trim().toLowerCase()!=="eb bill"){const choices=[...(quickProfile?.savedDestinations||[]),...(quickProfile?.recentDestinations||[])].filter(x=>x.mode===item.transferMode);if(choices.length===1)applyQuickDestination(choices[0]);}setQuickTransferTypeId(item.id);setQuickBeneficiaryMode(item.name.trim().toLowerCase()==="eb bill"?"UPI":item.transferMode);setQuickCommissionOverridden(false);clearQuickFieldError("transferType");setQuickError("");}} className={"min-h-10 rounded-[9px] px-2 text-[12px] font-black transition "+(quickTransferTypeId===item.id?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)] hover:bg-[var(--surface-soft)]")}>{item.name}</button>)}
             </div>:<p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">No Cash In transfer types are active. Configure them in Settings.</p>}
             {quickFieldErrors.transferType?<p className="mt-1.5 px-1 text-[12px] font-bold text-rose-600">{quickFieldErrors.transferType}</p>:null}
 
@@ -1192,13 +1230,31 @@ export default function CashCounterWorkspace({
           </div>:<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] px-4 py-3">
             <label className="block">
               <span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Service <span className="text-rose-500">*</span></span>
-              <input name="cashledger_type_or_choose_a_service" autoComplete="on" ref={quickServiceRef} list="quick-service-options" aria-invalid={Boolean(quickFieldErrors.serviceName)} aria-describedby={quickFieldErrors.serviceName?"quick-service-error":undefined} className="mt-1 w-full appearance-none bg-transparent p-0 text-[20px] font-black tracking-[-.02em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Type or choose a service" value={quickServiceName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{const value=event.target.value;const match=serviceCatalog.find((item)=>item.isActive!==false&&item.name.toLowerCase()===value.trim().toLowerCase());if(match)selectQuickService(match);else{setQuickServiceName(value);setQuickServiceFulfillmentMode("INTERNAL");setQuickServicePartnerName("");setQuickServicePartnerCharge("");setQuickServicePartnerPaymentAccountId(today?.cashAccountId||"");clearQuickFieldError("serviceName");setQuickError("");}}}/>
+              <input name="cashledger_type_or_choose_a_service" autoComplete="on" ref={quickServiceRef} list="quick-service-options" aria-invalid={Boolean(quickFieldErrors.serviceName)} aria-describedby={quickFieldErrors.serviceName?"quick-service-error":undefined} className="mt-1 w-full appearance-none bg-transparent p-0 text-[20px] font-black tracking-[-.02em] text-[var(--text)] placeholder:font-semibold placeholder:text-[var(--text-muted)]" placeholder="Type or choose a service" value={quickServiceName} onFocus={(event)=>keepQuickFieldVisible(event.currentTarget)} onChange={(event)=>{const value=event.target.value;const match=serviceCatalog.find((item)=>item.isActive!==false&&item.name.toLowerCase()===value.trim().toLowerCase());if(match)selectQuickService(match);else{setQuickServiceName(value);setQuickServiceProfileId("");setQuickServiceReference("");setQuickServiceReferenceLabel("");setQuickServiceProviderName("");setQuickServiceFulfillmentMode("INTERNAL");setQuickServicePartnerName("");setQuickServicePartnerCharge("");setQuickServicePartnerPaymentAccountId(today?.cashAccountId||"");clearQuickFieldError("serviceName");setQuickError("");}}}/>
               <datalist id="quick-service-options">{serviceCatalog.filter((item)=>item.isActive!==false).map((item)=><option key={item.id} value={item.name}/>)}</datalist>
               {quickFieldErrors.serviceName?<p id="quick-service-error" className="mt-1.5 text-[12px] font-bold text-rose-600">{quickFieldErrors.serviceName}</p>:null}
             </label>
+            {[...(quickProfile?.serviceProfiles||[]),...(quickProfile?.recentServiceReferences||[])]
+              .some(profile=>profile.serviceName.trim().toLowerCase()!=="eb bill")?<div className="mt-3">
+              <p className="text-[10px] font-black uppercase text-[var(--text-muted)]">This customer's saved services and recent references</p>
+              <div className="mt-1.5 flex flex-wrap gap-2">{[...(quickProfile?.serviceProfiles||[]),...(quickProfile?.recentServiceReferences||[])]
+                .filter(profile=>profile.serviceName.trim().toLowerCase()!=="eb bill").map(profile=><button key={profile.id||profile.key||profile.referenceNumber} type="button" onClick={()=>{
+                const service=serviceCatalog.find(item=>item.isActive!==false&&item.name.trim().toLowerCase()===profile.serviceName.trim().toLowerCase());
+                if(service)selectQuickService(service);
+                else setQuickServiceName(profile.serviceName);
+                chooseQuickServiceReference(profile);
+              }} className={"rounded-lg border px-3 py-2 text-left text-xs font-bold "+(quickServiceProfileId===profile.id?"border-emerald-400 bg-emerald-50 text-emerald-800":"border-[var(--border)] bg-[var(--surface)]")}>{profile.serviceName} · {profile.nickname||profile.ownerName||profile.referenceNumber}</button>)}</div>
+            </div>:null}
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               {quickServiceOptions.map((item)=><button key={item.id} type="button" onClick={()=>{selectQuickService(item);quickServiceRef.current?.focus();}} className={"min-h-8 rounded-full border px-3 text-[12px] font-black transition active:scale-[.98] "+(quickServiceName.toLowerCase()===item.name.toLowerCase()?"border-emerald-300 bg-emerald-50 text-emerald-700":"border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]")}>{item.name}{item.defaultAmount!==null&&Number(item.defaultAmount)>0?" · ₹"+Number(item.defaultAmount).toLocaleString("en-IN"):""}</button>)}
             </div>
+            {quickMatchingServiceReferences.length?<div className="mt-3">
+              <p className="text-[10px] font-black uppercase text-[var(--text-muted)]">Saved / previously used {quickServiceName} references</p>
+              <div className="mt-1.5 flex flex-wrap gap-2">{quickMatchingServiceReferences.map(item=><button type="button" key={item.id||item.key||item.referenceNumber} onClick={()=>chooseQuickServiceReference(item)} className={"rounded-xl border px-3 py-2 text-left text-xs font-bold "+(quickServiceReference===item.referenceNumber?"border-emerald-400 bg-emerald-50 text-emerald-800":"border-[var(--border)] bg-[var(--surface)]")}>{item.nickname||item.ownerName||item.serviceName} · {item.referenceNumber}</button>)}</div>
+            </div>:null}
+            {quickServiceName.trim()?<label className="mt-3 block text-[10px] font-black text-[var(--text-muted)]">Service reference / application number (optional)
+              <input className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-bold" value={quickServiceReference} onChange={event=>{setQuickServiceReference(event.target.value);setQuickServiceProfileId("");}} placeholder="Select saved reference or enter a new one"/>
+            </label>:null}
             <fieldset className="mt-3 grid grid-cols-2 rounded-[12px] bg-[var(--surface)] p-1" aria-label="Service payment mode">
               <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[12px] font-black transition "+(quickServicePaymentMode==="CASH"?"bg-emerald-50 text-emerald-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="servicePaymentMode" value="CASH" checked={quickServicePaymentMode==="CASH"} onChange={()=>{setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");clearQuickFieldError("servicePaymentAccount");}} className="absolute h-px w-px opacity-0"/><span>Cash</span></label>
               <label className={"relative flex min-h-9 cursor-pointer items-center justify-center rounded-[9px] text-[12px] font-black transition "+(quickServicePaymentMode==="UPI"?"bg-blue-50 text-blue-700 shadow-sm":"text-[var(--text-muted)]")}><input type="radio" name="servicePaymentMode" value="UPI" checked={quickServicePaymentMode==="UPI"} onChange={()=>setQuickServicePaymentMode("UPI")} className="absolute h-px w-px opacity-0"/><span>Bank / UPI</span></label>
@@ -1294,10 +1350,10 @@ export default function CashCounterWorkspace({
             <p className="mt-1.5 text-[10px] text-[var(--text-muted)]">Confirm the card before paying out cash.</p>
           </div>:null}
           {quickCashOutType==="AEPS"?<div className="mt-3">
-              {quickProfile?.aepsAccounts?.length?<div className="mb-2"><p className="mb-1.5 text-[10px] font-black uppercase text-[var(--text-muted)]">Saved AEPS account</p><div className="flex flex-wrap gap-2">{quickProfile.aepsAccounts.map(account=><button key={account.id} type="button" onClick={()=>{setQuickAepsAccountId(account.id);setQuickCustomerBank(account.bankName);}} className={"rounded-lg border px-3 py-2 text-left text-xs font-bold "+(quickAepsAccountId===account.id?"border-indigo-400 bg-indigo-50 text-indigo-800":"border-[var(--border)] bg-[var(--surface)]")}>{account.bankName} · {account.holderName} · PR ••••{account.prNumberLastFour||"—"}</button>)}</div><p className="mt-1 text-[10px] text-[var(--text-muted)]">Aadhaar last four must still be entered separately; PR Number is not the Aadhaar number.</p></div>:null}
+              {quickProfile?.aepsAccounts?.length?<div className="mb-2"><p className="mb-1.5 text-[10px] font-black uppercase text-[var(--text-muted)]">Saved AEPS account</p><div className="flex flex-wrap gap-2">{quickProfile.aepsAccounts.map(account=><button key={account.id} type="button" onClick={()=>applySavedAepsAccount(account)} className={"rounded-lg border px-3 py-2 text-left text-xs font-bold "+(quickAepsAccountId===account.id?"border-indigo-400 bg-indigo-50 text-indigo-800":"border-[var(--border)] bg-[var(--surface)]")}>{account.bankName} · {account.holderName} · PR ••••{account.prNumberLastFour||"—"}{account.aadhaarLastFour?" · Aadhaar ending "+account.aadhaarLastFour:""}</button>)}</div><p className="mt-1 text-[10px] text-[var(--text-muted)]">Previously entered Aadhaar ending digits are reused only for this AEPS account. Confirm with the customer; PR Number is different.</p></div>:null}
               <label className="mb-2 block rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
                 <span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Customer bank</span>
-                <input name="cashledger_aeps_bank" autoComplete="off" className="mt-1 w-full bg-transparent p-0 text-[15px] font-bold outline-none" value={quickCustomerBank} onChange={event=>{setQuickCustomerBank(event.target.value);setQuickAepsAccountId("");}} placeholder="Select saved account or enter bank"/>
+                <input name="cashledger_aeps_bank" autoComplete="off" className="mt-1 w-full bg-transparent p-0 text-[15px] font-bold outline-none" value={quickCustomerBank} onChange={event=>{setQuickCustomerBank(event.target.value);setQuickAepsAccountId("");setQuickAadhaarLastFour("");}} placeholder="Select saved account or enter bank"/>
               </label>
               <label className="block rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><span className="block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Aadhaar last 4 <span className="text-rose-500">*</span></span><input name="cashledger_aadhaar_last_four" inputMode="numeric" autoComplete="on" maxLength={4} className="mt-1 w-full bg-transparent p-0 text-[17px] font-black tracking-[.12em] outline-none" value={quickAadhaarLastFour} onChange={(event)=>{setQuickAadhaarLastFour(event.target.value.replace(/\D/g,"").slice(0,4));clearQuickFieldError("aadhaarLastFour");}} placeholder="1234"/>{quickFieldErrors.aadhaarLastFour?<span className="mt-1 block text-[10px] font-bold text-rose-600">{quickFieldErrors.aadhaarLastFour}</span>:null}</label>
             </div>:<div className="mt-3 grid gap-2 sm:grid-cols-2">

@@ -433,6 +433,31 @@ export class CustomersService {
       .sort((a,b) => b.lastUsedAt.getTime() - a.lastUsedAt.getTime())
       .slice(0, 8);
 
+    const aepsIds = customer.aepsAccounts.map(item => item.id);
+    const aepsHistory = aepsIds.length ? await this.prisma.quickCashTransferDetail.findMany({
+      where: {
+        customerAepsAccountId: { in: aepsIds }, cashOutType: 'AEPS', aadhaarLastFour: { not: null },
+        transaction: { customerId: id, status: { in: [TransactionStatus.PENDING, TransactionStatus.COMPLETED] } },
+      },
+      select: { customerAepsAccountId: true, aadhaarLastFour: true },
+      orderBy: { createdAt: 'desc' }, take: 100,
+    }) : [];
+    const detailedAepsHistory = aepsIds.length ? await this.prisma.aepsDetail.findMany({
+      where: {
+        customerAepsAccountId: { in: aepsIds },
+        transaction: { customerId: id, status: { in: [TransactionStatus.PENDING, TransactionStatus.COMPLETED] } },
+      },
+      select: { customerAepsAccountId: true, aadhaarLastFour: true },
+      orderBy: { createdAt: 'desc' }, take: 100,
+    }) : [];
+    const recentAadhaarByAeps = new Map<string, string>();
+    for (const item of [...aepsHistory, ...detailedAepsHistory]) {
+      if (item.customerAepsAccountId && item.aadhaarLastFour &&
+          /^\d{4}$/.test(item.aadhaarLastFour) && !recentAadhaarByAeps.has(item.customerAepsAccountId)) {
+        recentAadhaarByAeps.set(item.customerAepsAccountId, item.aadhaarLastFour);
+      }
+    }
+
     return {
       customer: { id: customer.id, customerCode: customer.customerCode, fullName: customer.fullName, mobile: customer.mobile, ebNumber: customer.ebNumber },
       savedDestinations: saved.map(({ signature, ...item }) => ({ ...item, isLastUsed: signature === latestSignature })),
@@ -440,7 +465,13 @@ export class CustomersService {
       serviceProfiles,
       recentServiceReferences,
       cards: customer.cards,
-      aepsAccounts: customer.aepsAccounts.map(item=>({ id:item.id, bankName:item.bankName, holderName:item.holderName, prNumberLastFour:item.prNumber?.slice(-4)||null })),
+      aepsAccounts: customer.aepsAccounts.map(item=>({
+        id:item.id, bankName:item.bankName, holderName:item.holderName,
+        prNumberLastFour:item.prNumber?.slice(-4)||null,
+        // Only a previously recorded Aadhaar suffix, never a suffix of the PR number.
+        aadhaarLastFour: recentAadhaarByAeps.get(item.id) ||
+          (/^\d{6}$/.test(item.aadhaarLastSix || '') ? item.aadhaarLastSix!.slice(-4) : null),
+      })),
     };
   }
 
