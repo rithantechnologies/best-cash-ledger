@@ -15,6 +15,7 @@ import { UpdateBankAccountDto } from './dto/update-bank-account.dto.js';
 import { UpdateUpiAccountDto } from './dto/update-upi-account.dto.js';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto.js';
 import { UpdateBeneficiaryAccountDto } from './dto/update-beneficiary-account.dto.js';
+import { CreateCustomerAepsAccountDto, UpdateCustomerAepsAccountDto } from './dto/customer-aeps-account.dto.js';
 import { CreateServiceProfileDto } from './dto/create-service-profile.dto.js';
 import { UpdateServiceProfileDto } from './dto/update-service-profile.dto.js';
 import { SetCustomerItemActiveDto } from './dto/set-customer-item-active.dto.js';
@@ -73,6 +74,21 @@ export class CustomersController {
     @Headers('idempotency-key') key?: string,
   ) {
     return this.customers.createCardLedgerEntry(id, dto, req.user.userId, req.user.role, key);
+  }
+
+  @Post(':id/aeps-accounts')
+  addAepsAccount(@Param('id') id: string, @Body() dto: CreateCustomerAepsAccountDto, @Req() req: any) {
+    return this.customers.addAepsAccount(id, dto, req.user.userId);
+  }
+
+  @Patch('aeps-accounts/:id')
+  updateAepsAccount(@Param('id') id: string, @Body() dto: UpdateCustomerAepsAccountDto, @Req() req: any) {
+    return this.customers.updateAepsAccount(id, dto, req.user.userId);
+  }
+
+  @Patch('aeps-accounts/:id/active')
+  setAepsAccountActive(@Param('id') id: string, @Body() dto: SetCustomerItemActiveDto, @Req() req: any) {
+    return this.customers.setAepsAccountActive(id, dto.isActive, req.user.userId);
   }
 
   @Post(':id/service-profiles')

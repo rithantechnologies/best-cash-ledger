@@ -192,6 +192,7 @@ model Customer {
   upiAccounts   CustomerUpiAccount[]
   beneficiaries Beneficiary[]
   serviceProfiles CustomerServiceProfile[]
+  aepsAccounts CustomerAepsAccount[]
   transactions  Transaction[]
   payables      CustomerPayable[]
   receivables   CustomerReceivable[]
@@ -305,6 +306,22 @@ model BeneficiaryAccount {
 }
 
 
+
+// Saved six-digit AEPS lookup references, never full 12-digit Aadhaar identifiers.
+model CustomerAepsAccount {
+  id             String   @id @default(uuid())
+  customerId     String
+  customer       Customer @relation(fields: [customerId], references: [id])
+  bankName       String
+  holderName     String
+  aadhaarLastSix String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([customerId, isActive])
+  @@index([aadhaarLastSix])
+}
 
 model CustomerServiceProfile {
   id              String   @id @default(uuid())

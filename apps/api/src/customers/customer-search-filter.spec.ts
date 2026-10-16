@@ -41,6 +41,14 @@ describe('customer search filter', () => {
     expect(serialized('Owner House')).toContain('ownerName');
   });
 
+  it('matches saved AEPS records by bank, holder and six-digit reference', () => {
+    const filter = serialized('123456');
+    expect(filter).toContain('aepsAccounts');
+    expect(filter).toContain('aadhaarLastSix');
+    expect(serialized('State Bank')).toContain('bankName');
+    expect(serialized('Anitha')).toContain('holderName');
+  });
+
   it('removes formatting from copied account numbers typed into search', () => {
     expect(serialized('0791-000602-00247')).toContain('079100060200247');
   });

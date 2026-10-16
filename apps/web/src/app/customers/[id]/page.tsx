@@ -23,12 +23,13 @@ type Card={id:string;bankName:string;cardType:string|null;lastFourDigits:string;
 type Bank={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type Upi={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
 type EbConnection={id:string;serviceName:string;nickname:string|null;ownerName:string|null;providerName:string|null;referenceNumber:string;isActive:boolean};
+type AepsAccount={id:string;bankName:string;holderName:string;aadhaarLastSix:string;isActive:boolean};
 type BAccount={id:string;accountType:string;bankName:string|null;accountReference:string|null;ifsc:string|null;upiId:string|null;mobileNumber:string|null;isActive:boolean};
 type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;notes:string|null;isActive:boolean;accounts:BAccount[]};
 type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
 type Customer={
  id:string;customerCode:string;customerType:string;customerTypeId:string|null;customerTypeConfig:{id:string;name:string;isActive:boolean}|null;fullName:string;mobile:string|null;ebNumber:string|null;notes:string|null;isActive:boolean;
- cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];serviceProfiles?:EbConnection[];beneficiaries:Beneficiary[];
+ cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];serviceProfiles?:EbConnection[];aepsAccounts?:AepsAccount[];beneficiaries:Beneficiary[];
  transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;payable:{status:string;dueAt:string;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null}[];
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
  receivables:{id:string;reason:string;remainingAmount:string;receivedAmount:string;originalAmount:string;dueAt:string|null;status:string}[];
@@ -62,6 +63,7 @@ export default function CustomerDetailPage(){
  const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
  const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
  const [ebEditing,setEbEditing]=useState(false),[ebTarget,setEbTarget]=useState<EbConnection|null>(null),[ebOwnerName,setEbOwnerName]=useState(""),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
+ const [aepsEditing,setAepsEditing]=useState(false),[aepsTarget,setAepsTarget]=useState<AepsAccount|null>(null),[aepsHolder,setAepsHolder]=useState(""),[aepsBank,setAepsBank]=useState(""),[aepsLastSix,setAepsLastSix]=useState(""),[aepsError,setAepsError]=useState("");
  const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
@@ -163,6 +165,22 @@ function switchView(next:"details"|"activity"){
  }
  function openEbEditor(item?:EbConnection){
   setEbTarget(item||null);setEbOwnerName(item?.ownerName||"");setEbDraft(item?.referenceNumber||"");setEbError("");setEbEditing(true);
+ }
+ function openAepsEditor(item?:AepsAccount){
+  setAepsTarget(item||null);setAepsHolder(item?.holderName||c?.fullName||"");setAepsBank(item?.bankName||"");setAepsLastSix(item?.aadhaarLastSix||"");setAepsError("");setAepsEditing(true);
+ }
+ async function saveAepsAccount(e:FormEvent){
+  e.preventDefault();
+  const holderName=aepsHolder.trim(),bankName=aepsBank.trim(),aadhaarLastSix=aepsLastSix.trim();
+  if(!bankName||!holderName||bankName.length>150||holderName.length>150){setAepsError("Enter a bank and account holder name (up to 150 characters).");return;}
+  if(!/^\d{6}$/.test(aadhaarLastSix)){setAepsError("Enter exactly six digits. Do not enter the full 12-digit Aadhaar number.");return;}
+  setBusy(true);setAepsError("");setError("");
+  try{
+   if(aepsTarget)await apiFetch("/customers/aeps-accounts/"+aepsTarget.id,{method:"PATCH",body:JSON.stringify({bankName,holderName,aadhaarLastSix})});
+   else await apiFetch("/customers/"+id+"/aeps-accounts",{method:"POST",body:JSON.stringify({bankName,holderName,aadhaarLastSix})});
+   await load();setAepsEditing(false);setAepsTarget(null);setMessage("AEPS account saved.");
+  }catch(err){setAepsError(err instanceof Error?err.message:"Unable to save AEPS account.");}
+  finally{setBusy(false);}
  }
  async function saveEbNumber(e:FormEvent){
   e.preventDefault();
@@ -324,12 +342,14 @@ function switchView(next:"details"|"activity"){
  const foundUpi=c.upiAccounts.filter(x=>matchesSavedDetailSearch(savedSearch,[x.accountName,x.upiId,x.mobileNumber,x.providerName]));
  const ebProfiles=Array.isArray(c.serviceProfiles)?c.serviceProfiles:null;
  const foundEb=(ebProfiles??[]).filter(x=>matchesSavedDetailSearch(savedSearch,[x.ownerName,x.referenceNumber]));
+ const aepsAccounts=Array.isArray(c.aepsAccounts)?c.aepsAccounts:null;
+ const foundAeps=(aepsAccounts??[]).filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.holderName,x.aadhaarLastSix]));
  const foundBeneficiaries=c.beneficiaries.flatMap(b=>{
   const beneficiaryMatches=matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote]);
   const accounts=beneficiaryMatches?b.accounts:b.accounts.filter(a=>matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote,a.bankName,a.accountReference,a.ifsc,a.upiId,a.mobileNumber]));
   return beneficiaryMatches||accounts.length?[{...b,accounts}]:[];
  });
- const savedMatchCount=foundCards.length+foundBanks.length+foundUpi.length+foundEb.length+foundBeneficiaries.length;
+ const savedMatchCount=foundCards.length+foundBanks.length+foundUpi.length+foundEb.length+foundAeps.length+foundBeneficiaries.length;
  const ledgerCardLabel=ledgerCardId?(cardLedger?.cards.find(card=>card.id===ledgerCardId)?.label??"Selected card"):"All cards";
  const payOutSuggestion=suggestedPayOutSource(cardLedger?.payInSources??[],ledgerEntryCardId,ledgerEntryDate);
  const validPayOutSource=payOutSuggestion?ledgerAccounts.find(account=>account.id===payOutSuggestion.financialAccountId):null;
@@ -453,7 +473,7 @@ function switchView(next:"details"|"activity"){
 
    <div className="relative mt-2.5">
     <svg aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
-    <input id="customer-saved-account-search" name="saved_accounts_search" type="search" inputMode="search" autoComplete="off" value={savedSearch} onChange={e=>setSavedSearch(e.target.value)} placeholder="Bank, UPI, owner name, EB number, card digits…" className="app-control w-full !pl-10 !pr-16"/>
+    <input id="customer-saved-account-search" name="saved_accounts_search" type="search" inputMode="search" autoComplete="off" value={savedSearch} onChange={e=>setSavedSearch(e.target.value)} placeholder="Bank, UPI, EB, AEPS name or six digits, card…" className="app-control w-full !pl-10 !pr-16"/>
     {savedSearch?<button type="button" onClick={()=>setSavedSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-50">Clear</button>:null}
    </div>
    {savedSearch.trim()?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]" role="status">{savedMatchCount} matching saved {savedMatchCount===1?"item":"items"} · Bank accounts: {foundBanks.length} of {c.bankAccounts.length}</p>:null}
@@ -464,6 +484,7 @@ function switchView(next:"details"|"activity"){
    <SavedList title="UPI accounts" count={c.upiAccounts.length} matchingCount={savedSearch.trim()?foundUpi.length:undefined} addLabel="Add UPI" onAdd={()=>setAddKind("upi")}>{foundUpi.length?foundUpi.map(x=><div key={x.id} className={!x.isActive?"rounded-xl bg-[var(--surface-soft)] p-3 opacity-60":"rounded-xl bg-[var(--surface-soft)] p-3"}><div className="flex items-center justify-between gap-2"><strong className="min-w-0 break-words text-sm">{x.accountName}</strong><div className="flex shrink-0 items-center gap-1"><CopyValueButton value={x.accountName} label="UPI account name"/><StatusBadge tone={x.isActive?"emerald":"slate"}>{x.isActive?"Active":"Inactive"}</StatusBadge></div></div><div className="mt-2 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3"><SavedCopyField label="UPI ID" value={x.upiId}/><SavedCopyField label="UPI mobile" value={x.mobileNumber}/><SavedCopyField label="Provider" value={x.providerName}/></div><div className="mt-2 flex gap-3"><button type="button" onClick={()=>beginEdit({kind:"upi",item:x})} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={()=>setToggleTarget({path:"/customers/upi/"+x.id,isActive:x.isActive,label:"UPI account"})} className="text-xs font-bold text-[var(--text-muted)]">{x.isActive?"Retire":"Reactivate"}</button></div></div>):<EmptyState title={savedSearch.trim()?"No matching UPI accounts":"No UPI accounts"}/>}</SavedList>
   </div>
   <SavedList title="EB connections" count={ebProfiles?.length??0} statusText={!ebProfiles?"Unavailable from server":undefined} matchingCount={ebProfiles&&savedSearch.trim()?foundEb.length:undefined} addLabel={ebProfiles?"Add EB account":undefined} onAdd={()=>openEbEditor()}>{!ebProfiles?<p role="status" className="text-xs font-semibold text-amber-700">EB records could not be loaded from the current API. Other saved details remain available.</p>:foundEb.length?foundEb.map(x=><EbSavedItem key={x.id} connection={x} onEdit={()=>openEbEditor(x)} onToggle={()=>setToggleTarget({path:"/customers/service-profiles/"+x.id,isActive:x.isActive,label:"EB connection"})}/>):<EmptyState title={savedSearch.trim()?"No matching EB connections":"No EB connections saved"}/>}</SavedList>
+  <SavedList title="AEPS accounts" count={aepsAccounts?.length??0} statusText={!aepsAccounts?"Unavailable from server":undefined} matchingCount={aepsAccounts&&savedSearch.trim()?foundAeps.length:undefined} addLabel={aepsAccounts?"Add AEPS account":undefined} onAdd={()=>openAepsEditor()}>{!aepsAccounts?<p role="status" className="text-xs font-semibold text-amber-700">AEPS account records are unavailable from the current API.</p>:foundAeps.length?foundAeps.map(x=><AepsSavedItem key={x.id} account={x} onEdit={()=>openAepsEditor(x)} onToggle={()=>setToggleTarget({path:"/customers/aeps-accounts/"+x.id,isActive:x.isActive,label:"AEPS account"})}/>):<EmptyState title={savedSearch.trim()?"No matching AEPS accounts":"No AEPS accounts saved"}/>}</SavedList>
   <Surface className="overflow-hidden">
    <PanelHeader title="Beneficiaries & family recipients" description={savedSearch.trim()?`${foundBeneficiaries.length} of ${c.beneficiaries.length} recipients match` : undefined} action={<div className="flex gap-2"><button onClick={()=>setAddKind("beneficiary")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold">+ Recipient</button><button onClick={()=>setAddKind("beneficiaryAccount")} className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white">+ Account</button></div>}/>
    {foundBeneficiaries.length?<div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">{foundBeneficiaries.map(b=><div key={b.id} className={!b.isActive?"rounded-2xl border border-slate-200 p-4 opacity-60":"rounded-2xl border border-slate-200 p-4"}>
@@ -484,6 +505,15 @@ function switchView(next:"details"|"activity"){
    </div>)}</div>:<div className="p-4"><EmptyState title={savedSearch.trim()?"No matching recipients":"No beneficiaries saved"}/></div>}
   </Surface>
   </>:null}
+  <Modal open={aepsEditing} title={aepsTarget?"Edit AEPS account":"Add AEPS account"} onClose={()=>{if(!busy)setAepsEditing(false);}} footer={<button type="submit" form="customer-aeps-account" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save AEPS account"}</button>}>
+   <form id="customer-aeps-account" onSubmit={saveAepsAccount} className="space-y-3">
+    <Field label="Bank name"><input className={control} name="customer_aeps_bank" autoComplete="off" maxLength={150} value={aepsBank} onChange={e=>{setAepsBank(e.target.value);setAepsError("");}} placeholder="Bank name" autoFocus required/></Field>
+    <Field label="Account holder name"><input className={control} name="customer_aeps_holder" autoComplete="name" maxLength={150} value={aepsHolder} onChange={e=>{setAepsHolder(e.target.value);setAepsError("");}} placeholder="Name" required/></Field>
+    <Field label="Six-digit Aadhaar reference"><input className={control} name="customer_aeps_reference" type="text" inputMode="numeric" autoComplete="off" maxLength={6} pattern="[0-9]{6}" value={aepsLastSix} onChange={e=>{setAepsLastSix(e.target.value.replace(/\D/g,"").slice(0,6));setAepsError("");}} placeholder="Last 6 digits only" required/></Field>
+    <p className="text-xs text-[var(--text-muted)]">Store a six-digit lookup reference only, not a complete 12-digit Aadhaar number.</p>
+    {aepsError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{aepsError}</p>:null}
+   </form>
+  </Modal>
   <Modal open={ebEditing} title={ebTarget?"Edit EB account":"Add EB account"} onClose={()=>{if(!busy)setEbEditing(false);}} footer={<button type="submit" form="customer-eb-number" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save EB account"}</button>}>
    <form id="customer-eb-number" onSubmit={saveEbNumber} className="space-y-3">
     <Field label="Consumer name"><input className={control} name="cashledger_eb_consumer_name" autoComplete="name" value={ebOwnerName} maxLength={150} onChange={e=>{setEbOwnerName(e.target.value);setEbError("");}} placeholder="Consumer name" autoFocus required/></Field>
@@ -648,6 +678,20 @@ function BankSavedItem({bank,onEdit,onToggle}:{bank:Bank;onEdit:()=>void;onToggl
    <SavedCopyField label="IFSC code" value={bank.ifsc}/>
   </div>
   <div className="mt-3 flex items-center gap-3"><button type="button" onClick={onEdit} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={onToggle} className="text-xs font-bold text-slate-500">{bank.isActive?"Retire":"Reactivate"}</button></div>
+ </div>;
+}
+function AepsSavedItem({account,onEdit,onToggle}:{account:AepsAccount;onEdit:()=>void;onToggle:()=>void}){
+ return <div className={!account.isActive?"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3 opacity-60":"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"}>
+  <div className="flex items-center justify-between gap-2">
+   <p className="min-w-0 break-words text-sm font-black">AEPS account</p>
+   <div className="flex shrink-0 items-center gap-1"><CopyValueButton value={"Bank: "+account.bankName+"\nName: "+account.holderName+"\nSix-digit reference: "+account.aadhaarLastSix} label="all AEPS account details" copyAll/><StatusBadge tone={account.isActive?"emerald":"slate"}>{account.isActive?"Active":"Inactive"}</StatusBadge></div>
+  </div>
+  <div className="mt-3 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3 py-1.5">
+   <SavedCopyField label="Bank name" value={account.bankName}/>
+   <SavedCopyField label="Account holder name" value={account.holderName}/>
+   <SavedCopyField label="Six-digit Aadhaar reference" value={account.aadhaarLastSix}/>
+  </div>
+  <div className="mt-3 flex items-center gap-3"><button type="button" onClick={onEdit} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={onToggle} className="text-xs font-bold text-slate-500">{account.isActive?"Retire":"Reactivate"}</button></div>
  </div>;
 }
 function EbSavedItem({connection,onEdit,onToggle}:{connection:EbConnection;onEdit:()=>void;onToggle:()=>void}){

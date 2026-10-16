@@ -20,6 +20,7 @@ import { UpdateBankAccountDto } from './dto/update-bank-account.dto.js';
 import { UpdateUpiAccountDto } from './dto/update-upi-account.dto.js';
 import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto.js';
 import { UpdateBeneficiaryAccountDto } from './dto/update-beneficiary-account.dto.js';
+import { CreateCustomerAepsAccountDto, UpdateCustomerAepsAccountDto } from './dto/customer-aeps-account.dto.js';
 import { CreateServiceProfileDto } from './dto/create-service-profile.dto.js';
 import { UpdateServiceProfileDto } from './dto/update-service-profile.dto.js';
 import { CreateCustomerLedgerEntryDto } from './dto/create-customer-ledger-entry.dto.js';
@@ -434,6 +435,63 @@ export class CustomersService {
     };
   }
 
+  private checkAepsAccount(bankName: string, holderName: string, lastSix: string) {
+    if (!bankName || !holderName || bankName.length > 150 || holderName.length > 150)
+      throw new BadRequestException('Bank and account holder name are required (maximum 150 characters).');
+    if (!/^\d{6}$/.test(lastSix))
+      throw new BadRequestException('Only a six-digit Aadhaar reference is allowed. Never enter a full Aadhaar number.');
+  }
+
+  addAepsAccount(customerId: string, dto: CreateCustomerAepsAccountDto, userId: string) {
+    const bankName = dto.bankName.trim();
+    const holderName = dto.holderName.trim();
+    const aadhaarLastSix = dto.aadhaarLastSix.trim();
+    this.checkAepsAccount(bankName, holderName, aadhaarLastSix);
+    return this.prisma.$transaction(async tx => {
+      if (!await tx.customer.findUnique({ where: { id: customerId }, select: { id: true } }))
+        throw new NotFoundException('Customer not found');
+      const item = await tx.customerAepsAccount.create({
+        data: { customerId, bankName, holderName, aadhaarLastSix },
+      });
+      await tx.auditLog.create({
+        data: { userId, entityType: 'CUSTOMER_AEPS_ACCOUNT', entityId: item.id, action: 'CREATE',
+          newValues: { customerId, bankName, holderName, sixDigitReferenceSaved: true } },
+      });
+      return item;
+    });
+  }
+
+  updateAepsAccount(id: string, dto: UpdateCustomerAepsAccountDto, userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const old = await tx.customerAepsAccount.findUnique({ where: { id } });
+      if (!old) throw new NotFoundException('AEPS account not found');
+      const bankName = dto.bankName?.trim() ?? old.bankName;
+      const holderName = dto.holderName?.trim() ?? old.holderName;
+      const aadhaarLastSix = dto.aadhaarLastSix?.trim() ?? old.aadhaarLastSix;
+      this.checkAepsAccount(bankName, holderName, aadhaarLastSix);
+      const item = await tx.customerAepsAccount.update({ where: { id },
+        data: { bankName, holderName, aadhaarLastSix } });
+      await tx.auditLog.create({
+        data: { userId, entityType: 'CUSTOMER_AEPS_ACCOUNT', entityId: id, action: 'UPDATE',
+          oldValues: { bankName: old.bankName, holderName: old.holderName },
+          newValues: { bankName, holderName, sixDigitReferenceChanged: old.aadhaarLastSix !== aadhaarLastSix } },
+      });
+      return item;
+    });
+  }
+
+  setAepsAccountActive(id: string, isActive: boolean, userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const old = await tx.customerAepsAccount.findUnique({ where: { id } });
+      if (!old) throw new NotFoundException('AEPS account not found');
+      const item = await tx.customerAepsAccount.update({ where: { id }, data: { isActive } });
+      await tx.auditLog.create({ data: { userId, entityType: 'CUSTOMER_AEPS_ACCOUNT',
+        entityId: id, action: isActive ? 'REACTIVATE' : 'DEACTIVATE',
+        oldValues: { isActive: old.isActive }, newValues: { isActive } } });
+      return item;
+    });
+  }
+
   addServiceProfile(customerId: string, dto: CreateServiceProfileDto, userId: string) {
     const serviceName = dto.serviceName.trim();
     const referenceNumber = dto.referenceNumber.trim();
@@ -505,6 +563,7 @@ export class CustomersService {
         bankAccounts: true,
         upiAccounts: true,
         serviceProfiles: { where: { serviceName: 'Eb Bill' }, orderBy: { createdAt: 'asc' } },
+        aepsAccounts: { orderBy: { createdAt: 'asc' } },
         beneficiaries: { include: { accounts: true } },
         transactions: {
           orderBy: { transactionAt: 'desc' },
