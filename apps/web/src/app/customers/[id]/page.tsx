@@ -397,16 +397,17 @@ function switchView(next:"details"|"activity"){
   {view==="details"?<>
    {setupGuide?<div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
     <p className="text-sm font-extrabold text-emerald-900">Customer saved ✓</p>
-    <p className="mt-0.5 text-xs leading-5 text-emerald-800">Add a card, bank, UPI, recipient or EB number now—or leave it for later.</p>
+    <p className="mt-0.5 text-xs leading-5 text-emerald-800">Add a card, bank, UPI, recipient, EB number or AEPS account now—or leave it for later.</p>
    </div>:null}
    <Surface className="p-4 sm:p-5">
     <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-black">Add customer details</h3><p className="mt-1 text-xs text-[var(--text-muted)]">Choose only what you need. All optional.</p></div></div>
-    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
      <button type="button" onClick={()=>{setCardError("");setAddingCard(true);}} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Card</button>
      <button type="button" onClick={()=>setAddKind("bank")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Bank</button>
      <button type="button" onClick={()=>setAddKind("upi")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ UPI</button>
      <button type="button" onClick={()=>setAddKind("beneficiary")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Recipient</button>
-     <button type="button" onClick={()=>openEbEditor()} disabled={!ebProfiles} title={!ebProfiles?"EB records currently unavailable from the server":undefined} className="col-span-2 min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold disabled:opacity-50 sm:col-span-1">+ EB Number</button>
+     <button type="button" onClick={()=>openEbEditor()} disabled={!ebProfiles} title={!ebProfiles?"EB records currently unavailable from the server":undefined} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold disabled:opacity-50">+ EB Number</button>
+     <button type="button" onClick={()=>openAepsEditor()} disabled={!aepsAccounts} title={!aepsAccounts?"AEPS accounts currently unavailable from the server":undefined} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold disabled:opacity-50">+ AEPS</button>
     </div>
 
    </Surface>
