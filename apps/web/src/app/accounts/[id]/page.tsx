@@ -5,7 +5,7 @@ import { AccountBrandIcon } from "@/components/account-brand-icon";
 import { SearchableSelect } from "@/components/searchable-select";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Modal, PageFrame, StatusBadge, Surface } from "@/components/ui";
@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { transactionDetailHref } from "@/lib/transaction-return";
 import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 import { MoneyFlowIcon } from "@/components/money-flow-icon";
+import { accountLedgerDateQuery, isDeletedOrReversedLedgerMovement, type AccountLedgerRange } from "@/lib/account-ledger-filters";
 
 type Account={
   id:string;accountName:string;accountType:string;accountNature:"ASSET"|"LIABILITY";usageType:string;
@@ -61,19 +62,10 @@ type DrillTx={
   customerLedgerEntry:{direction:"PAY_IN"|"PAY_OUT";amount:string;remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;financialAccount:TxAccount}|null;
 };
 type DrillDetail={movement:DrillTx;source:DrillTx|null;row:Row;isIn:boolean};
-type Range="7d"|"30d"|"90d"|"all";
 const money=(value:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(value||0));
 const localDateValue=()=>{const now=new Date(),offset=now.getTimezoneOffset()*60000;return new Date(now.getTime()-offset).toISOString().slice(0,10);};
 const dateWithCurrentLocalTime=(date:string)=>{const now=new Date(),[year,month,day]=date.split("-").map(Number);return new Date(year,month-1,day,now.getHours(),now.getMinutes(),now.getSeconds(),now.getMilliseconds()).toISOString();};
 const typeLabels:Record<string,string>={CASH:"Shop cash",BANK:"Bank",UPI:"Bank",PROVIDER_WALLET:"Wallet",OWNER_CREDIT_CARD:"Credit card"};
-function rangeStart(range:Range){
-  if(range==="all")return "";
-  const days=range==="7d"?7:range==="30d"?30:90;
-  const date=new Date();
-  date.setHours(0,0,0,0);
-  date.setDate(date.getDate()-(days-1));
-  return date.toISOString();
-}
 function accountMeta(account:Account){
   return [typeLabels[account.accountType]??account.accountType,account.bankName,account.lastFourDigits?"•••• "+account.lastFourDigits:null]
     .filter(Boolean).join(" · ");
@@ -418,7 +410,11 @@ function AccountLedgerSkeleton(){
 export default function AccountLedgerPage(){
   const {id}=useParams<{id:string}>();
   const [data,setData]=useState<Ledger|null>(null);
-  const [range,setRange]=useState<Range>("30d");
+  const latestLoad=useRef(0);
+  const [range,setRange]=useState<AccountLedgerRange>("30d");
+  const [customFrom,setCustomFrom]=useState(localDateValue);
+  const [customTo,setCustomTo]=useState(localDateValue);
+  const [showDeleted,setShowDeleted]=useState(false);
   const [search,setSearch]=useState("");
   const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
   const [loading,setLoading]=useState(true),[error,setError]=useState(""),[role,setRole]=useState("");
@@ -427,15 +423,17 @@ export default function AccountLedgerPage(){
   const [entryOpen,setEntryOpen]=useState(false),[entrySaving,setEntrySaving]=useState(false),[entryError,setEntryError]=useState("");
   const [entryDirection,setEntryDirection]=useState<"IN"|"OUT">("IN"),[entryAmount,setEntryAmount]=useState("");
   const [entryDate,setEntryDate]=useState(localDateValue),[entryLabel,setEntryLabel]=useState(""),[entryReference,setEntryReference]=useState(""),[entryNote,setEntryNote]=useState("");
-  const load=useCallback(async(nextRange:Range)=>{
+  const load=useCallback(async(nextRange:AccountLedgerRange)=>{
+    const request=++latestLoad.current;
+    const query=accountLedgerDateQuery(nextRange,customFrom,customTo);
+    if(query===null){setError("Select a valid custom date range (From cannot be after To).");return;}
     setLoading(true);setError("");
     try{
-      const from=rangeStart(nextRange);
-      const query=from?"?from="+encodeURIComponent(from):"";
-      setData(await apiFetch<Ledger>("/reports/accounts/"+id+query));
-    }catch(err){setError(err instanceof Error?err.message:"Failed to load ledger");}
-    finally{setLoading(false);}
-  },[id]);
+      const result=await apiFetch<Ledger>("/reports/accounts/"+id+(query?"?"+query:""));
+      if(request===latestLoad.current)setData(result);
+    }catch(err){if(request===latestLoad.current)setError(err instanceof Error?err.message:"Failed to load ledger");}
+    finally{if(request===latestLoad.current)setLoading(false);}
+  },[id,customFrom,customTo]);
   const resetAccountEntry=()=>{setEntryDirection("IN");setEntryAmount("");setEntryDate(localDateValue());setEntryLabel("");setEntryReference("");setEntryNote("");setEntryError("");};
   const submitAccountEntry=async(event:FormEvent)=>{
     event.preventDefault();
@@ -471,14 +469,19 @@ export default function AccountLedgerPage(){
   const rows=useMemo(()=>{
     const query=search.trim().toLowerCase();
     const source=[...(data?.rows??[])].reverse();
-    const statusFiltered=source.filter((row)=>(!txStatusFilter||row.journal.transaction.status===txStatusFilter)&&(!moneyStatusFilter||moneyStatus(ledgerMoneySource(row.journal.transaction))?.key===moneyStatusFilter));
+    const statusFiltered=source.filter((row)=>{
+      const tx=row.journal.transaction;
+      const historicalSource=ledgerBusinessSource(tx);
+      if(!showDeleted&&(isDeletedOrReversedLedgerMovement(tx)||isDeletedOrReversedLedgerMovement(historicalSource)))return false;
+      return (!txStatusFilter||tx.status===txStatusFilter)&&(!moneyStatusFilter||moneyStatus(ledgerMoneySource(tx))?.key===moneyStatusFilter);
+    });
     if(!query)return statusFiltered;
     return statusFiltered.filter((row)=>{
       const summary=movementSummary(row.journal.transaction,row);
       return [row.journal.transaction.transactionNumber,row.journal.transaction.referenceNumber,row.journal.transaction.customer?.fullName,row.description,summary.primary,summary.secondary]
         .filter(Boolean).join(" ").toLowerCase().includes(query);
     });
-  },[data,search,txStatusFilter,moneyStatusFilter]);
+  },[data,search,txStatusFilter,moneyStatusFilter,showDeleted]);
 
   if(loading&&!data)return <AccountLedgerSkeleton/>;
   const account=data?.account;
@@ -559,9 +562,25 @@ export default function AccountLedgerPage(){
         </div>
       </Surface>
 
-      <div className="ui-scroll-fade"><div className="flex gap-1.5 overflow-x-auto pb-0.5 pr-5">
-        {([["7d","7 days"],["30d","30 days"],["90d","90 days"],["all","All time"]] as [Range,string][]).map(([value,label])=><button type="button" key={value} onClick={()=>setRange(value)} className={"min-h-10 shrink-0 rounded-full px-3.5 text-xs font-bold transition "+(range===value?"bg-[var(--text)] text-[var(--surface)]":"bg-[var(--surface-soft)] text-[var(--text-muted)]")}>{label}</button>)}
-      </div></div>
+      <div className="space-y-2">
+        <div className="ui-scroll-fade"><div className="flex gap-1.5 overflow-x-auto pb-0.5 pr-5" aria-label="Account ledger date range">
+          {([["today","Today"],["yesterday","Yesterday"],["7d","7 days"],["30d","30 days"],["90d","90 days"],["custom","Custom"],["all","All time"]] as [AccountLedgerRange,string][]).map(([value,label])=><button type="button" key={value} aria-pressed={range===value} onClick={()=>setRange(value)} className={"min-h-10 shrink-0 rounded-full px-3.5 text-xs font-bold transition "+(range===value?"bg-[var(--text)] text-[var(--surface)]":"bg-[var(--surface-soft)] text-[var(--text-muted)]")}>{label}</button>)}
+        </div></div>
+        {range==="custom"?<Surface className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">
+          <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">From date</span><input className="app-control" type="date" value={customFrom} max={customTo||undefined} onChange={(event)=>setCustomFrom(event.target.value)}/></label>
+          <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">To date</span><input className="app-control" type="date" value={customTo} min={customFrom||undefined} onChange={(event)=>setCustomTo(event.target.value)}/></label>
+        </Surface>:null}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 text-xs font-bold text-[var(--text-muted)]">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" checked={showDeleted} onChange={(event)=>{
+              setShowDeleted(event.target.checked);
+              if(!event.target.checked&&(txStatusFilter==="REVERSED"||txStatusFilter==="CANCELLED"))setTxStatusFilter("");
+            }}/>
+            Show deleted / reversed entries
+          </label>
+          {!showDeleted?<span className="text-[11px] font-medium text-[var(--text-muted)]">Balances include all posted movements; hidden entries remain in the audit trail.</span>:null}
+        </div>
+      </div>
 
       {showPayoutCharges?<div className="space-y-3">
         <Surface className="p-3 sm:p-4">
@@ -583,7 +602,7 @@ export default function AccountLedgerPage(){
             <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
             <input name="cashledger_search_activity" autoComplete="on" className="app-control !pl-10" value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Search activity"/>
           </div>
-          <SearchableSelect className="app-control" value={txStatusFilter} onChange={(event)=>setTxStatusFilter(event.target.value)}><option value="">All transaction status</option>{["COMPLETED","PENDING","FAILED","CANCELLED","REVERSED"].map((x)=><option key={x}>{nice(x)}</option>)}</SearchableSelect>
+          <SearchableSelect className="app-control" value={txStatusFilter} onChange={(event)=>{setTxStatusFilter(event.target.value);if(event.target.value==="REVERSED"||event.target.value==="CANCELLED")setShowDeleted(true);}}><option value="">All transaction status</option>{["COMPLETED","PENDING","FAILED","CANCELLED","REVERSED"].map((x)=><option key={x}>{nice(x)}</option>)}</SearchableSelect>
           <SearchableSelect className="app-control" value={moneyStatusFilter} onChange={(event)=>setMoneyStatusFilter(event.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([value,label])=><option key={value} value={value}>{label}</option>)}</SearchableSelect>
         </div>
         {rows.length?<div className="divide-y divide-[var(--border)]">
