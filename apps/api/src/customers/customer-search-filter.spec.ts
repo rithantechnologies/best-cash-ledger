@@ -41,9 +41,10 @@ describe('customer search filter', () => {
     expect(serialized('Owner House')).toContain('ownerName');
   });
 
-  it('matches saved AEPS records by bank, holder and six-digit reference', () => {
-    const filter = serialized('123456');
+  it('matches saved AEPS records by bank, holder and 12-digit PR number', () => {
+    const filter = serialized('123456789012');
     expect(filter).toContain('aepsAccounts');
+    expect(filter).toContain('prNumber');
     expect(filter).toContain('aadhaarLastSix');
     expect(serialized('State Bank')).toContain('bankName');
     expect(serialized('Anitha')).toContain('holderName');

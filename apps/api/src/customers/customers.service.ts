@@ -435,27 +435,27 @@ export class CustomersService {
     };
   }
 
-  private checkAepsAccount(bankName: string, holderName: string, lastSix: string) {
+  private checkAepsAccount(bankName: string, holderName: string, prNumber: string | null) {
     if (!bankName || !holderName || bankName.length > 150 || holderName.length > 150)
       throw new BadRequestException('Bank and account holder name are required (maximum 150 characters).');
-    if (!/^\d{6}$/.test(lastSix))
-      throw new BadRequestException('Only a six-digit Aadhaar reference is allowed. Never enter a full Aadhaar number.');
+    if (!prNumber || !/^\d{12}$/.test(prNumber))
+      throw new BadRequestException('PR Number must contain exactly 12 digits.');
   }
 
   addAepsAccount(customerId: string, dto: CreateCustomerAepsAccountDto, userId: string) {
     const bankName = dto.bankName.trim();
     const holderName = dto.holderName.trim();
-    const aadhaarLastSix = dto.aadhaarLastSix.trim();
-    this.checkAepsAccount(bankName, holderName, aadhaarLastSix);
+    const prNumber = dto.prNumber.trim();
+    this.checkAepsAccount(bankName, holderName, prNumber);
     return this.prisma.$transaction(async tx => {
       if (!await tx.customer.findUnique({ where: { id: customerId }, select: { id: true } }))
         throw new NotFoundException('Customer not found');
       const item = await tx.customerAepsAccount.create({
-        data: { customerId, bankName, holderName, aadhaarLastSix },
+        data: { customerId, bankName, holderName, prNumber },
       });
       await tx.auditLog.create({
         data: { userId, entityType: 'CUSTOMER_AEPS_ACCOUNT', entityId: item.id, action: 'CREATE',
-          newValues: { customerId, bankName, holderName, sixDigitReferenceSaved: true } },
+          newValues: { customerId, bankName, holderName, prNumberSaved: true } },
       });
       return item;
     });
@@ -467,14 +467,14 @@ export class CustomersService {
       if (!old) throw new NotFoundException('AEPS account not found');
       const bankName = dto.bankName?.trim() ?? old.bankName;
       const holderName = dto.holderName?.trim() ?? old.holderName;
-      const aadhaarLastSix = dto.aadhaarLastSix?.trim() ?? old.aadhaarLastSix;
-      this.checkAepsAccount(bankName, holderName, aadhaarLastSix);
+      const prNumber = dto.prNumber?.trim() ?? old.prNumber;
+      this.checkAepsAccount(bankName, holderName, prNumber);
       const item = await tx.customerAepsAccount.update({ where: { id },
-        data: { bankName, holderName, aadhaarLastSix } });
+        data: { bankName, holderName, prNumber } });
       await tx.auditLog.create({
         data: { userId, entityType: 'CUSTOMER_AEPS_ACCOUNT', entityId: id, action: 'UPDATE',
           oldValues: { bankName: old.bankName, holderName: old.holderName },
-          newValues: { bankName, holderName, sixDigitReferenceChanged: old.aadhaarLastSix !== aadhaarLastSix } },
+          newValues: { bankName, holderName, prNumberChanged: old.prNumber !== prNumber } },
       });
       return item;
     });

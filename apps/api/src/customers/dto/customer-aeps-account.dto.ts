@@ -7,9 +7,8 @@ export class CreateCustomerAepsAccountDto {
   @IsString() @MinLength(1) @MaxLength(150)
   holderName!: string;
 
-  // Reject the full 12-digit Aadhaar number, even if a client bypasses the UI.
-  @IsString() @Matches(/^\d{6}$/, { message: 'Enter exactly six digits, not a full Aadhaar number.' })
-  aadhaarLastSix!: string;
+  @IsString() @Matches(/^\d{12}$/, { message: 'Enter exactly 12 digits for PR Number.' })
+  prNumber!: string;
 }
 
 export class UpdateCustomerAepsAccountDto {
@@ -19,6 +18,6 @@ export class UpdateCustomerAepsAccountDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(150)
   holderName?: string;
 
-  @IsOptional() @IsString() @Matches(/^\d{6}$/, { message: 'Enter exactly six digits, not a full Aadhaar number.' })
-  aadhaarLastSix?: string;
+  @IsOptional() @IsString() @Matches(/^\d{12}$/, { message: 'Enter exactly 12 digits for PR Number.' })
+  prNumber?: string;
 }

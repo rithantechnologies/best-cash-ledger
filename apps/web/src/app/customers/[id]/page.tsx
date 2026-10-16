@@ -23,7 +23,7 @@ type Card={id:string;bankName:string;cardType:string|null;lastFourDigits:string;
 type Bank={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type Upi={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
 type EbConnection={id:string;serviceName:string;nickname:string|null;ownerName:string|null;providerName:string|null;referenceNumber:string;isActive:boolean};
-type AepsAccount={id:string;bankName:string;holderName:string;aadhaarLastSix:string;isActive:boolean};
+type AepsAccount={id:string;bankName:string;holderName:string;prNumber?:string|null;aadhaarLastSix?:string|null;isActive:boolean};
 type BAccount={id:string;accountType:string;bankName:string|null;accountReference:string|null;ifsc:string|null;upiId:string|null;mobileNumber:string|null;isActive:boolean};
 type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;notes:string|null;isActive:boolean;accounts:BAccount[]};
 type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
@@ -63,7 +63,7 @@ export default function CustomerDetailPage(){
  const [addingCard,setAddingCard]=useState(false),[cardBank,setCardBank]=useState(""),[cardLastFour,setCardLastFour]=useState(""),[cardNickname,setCardNickname]=useState(""),[cardError,setCardError]=useState("");
  const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
  const [ebEditing,setEbEditing]=useState(false),[ebTarget,setEbTarget]=useState<EbConnection|null>(null),[ebOwnerName,setEbOwnerName]=useState(""),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
- const [aepsEditing,setAepsEditing]=useState(false),[aepsTarget,setAepsTarget]=useState<AepsAccount|null>(null),[aepsHolder,setAepsHolder]=useState(""),[aepsBank,setAepsBank]=useState(""),[aepsLastSix,setAepsLastSix]=useState(""),[aepsError,setAepsError]=useState("");
+ const [aepsEditing,setAepsEditing]=useState(false),[aepsTarget,setAepsTarget]=useState<AepsAccount|null>(null),[aepsHolder,setAepsHolder]=useState(""),[aepsBank,setAepsBank]=useState(""),[aepsPrNumber,setAepsPrNumber]=useState(""),[aepsError,setAepsError]=useState("");
  const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
@@ -167,17 +167,17 @@ function switchView(next:"details"|"activity"){
   setEbTarget(item||null);setEbOwnerName(item?.ownerName||"");setEbDraft(item?.referenceNumber||"");setEbError("");setEbEditing(true);
  }
  function openAepsEditor(item?:AepsAccount){
-  setAepsTarget(item||null);setAepsHolder(item?.holderName||c?.fullName||"");setAepsBank(item?.bankName||"");setAepsLastSix(item?.aadhaarLastSix||"");setAepsError("");setAepsEditing(true);
+  setAepsTarget(item||null);setAepsHolder(item?.holderName||c?.fullName||"");setAepsBank(item?.bankName||"");setAepsPrNumber(item?.prNumber?.length===12?item.prNumber:"");setAepsError("");setAepsEditing(true);
  }
  async function saveAepsAccount(e:FormEvent){
   e.preventDefault();
-  const holderName=aepsHolder.trim(),bankName=aepsBank.trim(),aadhaarLastSix=aepsLastSix.trim();
+  const holderName=aepsHolder.trim(),bankName=aepsBank.trim(),prNumber=aepsPrNumber.trim();
   if(!bankName||!holderName||bankName.length>150||holderName.length>150){setAepsError("Enter a bank and account holder name (up to 150 characters).");return;}
-  if(!/^\d{6}$/.test(aadhaarLastSix)){setAepsError("Enter exactly six digits. Do not enter the full 12-digit Aadhaar number.");return;}
+  if(!/^\d{12}$/.test(prNumber)){setAepsError("PR Number must contain exactly 12 digits.");return;}
   setBusy(true);setAepsError("");setError("");
   try{
-   if(aepsTarget)await apiFetch("/customers/aeps-accounts/"+aepsTarget.id,{method:"PATCH",body:JSON.stringify({bankName,holderName,aadhaarLastSix})});
-   else await apiFetch("/customers/"+id+"/aeps-accounts",{method:"POST",body:JSON.stringify({bankName,holderName,aadhaarLastSix})});
+   if(aepsTarget)await apiFetch("/customers/aeps-accounts/"+aepsTarget.id,{method:"PATCH",body:JSON.stringify({bankName,holderName,prNumber})});
+   else await apiFetch("/customers/"+id+"/aeps-accounts",{method:"POST",body:JSON.stringify({bankName,holderName,prNumber})});
    await load();setAepsEditing(false);setAepsTarget(null);setMessage("AEPS account saved.");
   }catch(err){setAepsError(err instanceof Error?err.message:"Unable to save AEPS account.");}
   finally{setBusy(false);}
@@ -343,7 +343,7 @@ function switchView(next:"details"|"activity"){
  const ebProfiles=Array.isArray(c.serviceProfiles)?c.serviceProfiles:null;
  const foundEb=(ebProfiles??[]).filter(x=>matchesSavedDetailSearch(savedSearch,[x.ownerName,x.referenceNumber]));
  const aepsAccounts=Array.isArray(c.aepsAccounts)?c.aepsAccounts:null;
- const foundAeps=(aepsAccounts??[]).filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.holderName,x.aadhaarLastSix]));
+ const foundAeps=(aepsAccounts??[]).filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.holderName,x.prNumber,x.aadhaarLastSix]));
  const foundBeneficiaries=c.beneficiaries.flatMap(b=>{
   const beneficiaryMatches=matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote]);
   const accounts=beneficiaryMatches?b.accounts:b.accounts.filter(a=>matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote,a.bankName,a.accountReference,a.ifsc,a.upiId,a.mobileNumber]));
@@ -473,7 +473,7 @@ function switchView(next:"details"|"activity"){
 
    <div className="relative mt-2.5">
     <svg aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
-    <input id="customer-saved-account-search" name="saved_accounts_search" type="search" inputMode="search" autoComplete="off" value={savedSearch} onChange={e=>setSavedSearch(e.target.value)} placeholder="Bank, UPI, EB, AEPS name or six digits, card…" className="app-control w-full !pl-10 !pr-16"/>
+    <input id="customer-saved-account-search" name="saved_accounts_search" type="search" inputMode="search" autoComplete="off" value={savedSearch} onChange={e=>setSavedSearch(e.target.value)} placeholder="Bank, UPI, EB, AEPS name or PR number, card…" className="app-control w-full !pl-10 !pr-16"/>
     {savedSearch?<button type="button" onClick={()=>setSavedSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-50">Clear</button>:null}
    </div>
    {savedSearch.trim()?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]" role="status">{savedMatchCount} matching saved {savedMatchCount===1?"item":"items"} · Bank accounts: {foundBanks.length} of {c.bankAccounts.length}</p>:null}
@@ -509,8 +509,7 @@ function switchView(next:"details"|"activity"){
    <form id="customer-aeps-account" onSubmit={saveAepsAccount} className="space-y-3">
     <Field label="Bank name"><input className={control} name="customer_aeps_bank" autoComplete="off" maxLength={150} value={aepsBank} onChange={e=>{setAepsBank(e.target.value);setAepsError("");}} placeholder="Bank name" autoFocus required/></Field>
     <Field label="Account holder name"><input className={control} name="customer_aeps_holder" autoComplete="name" maxLength={150} value={aepsHolder} onChange={e=>{setAepsHolder(e.target.value);setAepsError("");}} placeholder="Name" required/></Field>
-    <Field label="Six-digit Aadhaar reference"><input className={control} name="customer_aeps_reference" type="text" inputMode="numeric" autoComplete="off" maxLength={6} pattern="[0-9]{6}" value={aepsLastSix} onChange={e=>{setAepsLastSix(e.target.value.replace(/\D/g,"").slice(0,6));setAepsError("");}} placeholder="Last 6 digits only" required/></Field>
-    <p className="text-xs text-[var(--text-muted)]">Store a six-digit lookup reference only, not a complete 12-digit Aadhaar number.</p>
+    <Field label="PR Number (12 digits)"><input className={control} name="customer_aeps_pr_number" type="text" inputMode="numeric" autoComplete="off" maxLength={12} pattern="[0-9]{12}" value={aepsPrNumber} onChange={e=>{setAepsPrNumber(e.target.value.replace(/\D/g,"").slice(0,12));setAepsError("");}} placeholder="12-digit PR number" required/></Field>
     {aepsError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{aepsError}</p>:null}
    </form>
   </Modal>
@@ -681,15 +680,16 @@ function BankSavedItem({bank,onEdit,onToggle}:{bank:Bank;onEdit:()=>void;onToggl
  </div>;
 }
 function AepsSavedItem({account,onEdit,onToggle}:{account:AepsAccount;onEdit:()=>void;onToggle:()=>void}){
+ const displayNumber=account.prNumber||account.aadhaarLastSix||"";
  return <div className={!account.isActive?"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3 opacity-60":"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"}>
   <div className="flex items-center justify-between gap-2">
    <p className="min-w-0 break-words text-sm font-black">AEPS account</p>
-   <div className="flex shrink-0 items-center gap-1"><CopyValueButton value={"Bank: "+account.bankName+"\nName: "+account.holderName+"\nSix-digit reference: "+account.aadhaarLastSix} label="all AEPS account details" copyAll/><StatusBadge tone={account.isActive?"emerald":"slate"}>{account.isActive?"Active":"Inactive"}</StatusBadge></div>
+   <div className="flex shrink-0 items-center gap-1"><CopyValueButton value={"Bank: "+account.bankName+"\nName: "+account.holderName+"\n"+(account.prNumber?"PR Number: ":"Legacy reference: ")+displayNumber} label="all AEPS account details" copyAll/><StatusBadge tone={account.isActive?"emerald":"slate"}>{account.isActive?"Active":"Inactive"}</StatusBadge></div>
   </div>
   <div className="mt-3 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3 py-1.5">
    <SavedCopyField label="Bank name" value={account.bankName}/>
    <SavedCopyField label="Account holder name" value={account.holderName}/>
-   <SavedCopyField label="Six-digit Aadhaar reference" value={account.aadhaarLastSix}/>
+   <SavedCopyField label={account.prNumber?"PR Number":"Legacy 6-digit reference"} value={displayNumber}/>
   </div>
   <div className="mt-3 flex items-center gap-3"><button type="button" onClick={onEdit} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={onToggle} className="text-xs font-bold text-slate-500">{account.isActive?"Retire":"Reactivate"}</button></div>
  </div>;

@@ -307,20 +307,22 @@ model BeneficiaryAccount {
 
 
 
-// Saved six-digit AEPS lookup references, never full 12-digit Aadhaar identifiers.
+// Customer AEPS PR numbers (legacy six-digit references remain preserved during migration).
 model CustomerAepsAccount {
   id             String   @id @default(uuid())
   customerId     String
   customer       Customer @relation(fields: [customerId], references: [id])
   bankName       String
   holderName     String
-  aadhaarLastSix String
+  aadhaarLastSix String?  // Legacy saved six-digit reference, preserved for existing records.
+  prNumber       String?  // 12-digit PR Number for new records.
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([customerId, isActive])
   @@index([aadhaarLastSix])
+  @@index([prNumber])
 }
 
 model CustomerServiceProfile {
