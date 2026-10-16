@@ -25,6 +25,7 @@ type Upi={id:string;accountName:string;upiId:string|null;mobileNumber:string|nul
 type EbConnection={id:string;serviceName:string;nickname:string|null;ownerName:string|null;providerName:string|null;referenceNumber:string;isActive:boolean};
 type AepsAccount={id:string;bankName:string;holderName:string;prNumber?:string|null;aadhaarLastSix?:string|null;isActive:boolean};
 type EsevaiService={id:string;esevaiName:string;serviceName:string;isActive:boolean};
+type CashServiceCatalogOption={id:string;name:string;isActive:boolean};
 type BAccount={id:string;accountType:string;bankName:string|null;accountReference:string|null;ifsc:string|null;upiId:string|null;mobileNumber:string|null;isActive:boolean};
 type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;notes:string|null;isActive:boolean;accounts:BAccount[]};
 type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
@@ -66,6 +67,7 @@ export default function CustomerDetailPage(){
  const [ebEditing,setEbEditing]=useState(false),[ebTarget,setEbTarget]=useState<EbConnection|null>(null),[ebOwnerName,setEbOwnerName]=useState(""),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
  const [aepsEditing,setAepsEditing]=useState(false),[aepsTarget,setAepsTarget]=useState<AepsAccount|null>(null),[aepsHolder,setAepsHolder]=useState(""),[aepsBank,setAepsBank]=useState(""),[aepsPrNumber,setAepsPrNumber]=useState(""),[aepsError,setAepsError]=useState("");
  const [esevaiEditing,setEsevaiEditing]=useState(false),[esevaiTarget,setEsevaiTarget]=useState<EsevaiService|null>(null),[esevaiName,setEsevaiName]=useState(""),[esevaiServiceName,setEsevaiServiceName]=useState(""),[esevaiError,setEsevaiError]=useState("");
+ const [esevaiCatalog,setEsevaiCatalog]=useState<CashServiceCatalogOption[]>([]),[esevaiCatalogStatus,setEsevaiCatalogStatus]=useState<"idle"|"loading"|"loaded"|"error">("idle");
  const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
@@ -186,11 +188,18 @@ function switchView(next:"details"|"activity"){
  }
  function openEsevaiEditor(item?:EsevaiService){
   setEsevaiTarget(item||null);setEsevaiName(item?.esevaiName||"");setEsevaiServiceName(item?.serviceName||"");setEsevaiError("");setEsevaiEditing(true);
+  // Daily Cash uses this same catalog. Refresh on each open so newly configured services appear.
+  setEsevaiCatalogStatus("loading");
+  void apiFetch<CashServiceCatalogOption[]>("/settings/services")
+    .then(rows=>{setEsevaiCatalog(rows.filter(row=>row.isActive!==false));setEsevaiCatalogStatus("loaded");})
+    .catch(()=>{setEsevaiCatalog([]);setEsevaiCatalogStatus("error");});
  }
  async function saveEsevaiService(e:FormEvent){
   e.preventDefault();
   const name=esevaiName.trim(),service=esevaiServiceName.trim();
   if(!name||!service||name.length>150||service.length>150){setEsevaiError("Enter E-Sevai name and service (maximum 150 characters each).");return;}
+  if(esevaiCatalogStatus!=="loaded"){setEsevaiError("Services are not loaded. Open the form again to retry.");return;}
+  if(!esevaiCatalog.some(row=>row.name===service)&&esevaiTarget?.serviceName!==service){setEsevaiError("Choose a service from the Daily Cash service list.");return;}
   setBusy(true);setEsevaiError("");setError("");
   try{
    if(esevaiTarget)await apiFetch("/customers/esevai-services/"+esevaiTarget.id,{method:"PATCH",body:JSON.stringify({esevaiName:name,serviceName:service})});
@@ -535,10 +544,15 @@ function switchView(next:"details"|"activity"){
     {aepsError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{aepsError}</p>:null}
    </form>
   </Modal>
-  <Modal open={esevaiEditing} title={esevaiTarget?"Edit E-Sevai service":"Add E-Sevai service"} onClose={()=>{if(!busy)setEsevaiEditing(false);}} footer={<button type="submit" form="customer-esevai-service" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save E-Sevai service"}</button>}>
+  <Modal open={esevaiEditing} title={esevaiTarget?"Edit E-Sevai service":"Add E-Sevai service"} onClose={()=>{if(!busy)setEsevaiEditing(false);}} footer={<button type="submit" form="customer-esevai-service" disabled={busy||esevaiCatalogStatus!=="loaded"||(!esevaiCatalog.length&&!esevaiTarget?.serviceName)} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save E-Sevai service"}</button>}>
    <form id="customer-esevai-service" onSubmit={saveEsevaiService} className="space-y-3">
     <Field label="E-Sevai Name"><input className={control} name="customer_esevai_name" autoComplete="off" maxLength={150} value={esevaiName} onChange={e=>{setEsevaiName(e.target.value);setEsevaiError("");}} placeholder="E-Sevai name" autoFocus required/></Field>
-    <Field label="Service"><input className={control} name="customer_esevai_service" autoComplete="off" maxLength={150} value={esevaiServiceName} onChange={e=>{setEsevaiServiceName(e.target.value);setEsevaiError("");}} placeholder="Service name" required/></Field>
+    <Field label="Service"><SearchableSelect className={control} name="customer_esevai_service" value={esevaiServiceName} onChange={e=>{setEsevaiServiceName(e.target.value);setEsevaiError("");}} disabled={esevaiCatalogStatus!=="loaded"||(!esevaiCatalog.length&&!esevaiTarget?.serviceName)} searchPlaceholder="Search Daily Cash services…" required>
+     <option value="">{esevaiCatalogStatus==="loading"?"Loading services…":esevaiCatalogStatus==="error"?"Unable to load services":"Select a service"}</option>
+     {esevaiCatalog.map(row=><option key={row.id} value={row.name}>{row.name}</option>)}
+     {esevaiTarget?.serviceName&&!esevaiCatalog.some(row=>row.name===esevaiTarget.serviceName)?<option value={esevaiTarget.serviceName}>{esevaiTarget.serviceName} (previously saved)</option>:null}
+    </SearchableSelect></Field>
+    {esevaiCatalogStatus==="error"?<p role="alert" className="text-xs text-rose-700">Couldn't load services. Close and reopen to retry.</p>:esevaiCatalogStatus==="loaded"&&!esevaiCatalog.length?<p className="text-xs text-[var(--text-muted)]">No active services configured. <Link href="/settings" className="font-semibold text-indigo-700 underline">Add services in Settings</Link> to use them here.</p>:null}
     {esevaiError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{esevaiError}</p>:null}
    </form>
   </Modal>
