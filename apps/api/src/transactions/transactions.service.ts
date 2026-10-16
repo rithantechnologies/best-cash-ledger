@@ -20,6 +20,7 @@ import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleService
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 import { UpdateTransactionDetailsDto } from './dto/update-transaction-details.dto.js';
+import { UpdateCustomerLedgerEntryDto } from './dto/update-customer-ledger-entry.dto.js';
 
 @Injectable()
 export class TransactionsService {
@@ -4757,6 +4758,249 @@ export class TransactionsService {
       correctedTransaction,
       expenseAdjustments,
     };
+  }
+
+  /**
+   * Correct customer Pay In/Pay Out in the original business period.
+   * Atomic row locks, balanced journal replacement, before/after audit and
+   * strict cash-session checks keep posted balances and detail in sync.
+   */
+  async updateCustomerLedgerEntry(id: string, dto: UpdateCustomerLedgerEntryDto, userId: string, role: RoleName) {
+    const amount = this.money(dto.amount);
+    const receivableAmount = this.money(dto.receivableAmount);
+    const payableAmount = this.money(dto.payableAmount);
+    const transactionAt = new Date(dto.transactionAt);
+    if (![amount, receivableAmount, payableAmount].every(Number.isFinite) || amount <= 0 ||
+        receivableAmount < 0 || payableAmount < 0 ||
+        Math.abs(receivableAmount + payableAmount - amount) > .001) {
+      throw new BadRequestException('The customer receivable and payable portions must add up to the full amount');
+    }
+    if (Number.isNaN(transactionAt.getTime()) || transactionAt.getTime() > Date.now() + 60_000) {
+      throw new BadRequestException('Enter a valid transaction date that is not in the future');
+    }
+    const customerCardId = dto.customerCardId || null;
+    const remarks = dto.remarks.trim().toUpperCase();
+    const referenceNumber = dto.referenceNumber?.trim().toUpperCase() || null;
+    const notes = dto.notes?.trim().toUpperCase() || null;
+    const reason = dto.reason.trim();
+    if (!remarks) throw new BadRequestException('Enter remarks');
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', id);
+      const original = await tx.transaction.findUnique({ where: { id }, include: {
+        customerLedgerEntry: { include: { allocations: true, advanceOffsets: true, financialAccount: { include: { ledgerAccount: true } } } },
+        journal: { include: { entries: true } },
+        charges: true,
+      } });
+      if (!original?.customerLedgerEntry || original.transactionType !== TransactionType.CUSTOMER_LEDGER_ENTRY) {
+        throw new NotFoundException('Customer Pay In / Pay Out entry not found');
+      }
+      if (original.status !== TransactionStatus.COMPLETED || original.journal?.status !== JournalStatus.POSTED) {
+        throw new BadRequestException('Only active posted Pay In / Pay Out entries can be edited');
+      }
+      const detail = original.customerLedgerEntry;
+      const previousFee = this.money(original.charges.filter(charge => charge.chargeType === 'PAYOUT')
+        .reduce((total, charge) => total + Number(charge.amount), 0));
+      if (original.charges.some(charge => charge.chargeType !== 'PAYOUT')) {
+        throw new BadRequestException('This entry has additional linked charges; use the source workflow to correct it');
+      }
+      const previous = {
+        customerId: original.customerId, customerCardId: detail.customerCardId,
+        direction: detail.direction, amount: Number(detail.amount),
+        receivableAmount: Number(detail.receivableAmount),
+        payableAmount: Number(detail.payableAmount),
+        financialAccountId: detail.financialAccountId,
+        transactionAt: original.transactionAt.toISOString(),
+        remarks: detail.remarks, referenceNumber: original.referenceNumber,
+        notes: original.notes, payoutDestination: detail.payoutDestination,
+        payoutFee: previousFee,
+      };
+      const coreChanged = previous.customerId !== dto.customerId ||
+        previous.customerCardId !== customerCardId ||
+        previous.direction !== dto.direction ||
+        Math.abs(previous.amount - amount) > .001 ||
+        Math.abs(previous.receivableAmount - receivableAmount) > .001 ||
+        Math.abs(previous.payableAmount - payableAmount) > .001 ||
+        previous.financialAccountId !== dto.financialAccountId;
+      const dateChanged = transactionAt.getTime() !== original.transactionAt.getTime();
+      const payoutDestination = dto.direction === 'PAY_OUT'
+        ? dto.payoutDestinationDetails?.trim()
+          ? { type: 'OTHER', label: dto.payoutDestinationDetails.trim().toUpperCase() }
+          : (detail.direction === 'PAY_OUT' ? detail.payoutDestination : null)
+        : null;
+      const metadataChanged = previous.remarks !== remarks ||
+        previous.referenceNumber !== referenceNumber || previous.notes !== notes ||
+        JSON.stringify(previous.payoutDestination) !== JSON.stringify(payoutDestination);
+      if (!coreChanged && !dateChanged && !metadataChanged) {
+        throw new BadRequestException('Change at least one field before saving');
+      }
+      if (detail.allocations.length && coreChanged) {
+        throw new BadRequestException('This entry is matched to card dues or customer payouts. Reverse the linked allocations before changing financial fields or card/customer; remarks, date and reference can still be edited.');
+      }
+      if (Number(detail.advanceAppliedAmount) > 0 && coreChanged) {
+        throw new BadRequestException('This Pay Out has applied advances. Reverse the advance applications before changing financial fields.');
+      }
+      const dependentOffsets = await tx.customerAdvanceOffset.findFirst({
+        where: { advanceEntryId: detail.id, reversedAt: null }, select: { id: true },
+      });
+      if (dependentOffsets && coreChanged) {
+        throw new BadRequestException('Reverse active advance applications before editing financial fields');
+      }
+      if (dto.customerId !== original.customerId) await this.validation.activeCustomer(tx, dto.customerId);
+      if (customerCardId && (customerCardId !== detail.customerCardId || dto.customerId !== original.customerId)) {
+        await this.validation.customerCard(tx, dto.customerId, customerCardId);
+      }
+      for (const accountId of [...new Set([detail.financialAccountId, dto.financialAccountId])].sort()) {
+        await this.validation.lockAccount(tx, accountId);
+      }
+      const oldAccount = detail.financialAccount;
+      const newAccount = dto.financialAccountId === detail.financialAccountId
+        ? oldAccount
+        : await this.validation.liquidAsset(tx, dto.financialAccountId,
+          dto.direction === 'PAY_IN' ? 'Pay In received-in account' : 'Pay Out paying account');
+      if (!oldAccount.ledgerAccount || !newAccount.ledgerAccount) {
+        throw new BadRequestException('Financial account ledger is missing');
+      }
+      if ([oldAccount, newAccount].some(a => a.accountType === AccountType.CASH &&
+          a.accountName === 'Main Cash Reserve') && role !== RoleName.OWNER) {
+        throw new ForbiddenException('Main Cash Reserve is owner-only');
+      }
+      const oldJ = original.journal;
+      const oldEntrySnapshot = oldJ.entries.map(entry => ({
+        id: entry.id, ledgerAccountId: entry.ledgerAccountId,
+        entryType: entry.entryType, amount: entry.amount.toString(),
+        customerId: entry.customerId, description: entry.description,
+      }));
+      // A closed/reconciled cash session must never be silently rewritten.
+      if (coreChanged || dateChanged) {
+        for (const cashAccount of [oldAccount, newAccount].filter((a, index, all) =>
+          a.accountType === AccountType.CASH && all.findIndex(b => b.id === a.id) === index)) {
+          const touched = await tx.cashSession.findFirst({ where: {
+            cashAccountId: cashAccount.id, status: 'CLOSED',
+            OR: [
+              { openedAt: { lte: original.transactionAt }, closedAt: { gte: original.transactionAt } },
+              { openedAt: { lte: transactionAt }, closedAt: { gte: transactionAt } },
+            ],
+          }, select: { id: true } });
+          if (touched) throw new BadRequestException(
+            'This edit affects a closed cash session. Reconcile that cash day through an owner-approved adjustment first.');
+          const open = await tx.cashSession.findFirst({ where: {
+            cashAccountId: cashAccount.id, status: 'OPEN',
+            openedAt: { lte: original.transactionAt },
+          }, select: { id: true } });
+          if (cashAccount.id === oldAccount.id && !open) {
+            throw new BadRequestException('Original cash session is no longer open; use an owner reconciliation');
+          }
+          if (cashAccount.id === newAccount.id) {
+            if (dto.physicalCashConfirmed !== true) throw new BadRequestException('Confirm the actual physical cash movement before changing to a cash drawer');
+            await this.validation.requireOpenCashDesk(tx, cashAccount.id, 'Customer ledger edit');
+          }
+        }
+      }
+      const reprice = coreChanged && (previous.direction !== dto.direction ||
+        previous.financialAccountId !== dto.financialAccountId ||
+        Math.abs(previous.amount - amount) > .001);
+      const resolvedFee = dto.direction === 'PAY_OUT' && reprice
+        ? await this.payoutCharges.resolve(tx, newAccount, amount, transactionAt)
+        : null;
+      const newFee = dto.direction === 'PAY_OUT'
+        ? reprice ? this.money(resolvedFee?.amount ?? 0) : previousFee : 0;
+      const requiredLedgers = await tx.ledgerAccount.findMany({ where: { ledgerCode: {
+        in: ['SYS-CUST-RECEIVABLE', 'SYS-CUST-PAYABLE', 'SYS-PROVIDER-CHARGE'],
+      } } });
+      const codes = new Map(requiredLedgers.map(x => [x.ledgerCode, x.id]));
+      const recId = codes.get('SYS-CUST-RECEIVABLE');
+      const payId = codes.get('SYS-CUST-PAYABLE');
+      const chargeId = codes.get('SYS-PROVIDER-CHARGE');
+      if (!recId || !payId || (newFee > 0 && !chargeId)) throw new BadRequestException('System ledger missing');
+      const expectedOldLedgers = new Set([oldAccount.ledgerAccount.id, recId, payId, ...(previousFee > 0 && chargeId ? [chargeId] : [])]);
+      if (oldJ.entries.some(e => !expectedOldLedgers.has(e.ledgerAccountId))) {
+        throw new BadRequestException('The original journal contains additional accounting lines. Edit from the source workflow.');
+      }
+      const updatedEntries: JournalEntry[] = [];
+      const add = (ledgerAccountId: string, entryType: EntryType, value: number, description: string) => {
+        if (value > .001) updatedEntries.push({
+          ledgerAccountId, entryType, amount: value, customerId: dto.customerId, description,
+        });
+      };
+      if (dto.direction === 'PAY_IN') {
+        add(newAccount.ledgerAccount.id, EntryType.DEBIT, amount, 'Customer Pay In · ' + remarks);
+        add(recId, EntryType.CREDIT, receivableAmount, 'Reduce customer receivable');
+        add(payId, EntryType.CREDIT, payableAmount, 'Increase customer payable');
+      } else {
+        add(recId, EntryType.DEBIT, receivableAmount, 'Increase customer receivable');
+        add(payId, EntryType.DEBIT, payableAmount, 'Reduce customer payable');
+        if (newFee > 0) add(chargeId!, EntryType.DEBIT, newFee, 'Provider payout fee');
+        add(newAccount.ledgerAccount.id, EntryType.CREDIT, this.money(amount + newFee), 'Customer Pay Out · ' + remarks);
+      }
+      if (coreChanged) {
+        // Validate the NET debit/credit impact on each affected asset account, not
+        // the entire new payment (which would falsely reject equal-value account edits).
+        const before = new Map<string, number>(), after = new Map<string, number>();
+        for (const entry of oldJ.entries) {
+          before.set(entry.ledgerAccountId, this.money((before.get(entry.ledgerAccountId) ?? 0) +
+            (entry.entryType === EntryType.DEBIT ? 1 : -1) * Number(entry.amount)));
+        }
+        for (const entry of updatedEntries) {
+          after.set(entry.ledgerAccountId, this.money((after.get(entry.ledgerAccountId) ?? 0) +
+            (entry.entryType === EntryType.DEBIT ? 1 : -1) * entry.amount));
+        }
+        for (const account of [oldAccount, newAccount].filter((a, index, arr) => arr.findIndex(b => a.id === b.id) === index)) {
+          const delta = this.money((after.get(account.ledgerAccount!.id) ?? 0) - (before.get(account.ledgerAccount!.id) ?? 0));
+          if (delta < -.001) {
+            const balance = await this.validation.balance(tx, account);
+            if (balance + delta < -.001) throw new BadRequestException(
+              account.accountName + ' has insufficient balance for this correction');
+          }
+        }
+        await tx.ledgerEntry.deleteMany({ where: { journalId: oldJ.id } });
+        await tx.ledgerEntry.createMany({ data: updatedEntries.map(e => ({
+          journalId: oldJ.id, ledgerAccountId: e.ledgerAccountId,
+          entryType: e.entryType, amount: new Prisma.Decimal(e.amount),
+          customerId: e.customerId, description: e.description,
+        })) });
+      }
+      if (coreChanged || dateChanged || previous.remarks !== remarks) {
+        await tx.ledgerJournal.update({ where: { id: oldJ.id }, data: {
+          postingDate: transactionAt,
+          description: (dto.direction === 'PAY_IN' ? 'Customer Pay In · ' : 'Customer Pay Out · ') + remarks,
+        } });
+      }
+      if (reprice || (previousFee !== newFee)) {
+        await tx.transactionCharge.deleteMany({ where: { transactionId: id, chargeType: 'PAYOUT' } });
+        if (newFee > 0) await tx.transactionCharge.create({ data: {
+          transactionId: id, chargeType: 'PAYOUT', sourceAccountId: newAccount.id,
+          providerId: newAccount.providerId, providerPayoutChargeRuleId: resolvedFee?.ruleId ?? null,
+          calculationType: resolvedFee?.calculationType ?? CalculationType.FIXED,
+          rate: resolvedFee ? new Prisma.Decimal(resolvedFee.rate) : null,
+          amount: new Prisma.Decimal(newFee), notes: newAccount.accountName + ' payout charge (edited)',
+        } });
+      }
+      await tx.customerLedgerEntryDetail.update({ where: { id: detail.id }, data: {
+        direction: dto.direction, amount: new Prisma.Decimal(amount),
+        receivableAmount: new Prisma.Decimal(receivableAmount),
+        payableAmount: new Prisma.Decimal(payableAmount),
+        financialAccountId: dto.financialAccountId,
+        customerCardId, remarks,
+        payoutDestination: payoutDestination === null ? Prisma.JsonNull : payoutDestination,
+      } });
+      const updated = await tx.transaction.update({ where: { id }, data: {
+        customerId: dto.customerId, transactionAt, referenceNumber, notes,
+        grossAmount: new Prisma.Decimal(this.money(amount + newFee)),
+        netAmount: new Prisma.Decimal(amount), updatedById: userId,
+      } });
+      await tx.auditLog.create({ data: {
+        userId, entityType: 'TRANSACTION', entityId: id,
+        action: 'UPDATE_CUSTOMER_LEDGER_ENTRY',
+        oldValues: { ...previous, postedJournal: { id: oldJ.id, postingDate: oldJ.postingDate.toISOString(), entries: oldEntrySnapshot } },
+        newValues: { customerId: dto.customerId, customerCardId, direction: dto.direction, amount,
+          receivableAmount, payableAmount, financialAccountId: newAccount.id,
+          transactionAt: transactionAt.toISOString(), remarks, referenceNumber, notes,
+          payoutDestination, payoutFee: newFee, journalChanged: coreChanged },
+        reason,
+      } });
+      return updated;
+    });
   }
 
   async updateDetails(id: string, dto: UpdateTransactionDetailsDto, userId: string) {

@@ -23,6 +23,7 @@ import { CompleteQuickCashTransferDto, CreateQuickCashTransferDto, SettleService
 import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 import { UpdateTransactionDetailsDto } from './dto/update-transaction-details.dto.js';
+import { UpdateCustomerLedgerEntryDto } from './dto/update-customer-ledger-entry.dto.js';
 import { CardDueClearingService } from './card-due-clearing.service.js';
 import { TransactionsService } from './transactions.service.js';
 
@@ -265,6 +266,12 @@ export class TransactionsController {
   @Post('owner-credit-card-payment')
   createCreditCardPayment(@Body() dto: CreateCreditCardPaymentDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
     return this.transactions.createCreditCardPayment(dto, req.user.userId, key);
+  }
+
+  @Patch(':id/customer-ledger')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  updateCustomerLedgerEntry(@Param('id') id: string, @Body() dto: UpdateCustomerLedgerEntryDto, @Req() req: any) {
+    return this.transactions.updateCustomerLedgerEntry(id, dto, req.user.userId, req.user.role);
   }
 
   @Patch(':id/details')
