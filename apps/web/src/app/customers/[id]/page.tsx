@@ -442,10 +442,7 @@ function switchView(next:"details"|"activity"){
       if(outcome==="saved"){setMessage("Quick entry saved. Check Daily Cash for any pending settlement details.");void load().catch(()=>{});void loadCardLedger(ledgerCardId);}
     }}/>:null}
   {c.isActive?<Surface className="p-4 sm:p-5">
-    <div className="flex flex-wrap items-start justify-between gap-2">
-      <div><h3 className="text-base font-black">Quick entry for {c.fullName}</h3><p className="mt-1 text-xs text-[var(--text-muted)]">Use this customer's saved bank, UPI, AEPS and card details. No need to search again.</p></div>
-      <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-extrabold text-emerald-800">Customer selected</span>
-    </div>
+    <h3 className="text-base font-black">Quick entry for {c.fullName}</h3>
     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
       <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"IN"});}} className="flex min-h-12 items-center justify-center rounded-xl bg-emerald-600 px-3 text-center text-sm font-black text-white">↓ Cash In</button>
       <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"OUT",cashOutType:"UPI_QR"});}} className="flex min-h-12 items-center justify-center rounded-xl bg-rose-600 px-3 text-center text-sm font-black text-white">↑ Cash Out</button>
@@ -458,7 +455,7 @@ function switchView(next:"details"|"activity"){
       <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"IN",entry:"EB_BILL"});}} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">EB Bill</button>
     </div>
     <details className="mt-2 rounded-xl border border-[var(--border)]">
-      <summary className="min-h-10 cursor-pointer select-none px-3 py-2.5 text-xs font-bold text-[var(--accent)]">More entry options · Bulk / detailed</summary>
+      <summary className="min-h-10 cursor-pointer select-none px-3 py-2.5 text-xs font-bold text-[var(--accent)]">More options</summary>
       <div className="grid gap-2 border-t border-[var(--border)] p-2 sm:grid-cols-2">
         <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"RUSH"});}} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Bulk Quick Entry</button>
         <Link href={"/transactions/cash-transfer?"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Detailed Cash Transfer</Link>
@@ -466,11 +463,6 @@ function switchView(next:"details"|"activity"){
         <Link href={"/transactions/micro-atm?"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Detailed Micro ATM</Link>
       </div>
     </details>
-    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[var(--text-muted)]">
-      <span>Choose an action above. Save or Cancel returns to this customer.</span>
-      <span>·</span>
-      <span>Confirm saved recipients and cards before payout.</span>
-    </div>
   </Surface>:null}
   <nav aria-label="Customer profile sections" className="grid grid-cols-2 gap-2 rounded-2xl bg-[var(--surface-soft)] p-1.5">
    <button type="button" aria-current={view==="details"?"page":undefined} onClick={()=>switchView("details")} className={"min-h-11 rounded-xl px-3 text-sm font-bold transition-colors "+(view==="details"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>Saved details</button>
