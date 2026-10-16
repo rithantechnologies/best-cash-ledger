@@ -21,9 +21,11 @@ flock -n 9 || { echo "REFUSED: another client reset is already in progress"; exi
 if [[ "$(readlink -f /var/www/cashledger/current)" != '/var/www/cashledger/releases/058a442ac981f59fe6bf19cc9823e6c1753ea8bc-bestmoney-root' ]]; then
  echo "REFUSED: active application release changed"; exit 1
 fi
-[[ "$(git -C "$REPO" branch --show-current)" == 'main' ]] ||
+# Allow root to inspect this one known cashdeploy-owned checkout only.
+# Do NOT change root's global git safe.directory configuration.
+[[ "$(git -c safe.directory="$REPO" -C "$REPO" branch --show-current)" == 'main' ]] ||
  { echo "REFUSED: scripts not on git main"; exit 1; }
-[[ -z "$(git -C "$REPO" status --porcelain)" ]] ||
+[[ -z "$(git -c safe.directory="$REPO" -C "$REPO" status --porcelain)" ]] ||
  { echo "REFUSED: git checkout has uncommitted files"; exit 1; }
 for f in "$ENV" "$RESET_SRC" "$BACKUP_SRC"; do
  [[ -f "$f" ]] || { echo "REFUSED: missing $f"; exit 1; }
