@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
@@ -118,7 +118,7 @@ function rowError(row:RushRow,services:ServiceConfig[]){
   }
   return "";
 }
-export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCompleteTransaction,onShowPending,completedTransactionIds=[],pendingTransactionIds=[]}:{cashAccountId:string;disabled?:boolean;onSaved?:()=>void|Promise<void>;onCompleteTransaction?:(transactionId:string)=>void|Promise<void>;onShowPending?:()=>void;completedTransactionIds?:string[];pendingTransactionIds?:string[]}){
+export function QuickCashRushEntryV2({cashAccountId,disabled=false,profileCustomerId="",onSaved,onCompleteTransaction,onShowPending,completedTransactionIds=[],pendingTransactionIds=[]}:{cashAccountId:string;disabled?:boolean;profileCustomerId?:string;onSaved?:()=>void|Promise<void>;onCompleteTransaction?:(transactionId:string)=>void|Promise<void>;onShowPending?:()=>void;completedTransactionIds?:string[];pendingTransactionIds?:string[]}){
   const router=useRouter();
   const [open,setOpen]=useState(false);
   const [minimized,setMinimized]=useState(false);
@@ -139,6 +139,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
   const newCustomerRefs=useRef<Record<string,HTMLInputElement|null>>({});
   const customerSearchTimers=useRef<Record<string,number>>({});
   const lastDirection=useRef<Direction>("IN");
+  const profileOpenedRef=useRef("");
 
   const activeServices=services.filter((item)=>item.isActive!==false);
   const activeTransferTypes=transferTypes.filter((item)=>item.isActive!==false);
@@ -184,8 +185,20 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
     const defaultType=transferRows.find((item)=>item.isActive!==false);
     const initial=Array.from({length:10},()=>readyRow(lastDirection.current,defaultType));
     setRows(initial);setActiveRowKey(initial[0].key);
+    if(profileCustomerId){
+      apiFetch<{id:string;customerCode:string;fullName:string;mobile:string|null}>("/customers/"+encodeURIComponent(profileCustomerId)).then(customer=>{
+        selectExistingCustomer(initial[0].key,{id:customer.id,customerCode:customer.customerCode,fullName:customer.fullName,mobile:customer.mobile});
+      }).catch(()=>{});
+    }
     window.setTimeout(()=>modeRefs.current[initial[0].key]?.focus(),60);
   }
+  useEffect(()=>{
+    if(!profileCustomerId||!cashAccountId||disabled||profileOpenedRef.current===profileCustomerId)return;
+    profileOpenedRef.current=profileCustomerId;
+    void openRush();
+  // Open once for a customer-profile deep link; other row changes remain user driven.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[profileCustomerId,cashAccountId,disabled]);
   async function closeRush(){
     setOpen(false);setMinimized(false);setMaximized(false);
     if(savedSinceRefresh){await onSaved?.();setSavedSinceRefresh(false);}
@@ -423,6 +436,13 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,onSaved,onCom
           cashOutType:row.direction==="OUT"?row.cashOutType:undefined,
           successful:row.direction==="OUT"&&row.cashOutType!=="UPI_QR"?row.successful:undefined,
           customerId:row.customerId||undefined,
+          ...(row.direction==="IN"&&purpose==="TRANSFER"&&row.selectedDestinationKey.startsWith("saved:")?(()=>{
+            const [,,id]=row.selectedDestinationKey.split(":");
+            if(row.selectedDestinationKey.startsWith("saved:bank:"))return {customerBankAccountId:id};
+            if(row.selectedDestinationKey.startsWith("saved:upi:"))return {customerUpiAccountId:id};
+            if(row.selectedDestinationKey.startsWith("saved:beneficiary:"))return {beneficiaryAccountId:id};
+            return {};
+          })():{}),
           aadhaarLastFour:row.direction==="OUT"&&row.cashOutType==="AEPS"?row.aadhaarLastFour:undefined,
           customerBankName:row.direction==="OUT"&&row.cashOutType==="MICRO_ATM"?row.customerBankName.trim()||undefined:undefined,
           cardLastFour:row.direction==="OUT"&&row.cashOutType==="MICRO_ATM"?row.cardLastFour:undefined,

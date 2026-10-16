@@ -26,6 +26,7 @@ class AepsNewCustomerDto {
 
 export class CreateAepsDto {
   @IsOptional() @IsString() customerId?: string;
+  @IsOptional() @IsString() customerAepsAccountId?: string;
   @IsOptional()
   @ValidateNested()
   @Type(() => AepsNewCustomerDto)

@@ -1126,6 +1126,53 @@ export class TransactionsService {
       const resolvedMobile =
         dto.mobileNumber?.trim() || linkedCustomer?.mobile || null;
 
+      // Resolve each selected destination within this same financial transaction.
+      // Never trust an account ID from the browser without checking its owner and status.
+      const linkedIdCount = [dto.customerBankAccountId, dto.customerUpiAccountId, dto.beneficiaryAccountId].filter(Boolean).length;
+      if (linkedIdCount > 1 || (linkedIdCount && (dto.direction !== 'IN' || purpose !== 'TRANSFER'))) {
+        throw new BadRequestException('Choose only one Cash In transfer destination');
+      }
+      if ((linkedIdCount || dto.customerAepsAccountId) && !linkedCustomer) {
+        throw new BadRequestException('Select an existing customer before using saved account details');
+      }
+      if (dto.customerAepsAccountId && (dto.direction !== 'OUT' || cashOutType !== 'AEPS')) {
+        throw new BadRequestException('Saved AEPS account is only valid for AEPS cash out');
+      }
+      const chosenBank = dto.customerBankAccountId ? await tx.customerBankAccount.findFirst({
+        where: { id: dto.customerBankAccountId, customerId: linkedCustomer!.id, isActive: true },
+      }) : null;
+      const chosenUpi = dto.customerUpiAccountId ? await tx.customerUpiAccount.findFirst({
+        where: { id: dto.customerUpiAccountId, customerId: linkedCustomer!.id, isActive: true },
+      }) : null;
+      const chosenBeneficiary = dto.beneficiaryAccountId ? await tx.beneficiaryAccount.findFirst({
+        where: { id: dto.beneficiaryAccountId, isActive: true, beneficiary: { customerId: linkedCustomer!.id, isActive: true } },
+        include: { beneficiary: true },
+      }) : null;
+      const chosenAeps = dto.customerAepsAccountId ? await tx.customerAepsAccount.findFirst({
+        where: { id: dto.customerAepsAccountId, customerId: linkedCustomer!.id, isActive: true },
+      }) : null;
+      if ((dto.customerBankAccountId && !chosenBank) || (dto.customerUpiAccountId && !chosenUpi) ||
+          (dto.beneficiaryAccountId && !chosenBeneficiary) || (dto.customerAepsAccountId && !chosenAeps)) {
+        throw new BadRequestException('Selected customer account is no longer available');
+      }
+      if ((chosenBank || chosenBeneficiary?.accountType === 'BANK') && dto.beneficiaryMode !== 'BANK') {
+        throw new BadRequestException('Saved bank account requires bank transfer mode');
+      }
+      if ((chosenUpi || (chosenBeneficiary && chosenBeneficiary.accountType !== 'BANK')) && dto.beneficiaryMode !== 'UPI') {
+        throw new BadRequestException('Saved UPI account requires UPI mode');
+      }
+      // Capture an immutable historical destination snapshot, independent of later customer edits.
+      const resolvedBeneficiaryMode = chosenBank || chosenBeneficiary?.accountType === 'BANK' ? 'BANK'
+        : chosenUpi || chosenBeneficiary ? 'UPI' : dto.beneficiaryMode;
+      const resolvedBeneficiaryDetails = chosenBank ? JSON.stringify({
+        accountHolder: chosenBank.accountHolderName, accountNumber: chosenBank.accountReference, ifsc: chosenBank.ifsc || '',
+      }) : chosenUpi ? (chosenUpi.upiId || chosenUpi.mobileNumber || '')
+        : chosenBeneficiary ? (chosenBeneficiary.accountType === 'BANK' ? JSON.stringify({
+            accountHolder: chosenBeneficiary.beneficiary.beneficiaryName,
+            accountNumber: chosenBeneficiary.accountReference || '', ifsc: chosenBeneficiary.ifsc || '',
+          }) : chosenBeneficiary.upiId || chosenBeneficiary.mobileNumber || '')
+        : dto.beneficiaryDetails?.trim() || null;
+
       if (purpose === 'SERVICE') {
         const serviceName = dto.serviceName!.trim();
         const configuredService = await tx.serviceCatalog.findFirst({
@@ -1515,13 +1562,17 @@ export class TransactionsService {
           serviceName:
             dto.direction === 'IN' ? dto.serviceName?.trim() || null : null,
           cashOutType,
+          customerBankAccountId: chosenBank?.id || null,
+          customerUpiAccountId: chosenUpi?.id || null,
+          beneficiaryAccountId: chosenBeneficiary?.id || null,
+          customerAepsAccountId: chosenAeps?.id || null,
           aadhaarLastFour:
             dto.direction === 'OUT' && cashOutType === 'AEPS'
               ? dto.aadhaarLastFour
               : null,
           customerBankName:
             dto.direction === 'OUT' && ['AEPS', 'MICRO_ATM'].includes(cashOutType)
-              ? dto.customerBankName?.trim() || null
+              ? chosenAeps?.bankName || dto.customerBankName?.trim() || null
               : null,
           cardLastFour:
             dto.direction === 'OUT' && cashOutType === 'MICRO_ATM'
@@ -1540,10 +1591,10 @@ export class TransactionsService {
           commissionMode,
           beneficiaryMode:
             dto.direction === 'IN'
-              ? dto.beneficiaryMode ?? 'UPI'
+              ? resolvedBeneficiaryMode ?? 'UPI'
               : null,
           beneficiaryDetails:
-            dto.direction === 'IN' ? dto.beneficiaryDetails?.trim() || null : null,
+            dto.direction === 'IN' ? resolvedBeneficiaryDetails : null,
         },
       });
 
@@ -2667,6 +2718,13 @@ export class TransactionsService {
         throw new BadRequestException('Customer is required');
       }
 
+      const chosenAeps = dto.customerAepsAccountId ? await tx.customerAepsAccount.findFirst({
+        where: { id: dto.customerAepsAccountId, customerId, isActive: true },
+      }) : null;
+      if (dto.customerAepsAccountId && !chosenAeps) {
+        throw new BadRequestException('Saved AEPS account does not belong to this customer or is inactive');
+      }
+
       const { provider, gateway } = await this.validation.providerGateway(
         tx,
         dto.providerId,
@@ -2745,8 +2803,9 @@ export class TransactionsService {
         await tx.aepsDetail.create({
           data: {
             transactionId: transaction.id,
+            customerAepsAccountId: chosenAeps?.id || null,
             aadhaarLastFour: dto.aadhaarLastFour,
-            customerBankName: dto.customerBankName,
+            customerBankName: chosenAeps?.bankName || dto.customerBankName,
             withdrawalAmount: new Prisma.Decimal(baseAmount),
             platformId: dto.platformId,
             providerId: dto.providerId,
@@ -2852,8 +2911,9 @@ export class TransactionsService {
       await tx.aepsDetail.create({
         data: {
           transactionId: transaction.id,
+          customerAepsAccountId: chosenAeps?.id || null,
           aadhaarLastFour: dto.aadhaarLastFour,
-          customerBankName: dto.customerBankName,
+          customerBankName: chosenAeps?.bankName || dto.customerBankName,
           withdrawalAmount: new Prisma.Decimal(withdrawalAmount),
           platformId: dto.platformId,
           providerId: dto.providerId,

@@ -11,6 +11,8 @@ import { apiFetch } from "@/lib/api";
 
 type BankAccount={id:string;bankName:string;accountReference:string;isActive:boolean};
 type Customer={id:string;fullName:string;mobile?:string|null;bankAccounts:BankAccount[]};
+type AepsAccountChoice={id:string;bankName:string;holderName:string;prNumberLastFour?:string|null};
+type AepsQuickProfile={aepsAccounts:AepsAccountChoice[]};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null;isActive?:boolean};
 type Gateway={id:string;gatewayName:string;defaultChargeRate:string;defaultChargeType:"PERCENTAGE"|"FIXED"};
 type ProviderCommissionRule={id:string;minAmount:string;maxAmount:string|null;calculationType:"PERCENTAGE"|"FIXED";value:string};
@@ -155,6 +157,9 @@ export default function AepsPage(){
   const [customerMode,setCustomerMode]=useState<"SEARCH"|"NEW">("SEARCH");
   const [customerId,setCustomerId]=useState("");
   const [customerSearch,setCustomerSearch]=useState("");
+  const [savedAepsAccounts,setSavedAepsAccounts]=useState<AepsAccountChoice[]>([]);
+  const [selectedAepsAccountId,setSelectedAepsAccountId]=useState("");
+  const [savedAepsLoading,setSavedAepsLoading]=useState(false);
   const [newName,setNewName]=useState("");
   const [newMobile,setNewMobile]=useState("");
 
@@ -361,17 +366,28 @@ export default function AepsPage(){
     setNewName("");setNewMobile("");
     const activeBanks=next.bankAccounts.filter(x=>x.isActive);
     setBank(activeBanks.length===1?activeBanks[0].bankName:"");
+    setSavedAepsAccounts([]);setSelectedAepsAccountId("");setSavedAepsLoading(true);
+    apiFetch<AepsQuickProfile>("/customers/"+encodeURIComponent(next.id)+"/quick-entry-profile")
+      .then(profile=>{
+        setSavedAepsAccounts(profile.aepsAccounts||[]);
+        if(profile.aepsAccounts?.length===1){
+          setSelectedAepsAccountId(profile.aepsAccounts[0].id);
+          setBank(profile.aepsAccounts[0].bankName);
+        }
+      })
+      .catch(()=>setSavedAepsAccounts([]))
+      .finally(()=>setSavedAepsLoading(false));
   }
   function beginSearch(){
     setCustomerMode("SEARCH");setCustomerId("");setCustomerSearch("");
-    setNewName("");setNewMobile("");setBank("");
+    setNewName("");setNewMobile("");setBank("");setSavedAepsAccounts([]);setSelectedAepsAccountId("");
   }
   function beginNew(){
     const digits=mobileDigits(customerSearch);
     setCustomerMode("NEW");setCustomerId("");
     setNewMobile(digits.length===10?digits:"");
     setNewName(digits.length===10?"":customerSearch.trim().toUpperCase());
-    setBank("");
+    setBank("");setSavedAepsAccounts([]);setSelectedAepsAccountId("");
   }
 
   async function submit(e:FormEvent){
@@ -384,6 +400,7 @@ export default function AepsPage(){
           ? {newCustomer:{fullName:newName.trim(),mobile:newMobile.trim()||undefined}}
           : {customerId}),
         aadhaarLastFour:aadhaar,
+        customerAepsAccountId:customerMode==="SEARCH"?selectedAepsAccountId||undefined:undefined,
         customerBankName:bank.trim(),
         withdrawalAmount:baseAmount,
         commissionMethod,
@@ -441,8 +458,10 @@ export default function AepsPage(){
             </div>}
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {customerMode==="SEARCH"&&savedAepsLoading?<p className="text-xs text-[var(--text-muted)]">Loading saved AEPS accounts…</p>:null}
+              {customerMode==="SEARCH"&&savedAepsAccounts.length?<div className="sm:col-span-2"><p className="mb-2 text-xs font-black">Saved AEPS accounts · select the bank for this withdrawal</p><div className="flex flex-wrap gap-2">{savedAepsAccounts.map(item=><button key={item.id} type="button" onClick={()=>{setSelectedAepsAccountId(item.id);setBank(item.bankName);}} className={"rounded-xl border px-3 py-2 text-left text-xs font-bold "+(selectedAepsAccountId===item.id?"border-emerald-400 bg-emerald-50 text-emerald-800":"border-[var(--border)] bg-[var(--surface)]")}>{item.holderName} · {item.bankName} · PR ••••{item.prNumberLastFour||"—"}</button>)}</div><p className="mt-1 text-[11px] text-[var(--text-muted)]">Saved PR number identifies the account. Enter Aadhaar last four separately.</p></div>:null}
               <Field label="Aadhaar last 4"><input autoComplete="on" name="cashledger_aadhaar_last_four" className={control+" font-mono text-base font-bold tracking-[.18em]"} inputMode="numeric" placeholder="0000" maxLength={4} value={aadhaar} onChange={e=>setAadhaar(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
-              <Field label="Aadhaar-linked bank"><div><input list="aeps-bank-list" className={control} placeholder="Select or type bank" value={bank} onChange={e=>setBank(e.target.value)} required/><datalist id="aeps-bank-list">{bankOptions.map(name=><option key={name} value={name}/>)}</datalist></div></Field>
+              <Field label="Aadhaar-linked bank"><div><input list="aeps-bank-list" className={control} placeholder="Select or type bank" value={bank} onChange={e=>{setBank(e.target.value);setSelectedAepsAccountId("");}} required/><datalist id="aeps-bank-list">{bankOptions.map(name=><option key={name} value={name}/>)}</datalist></div></Field>
             </div>
           </section>
 

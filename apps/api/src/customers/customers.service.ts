@@ -223,6 +223,11 @@ export class CustomersService {
       where: { id },
       select: {
         id: true, customerCode: true, fullName: true, mobile: true, ebNumber: true,
+        aepsAccounts: {
+          where: { isActive: true },
+          select: { id: true, bankName: true, holderName: true, prNumber: true, aadhaarLastSix: true },
+          orderBy: { updatedAt: 'desc' },
+        },
         bankAccounts: {
           where: { isActive: true },
           select: { id: true, accountHolderName: true, bankName: true, accountReference: true, ifsc: true },
@@ -255,7 +260,7 @@ export class CustomersService {
     if (!customer) throw new NotFoundException('Customer not found');
 
     const recent = await this.prisma.transaction.findMany({
-      where: { customerId: id },
+      where: { customerId: id, status: TransactionStatus.COMPLETED },
       orderBy: { transactionAt: 'desc' },
       take: 50,
       select: {
@@ -433,6 +438,7 @@ export class CustomersService {
       recentDestinations: recentDestinations.map(({ signature, ...item }) => ({ ...item, isLastUsed: signature === latestSignature })),
       serviceProfiles,
       recentServiceReferences,
+      aepsAccounts: customer.aepsAccounts.map(item=>({ id:item.id, bankName:item.bankName, holderName:item.holderName, prNumberLastFour:item.prNumber?.slice(-4)||null })),
     };
   }
 

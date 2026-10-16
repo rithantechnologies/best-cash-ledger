@@ -258,6 +258,7 @@ model CustomerBankAccount {
   ifsc              String?
   isActive          Boolean              @default(true)
   cashTransfers     CashTransferDetail[]
+  quickCashTransfers QuickCashTransferDetail[]
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 }
@@ -272,6 +273,7 @@ model CustomerUpiAccount {
   providerName  String?
   isActive      Boolean              @default(true)
   cashTransfers CashTransferDetail[]
+  quickCashTransfers QuickCashTransferDetail[]
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 }
@@ -302,6 +304,7 @@ model BeneficiaryAccount {
   mobileNumber     String?
   isActive         Boolean              @default(true)
   cashTransfers    CashTransferDetail[]
+  quickCashTransfers QuickCashTransferDetail[]
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 }
@@ -320,6 +323,9 @@ model CustomerAepsAccount {
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  quickCashTransfers QuickCashTransferDetail[]
+  aepsDetails AepsDetail[]
 
   @@index([customerId, isActive])
   @@index([aadhaarLastSix])
@@ -915,6 +921,14 @@ model QuickCashTransferDetail {
   commissionAccount       FinancialAccount?           @relation("QuickCashCommissionAccount", fields: [commissionAccountId], references: [id])
   beneficiaryMode         String?
   beneficiaryDetails      String?
+  customerBankAccountId   String?
+  customerBankAccount     CustomerBankAccount? @relation(fields: [customerBankAccountId], references: [id], onDelete: SetNull)
+  customerUpiAccountId    String?
+  customerUpiAccount      CustomerUpiAccount? @relation(fields: [customerUpiAccountId], references: [id], onDelete: SetNull)
+  beneficiaryAccountId    String?
+  beneficiaryAccount      BeneficiaryAccount? @relation(fields: [beneficiaryAccountId], references: [id], onDelete: SetNull)
+  customerAepsAccountId   String?
+  customerAepsAccount     CustomerAepsAccount? @relation(fields: [customerAepsAccountId], references: [id], onDelete: SetNull)
   servicePaymentMode      String                      @default("CASH")
   servicePaymentAccountId String?
   servicePaymentAccount   FinancialAccount?           @relation("QuickCashServicePaymentAccount", fields: [servicePaymentAccountId], references: [id])
@@ -932,6 +946,10 @@ model QuickCashTransferDetail {
   updatedAt               DateTime                    @updatedAt
 
   @@index([cashAccountId, direction])
+  @@index([customerBankAccountId])
+  @@index([customerUpiAccountId])
+  @@index([beneficiaryAccountId])
+  @@index([customerAepsAccountId])
   @@index([serviceProfileId])
   @@index([sourceAccountId])
   @@index([commissionAccountId])
@@ -994,6 +1012,8 @@ model AepsProviderCommissionRule {
 
 model AepsDetail {
   id                   String            @id @default(uuid())
+  customerAepsAccountId String?
+  customerAepsAccount  CustomerAepsAccount? @relation(fields: [customerAepsAccountId], references: [id], onDelete: SetNull)
   transactionId        String            @unique
   transaction          Transaction       @relation(fields: [transactionId], references: [id])
   aadhaarLastFour      String
@@ -1020,6 +1040,7 @@ model AepsDetail {
   settlementAmount     Decimal           @db.Decimal(18, 2)
   providerReference    String?
   createdAt            DateTime          @default(now())
+  @@index([customerAepsAccountId])
 }
 
 model MicroAtmDetail {

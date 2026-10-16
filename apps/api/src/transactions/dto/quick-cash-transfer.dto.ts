@@ -67,6 +67,11 @@ export class CreateQuickCashTransferDto {
   @IsString()
   customerId?: string;
 
+  @IsOptional() @IsString() customerBankAccountId?: string;
+  @IsOptional() @IsString() customerUpiAccountId?: string;
+  @IsOptional() @IsString() beneficiaryAccountId?: string;
+  @IsOptional() @IsString() customerAepsAccountId?: string;
+
   @IsOptional()
   @IsString()
   @Length(4, 4)
