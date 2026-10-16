@@ -193,6 +193,7 @@ model Customer {
   beneficiaries Beneficiary[]
   serviceProfiles CustomerServiceProfile[]
   aepsAccounts CustomerAepsAccount[]
+  esevaiServices CustomerEsevaiService[]
   transactions  Transaction[]
   payables      CustomerPayable[]
   receivables   CustomerReceivable[]
@@ -323,6 +324,20 @@ model CustomerAepsAccount {
   @@index([customerId, isActive])
   @@index([aadhaarLastSix])
   @@index([prNumber])
+}
+
+// Saved E-Sevai names and services linked to each customer.
+model CustomerEsevaiService {
+  id          String   @id @default(uuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  esevaiName  String
+  serviceName String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([customerId, isActive])
 }
 
 model CustomerServiceProfile {

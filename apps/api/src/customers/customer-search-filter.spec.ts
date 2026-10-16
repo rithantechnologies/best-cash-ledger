@@ -41,6 +41,12 @@ describe('customer search filter', () => {
     expect(serialized('Owner House')).toContain('ownerName');
   });
 
+  it('finds customer E-Sevai services by the saved E-Sevai name or service type', () => {
+    expect(serialized('Lakshmi')).toContain('esevaiName');
+    expect(serialized('Income Certificate')).toContain('serviceName');
+    expect(serialized('Income Certificate')).toContain('esevaiServices');
+  });
+
   it('matches saved AEPS records by bank, holder and 12-digit PR number', () => {
     const filter = serialized('123456789012');
     expect(filter).toContain('aepsAccounts');

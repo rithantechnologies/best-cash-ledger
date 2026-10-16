@@ -22,6 +22,7 @@ import { UpdateBeneficiaryDto } from './dto/update-beneficiary.dto.js';
 import { UpdateBeneficiaryAccountDto } from './dto/update-beneficiary-account.dto.js';
 import { CreateCustomerAepsAccountDto, UpdateCustomerAepsAccountDto } from './dto/customer-aeps-account.dto.js';
 import { CreateServiceProfileDto } from './dto/create-service-profile.dto.js';
+import { CreateCustomerEsevaiServiceDto, UpdateCustomerEsevaiServiceDto } from './dto/customer-esevai-service.dto.js';
 import { UpdateServiceProfileDto } from './dto/update-service-profile.dto.js';
 import { CreateCustomerLedgerEntryDto } from './dto/create-customer-ledger-entry.dto.js';
 
@@ -492,6 +493,58 @@ export class CustomersService {
     });
   }
 
+  private checkEsevaiService(esevaiName: string, serviceName: string) {
+    if (!esevaiName || !serviceName || esevaiName.length > 150 || serviceName.length > 150)
+      throw new BadRequestException('E-Sevai name and service are required (maximum 150 characters each).');
+  }
+
+  addEsevaiService(customerId: string, dto: CreateCustomerEsevaiServiceDto, userId: string) {
+    const esevaiName = dto.esevaiName.trim();
+    const serviceName = dto.serviceName.trim();
+    this.checkEsevaiService(esevaiName, serviceName);
+    return this.prisma.$transaction(async tx => {
+      if (!await tx.customer.findUnique({ where: { id: customerId }, select: { id: true } }))
+        throw new NotFoundException('Customer not found');
+      const item = await tx.customerEsevaiService.create({ data: { customerId, esevaiName, serviceName } });
+      await tx.auditLog.create({ data: {
+        userId, entityType: 'CUSTOMER_ESEVAI_SERVICE', entityId: item.id, action: 'CREATE',
+        newValues: { customerId, esevaiName, serviceName },
+      } });
+      return item;
+    });
+  }
+
+  updateEsevaiService(id: string, dto: UpdateCustomerEsevaiServiceDto, userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const old = await tx.customerEsevaiService.findUnique({ where: { id } });
+      if (!old) throw new NotFoundException('E-Sevai service not found');
+      const esevaiName = dto.esevaiName?.trim() ?? old.esevaiName;
+      const serviceName = dto.serviceName?.trim() ?? old.serviceName;
+      this.checkEsevaiService(esevaiName, serviceName);
+      const item = await tx.customerEsevaiService.update({ where: { id }, data: { esevaiName, serviceName } });
+      await tx.auditLog.create({ data: {
+        userId, entityType: 'CUSTOMER_ESEVAI_SERVICE', entityId: id, action: 'UPDATE',
+        oldValues: { esevaiName: old.esevaiName, serviceName: old.serviceName },
+        newValues: { esevaiName, serviceName },
+      } });
+      return item;
+    });
+  }
+
+  setEsevaiServiceActive(id: string, isActive: boolean, userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const old = await tx.customerEsevaiService.findUnique({ where: { id } });
+      if (!old) throw new NotFoundException('E-Sevai service not found');
+      const item = await tx.customerEsevaiService.update({ where: { id }, data: { isActive } });
+      await tx.auditLog.create({ data: {
+        userId, entityType: 'CUSTOMER_ESEVAI_SERVICE', entityId: id,
+        action: isActive ? 'REACTIVATE' : 'DEACTIVATE',
+        oldValues: { isActive: old.isActive }, newValues: { isActive },
+      } });
+      return item;
+    });
+  }
+
   addServiceProfile(customerId: string, dto: CreateServiceProfileDto, userId: string) {
     const serviceName = dto.serviceName.trim();
     const referenceNumber = dto.referenceNumber.trim();
@@ -564,6 +617,7 @@ export class CustomersService {
         upiAccounts: true,
         serviceProfiles: { where: { serviceName: 'Eb Bill' }, orderBy: { createdAt: 'asc' } },
         aepsAccounts: { orderBy: { createdAt: 'asc' } },
+        esevaiServices: { orderBy: { createdAt: 'asc' } },
         beneficiaries: { include: { accounts: true } },
         transactions: {
           orderBy: { transactionAt: 'desc' },

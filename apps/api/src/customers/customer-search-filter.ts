@@ -15,6 +15,7 @@ export function customerSearchFilter(input: string): Prisma.CustomerWhereInput {
         { customerCode: text(term) },
         { ebNumber: text(term) },
         { serviceProfiles: { some: { isActive: true, serviceName: 'Eb Bill', OR: [{ referenceNumber: text(term) }, { nickname: text(term) }, { ownerName: text(term) }] } } },
+        { esevaiServices: { some: { isActive: true, OR: [{ esevaiName: text(term) }, { serviceName: text(term) }] } } },
         { aepsAccounts: { some: { isActive: true, OR: [
           { bankName: text(term) }, { holderName: text(term) },
           ...(numeric ? [{ prNumber: { contains: digits } }, { aadhaarLastSix: { contains: digits } }] : []),

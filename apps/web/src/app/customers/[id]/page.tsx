@@ -24,12 +24,13 @@ type Bank={id:string;accountHolderName:string;bankName:string;accountReference:s
 type Upi={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
 type EbConnection={id:string;serviceName:string;nickname:string|null;ownerName:string|null;providerName:string|null;referenceNumber:string;isActive:boolean};
 type AepsAccount={id:string;bankName:string;holderName:string;prNumber?:string|null;aadhaarLastSix?:string|null;isActive:boolean};
+type EsevaiService={id:string;esevaiName:string;serviceName:string;isActive:boolean};
 type BAccount={id:string;accountType:string;bankName:string|null;accountReference:string|null;ifsc:string|null;upiId:string|null;mobileNumber:string|null;isActive:boolean};
 type Beneficiary={id:string;beneficiaryName:string;relationshipNote:string|null;notes:string|null;isActive:boolean;accounts:BAccount[]};
 type CustomerTypeChoice={id:string;name:string;legacyType:"REGULAR"|"WALK_IN"|null;isActive:boolean};
 type Customer={
  id:string;customerCode:string;customerType:string;customerTypeId:string|null;customerTypeConfig:{id:string;name:string;isActive:boolean}|null;fullName:string;mobile:string|null;ebNumber:string|null;notes:string|null;isActive:boolean;
- cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];serviceProfiles?:EbConnection[];aepsAccounts?:AepsAccount[];beneficiaries:Beneficiary[];
+ cards:Card[];bankAccounts:Bank[];upiAccounts:Upi[];serviceProfiles?:EbConnection[];aepsAccounts?:AepsAccount[];esevaiServices?:EsevaiService[];beneficiaries:Beneficiary[];
  transactions:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;payable:{status:string;dueAt:string;remainingAmount:string}|null;receivableSource:{status:string;dueAt:string|null;remainingAmount:string}|null}[];
  payables:{id:string;remainingAmount:string;dueAt:string;status:string}[];
  receivables:{id:string;reason:string;remainingAmount:string;receivedAmount:string;originalAmount:string;dueAt:string|null;status:string}[];
@@ -64,6 +65,7 @@ export default function CustomerDetailPage(){
  const [profileEditing,setProfileEditing]=useState(false),[profileName,setProfileName]=useState(""),[profileMobile,setProfileMobile]=useState(""),[profileTypeId,setProfileTypeId]=useState(""),[profileNotes,setProfileNotes]=useState(""),[profileError,setProfileError]=useState("");
  const [ebEditing,setEbEditing]=useState(false),[ebTarget,setEbTarget]=useState<EbConnection|null>(null),[ebOwnerName,setEbOwnerName]=useState(""),[ebDraft,setEbDraft]=useState(""),[ebError,setEbError]=useState("");
  const [aepsEditing,setAepsEditing]=useState(false),[aepsTarget,setAepsTarget]=useState<AepsAccount|null>(null),[aepsHolder,setAepsHolder]=useState(""),[aepsBank,setAepsBank]=useState(""),[aepsPrNumber,setAepsPrNumber]=useState(""),[aepsError,setAepsError]=useState("");
+ const [esevaiEditing,setEsevaiEditing]=useState(false),[esevaiTarget,setEsevaiTarget]=useState<EsevaiService|null>(null),[esevaiName,setEsevaiName]=useState(""),[esevaiServiceName,setEsevaiServiceName]=useState(""),[esevaiError,setEsevaiError]=useState("");
  const [customerTypes,setCustomerTypes]=useState<CustomerTypeChoice[]>([]);
  const [txStatusFilter,setTxStatusFilter]=useState(""),[moneyStatusFilter,setMoneyStatusFilter]=useState("");
  const [cardLedger,setCardLedger]=useState<CardLedger|null>(null),[ledgerCardId,setLedgerCardId]=useState(""),[ledgerLoading,setLedgerLoading]=useState(true),[ledgerError,setLedgerError]=useState("");
@@ -180,6 +182,21 @@ function switchView(next:"details"|"activity"){
    else await apiFetch("/customers/"+id+"/aeps-accounts",{method:"POST",body:JSON.stringify({bankName,holderName,prNumber})});
    await load();setAepsEditing(false);setAepsTarget(null);setMessage("AEPS account saved.");
   }catch(err){setAepsError(err instanceof Error?err.message:"Unable to save AEPS account.");}
+  finally{setBusy(false);}
+ }
+ function openEsevaiEditor(item?:EsevaiService){
+  setEsevaiTarget(item||null);setEsevaiName(item?.esevaiName||"");setEsevaiServiceName(item?.serviceName||"");setEsevaiError("");setEsevaiEditing(true);
+ }
+ async function saveEsevaiService(e:FormEvent){
+  e.preventDefault();
+  const name=esevaiName.trim(),service=esevaiServiceName.trim();
+  if(!name||!service||name.length>150||service.length>150){setEsevaiError("Enter E-Sevai name and service (maximum 150 characters each).");return;}
+  setBusy(true);setEsevaiError("");setError("");
+  try{
+   if(esevaiTarget)await apiFetch("/customers/esevai-services/"+esevaiTarget.id,{method:"PATCH",body:JSON.stringify({esevaiName:name,serviceName:service})});
+   else await apiFetch("/customers/"+id+"/esevai-services",{method:"POST",body:JSON.stringify({esevaiName:name,serviceName:service})});
+   await load();setEsevaiEditing(false);setEsevaiTarget(null);setMessage("E-Sevai details saved.");
+  }catch(err){setEsevaiError(err instanceof Error?err.message:"Unable to save E-Sevai details.");}
   finally{setBusy(false);}
  }
  async function saveEbNumber(e:FormEvent){
@@ -344,12 +361,14 @@ function switchView(next:"details"|"activity"){
  const foundEb=(ebProfiles??[]).filter(x=>matchesSavedDetailSearch(savedSearch,[x.ownerName,x.referenceNumber]));
  const aepsAccounts=Array.isArray(c.aepsAccounts)?c.aepsAccounts:null;
  const foundAeps=(aepsAccounts??[]).filter(x=>matchesSavedDetailSearch(savedSearch,[x.bankName,x.holderName,x.prNumber,x.aadhaarLastSix]));
+ const esevaiServices=Array.isArray(c.esevaiServices)?c.esevaiServices:null;
+ const foundEsevai=(esevaiServices??[]).filter(x=>matchesSavedDetailSearch(savedSearch,[x.esevaiName,x.serviceName]));
  const foundBeneficiaries=c.beneficiaries.flatMap(b=>{
   const beneficiaryMatches=matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote]);
   const accounts=beneficiaryMatches?b.accounts:b.accounts.filter(a=>matchesSavedDetailSearch(savedSearch,[b.beneficiaryName,b.relationshipNote,a.bankName,a.accountReference,a.ifsc,a.upiId,a.mobileNumber]));
   return beneficiaryMatches||accounts.length?[{...b,accounts}]:[];
  });
- const savedMatchCount=foundCards.length+foundBanks.length+foundUpi.length+foundEb.length+foundAeps.length+foundBeneficiaries.length;
+ const savedMatchCount=foundCards.length+foundBanks.length+foundUpi.length+foundEb.length+foundAeps.length+foundEsevai.length+foundBeneficiaries.length;
  const ledgerCardLabel=ledgerCardId?(cardLedger?.cards.find(card=>card.id===ledgerCardId)?.label??"Selected card"):"All cards";
  const payOutSuggestion=suggestedPayOutSource(cardLedger?.payInSources??[],ledgerEntryCardId,ledgerEntryDate);
  const validPayOutSource=payOutSuggestion?ledgerAccounts.find(account=>account.id===payOutSuggestion.financialAccountId):null;
@@ -397,17 +416,18 @@ function switchView(next:"details"|"activity"){
   {view==="details"?<>
    {setupGuide?<div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
     <p className="text-sm font-extrabold text-emerald-900">Customer saved ✓</p>
-    <p className="mt-0.5 text-xs leading-5 text-emerald-800">Add a card, bank, UPI, recipient, EB number or AEPS account now—or leave it for later.</p>
+    <p className="mt-0.5 text-xs leading-5 text-emerald-800">Add a card, bank, UPI, recipient, EB number, AEPS or E-Sevai service now—or leave it for later.</p>
    </div>:null}
    <Surface className="p-4 sm:p-5">
     <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-black">Add customer details</h3><p className="mt-1 text-xs text-[var(--text-muted)]">Choose only what you need. All optional.</p></div></div>
-    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-7">
      <button type="button" onClick={()=>{setCardError("");setAddingCard(true);}} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Card</button>
      <button type="button" onClick={()=>setAddKind("bank")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Bank</button>
      <button type="button" onClick={()=>setAddKind("upi")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ UPI</button>
      <button type="button" onClick={()=>setAddKind("beneficiary")} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold">+ Recipient</button>
      <button type="button" onClick={()=>openEbEditor()} disabled={!ebProfiles} title={!ebProfiles?"EB records currently unavailable from the server":undefined} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold disabled:opacity-50">+ EB Number</button>
      <button type="button" onClick={()=>openAepsEditor()} disabled={!aepsAccounts} title={!aepsAccounts?"AEPS accounts currently unavailable from the server":undefined} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold disabled:opacity-50">+ AEPS</button>
+     <button type="button" onClick={()=>openEsevaiEditor()} disabled={!esevaiServices} title={!esevaiServices?"E-Sevai details currently unavailable from the server":undefined} className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold disabled:opacity-50">+ E-Sevai</button>
     </div>
 
    </Surface>
@@ -474,7 +494,7 @@ function switchView(next:"details"|"activity"){
 
    <div className="relative mt-2.5">
     <svg aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
-    <input id="customer-saved-account-search" name="saved_accounts_search" type="search" inputMode="search" autoComplete="off" value={savedSearch} onChange={e=>setSavedSearch(e.target.value)} placeholder="Bank, UPI, EB, AEPS name or PR number, card…" className="app-control w-full !pl-10 !pr-16"/>
+    <input id="customer-saved-account-search" name="saved_accounts_search" type="search" inputMode="search" autoComplete="off" value={savedSearch} onChange={e=>setSavedSearch(e.target.value)} placeholder="Bank, UPI, EB, AEPS, E-Sevai name or service…" className="app-control w-full !pl-10 !pr-16"/>
     {savedSearch?<button type="button" onClick={()=>setSavedSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-50">Clear</button>:null}
    </div>
    {savedSearch.trim()?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]" role="status">{savedMatchCount} matching saved {savedMatchCount===1?"item":"items"} · Bank accounts: {foundBanks.length} of {c.bankAccounts.length}</p>:null}
@@ -486,6 +506,7 @@ function switchView(next:"details"|"activity"){
   </div>
   <SavedList title="EB connections" count={ebProfiles?.length??0} statusText={!ebProfiles?"Unavailable from server":undefined} matchingCount={ebProfiles&&savedSearch.trim()?foundEb.length:undefined} addLabel={ebProfiles?"Add EB account":undefined} onAdd={()=>openEbEditor()}>{!ebProfiles?<p role="status" className="text-xs font-semibold text-amber-700">EB records could not be loaded from the current API. Other saved details remain available.</p>:foundEb.length?foundEb.map(x=><EbSavedItem key={x.id} connection={x} onEdit={()=>openEbEditor(x)} onToggle={()=>setToggleTarget({path:"/customers/service-profiles/"+x.id,isActive:x.isActive,label:"EB connection"})}/>):<EmptyState title={savedSearch.trim()?"No matching EB connections":"No EB connections saved"}/>}</SavedList>
   <SavedList title="AEPS accounts" count={aepsAccounts?.length??0} statusText={!aepsAccounts?"Unavailable from server":undefined} matchingCount={aepsAccounts&&savedSearch.trim()?foundAeps.length:undefined} addLabel={aepsAccounts?"Add AEPS account":undefined} onAdd={()=>openAepsEditor()}>{!aepsAccounts?<p role="status" className="text-xs font-semibold text-amber-700">AEPS account records are unavailable from the current API.</p>:foundAeps.length?foundAeps.map(x=><AepsSavedItem key={x.id} account={x} onEdit={()=>openAepsEditor(x)} onToggle={()=>setToggleTarget({path:"/customers/aeps-accounts/"+x.id,isActive:x.isActive,label:"AEPS account"})}/>):<EmptyState title={savedSearch.trim()?"No matching AEPS accounts":"No AEPS accounts saved"}/>}</SavedList>
+  <SavedList title="E-Sevai services" count={esevaiServices?.length??0} statusText={!esevaiServices?"Unavailable from server":undefined} matchingCount={esevaiServices&&savedSearch.trim()?foundEsevai.length:undefined} addLabel={esevaiServices?"Add E-Sevai":undefined} onAdd={()=>openEsevaiEditor()}>{!esevaiServices?<p role="status" className="text-xs font-semibold text-amber-700">E-Sevai details are unavailable from the current API.</p>:foundEsevai.length?foundEsevai.map(x=><EsevaiSavedItem key={x.id} item={x} onEdit={()=>openEsevaiEditor(x)} onToggle={()=>setToggleTarget({path:"/customers/esevai-services/"+x.id,isActive:x.isActive,label:"E-Sevai service"})}/>):<EmptyState title={savedSearch.trim()?"No matching E-Sevai services":"No E-Sevai services saved"}/>}</SavedList>
   <Surface className="overflow-hidden">
    <PanelHeader title="Beneficiaries & family recipients" description={savedSearch.trim()?`${foundBeneficiaries.length} of ${c.beneficiaries.length} recipients match` : undefined} action={<div className="flex gap-2"><button onClick={()=>setAddKind("beneficiary")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold">+ Recipient</button><button onClick={()=>setAddKind("beneficiaryAccount")} className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white">+ Account</button></div>}/>
    {foundBeneficiaries.length?<div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">{foundBeneficiaries.map(b=><div key={b.id} className={!b.isActive?"rounded-2xl border border-slate-200 p-4 opacity-60":"rounded-2xl border border-slate-200 p-4"}>
@@ -512,6 +533,13 @@ function switchView(next:"details"|"activity"){
     <Field label="Account holder name"><input className={control} name="customer_aeps_holder" autoComplete="name" maxLength={150} value={aepsHolder} onChange={e=>{setAepsHolder(e.target.value);setAepsError("");}} placeholder="Name" required/></Field>
     <Field label="PR Number (12 digits)"><input className={control} name="customer_aeps_pr_number" type="text" inputMode="numeric" autoComplete="off" maxLength={12} pattern="[0-9]{12}" value={aepsPrNumber} onChange={e=>{setAepsPrNumber(e.target.value.replace(/\D/g,"").slice(0,12));setAepsError("");}} placeholder="12-digit PR number" required/></Field>
     {aepsError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{aepsError}</p>:null}
+   </form>
+  </Modal>
+  <Modal open={esevaiEditing} title={esevaiTarget?"Edit E-Sevai service":"Add E-Sevai service"} onClose={()=>{if(!busy)setEsevaiEditing(false);}} footer={<button type="submit" form="customer-esevai-service" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save E-Sevai service"}</button>}>
+   <form id="customer-esevai-service" onSubmit={saveEsevaiService} className="space-y-3">
+    <Field label="E-Sevai Name"><input className={control} name="customer_esevai_name" autoComplete="off" maxLength={150} value={esevaiName} onChange={e=>{setEsevaiName(e.target.value);setEsevaiError("");}} placeholder="E-Sevai name" autoFocus required/></Field>
+    <Field label="Service"><input className={control} name="customer_esevai_service" autoComplete="off" maxLength={150} value={esevaiServiceName} onChange={e=>{setEsevaiServiceName(e.target.value);setEsevaiError("");}} placeholder="Service name" required/></Field>
+    {esevaiError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{esevaiError}</p>:null}
    </form>
   </Modal>
   <Modal open={ebEditing} title={ebTarget?"Edit EB account":"Add EB account"} onClose={()=>{if(!busy)setEbEditing(false);}} footer={<button type="submit" form="customer-eb-number" disabled={busy} className="app-primary-button min-h-11 w-full font-bold">{busy?"Saving…":"Save EB account"}</button>}>
@@ -693,6 +721,19 @@ function AepsSavedItem({account,onEdit,onToggle}:{account:AepsAccount;onEdit:()=
    <SavedCopyField label={account.prNumber?"PR Number":"Legacy 6-digit reference"} value={displayNumber}/>
   </div>
   <div className="mt-3 flex items-center gap-3"><button type="button" onClick={onEdit} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={onToggle} className="text-xs font-bold text-slate-500">{account.isActive?"Retire":"Reactivate"}</button></div>
+ </div>;
+}
+function EsevaiSavedItem({item,onEdit,onToggle}:{item:EsevaiService;onEdit:()=>void;onToggle:()=>void}){
+ return <div className={!item.isActive?"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3 opacity-60":"rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"}>
+  <div className="flex items-center justify-between gap-2">
+   <p className="min-w-0 break-words text-sm font-black">{item.esevaiName}</p>
+   <div className="flex shrink-0 items-center gap-1"><CopyValueButton value={"E-Sevai Name: "+item.esevaiName+"\nService: "+item.serviceName} label="all E-Sevai details" copyAll/><StatusBadge tone={item.isActive?"emerald":"slate"}>{item.isActive?"Active":"Inactive"}</StatusBadge></div>
+  </div>
+  <div className="mt-3 divide-y divide-[var(--border)] rounded-lg bg-[var(--surface)] px-3 py-1.5">
+   <SavedCopyField label="E-Sevai Name" value={item.esevaiName}/>
+   <SavedCopyField label="Service" value={item.serviceName}/>
+  </div>
+  <div className="mt-3 flex items-center gap-3"><button type="button" onClick={onEdit} className="text-xs font-bold text-indigo-600">Edit</button><button type="button" onClick={onToggle} className="text-xs font-bold text-slate-500">{item.isActive?"Retire":"Reactivate"}</button></div>
  </div>;
 }
 function EbSavedItem({connection,onEdit,onToggle}:{connection:EbConnection;onEdit:()=>void;onToggle:()=>void}){
