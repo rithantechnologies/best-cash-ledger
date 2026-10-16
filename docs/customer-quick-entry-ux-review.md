@@ -28,10 +28,19 @@ Search a customer by phone/name/card last four -> open customer profile -> choos
 - Cash In suggests eligible active bank/UPI/beneficiary destinations only. AEPS uses saved AEPS bank + separately provided Aadhaar last-four. Micro ATM suggests only stored debit/ATM card suffixes. EB Bill loads the saved consumer number after the service catalog is ready.
 - No change to transaction calculations, cash drawer rules, journal posting, migrations or the main Cash Counter backend.
 
-## Important remaining architecture / acceptance criteria
-The current Cash In/Out quick popup **still belongs to the Daily Cash page**. The profile shortcuts navigate to Daily Cash, which opens its popup; Save/Cancel returns to the customer profile. This is a transitional fix, **not** a true overlay mounted directly on the customer page.
+## Shared direct-overlay architecture (implemented on this branch)
+- `apps/web/src/components/cash-counter-workspace.tsx` is the sole owner of the existing Quick Cash form, validation, saved-account prefill, session protection and `POST /transactions/quick-cash`. The Cash Counter route re-exports it; there is no parallel transaction implementation.
+- `CustomerDetailPage` dynamically mounts the workspace with `modalOnly=true`, a fixed customer ID and a service-specific action. The component portals the form over the customer profile without routing through Daily Cash. Save/Cancel, Escape and focus restoration keep the originating profile in context.
+- The bulk quick-entry grid also mounts in-profile. Any saved rows are reported on close without interrupting rapid row-by-row entry.
+- The workspace checks for an open and authorized cash session; without one, a blocking dialog links to Daily Cash rather than silently allowing an invalid cash movement.
+- Existing detailed forms and Daily Cash completion remain unchanged; posted entries still follow the original Quick Cash backend transaction path. No database migrations are required for the overlay refactor.
+- Further performance optimization could split the full dashboard data fetch from the modal-only subset, but this is not needed for functional correctness; track it if first-open latency proves high with real client data.
 
-For true one-page, no-route-change quick entry, extract the existing Daily Cash quick-entry state, validation and form into a shared component with originCustomerId, service preset, onCancel and onSaved props. Mount the exact same component on the customer profile and the Cash Counter; do **not** clone API calls or fee/payout logic. Test no cash session, close/reopen drawer, accessibility, ESC, focus return, pending completion and retained original transaction date. A comprehensive refactor must preserve provider commissions, split cash/UPI commission, partner costs, wallet allocations, transfers and audit history.
+## Verification and release gate
+- Next.js production build and TypeScript validation passed for the shared version.
+- Seven isolated headless-browser tests passed using authenticated-looking mocked API traffic; **all financial POSTs were intercepted and never reached production**.
+- An isolated QA PostgreSQL database applied all 53 migrations; the isolated Nest API passed real login and authenticated customer retrieval for a synthetic user.
+- Financial POST testing against the isolated API could not be completed because execution safety controls blocked the test. Do not claim an authenticated end-to-end financial posting/reconciliation passed until it is explicitly run and verified. Do not deploy the customer overlay to production before that release gate is satisfied.
 
 Service-specific acceptance:
 - Cash In: saved UPI/beneficiary/bank recipient requires confirmation; amount, fee and cash received remain clear; beneficiary transfer source is a different wallet/payment decision.

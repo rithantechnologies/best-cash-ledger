@@ -5,6 +5,9 @@ import { SearchableSelect } from "@/components/searchable-select";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import type { CustomerCashModalRequest } from "@/components/cash-counter-workspace";
+const CustomerQuickCash = dynamic(()=>import("@/components/cash-counter-workspace"));
 import { AppShell } from "@/components/app-shell";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, PanelHeader, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
@@ -56,6 +59,8 @@ export default function CustomerDetailPage(){
  const [c,setC]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
  const [view,setView]=useState<"details"|"activity">("details"),[setupGuide,setSetupGuide]=useState(false);
  const [savedSearch,setSavedSearch]=useState("");
+ const [customerQuickRequest,setCustomerQuickRequest]=useState<CustomerCashModalRequest|null>(null);
+ const quickFocusReturnRef=useRef<HTMLButtonElement|null>(null);
  const [demoEnabled,setDemoEnabled]=useState(false),[demoCardIds,setDemoCardIds]=useState<string[]>([]);
  const [demoAddNumber,setDemoAddNumber]=useState("");
  // Full values stay out of rendered state/DOM and are cleared after copying or closing.
@@ -430,25 +435,31 @@ function switchView(next:"details"|"activity"){
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
+  {c.isActive&&customerQuickRequest?<CustomerQuickCash modalOnly modalRequest={customerQuickRequest}
+    onModalFinished={outcome=>{
+      setCustomerQuickRequest(null);
+      window.setTimeout(()=>quickFocusReturnRef.current?.focus(),0);
+      if(outcome==="saved"){setMessage("Quick entry saved. Check Daily Cash for any pending settlement details.");void load().catch(()=>{});void loadCardLedger(ledgerCardId);}
+    }}/>:null}
   {c.isActive?<Surface className="p-4 sm:p-5">
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div><h3 className="text-base font-black">Quick entry for {c.fullName}</h3><p className="mt-1 text-xs text-[var(--text-muted)]">Use this customer's saved bank, UPI, AEPS and card details. No need to search again.</p></div>
       <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-extrabold text-emerald-800">Customer selected</span>
     </div>
     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-      <Link href={"/cash-counter?quick=IN&origin=customer&"+customerParam} className="flex min-h-12 items-center justify-center rounded-xl bg-emerald-600 px-3 text-center text-sm font-black text-white">↓ Cash In</Link>
-      <Link href={"/cash-counter?quick=OUT&origin=customer&"+customerParam} className="flex min-h-12 items-center justify-center rounded-xl bg-rose-600 px-3 text-center text-sm font-black text-white">↑ Cash Out</Link>
+      <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"IN"});}} className="flex min-h-12 items-center justify-center rounded-xl bg-emerald-600 px-3 text-center text-sm font-black text-white">↓ Cash In</button>
+      <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"OUT",cashOutType:"UPI_QR"});}} className="flex min-h-12 items-center justify-center rounded-xl bg-rose-600 px-3 text-center text-sm font-black text-white">↑ Cash Out</button>
       <button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("cashledger:open-quick-card-swipe",{detail:{customerId:c.id}}))} className="col-span-2 flex min-h-12 items-center justify-center rounded-xl bg-indigo-600 px-3 text-center text-sm font-black text-white sm:col-span-1">▣ Card Swipe</button>
     </div>
     <div className="mt-2 grid grid-cols-3 gap-2">
-      <Link href={"/cash-counter?quick=OUT&cashOutType=AEPS&origin=customer&"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">AEPS</Link>
-      <Link href={"/cash-counter?quick=OUT&cashOutType=MICRO_ATM&origin=customer&"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">Micro ATM</Link>
-      <Link href={"/cash-counter?quick=IN&entry=EB_BILL&origin=customer&"+customerParam} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">EB Bill</Link>
+      <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"OUT",cashOutType:"AEPS"});}} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">AEPS</button>
+      <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"OUT",cashOutType:"MICRO_ATM"});}} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">Micro ATM</button>
+      <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"IN",entry:"EB_BILL"});}} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-2 text-center text-xs font-bold">EB Bill</button>
     </div>
     <details className="mt-2 rounded-xl border border-[var(--border)]">
       <summary className="min-h-10 cursor-pointer select-none px-3 py-2.5 text-xs font-bold text-[var(--accent)]">More entry options · Bulk / detailed</summary>
       <div className="grid gap-2 border-t border-[var(--border)] p-2 sm:grid-cols-2">
-        <Link href={"/cash-counter?rush=1&origin=customer&"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Bulk Quick Entry</Link>
+        <button type="button" onClick={(event)=>{quickFocusReturnRef.current=event.currentTarget;setCustomerQuickRequest({customerId:id,action:"RUSH"});}} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Bulk Quick Entry</button>
         <Link href={"/transactions/cash-transfer?"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Detailed Cash Transfer</Link>
         <Link href={"/transactions/aeps?"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Detailed AEPS Settlement</Link>
         <Link href={"/transactions/micro-atm?"+customerParam} className="flex min-h-11 items-center justify-center rounded-lg bg-[var(--surface-soft)] px-3 text-center text-xs font-bold">Detailed Micro ATM</Link>
