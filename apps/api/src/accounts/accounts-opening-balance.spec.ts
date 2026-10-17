@@ -3,7 +3,7 @@ import { Prisma, RoleName } from '@prisma/client';
 import { AccountsController } from './accounts.controller.js';
 import { AccountsService } from './accounts.service.js';
 
-function fixture(options:{financialActivity?:boolean;initial?:number}={}) {
+function fixture(options:{financialActivity?:boolean;accountEntries?:number;accountSessions?:number;accountDays?:number;initial?:number}={}) {
   const balance=options.initial??0;
   const saved={id:'account-1',accountName:'Main Cash Reserve',accountType:'CASH',
     openingBalance:new Prisma.Decimal(balance),ledgerAccount:{id:'ledger-1'}};
@@ -14,9 +14,9 @@ function fixture(options:{financialActivity?:boolean;initial?:number}={}) {
       update:vi.fn(async ({data}:any)=>({...saved,...data})),
     },
     transaction:{count:vi.fn().mockResolvedValue(options.financialActivity?1:0)},
-    cashSession:{count:vi.fn().mockResolvedValue(0)},
-    ledgerEntry:{count:vi.fn().mockResolvedValue(0)},
-    dailyAccountBalance:{count:vi.fn().mockResolvedValue(0)},
+    cashSession:{count:vi.fn().mockResolvedValue(options.accountSessions??0)},
+    ledgerEntry:{count:vi.fn().mockResolvedValue(options.accountEntries??0)},
+    dailyAccountBalance:{count:vi.fn().mockResolvedValue(options.accountDays??0)},
     providerSettlement:{count:vi.fn().mockResolvedValue(0)},
     customerPayable:{count:vi.fn().mockResolvedValue(0)},
     customerReceivable:{count:vi.fn().mockResolvedValue(0)},
@@ -45,9 +45,28 @@ describe('Owner-only starting balances',()=>{
     expect(tx.financialAccount.update).not.toHaveBeenCalled();
     expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
-  it('blocks opening edits when financial activity exists anywhere in the business',async()=>{
+  it('allows setting an untouched account even after unrelated business transactions',async()=>{
     const {service,tx}=fixture({financialActivity:true});
-    await expect(service.setOpeningBalance('account-1',{openingBalance:50000},'owner-1'))
+    const result=await service.setOpeningBalance('account-1',{openingBalance:32162},'owner-1');
+    expect(result.openingBalance.toString()).toBe('32162');
+    expect(tx.financialAccount.update).toHaveBeenCalledTimes(1);
+    expect(tx.transaction.count).not.toHaveBeenCalled();
+    expect(tx.ledgerEntry.count).toHaveBeenCalledWith({where:{ledgerAccountId:'ledger-1'}});
+    expect(tx.cashSession.count).toHaveBeenCalledWith({where:{cashAccountId:'account-1'}});
+    expect(tx.dailyAccountBalance.count).toHaveBeenCalledWith({where:{financialAccountId:'account-1'}});
+    expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({
+      entityType:'FINANCIAL_ACCOUNT',action:'SET_OPENING_BALANCE',
+      oldValues:{openingBalance:'0'},
+      newValues:expect.objectContaining({openingBalance:'32162'}),
+    })});
+  });
+  it.each([
+    {accountEntries:1},
+    {accountSessions:1},
+    {accountDays:1},
+  ])('refuses to backdate opening on an account with its own activity (%s)',async(flags)=>{
+    const {service,tx}=fixture(flags);
+    await expect(service.setOpeningBalance('account-1',{openingBalance:32162},'owner-1'))
       .rejects.toThrow(BadRequestException);
     expect(tx.financialAccount.update).not.toHaveBeenCalled();
     expect(tx.auditLog.create).not.toHaveBeenCalled();

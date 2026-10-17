@@ -476,7 +476,7 @@ export default function AccountsPage(){
           <p className="money mt-1 text-lg font-black">{money(openingTarget.openingBalance??0)}</p>
         </div>
         <label className="block"><span className="mb-1.5 block text-sm font-bold">New opening amount (₹)</span><input type="number" className="app-control" value={openingValue} min="0" max="999999999999.99" step="0.01" inputMode="decimal" onChange={(event)=>{setOpeningValue(event.target.value);setOpeningError("");}} autoFocus required/></label>
-        <p className="text-xs leading-5 text-[var(--text-muted)]">Only for the starting balance, before any transactions or cash sessions. Later cash movements must be recorded as transactions.</p>
+        <p className="text-xs leading-5 text-[var(--text-muted)]">For the account’s starting balance, before this account has movements, sessions or day-end records. Activity in other accounts does not prevent setup. Later changes require an auditable adjustment.</p>
         {openingError?<p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-700">{openingError}</p>:null}
         <div className="flex gap-2"><button type="button" disabled={saving} onClick={()=>setOpeningTarget(null)} className="app-secondary-button min-h-11 flex-1">Cancel</button><button type="submit" disabled={saving||!openingValue.trim()} className="app-primary-button min-h-11 flex-1">{saving?"Saving…":"Save opening"}</button></div>
       </form>:null}

@@ -154,20 +154,23 @@ export class AccountsService {
       const next = new Prisma.Decimal(dto.openingBalance);
       if (account.openingBalance.equals(next)) return account;
 
-      // Opening figures define the business baseline. Never rewrite one after
-      // any financial activity: it would retroactively alter all reports.
-      const counts = await Promise.all([
-        tx.transaction.count(),
-        tx.cashSession.count(),
-        tx.ledgerEntry.count(),
-        tx.dailyAccountBalance.count(),
-        tx.providerSettlement.count(),
-        tx.customerPayable.count(),
-        tx.customerReceivable.count(),
+      // Another account's cash session or transaction must NOT lock an unused
+      // wallet/bank. But never backdate changes on an account with its own
+      // entries or snapshotted day/session: that rewrites its financial history.
+      const [ledgerEntries, cashSessions, closedAccountDays] = await Promise.all([
+        tx.ledgerEntry.count({
+          where: { ledgerAccountId: account.ledgerAccount.id },
+        }),
+        tx.cashSession.count({
+          where: { cashAccountId: id },
+        }),
+        tx.dailyAccountBalance.count({
+          where: { financialAccountId: id },
+        }),
       ]);
-      if (counts.some((count) => count > 0)) {
+      if (ledgerEntries > 0 || cashSessions > 0 || closedAccountDays > 0) {
         throw new BadRequestException(
-          'Opening balances are locked because financial activity has started. Use an audited account movement or reconciliation instead.',
+          'This account already has recorded activity or a cash session/day-end balance. Opening cannot be backdated; use an audited balance adjustment or reconciliation instead.',
         );
       }
 
@@ -187,7 +190,7 @@ export class AccountsService {
             accountName: updated.accountName,
             accountType: updated.accountType,
           },
-          reason: 'Owner approved initial account opening balance before financial activity',
+          reason: 'Owner approved initial balance before activity in this account',
         },
       });
       return updated;
