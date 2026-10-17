@@ -1,9 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { RoleName } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { AccountsService } from './accounts.service.js';
+import { AccountImagesService } from './account-images.service.js';
 import { CreateAccountDto } from './dto/create-account.dto.js';
 import { SetAccountActiveDto } from './dto/set-account-active.dto.js';
 import { SetOpeningBalanceDto } from './dto/set-opening-balance.dto.js';
@@ -12,7 +15,29 @@ import { UpdateAccountDto } from './dto/update-account.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('accounts')
 export class AccountsController {
-  constructor(private readonly accounts: AccountsService) {}
+  constructor(private readonly accounts: AccountsService, private readonly images: AccountImagesService) {}
+
+  @Get(':id/image')
+  async image(@Param('id') id: string, @Res() response: Response) {
+    const image = await this.images.get(id);
+    response.setHeader('Content-Type', image.contentType);
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    return response.send(image.contents);
+  }
+
+  @Post(':id/image')
+  @Roles(RoleName.OWNER)
+  @UseInterceptors(FileInterceptor('image', { limits: { fileSize: 2 * 1024 * 1024, files: 1 } }))
+  uploadImage(@Param('id') id: string, @UploadedFile() file: { buffer: Buffer } | undefined, @Req() req: any) {
+    return this.images.upload(id, file?.buffer, req.user.userId);
+  }
+
+  @Delete(':id/image')
+  @Roles(RoleName.OWNER)
+  removeImage(@Param('id') id: string, @Req() req: any) {
+    return this.images.remove(id, req.user.userId);
+  }
 
   @Get()
   list(@Req() req: any) {

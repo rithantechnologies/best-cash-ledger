@@ -1,6 +1,9 @@
+"use client";
+import { useEffect, useState } from "react";
 /* eslint-disable @next/next/no-img-element */
 
 type AccountBrandLike = {
+  id?: string;
   accountName: string;
   accountType: string;
   bankName?: string | null;
@@ -170,14 +173,23 @@ export function accountBrand(account: AccountBrandLike): AccountBrand {
 export function AccountBrandIcon({
   account,
   className = "",
+  imageVersion = 0,
 }: {
   account: AccountBrandLike;
   className?: string;
+  imageVersion?: number;
 }) {
   const brand = accountBrand(account);
+  const isBank = account.accountType === "BANK" || account.accountType === "UPI";
+  const customSrc = isBank && account.id
+    ? assetBasePath + "/api/accounts/" + encodeURIComponent(account.id) + "/image?v=" + imageVersion
+    : null;
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => { setImageLoaded(false); setImageFailed(false); }, [customSrc]);
   return (
     <span
-      className={"grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl ring-1 ring-black/[.05] " + className}
+      className={"relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl ring-1 ring-black/[.05] " + className}
       style={{ backgroundColor: brand.background, color: brand.foreground }}
       title={brand.label}
       aria-label={brand.label}
@@ -189,6 +201,11 @@ export function AccountBrandIcon({
           {brand.initials}
         </span>
       )}
+      {customSrc && !imageFailed ? (
+        <img src={customSrc} alt="" aria-hidden="true" onLoad={() => setImageLoaded(true)}
+          onError={() => setImageFailed(true)}
+          className={"absolute inset-0 h-full w-full bg-white object-contain p-1 " + (imageLoaded ? "" : "opacity-0")} />
+      ) : null}
     </span>
   );
 }

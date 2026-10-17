@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import { AccountBrandIcon } from "@/components/account-brand-icon";
+import { BankAccountImageEditor } from "@/components/bank-account-image-editor";
 import { SearchableSelect } from "@/components/searchable-select";
 import Link from "next/link";
 import { createPortal } from "react-dom";
@@ -162,6 +163,7 @@ export default function AccountsPage(){
   const [editName,setEditName]=useState(""),[editUsage,setEditUsage]=useState("BUSINESS");
   const [editRef,setEditRef]=useState(""),[editLast4,setEditLast4]=useState(""),[editLimit,setEditLimit]=useState("");
   const [saving,setSaving]=useState(false);
+  const [bankImageVersion,setBankImageVersion]=useState(0);
   const load=useCallback(async(currentRole=role)=>{
     const admin=currentRole==="OWNER"||currentRole==="ADMIN";
     if(admin){
@@ -434,7 +436,7 @@ export default function AccountsPage(){
               const utilisation=limit>0?Math.min(100,(used/limit)*100):0;
               return <div key={account.id} className={"flex items-stretch "+(!account.isActive?"opacity-55":"")}>
                 <Link href={"/accounts/"+account.id} className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] sm:px-4">
-                  {section.key==="CASH"?<span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-700"><AccountIcon type="CASH"/></span>:<AccountBrandIcon account={account}/>}
+                  {section.key==="CASH"?<span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-700"><AccountIcon type="CASH"/></span>:<AccountBrandIcon account={account} imageVersion={bankImageVersion}/>}
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -519,6 +521,7 @@ export default function AccountsPage(){
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><SearchableSelect className="app-control" value={editUsage} onChange={(e)=>setEditUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></SearchableSelect></label>
           {editing.accountType==="OWNER_CREDIT_CARD"?<label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Credit limit</span><input className="app-control" type="number" min="0.01" step="0.01" value={editLimit} onChange={(e)=>setEditLimit(e.target.value)} required/></label>:null}
         </div>
+        {role==="OWNER"&&["BANK","UPI"].includes(editing.accountType)?<BankAccountImageEditor account={editing} version={bankImageVersion} onChanged={()=>setBankImageVersion(v=>v+1)}/>:null}
         {editing.accountType!=="CASH"?<details className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3.5 py-3">
           <summary className="cursor-pointer text-sm font-semibold text-[var(--text)]">Optional account details</summary>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
