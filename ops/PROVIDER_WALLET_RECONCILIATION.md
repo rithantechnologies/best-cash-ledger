@@ -47,3 +47,29 @@ database is not automatically modified during the code deployment.
   already-posted ledger entries.
 - Future VPS installs: migration-free (uses existing financial tables and system ledgers).
   Require existing SYS-ACCOUNT-ADJUSTMENT and SYS-PROVIDER-CHARGE ledgers.
+
+## Generalization to all account types
+
+The same Owner-controlled reconciliation now supports **BANK, UPI, PROVIDER_WALLET,
+CASH, and OWNER_CREDIT_CARD** accounts through GET/POST
+`/api/accounts/:id/reconciliation`. The original wallet endpoints remain for
+compatibility. Every reconciliation records its account type and nature in the
+audit log and creates balanced posted journal entries with the current timestamp.
+
+- Bank and UPI: compare against external statement; genuine unrecorded fees
+  are debited to the fee-expense ledger and separately tagged in the account
+  charge breakdown.
+- Provider wallets: existing provider rules and verified fee support unchanged.
+  Payout fees already included in the wallet outflow are never subtracted twice.
+- Cash reserves and drawers: reconcile against a verified physical cash count.
+  **No fee attribution; open cash sessions block posting.** Closed-session
+  records are not rewritten.
+- Owner credit cards (liabilities): reconcile *outstanding owed*, not available
+  credit. An increase credits the liability account and decreases debit it.
+  Statement-proven fees may increase outstanding; they do not reduce it.
+- Staff and Admin never receive permission to make these balance adjustments.
+- No automatic reclassification, missing-transaction fabrication, or retroactive
+  balance rewrite is performed. The Owner must post missing source transactions
+  before using a residual adjustment.
+- Manual verification is still required. Having this feature on all accounts
+  does **not** imply any account has already been reconciled.

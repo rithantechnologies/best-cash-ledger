@@ -52,6 +52,18 @@ export class AccountsController {
     return this.accounts.create(dto, req.user.userId, req.user.role);
   }
 
+  @Get(':id/reconciliation')
+  @Roles(RoleName.OWNER)
+  previewAccountReconciliation(@Param('id') id: string) {
+    return this.walletReconciliation.preview(id);
+  }
+
+  @Post(':id/reconciliation')
+  @Roles(RoleName.OWNER)
+  reconcileAccount(@Param('id') id: string, @Body() dto: ReconcileWalletDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.walletReconciliation.reconcile(id, dto, req.user.userId, key);
+  }
+
   @Get(':id/wallet-reconciliation')
   @Roles(RoleName.OWNER)
   previewWalletReconciliation(@Param('id') id: string) {

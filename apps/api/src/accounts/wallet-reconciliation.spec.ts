@@ -4,11 +4,11 @@ import { AccountsController } from './accounts.controller.js';
 import { WalletReconciliationService } from './wallet-reconciliation.service.js';
 import { LedgerService } from '../ledger/ledger.service.js';
 
-function fixture(options: { type?: AccountType; postedDebit?: number; postedCredit?: number; accountActive?: boolean } = {}) {
+function fixture(options: { type?: AccountType; postedDebit?: number; postedCredit?: number; accountActive?: boolean; openCashSession?: boolean } = {}) {
   const account: any = {
     id: 'wallet-1', accountName: 'PaySwitch Wallet',
     accountType: options.type ?? AccountType.PROVIDER_WALLET,
-    accountNature: AccountNature.ASSET, isActive: options.accountActive ?? true,
+    accountNature: options.type === AccountType.OWNER_CREDIT_CARD ? AccountNature.LIABILITY : AccountNature.ASSET, isActive: options.accountActive ?? true,
     openingBalance: new Prisma.Decimal(68009),
     providerId: 'provider-1', ledgerAccount: { id: 'ledger-wallet' },
   };
@@ -35,10 +35,11 @@ function fixture(options: { type?: AccountType; postedDebit?: number; postedCred
       return { id: 'jrn-1', ...data };
     }) },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+    cashSession: { count: vi.fn().mockResolvedValue(options.openCashSession ? 1 : 0) },
   };
   const db: any = {
     $transaction: vi.fn((fn: any) => fn(tx)),
-    financialAccount: tx.financialAccount, ledgerEntry: tx.ledgerEntry,
+    financialAccount: tx.financialAccount, ledgerEntry: tx.ledgerEntry, cashSession: tx.cashSession,
     providerPayoutChargeRule: { count: vi.fn().mockResolvedValue(0) },
     auditLog: { findFirst: vi.fn().mockResolvedValue(null) },
   };
@@ -56,6 +57,10 @@ describe('Provider wallet reconciliation', () => {
     expect(Reflect.getMetadata('roles', AccountsController.prototype.previewWalletReconciliation))
       .toEqual([RoleName.OWNER]);
     expect(Reflect.getMetadata('roles', AccountsController.prototype.reconcileWallet))
+      .toEqual([RoleName.OWNER]);
+    expect(Reflect.getMetadata('roles', AccountsController.prototype.previewAccountReconciliation))
+      .toEqual([RoleName.OWNER]);
+    expect(Reflect.getMetadata('roles', AccountsController.prototype.reconcileAccount))
       .toEqual([RoleName.OWNER]);
   });
 
@@ -126,8 +131,97 @@ describe('Provider wallet reconciliation', () => {
     expect(tx.transactionCharge.create).not.toHaveBeenCalled();
   });
 
-  it('rejects non-wallet accounts without posting', async () => {
-    const {service, tx}=fixture({type:AccountType.CASH});
+  it.each([AccountType.BANK,AccountType.UPI,AccountType.PROVIDER_WALLET])(
+    'supports verified fees, atomic journal and account-specific audit for %s',async(type)=>{
+      const {service,tx}=fixture({type});
+      const result=await service.reconcile('wallet-1',inputs(),'owner-1');
+      expect(result.after).toBe(163906.6);
+      const rows=tx.ledgerJournal.create.mock.calls[0][0].data.entries.create;
+      expect(rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ledgerAccountId:'ledger-wallet',entryType:EntryType.CREDIT,amount:new Prisma.Decimal(2522.4)}),
+        expect.objectContaining({ledgerAccountId:'SYS-PROVIDER-CHARGE',entryType:EntryType.DEBIT,amount:new Prisma.Decimal(522.4)}),
+      ]));
+      expect(tx.transactionCharge.create).toHaveBeenCalledWith({data:expect.objectContaining({
+        chargeType:type===AccountType.PROVIDER_WALLET?'PAYOUT_RECONCILIATION':'ACCOUNT_RECONCILIATION_FEE',
+      })});
+      expect(tx.auditLog.create).toHaveBeenCalledWith({data:expect.objectContaining({
+        action:type===AccountType.PROVIDER_WALLET?'RECONCILE_PROVIDER_WALLET':'RECONCILE_ACCOUNT',
+      })});
+    }
+  );
+  it('supports a verified physical cash correction outside an open session without recording fees',async()=>{
+    const {service,tx}=fixture({type:AccountType.CASH});
+    const result=await service.reconcile('wallet-1',inputs({
+      providerBalance:166400,confirmedCharges:0,
+      statementReference:'Cash count 17 October',reason:'Owner counted physical drawer after session closed',
+    }),'owner-1');
+    expect(result.after).toBe(166400);
+    expect(result.otherAdjustment).toBe(29);
+    expect(tx.cashSession.count).toHaveBeenCalledWith({
+      where:{cashAccountId:'wallet-1',status:'OPEN'},
+    });
+    expect(tx.transactionCharge.create).not.toHaveBeenCalled();
+  });
+  it('blocks cash drawer reconciliation while a session is open',async()=>{
+    const {service,tx}=fixture({type:AccountType.CASH,openCashSession:true});
+    await expect(service.reconcile('wallet-1',inputs({
+      providerBalance:166400,confirmedCharges:0,
+    }),'owner-1')).rejects.toThrow(BadRequestException);
+    expect(tx.transaction.create).not.toHaveBeenCalled();
+  });
+  it('rejects calling physical cash discrepancies provider fees',async()=>{
+    const {service,tx}=fixture({type:AccountType.CASH});
+    await expect(service.reconcile('wallet-1',inputs(),'owner-1')).rejects.toThrow(BadRequestException);
+    expect(tx.transaction.create).not.toHaveBeenCalled();
+  });
+  it('properly increases credit card outstanding with CREDIT and balances expense fees',async()=>{
+    const {service,tx}=fixture({
+      type:AccountType.OWNER_CREDIT_CARD, postedDebit:0,postedCredit:98420,
+    });
+    const result=await service.reconcile('wallet-1',inputs({
+      providerBalance:166929,confirmedCharges:200,
+    }),'owner-1');
+    expect(result.before).toBe(166429);
+    expect(result.after).toBe(166929);
+    const rows=tx.ledgerJournal.create.mock.calls[0][0].data.entries.create;
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ledgerAccountId:'ledger-wallet',entryType:EntryType.CREDIT,amount:new Prisma.Decimal(500)}),
+      expect.objectContaining({ledgerAccountId:'SYS-PROVIDER-CHARGE',entryType:EntryType.DEBIT,amount:new Prisma.Decimal(200)}),
+      expect.objectContaining({ledgerAccountId:'SYS-ACCOUNT-ADJUSTMENT',entryType:EntryType.DEBIT,amount:new Prisma.Decimal(300)}),
+    ]));
+  });
+  it('decreases credit card outstanding with DEBIT, never reversing liability accounting',async()=>{
+    const {service,tx}=fixture({
+      type:AccountType.OWNER_CREDIT_CARD,postedDebit:0,postedCredit:98420,
+    });
+    const result=await service.reconcile('wallet-1',inputs({
+      providerBalance:165929,confirmedCharges:0,
+    }),'owner-1');
+    expect(result.after).toBe(165929);
+    const rows=tx.ledgerJournal.create.mock.calls[0][0].data.entries.create;
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ledgerAccountId:'ledger-wallet',entryType:EntryType.DEBIT,amount:new Prisma.Decimal(500)}),
+      expect.objectContaining({ledgerAccountId:'SYS-ACCOUNT-ADJUSTMENT',entryType:EntryType.CREDIT,amount:new Prisma.Decimal(500)}),
+    ]));
+  });
+  it('blocks card fees when the actual outstanding is lower than the ledger',async()=>{
+    const {service,tx}=fixture({
+      type:AccountType.OWNER_CREDIT_CARD,postedDebit:0,postedCredit:98420,
+    });
+    await expect(service.reconcile('wallet-1',inputs({
+      providerBalance:165929,confirmedCharges:200,
+    }),'owner-1')).rejects.toThrow(BadRequestException);
+    expect(tx.transaction.create).not.toHaveBeenCalled();
+  });
+  it('previews account type and open cash sessions and does not show irrelevant provider rules',async()=>{
+    const {service}=fixture({type:AccountType.CASH,openCashSession:true});
+    await expect(service.preview('wallet-1')).resolves.toEqual(expect.objectContaining({
+      accountType:'CASH',accountNature:'ASSET',
+      payoutChargeRulesConfigured:null,hasOpenCashSession:true,
+    }));
+  });
+  it('rejects inactive accounts',async()=>{
+    const {service,tx}=fixture({type:AccountType.BANK,accountActive:false});
     await expect(service.reconcile('wallet-1',inputs(),'owner-1')).rejects.toThrow();
     expect(tx.transaction.create).not.toHaveBeenCalled();
   });

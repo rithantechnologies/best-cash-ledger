@@ -81,8 +81,8 @@ const ledgerMoneySource=(tx:RowTx):MoneyRef=>ledgerBusinessSource(tx);
 const ledgerActivityDate=(tx:RowTx)=>tx.quickCashCompletionSource?.transactionAt??tx.transactionAt;
 const cleanAccountName=(value:string|null|undefined)=>String(value??"").trim().toLowerCase();
 function payoutChargesForAccount(account:Account,tx:RowTx){
-  if(account.accountType!=="PROVIDER_WALLET")return [];
-  const charges=(tx.charges??[]).filter((charge)=>["PAYOUT","PAYOUT_RECONCILIATION"].includes(charge.chargeType));
+  if(!["PROVIDER_WALLET","BANK","UPI","OWNER_CREDIT_CARD"].includes(account.accountType))return [];
+  const charges=(tx.charges??[]).filter((charge)=>["PAYOUT","PAYOUT_RECONCILIATION","ACCOUNT_RECONCILIATION_FEE"].includes(charge.chargeType));
   if(!charges.length)return [];
   const accountName=cleanAccountName(account.accountName);
   const source=ledgerBusinessSource(tx);
@@ -494,11 +494,10 @@ export default function AccountLedgerPage(){
     if(increases(data.account,row))totals.in+=amount;else totals.out+=amount;
     return totals;
   },{in:0,out:0})??{in:0,out:0};
-  const payoutChargeTotal=data&&data.account.accountType==="PROVIDER_WALLET"?(()=>{
+  const payoutChargeTotal=data&&["PROVIDER_WALLET","BANK","UPI","OWNER_CREDIT_CARD"].includes(data.account.accountType)?(()=>{
     const seen=new Set<string>();
     let sum=0;
     for(const row of data.rows){
-      if(increases(data.account,row))continue;
       for(const charge of payoutChargesForAccount(data.account,row.journal.transaction)){
         if(seen.has(charge.id))continue;
         seen.add(charge.id);
@@ -507,7 +506,7 @@ export default function AccountLedgerPage(){
     }
     return sum;
   })():0;
-  const showPayoutCharges=account?.accountType==="PROVIDER_WALLET";
+  const showPayoutCharges=account&&["PROVIDER_WALLET","BANK","UPI","OWNER_CREDIT_CARD"].includes(account.accountType);
   const isCard=account?.accountType==="OWNER_CREDIT_CARD";
   const creditLimit=isCard?Math.max(0,Number(account?.creditLimit||0)):0;
   const availableCredit=isCard&&creditLimit>0?Math.max(0,creditLimit-closing):0;
@@ -527,7 +526,7 @@ export default function AccountLedgerPage(){
           </div>
         </div>
       </div>
-      {admin?<div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{role==="OWNER"&&account?.accountType==="PROVIDER_WALLET"?<WalletReconciliationControl accountId={id} onSaved={()=>load(range)}/>:null}{account&&["BANK","UPI"].includes(account.accountType)?<button type="button" onClick={()=>{resetAccountEntry();setEntryOpen(true);}} className="inline-flex min-h-10 items-center rounded-xl bg-[var(--accent)] px-3.5 text-xs font-black text-white shadow-sm">+ New amount entry</button>:null}<Link href={"/accounts?edit="+id} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--text)] shadow-sm">Edit</Link></div>:null}
+      {admin?<div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{role==="OWNER"&&account?<WalletReconciliationControl accountId={id} onSaved={()=>load(range)}/>:null}{account&&["BANK","UPI"].includes(account.accountType)?<button type="button" onClick={()=>{resetAccountEntry();setEntryOpen(true);}} className="inline-flex min-h-10 items-center rounded-xl bg-[var(--accent)] px-3.5 text-xs font-black text-white shadow-sm">+ New amount entry</button>:null}<Link href={"/accounts?edit="+id} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-bold text-[var(--text)] shadow-sm">Edit</Link></div>:null}
     </div>
     {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
     {data?<>
@@ -552,9 +551,9 @@ export default function AccountLedgerPage(){
 
           {showPayoutCharges?<div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--border)] pt-4 sm:grid-cols-4">
             <div className="min-w-0"><p className="text-[11px] font-semibold text-[var(--text-muted)]">Period opening</p><p className="money mt-1 truncate text-sm font-black">{money(periodOpening)}</p></div>
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-emerald-700">Pay IN</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Pay OUT</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(movement.out)}</p></div>
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Provider charges</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(payoutChargeTotal)}</p><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Included in Pay OUT (not deducted twice)</p></div>
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-emerald-700">{isCard?"Added / charged":"Pay IN"}</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">{isCard?"Paid / reduced":"Pay OUT"}</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(movement.out)}</p></div>
+            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Recorded fees</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(payoutChargeTotal)}</p><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Already included in {isCard?"Added / charged":"Pay OUT"}; not deducted twice</p></div>
           </div>:<div className="mt-4 grid grid-cols-3 divide-x divide-[var(--border)] border-t border-[var(--border)] pt-4">
             <div className="min-w-0 pr-2.5 sm:pr-4"><p className="text-[11px] font-semibold text-[var(--text-muted)]">Period opening</p><p className="money mt-1 truncate text-sm font-black">{money(periodOpening)}</p></div>
             <div className="min-w-0 px-2.5 sm:px-4"><p className="text-[11px] font-semibold text-emerald-700">{isCard?"Added":"Money in"}</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>

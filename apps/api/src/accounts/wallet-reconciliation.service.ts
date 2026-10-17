@@ -15,18 +15,25 @@ const safeMoney = (value: number) =>
 export class WalletReconciliationService {
   constructor(private readonly prisma: PrismaService, private readonly ledger: LedgerService) {}
 
-  private async wallet(db: Prisma.TransactionClient | PrismaService, id: string) {
+  private async account(db: Prisma.TransactionClient | PrismaService, id: string) {
     const account = await db.financialAccount.findUnique({
       where: { id }, include: { ledgerAccount: true },
     });
     if (!account?.ledgerAccount || !account.isActive ||
-        account.accountType !== AccountType.PROVIDER_WALLET ||
-        account.accountNature !== AccountNature.ASSET)
-      throw new NotFoundException('Active provider wallet not found');
+        ![AccountType.PROVIDER_WALLET, AccountType.BANK, AccountType.UPI,
+          AccountType.CASH, AccountType.OWNER_CREDIT_CARD].includes(account.accountType))
+      throw new NotFoundException('Active financial account not found');
+    const expectedNature = account.accountType === AccountType.OWNER_CREDIT_CARD
+      ? AccountNature.LIABILITY : AccountNature.ASSET;
+    if (account.accountNature !== expectedNature)
+      throw new BadRequestException('Account has an invalid debit/credit nature');
     return account;
   }
 
-  private async balance(db: Prisma.TransactionClient | PrismaService, ledgerAccountId: string, openingBalance: Prisma.Decimal) {
+  private async balance(
+    db: Prisma.TransactionClient | PrismaService,
+    ledgerAccountId: string, openingBalance: Prisma.Decimal, nature: AccountNature,
+  ) {
     const rows = await db.ledgerEntry.groupBy({
       by: ['entryType'],
       where: { ledgerAccountId, journal: { status: 'POSTED' } },
@@ -35,43 +42,54 @@ export class WalletReconciliationService {
     let current = openingBalance;
     for (const row of rows) {
       const value = row._sum.amount ?? new Prisma.Decimal(0);
-      current = row.entryType === EntryType.DEBIT ? current.add(value) : current.sub(value);
+      const increases = nature === AccountNature.ASSET
+        ? row.entryType === EntryType.DEBIT
+        : row.entryType === EntryType.CREDIT;
+      current = increases ? current.add(value) : current.sub(value);
     }
     return current;
   }
 
   async preview(id: string) {
-    const account = await this.wallet(this.prisma, id);
+    const account = await this.account(this.prisma, id);
     const current = await this.balance(
-      this.prisma, account.ledgerAccount!.id, account.openingBalance,
+      this.prisma, account.ledgerAccount!.id, account.openingBalance, account.accountNature,
     );
-    const [rules, last] = await Promise.all([
-      this.prisma.providerPayoutChargeRule.count({
-        where: { providerId: account.providerId!, effectiveTo: null },
-      }),
+    const [rules, last, activeCashSessions] = await Promise.all([
+      account.accountType === AccountType.PROVIDER_WALLET && account.providerId
+        ? this.prisma.providerPayoutChargeRule.count({
+            where: { providerId: account.providerId, effectiveTo: null },
+          })
+        : Promise.resolve(null),
       this.prisma.auditLog.findFirst({
-        where: { entityType: 'FINANCIAL_ACCOUNT', entityId: id, action: 'RECONCILE_PROVIDER_WALLET' },
+        where: { entityType: 'FINANCIAL_ACCOUNT', entityId: id,
+          action: { in: ['RECONCILE_PROVIDER_WALLET', 'RECONCILE_ACCOUNT'] } },
         orderBy: { createdAt: 'desc' }, select: { createdAt: true, newValues: true },
       }),
+      account.accountType === AccountType.CASH
+        ? this.prisma.cashSession.count({ where: { cashAccountId: id, status: 'OPEN' } })
+        : Promise.resolve(0),
     ]);
     return {
-      accountId: id, accountName: account.accountName,
+      accountId: id, accountName: account.accountName, accountType: account.accountType,
+      accountNature: account.accountNature,
       systemBalance: Number(current.toFixed(2)),
-      payoutChargeRulesConfigured: rules > 0,
+      payoutChargeRulesConfigured: rules === null ? null : rules > 0,
+      hasOpenCashSession: activeCashSessions > 0,
       lastReconciledAt: last?.createdAt ?? null,
     };
   }
 
   async reconcile(id: string, dto: ReconcileWalletDto, actorId: string, idempotencyKey?: string) {
     if (dto.confirmed !== true)
-      throw new BadRequestException('Confirm the provider balance against its statement before posting');
+      throw new BadRequestException('Confirm the actual balance against supporting evidence before posting');
     if (!safeMoney(dto.expectedBalance) || !safeMoney(dto.providerBalance) || !safeMoney(dto.confirmedCharges))
       throw new BadRequestException('Enter valid non-negative amounts with two decimal places');
     const reference = dto.statementReference?.trim();
     const reason = dto.reason?.trim();
     if (!reference || reference.length < 4 || reference.length > 200 ||
         !reason || reason.length < 10 || reason.length > 500)
-      throw new BadRequestException('Provide the provider statement reference and an explanation');
+      throw new BadRequestException('Provide the statement or cash-count reference and an explanation');
     if (idempotencyKey && (idempotencyKey.length > 180 || !/^[a-zA-Z0-9._:-]+$/.test(idempotencyKey)))
       throw new BadRequestException('Invalid idempotency key');
     const expectedCents = cents(dto.expectedBalance);
@@ -79,10 +97,7 @@ export class WalletReconciliationService {
     const feeCents = cents(dto.confirmedCharges);
     const differenceCents = targetCents - expectedCents;
     if (differenceCents === 0)
-      throw new BadRequestException('Wallet already matches the stated provider balance');
-    if (feeCents > Math.max(0, -differenceCents))
-      throw new BadRequestException('Confirmed charges cannot exceed the missing wallet balance');
-    const remainderCents = Math.abs(differenceCents) - feeCents;
+      throw new BadRequestException('Account already matches the verified external balance');
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
@@ -90,10 +105,27 @@ export class WalletReconciliationService {
       await tx.$queryRawUnsafe(
         'SELECT "id" FROM "FinancialAccount" WHERE "id" = $1 FOR UPDATE', id,
       );
-      const account = await this.wallet(tx, id);
-      const actual = await this.balance(tx, account.ledgerAccount!.id, account.openingBalance);
+      const account = await this.account(tx, id);
+      // Cash movements must be attributed to a session. Only Owner-approved
+      // adjustments outside an active session may be reconciled this way.
+      if (account.accountType === AccountType.CASH) {
+        const openSessions = await tx.cashSession.count({
+          where: { cashAccountId: id, status: 'OPEN' },
+        });
+        if (openSessions > 0)
+          throw new BadRequestException('Close the active cash session before Owner reconciliation');
+      }
+      const isAsset = account.accountNature === AccountNature.ASSET;
+      const feeEligible = account.accountType !== AccountType.CASH;
+      const isDebitCharge = isAsset ? differenceCents < 0 : differenceCents > 0;
+      if (feeCents > 0 && (!feeEligible || !isDebitCharge || feeCents > Math.abs(differenceCents)))
+        throw new BadRequestException('Confirmed charges must be supported and cannot exceed the account shortfall or added card liability');
+      const remainderCents = Math.abs(differenceCents) - feeCents;
+      const actual = await this.balance(
+        tx, account.ledgerAccount!.id, account.openingBalance, account.accountNature,
+      );
       if (cents(Number(actual)) !== expectedCents)
-        throw new ConflictException('Wallet balance changed. Refresh the reconciliation and review the difference again');
+        throw new ConflictException('Account balance changed. Refresh the reconciliation and review the difference again');
       const chargeLedger = feeCents > 0
         ? await tx.ledgerAccount.findUnique({ where: { ledgerCode: 'SYS-PROVIDER-CHARGE' } }) : null;
       const adjustmentLedger = remainderCents > 0
@@ -104,52 +136,60 @@ export class WalletReconciliationService {
       const movement = amount(Math.abs(differenceCents));
       const transaction = await tx.transaction.create({
         data: {
-          transactionNumber: 'WREC-' + randomUUID().replaceAll('-', '').slice(0, 20).toUpperCase(),
+          transactionNumber: 'AREC-' + randomUUID().replaceAll('-', '').slice(0, 20).toUpperCase(),
           transactionType: TransactionType.ACCOUNT_ENTRY,
           transactionAt: now,
           grossAmount: movement, netAmount: movement,
           status: TransactionStatus.COMPLETED, createdById: actorId,
-          ...(idempotencyKey ? { idempotencyKey: 'WREC:' + idempotencyKey } : {}),
+          ...(idempotencyKey ? { idempotencyKey: 'AREC:' + id + ':' + idempotencyKey } : {}),
           referenceNumber: reference,
-          notes: 'Provider wallet reconciliation. ' + reason,
+          notes: 'Owner account reconciliation. ' + reason,
         },
       });
       await tx.accountEntryDetail.create({
         data: {
           transactionId: transaction.id, accountId: id,
           direction: differenceCents > 0 ? 'IN' : 'OUT',
-          entryKind: 'WALLET_RECONCILIATION',
-          amount: movement, entryLabel: 'Provider statement reconciliation',
+          entryKind: account.accountType === AccountType.PROVIDER_WALLET
+            ? 'WALLET_RECONCILIATION' : 'ACCOUNT_RECONCILIATION',
+          amount: movement, entryLabel: 'Owner verified account reconciliation',
         },
       });
-      const entries: JournalEntry[] = differenceCents < 0
-        ? [{ ledgerAccountId: account.ledgerAccount!.id, entryType: EntryType.CREDIT,
-            amount: Number(movement), description: 'Provider wallet statement shortfall' }]
-        : [{ ledgerAccountId: account.ledgerAccount!.id, entryType: EntryType.DEBIT,
-            amount: Number(movement), description: 'Provider wallet statement excess' }];
+      // Assets increase on DEBIT; liabilities (credit-card outstanding)
+      // increase on CREDIT. This reversal is essential for accurate balances.
+      const balanceIncreases = differenceCents > 0;
+      const accountEntryType = (isAsset === balanceIncreases)
+        ? EntryType.DEBIT : EntryType.CREDIT;
+      const entries: JournalEntry[] = [{
+        ledgerAccountId: account.ledgerAccount!.id, entryType: accountEntryType,
+        amount: Number(movement), description: 'Verified account statement adjustment',
+      }];
       if (feeCents > 0) {
         entries.push({ ledgerAccountId: chargeLedger!.id, entryType: EntryType.DEBIT,
-          amount: Number(amount(feeCents)), description: 'Verified unrecorded provider fees' });
+          amount: Number(amount(feeCents)), description: 'Verified unrecorded account/provider fees' });
         await tx.transactionCharge.create({
-          data: { transactionId: transaction.id, chargeType: 'PAYOUT_RECONCILIATION',
+          data: { transactionId: transaction.id,
+            chargeType: account.accountType === AccountType.PROVIDER_WALLET
+              ? 'PAYOUT_RECONCILIATION' : 'ACCOUNT_RECONCILIATION_FEE',
             sourceAccountId: account.id, providerId: account.providerId,
             calculationType: 'FIXED', amount: amount(feeCents),
-            notes: 'Verified provider fee from statement: ' + reference },
+            notes: 'Verified unrecorded fee from evidence: ' + reference },
         });
       }
       if (remainderCents > 0) entries.push({
         ledgerAccountId: adjustmentLedger!.id,
-        entryType: differenceCents > 0 ? EntryType.CREDIT : EntryType.DEBIT,
+        entryType: accountEntryType === EntryType.DEBIT ? EntryType.CREDIT : EntryType.DEBIT,
         amount: Number(amount(remainderCents)),
-        description: 'Unexplained statement difference: ' + reason,
+        description: 'Owner verified residual account difference: ' + reason,
       });
       await this.ledger.post(
-        tx, transaction.id, actorId, 'Provider wallet balance reconciliation',
+        tx, transaction.id, actorId, 'Owner verified account reconciliation',
         entries, now,
       );
       await tx.auditLog.create({ data: {
         userId: actorId, entityType: 'FINANCIAL_ACCOUNT',
-        entityId: id, action: 'RECONCILE_PROVIDER_WALLET',
+        entityId: id, action: account.accountType === AccountType.PROVIDER_WALLET
+          ? 'RECONCILE_PROVIDER_WALLET' : 'RECONCILE_ACCOUNT',
         oldValues: { balance: actual.toFixed(2) },
         newValues: {
           balance: amount(targetCents).toFixed(2),
@@ -157,6 +197,7 @@ export class WalletReconciliationService {
           confirmedProviderCharges: amount(feeCents).toFixed(2),
           otherAdjustment: amount(remainderCents).toFixed(2),
           statementReference: reference, transactionId: transaction.id,
+          accountType: account.accountType, accountNature: account.accountNature,
         },
         reason,
       } });
