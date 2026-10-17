@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountNature, AccountType, LedgerType, ProviderSettlementStatus, RoleName } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { AccountNature, AccountType, LedgerType, Prisma, ProviderSettlementStatus, RoleName } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateAccountDto } from './dto/create-account.dto.js';
+import { SetOpeningBalanceDto } from './dto/set-opening-balance.dto.js';
 import { UpdateAccountDto } from './dto/update-account.dto.js';
 
 @Injectable()
@@ -25,7 +26,10 @@ export class AccountsService {
     );
   }
 
-  async create(dto: CreateAccountDto, actorId: string) {
+  async create(dto: CreateAccountDto, actorId: string, actorRole: RoleName) {
+    if (actorRole !== RoleName.OWNER && Number(dto.openingBalance ?? 0) !== 0) {
+      throw new ForbiddenException('Only the Owner can set an opening balance');
+    }
     const accountName = dto.accountName.trim();
     if (!accountName) {
       throw new BadRequestException('Account name is required');
@@ -132,6 +136,62 @@ export class AccountsService {
 
       return account;
     });
+  }
+
+  /** Set a genuine start-of-books balance, never a substitute for a cash movement. */
+  async setOpeningBalance(id: string, dto: SetOpeningBalanceDto, actorId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT "id" FROM "FinancialAccount" WHERE "id" = $1 FOR UPDATE',
+        id,
+      );
+      const account = await tx.financialAccount.findUnique({
+        where: { id },
+        include: { ledgerAccount: true },
+      });
+      if (!account?.ledgerAccount) throw new NotFoundException('Account not found');
+
+      const next = new Prisma.Decimal(dto.openingBalance);
+      if (account.openingBalance.equals(next)) return account;
+
+      // Opening figures define the business baseline. Never rewrite one after
+      // any financial activity: it would retroactively alter all reports.
+      const counts = await Promise.all([
+        tx.transaction.count(),
+        tx.cashSession.count(),
+        tx.ledgerEntry.count(),
+        tx.dailyAccountBalance.count(),
+        tx.providerSettlement.count(),
+        tx.customerPayable.count(),
+        tx.customerReceivable.count(),
+      ]);
+      if (counts.some((count) => count > 0)) {
+        throw new BadRequestException(
+          'Opening balances are locked because financial activity has started. Use an audited account movement or reconciliation instead.',
+        );
+      }
+
+      const updated = await tx.financialAccount.update({
+        where: { id },
+        data: { openingBalance: next },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'FINANCIAL_ACCOUNT',
+          entityId: id,
+          action: 'SET_OPENING_BALANCE',
+          oldValues: { openingBalance: account.openingBalance.toString() },
+          newValues: {
+            openingBalance: updated.openingBalance.toString(),
+            accountName: updated.accountName,
+            accountType: updated.accountType,
+          },
+          reason: 'Owner approved initial account opening balance before financial activity',
+        },
+      });
+      return updated;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   async update(id: string, dto: UpdateAccountDto, actorId: string) {

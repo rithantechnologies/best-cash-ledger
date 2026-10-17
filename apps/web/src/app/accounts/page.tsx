@@ -14,7 +14,7 @@ import { apiFetch } from "@/lib/api";
 type Account={
   id:string;accountName:string;accountType:string;accountNature:string;usageType:string;
   bankName:string|null;accountReference:string|null;lastFourDigits:string|null;
-  currentBalance:number;creditLimit:number|null;availableCredit:number|null;isActive:boolean;
+  currentBalance:number;openingBalance?:string|number;creditLimit:number|null;availableCredit:number|null;isActive:boolean;
 };
 type RawAccount=Omit<Account,"currentBalance"|"availableCredit"|"creditLimit"> & {
   openingBalance:string;creditLimit:string|null;
@@ -155,6 +155,7 @@ export default function AccountsPage(){
   const [loading,setLoading]=useState(true),[error,setError]=useState(""),[role,setRole]=useState("");
   const [listType,setListType]=useState("ALL"),[search,setSearch]=useState("");
   const [adding,setAdding]=useState(false),[editing,setEditing]=useState<Account|null>(null),[toggleTarget,setToggleTarget]=useState<Account|null>(null);
+  const [openingTarget,setOpeningTarget]=useState<Account|null>(null),[openingValue,setOpeningValue]=useState("0"),[openingError,setOpeningError]=useState("");
   const [name,setName]=useState(""),[type,setType]=useState("BANK"),[usage,setUsage]=useState("BUSINESS");
   const [opening,setOpening]=useState("0"),[limit,setLimit]=useState(""),[reference,setReference]=useState(""),[last4,setLast4]=useState("");
   const [gatewayName,setGatewayName]=useState(""),[gatewayChargeType,setGatewayChargeType]=useState("PERCENTAGE"),[gatewayRate,setGatewayRate]=useState("");
@@ -296,6 +297,23 @@ export default function AccountsPage(){
       })});
       setEditing(null);await load();
     }catch(err){setError(err instanceof Error?err.message:"Failed to update account");}
+    finally{setSaving(false);}
+  }
+  function beginOpening(account:Account){
+    setOpeningTarget(account);setOpeningValue(String(account.openingBalance??0));setOpeningError("");
+  }
+  async function saveOpening(event:FormEvent){
+    event.preventDefault();if(role!=="OWNER"||!openingTarget)return;
+    if(!/^\d+(?:\.\d{1,2})?$/.test(openingValue.trim())||!Number.isFinite(Number(openingValue))){
+      setOpeningError("Enter a valid positive or zero amount, up to 2 decimal places.");return;
+    }
+    setSaving(true);setOpeningError("");
+    try{
+      await apiFetch("/accounts/"+openingTarget.id+"/opening-balance",{
+        method:"PATCH",body:JSON.stringify({openingBalance:Number(openingValue)}),
+      });
+      setOpeningTarget(null);await load();
+    }catch(err){setOpeningError(err instanceof Error?err.message:"Unable to set opening balance");}
     finally{setSaving(false);}
   }
   async function confirmToggle(){
@@ -440,6 +458,7 @@ export default function AccountsPage(){
                   <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-[var(--text-muted)]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
                 </Link>
 
+                {role==="OWNER"?<button type="button" onClick={()=>beginOpening(account)} className="my-2 mr-2 shrink-0 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 text-[11px] font-bold text-[var(--accent)] hover:bg-[var(--surface-soft)]" aria-label={"Set opening balance for "+account.accountName}>Set opening</button>:null}
                 {admin&&!account.isActive&&account.accountType!=="PROVIDER_WALLET"?<button type="button" onClick={()=>setToggleTarget(account)} className="m-2 ml-0 shrink-0 rounded-xl bg-[var(--surface-soft)] px-3 text-[11px] font-bold text-[var(--accent)]" aria-label={"Reactivate "+account.accountName}>Reactivate</button>:null}
               </div>;
             })}
@@ -447,6 +466,19 @@ export default function AccountsPage(){
         </Surface>
       </section>;
     }):<EmptyState title="No accounts found" description={search||listType!=="ALL"?"Try another search or filter.":"No accounts configured."}/>}
+
+    <AccountModal open={role==="OWNER"&&Boolean(openingTarget)} onClose={()=>{if(!saving){setOpeningTarget(null);setOpeningError("");}}} title="Set opening balance" description={openingTarget?.accountName}>
+      {openingTarget?<form onSubmit={saveOpening} className="space-y-4">
+        <div className="rounded-xl bg-[var(--surface-soft)] p-3.5">
+          <p className="text-xs font-semibold text-[var(--text-muted)]">{openingTarget.accountType==="OWNER_CREDIT_CARD"?"Opening amount outstanding":"Starting account balance"}</p>
+          <p className="money mt-1 text-lg font-black">{money(openingTarget.openingBalance??0)}</p>
+        </div>
+        <label className="block"><span className="mb-1.5 block text-sm font-bold">New opening amount (₹)</span><input type="number" className="app-control" value={openingValue} min="0" max="999999999999.99" step="0.01" inputMode="decimal" onChange={(event)=>{setOpeningValue(event.target.value);setOpeningError("");}} autoFocus required/></label>
+        <p className="text-xs leading-5 text-[var(--text-muted)]">Only for the starting balance, before any transactions or cash sessions. Later cash movements must be recorded as transactions.</p>
+        {openingError?<p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-700">{openingError}</p>:null}
+        <div className="flex gap-2"><button type="button" disabled={saving} onClick={()=>setOpeningTarget(null)} className="app-secondary-button min-h-11 flex-1">Cancel</button><button type="submit" disabled={saving||!openingValue.trim()} className="app-primary-button min-h-11 flex-1">{saving?"Saving…":"Save opening"}</button></div>
+      </form>:null}
+    </AccountModal>
 
     <AccountModal open={adding} onClose={()=>setAdding(false)} title="Add account">
       <form onSubmit={submit} className="space-y-4">
@@ -456,7 +488,7 @@ export default function AccountsPage(){
             <option value="CASH">Cash reserve / drawer</option><option value="BANK">Bank</option><option value="OWNER_CREDIT_CARD">Credit card</option><option value="PROVIDER_WALLET">Payment provider / wallet</option>
           </SearchableSelect></label>
           {type!=="PROVIDER_WALLET"?<><label className="block"><span className="mb-1.5 block text-sm font-semibold">Use</span><SearchableSelect className="app-control" value={usage} onChange={(e)=>setUsage(e.target.value)}><option value="BUSINESS">Business</option><option value="PERSONAL">Personal</option><option value="MIXED">Mixed</option></SearchableSelect></label>
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="OWNER_CREDIT_CARD"?"Opening outstanding":type==="CASH"?"Current physical cash":"Opening balance"}</span><input className="app-control" type="number" min="0" step="0.01" inputMode="decimal" value={opening} onChange={(e)=>setOpening(e.target.value)}/>{type==="CASH"?<span className="mt-1 block text-xs text-[var(--text-muted)]">Enter the cash already held in this reserve/drawer.</span>:null}</label>
+          {role==="OWNER"?<label className="block"><span className="mb-1.5 block text-sm font-semibold">{type==="OWNER_CREDIT_CARD"?"Opening outstanding":type==="CASH"?"Current physical cash":"Opening balance"}</span><input className="app-control" type="number" min="0" step="0.01" inputMode="decimal" value={opening} onChange={(e)=>setOpening(e.target.value)}/>{type==="CASH"?<span className="mt-1 block text-xs text-[var(--text-muted)]">Enter the cash already held in this reserve/drawer.</span>:null}</label>:null}
           {type==="OWNER_CREDIT_CARD"?<label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-semibold">Credit limit</span><input className="app-control" type="number" min="0.01" step="0.01" inputMode="decimal" value={limit} onChange={(e)=>setLimit(e.target.value)} placeholder="Total card limit" required/></label>:null}</>:null}
         </div>
         {type!=="PROVIDER_WALLET"?<details className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3.5 py-3">

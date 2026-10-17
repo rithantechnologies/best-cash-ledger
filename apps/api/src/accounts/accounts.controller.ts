@@ -6,6 +6,7 @@ import { RolesGuard } from '../auth/roles.guard.js';
 import { AccountsService } from './accounts.service.js';
 import { CreateAccountDto } from './dto/create-account.dto.js';
 import { SetAccountActiveDto } from './dto/set-account-active.dto.js';
+import { SetOpeningBalanceDto } from './dto/set-opening-balance.dto.js';
 import { UpdateAccountDto } from './dto/update-account.dto.js';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -21,7 +22,13 @@ export class AccountsController {
   @Post()
   @Roles(RoleName.OWNER, RoleName.ADMIN)
   create(@Body() dto: CreateAccountDto, @Req() req: any) {
-    return this.accounts.create(dto, req.user.userId);
+    return this.accounts.create(dto, req.user.userId, req.user.role);
+  }
+
+  @Patch(':id/opening-balance')
+  @Roles(RoleName.OWNER)
+  setOpeningBalance(@Param('id') id: string, @Body() dto: SetOpeningBalanceDto, @Req() req: any) {
+    return this.accounts.setOpeningBalance(id, dto, req.user.userId);
   }
 
   @Patch(':id')
