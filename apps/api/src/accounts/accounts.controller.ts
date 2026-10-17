@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { RoleName } from '@prisma/client';
@@ -7,6 +7,8 @@ import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { AccountsService } from './accounts.service.js';
 import { AccountImagesService } from './account-images.service.js';
+import { WalletReconciliationService } from './wallet-reconciliation.service.js';
+import { ReconcileWalletDto } from './dto/reconcile-wallet.dto.js';
 import { CreateAccountDto } from './dto/create-account.dto.js';
 import { SetAccountActiveDto } from './dto/set-account-active.dto.js';
 import { SetOpeningBalanceDto } from './dto/set-opening-balance.dto.js';
@@ -15,7 +17,7 @@ import { UpdateAccountDto } from './dto/update-account.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('accounts')
 export class AccountsController {
-  constructor(private readonly accounts: AccountsService, private readonly images: AccountImagesService) {}
+  constructor(private readonly accounts: AccountsService, private readonly images: AccountImagesService, private readonly walletReconciliation: WalletReconciliationService) {}
 
   @Get(':id/image')
   async image(@Param('id') id: string, @Res() response: Response) {
@@ -48,6 +50,18 @@ export class AccountsController {
   @Roles(RoleName.OWNER, RoleName.ADMIN)
   create(@Body() dto: CreateAccountDto, @Req() req: any) {
     return this.accounts.create(dto, req.user.userId, req.user.role);
+  }
+
+  @Get(':id/wallet-reconciliation')
+  @Roles(RoleName.OWNER)
+  previewWalletReconciliation(@Param('id') id: string) {
+    return this.walletReconciliation.preview(id);
+  }
+
+  @Post(':id/wallet-reconciliation')
+  @Roles(RoleName.OWNER)
+  reconcileWallet(@Param('id') id: string, @Body() dto: ReconcileWalletDto, @Req() req: any, @Headers('idempotency-key') key?: string) {
+    return this.walletReconciliation.reconcile(id, dto, req.user.userId, key);
   }
 
   @Patch(':id/opening-balance')
