@@ -48,7 +48,11 @@ done
 [[ "$(curl -sS --max-time 8 -o /dev/null -w '%{http_code}' http://127.0.0.1:4001/api/health)" == '200' ]] ||
  { echo 'REFUSED: client API not healthy before switch'; exit 1; }
 
-echo '1/4 Ensuring staged release is readable by Cash Ledger service account'
+echo '0/5 Creating a fresh verified backup of only the client PostgreSQL database'
+/usr/bin/node --env-file=/etc/cashledger/cashledger.env \
+  "$REPO/ops/backup-client-before-opening-balance-release.cjs" "$expected"
+
+echo '1/5 Ensuring staged release is readable by Cash Ledger service account'
 chown -R cashledger:cashledger "$NEW"
 /usr/bin/node --check "$NEW/api/dist/main.js"
 /usr/bin/node --check "$NEW/web/apps/web/server.js"
