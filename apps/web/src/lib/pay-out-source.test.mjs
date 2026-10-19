@@ -48,3 +48,15 @@ test('does not use a future Pay In for backdated Pay Out', () => {
   assert.equal(suggestedPayOutSource(entries, '', '2026-10-11'), null);
   assert.equal(suggestedPayOutSource(entries, '', ''), null);
 });
+
+test('previous actual payouts can provide an eligible source for a customer with no Pay In', () => {
+  const actualPayouts = [
+    payIn('prior-other-card', 'wallet-other', 'card-2', '2026-10-15T10:00:00.000Z'),
+    payIn('prior-same-card', 'wallet-payswitch', 'card-1', '2026-10-14T09:00:00.000Z'),
+    payIn('future-payout', 'wallet-future', 'card-1', '2026-10-19T10:00:00.000Z'),
+  ];
+  assert.equal(suggestedPayOutSource(actualPayouts, 'card-1', '2026-10-18')?.financialAccountId, 'wallet-payswitch');
+  assert.equal(suggestedPayOutSource(actualPayouts, 'card-2', '2026-10-18')?.financialAccountId, 'wallet-other');
+  assert.equal(suggestedPayOutSource(actualPayouts, 'card-1', '2026-10-13'), null);
+  assert.equal(suggestedPayOutSource(actualPayouts, '', '2026-10-18')?.financialAccountId, 'wallet-other');
+});

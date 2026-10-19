@@ -1647,6 +1647,56 @@ export class CustomersService {
         transactionAt: entry.transaction.transactionAt.toISOString(),
       }));
 
+    // Reuse the actual account debited for an earlier customer payout when
+    // no eligible Pay In exists. Card Swipe itself is not a payout source.
+    // Preserve the original payment/ledger transaction for traceability.
+    const payOutSources = [
+      ...swipes.flatMap(swipe =>
+        (swipe.transaction.payable?.payments ?? []).map(payment => ({
+          financialAccountId: payment.sourceAccountId,
+          accountName: payment.sourceAccount.accountName,
+          accountType: payment.sourceAccount.accountType,
+          customerCardId: swipe.customerCardId,
+          transactionId: payment.transactionId,
+          transactionNumber: payment.transaction.transactionNumber,
+          transactionAt: payment.paymentDate.toISOString(),
+          sourceKind: 'CUSTOMER_PAYOUT' as const,
+        })),
+      ),
+      ...clearings.flatMap(clearing =>
+        clearing.recoveries.flatMap(recovery =>
+          (recovery.transaction.payable?.payments ?? []).map(payment => ({
+            financialAccountId: payment.sourceAccountId,
+            accountName: payment.sourceAccount.accountName,
+            accountType: payment.sourceAccount.accountType,
+            customerCardId: clearing.customerCardId,
+            transactionId: payment.transactionId,
+            transactionNumber: payment.transaction.transactionNumber,
+            transactionAt: payment.paymentDate.toISOString(),
+            sourceKind: 'CUSTOMER_PAYOUT' as const,
+          })),
+        ),
+      ),
+      ...manualEntries
+        .filter(entry =>
+          entry.direction === 'PAY_OUT' &&
+          entry.transaction.status === TransactionStatus.COMPLETED,
+        )
+        .map(entry => ({
+          financialAccountId: entry.financialAccountId,
+          accountName: entry.financialAccount.accountName,
+          accountType: entry.financialAccount.accountType,
+          customerCardId: entry.customerCardId,
+          transactionId: entry.transactionId,
+          transactionNumber: entry.transaction.transactionNumber,
+          transactionAt: entry.transaction.transactionAt.toISOString(),
+          sourceKind: 'PAY_OUT' as const,
+        })),
+    ].sort((a, b) =>
+      new Date(b.transactionAt).getTime() - new Date(a.transactionAt).getTime() ||
+      b.transactionId.localeCompare(a.transactionId),
+    );
+
     const availableAdvances = manualEntries
       .filter(entry =>
         entry.direction === 'PAY_OUT' &&
@@ -1674,6 +1724,7 @@ export class CustomersService {
       },
       availableAdvances,
       payInSources,
+      payOutSources,
       cards: customer.cards.map((card) => ({
         ...card,
         label:

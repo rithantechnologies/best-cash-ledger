@@ -43,7 +43,7 @@ type CardLedgerCard={id:string;bankName:string;lastFourDigits:string;nickname:st
 type CardLedgerRow={id:string;at:string;kind:"CARD_SWIPE"|"CUSTOMER_PAYOUT"|"CARD_DUE_PAYMENT"|"CARD_DUE_RECOVERY"|"PAY_IN"|"PAY_OUT";remarks:string;detail:string;debit:number;credit:number;closingBalance:number;cardId:string|null;cardLabel:string;transactionId:string;transactionNumber:string;referenceNumber:string|null};
 type CardLedgerOpenItem={targetType:"PAYABLE"|"CARD_DUE";targetId:string;sourceKind:"CARD_SWIPE"|"EXCESS_RECOVERY"|"CARD_DUE";transactionId:string;transactionNumber:string;transactionAt:string;dueAt:string;originalAmount:number;remainingAmount:number;cardId:string;cardLabel:string;label:string};
 type Advance={id:string;customerCardId:string|null;amount:number;applied:number;remaining:number;transactionId:string;transactionNumber:string;date:string;source:string};
-type CardLedger={payInSources:PayInSource[];availableAdvances:Advance[];customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;openPayOutItems:CardLedgerOpenItem[];openPayInItems:CardLedgerOpenItem[];totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
+type CardLedger={payInSources:PayInSource[];payOutSources?:PayInSource[];availableAdvances:Advance[];customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;openPayOutItems:CardLedgerOpenItem[];openPayInItems:CardLedgerOpenItem[];totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
 type EditState={kind:"card";item:Card}|{kind:"bank";item:Bank}|{kind:"upi";item:Upi}|{kind:"beneficiary";item:Beneficiary}|{kind:"beneficiaryAccount";item:BAccount}|null;
 type AddKind="bank"|"upi"|"beneficiary"|"beneficiaryAccount"|null;
 type ToggleTarget={path:string;isActive:boolean;label:string}|null;
@@ -286,7 +286,7 @@ function switchView(next:"details"|"activity"){
   setLedgerEntryBusy(true);setLedgerEntryError("");
   try{
    const [payoutKind,payoutId]=ledgerPayoutDestination.split(":");
-   await apiFetch("/customers/"+id+"/card-ledger-entry",{method:"POST",body:JSON.stringify({direction:ledgerEntryDirection,amount,financialAccountId:effectiveLedgerEntryAccountId,physicalCashConfirmed:ledgerIsPhysicalCash?ledgerCashConfirmed:undefined,sourcePayInTransactionId:ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual&&validPayOutSource?payOutSuggestion?.transactionId:undefined,customerCardId:ledgerEntryCardId||undefined,allocations,remarks:ledgerEntryRemarks.trim()||undefined,transactionAt:dateWithCurrentLocalTime(ledgerEntryDate),referenceNumber:ledgerEntryReference.trim()||undefined,notes:ledgerEntryNote.trim()||undefined,...(ledgerEntryDirection==="PAY_OUT"?{payoutDestinationType:payoutKind,payoutDestinationId:payoutId||undefined,payoutDestinationDetails:payoutKind==="OTHER"?ledgerPayoutDetails.trim():undefined}:{})})});
+   await apiFetch("/customers/"+id+"/card-ledger-entry",{method:"POST",body:JSON.stringify({direction:ledgerEntryDirection,amount,financialAccountId:effectiveLedgerEntryAccountId,physicalCashConfirmed:ledgerIsPhysicalCash?ledgerCashConfirmed:undefined,sourcePayInTransactionId:ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual&&validPayOutSource&&payInSuggestion?payInSuggestion.transactionId:undefined,customerCardId:ledgerEntryCardId||undefined,allocations,remarks:ledgerEntryRemarks.trim()||undefined,transactionAt:dateWithCurrentLocalTime(ledgerEntryDate),referenceNumber:ledgerEntryReference.trim()||undefined,notes:ledgerEntryNote.trim()||undefined,...(ledgerEntryDirection==="PAY_OUT"?{payoutDestinationType:payoutKind,payoutDestinationId:payoutId||undefined,payoutDestinationDetails:payoutKind==="OTHER"?ledgerPayoutDetails.trim():undefined}:{})})});
    const success=ledgerEntryDirection==="PAY_IN"?"Pay In recorded.":"Pay Out recorded.";
    resetLedgerEntry();setMessage(success);window.setTimeout(()=>setMessage(""),2500);
    await Promise.all([load(),loadCardLedger(ledgerCardId)]);
@@ -396,7 +396,11 @@ function switchView(next:"details"|"activity"){
  });
  const savedMatchCount=foundCards.length+foundBanks.length+foundUpi.length+foundEb.length+foundAeps.length+foundEsevai.length+foundBeneficiaries.length;
  const ledgerCardLabel=ledgerCardId?(cardLedger?.cards.find(card=>card.id===ledgerCardId)?.label??"Selected card"):"All cards";
- const payOutSuggestion=suggestedPayOutSource(cardLedger?.payInSources??[],ledgerEntryCardId,ledgerEntryDate);
+ const payInSuggestion=suggestedPayOutSource(cardLedger?.payInSources??[],ledgerEntryCardId,ledgerEntryDate);
+ // Never silently bypass a newer but inactive Pay In with an older funding
+ // account: the Owner/Staff must select the real source in that case.
+ const previousPayoutSuggestion=payInSuggestion?null:suggestedPayOutSource(cardLedger?.payOutSources??[],ledgerEntryCardId,ledgerEntryDate);
+ const payOutSuggestion=payInSuggestion??previousPayoutSuggestion;
  const validPayOutSource=payOutSuggestion?ledgerAccounts.find(account=>account.id===payOutSuggestion.financialAccountId):null;
  const payOutSourceAvailable=Boolean(validPayOutSource);
  const effectiveLedgerEntryAccountId=ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual
@@ -644,15 +648,15 @@ function switchView(next:"details"|"activity"){
     </div>
     {ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual&&validPayOutSource&&payOutSuggestion
      ?<div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
-       <div className="flex items-center justify-between gap-2"><span className="text-xs font-black text-emerald-900">Paid from · Auto from Pay In</span><button type="button" onClick={()=>{setLedgerPaidFromManual(true);setLedgerEntryAccountId(payOutSuggestion.financialAccountId);setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="min-h-9 rounded-lg border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-800">Change</button></div>
+       <div className="flex items-center justify-between gap-2"><span className="text-xs font-black text-emerald-900">Paid from · {payInSuggestion?"Previous Pay In":"Previous customer payout"}</span><button type="button" onClick={()=>{setLedgerPaidFromManual(true);setLedgerEntryAccountId(payOutSuggestion.financialAccountId);setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="min-h-9 rounded-lg border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-800">Change</button></div>
        <p className="mt-1 text-base font-black text-emerald-900">{validPayOutSource.accountName} <span className="text-xs font-semibold">· {validPayOutSource.accountType.replaceAll("_"," ")}</span></p>
-       <p className="mt-1 text-[11px] font-medium text-emerald-800">From <Link href={transactionHref(payOutSuggestion.transactionId, "/customers/"+id+"?tab=activity")} className="font-black underline">{payOutSuggestion.transactionNumber}</Link> · {new Date(payOutSuggestion.transactionAt).toLocaleDateString("en-IN")}. This account will be debited.</p>
+       <p className="mt-1 text-[11px] font-medium text-emerald-800">Suggested from <Link href={transactionHref(payOutSuggestion.transactionId, "/customers/"+id+"?tab=activity")} className="font-black underline">{payOutSuggestion.transactionNumber}</Link> · {new Date(payOutSuggestion.transactionAt).toLocaleDateString("en-IN")}. Confirm this is the actual account paying the customer. It will be debited.</p>
       </div>
      :<div className="space-y-1">
        <Field label={ledgerEntryDirection==="PAY_IN"?"Received in (our account)":"Paid from (our account) *"}><SearchableSelect className={control} value={ledgerEntryAccountId} onChange={e=>{setLedgerEntryAccountId(e.target.value);setLedgerCashConfirmed(false);if(ledgerEntryDirection==="PAY_OUT")setLedgerPaidFromManual(true);setLedgerEntryError("");}}><option value="">Choose account…</option>{ledgerAccounts.map(account=><option key={account.id} value={account.id}>{account.accountName+" · "+account.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>
        {ledgerEntryDirection==="PAY_OUT"?<div className="flex items-center justify-between gap-2">
-         <p className="text-[11px] font-semibold text-amber-700">{ledgerPaidFromManual&&validPayOutSource?"Source manually changed.":"Auto source unavailable: choose a source account."}</p>
-         {ledgerPaidFromManual&&validPayOutSource?<button type="button" onClick={()=>{setLedgerPaidFromManual(false);setLedgerEntryAccountId("");setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-xs font-black text-[var(--accent)]">Use Pay In source</button>:null}
+         <p className="text-[11px] font-semibold text-amber-700">{ledgerPaidFromManual&&validPayOutSource?"Source manually changed.":payOutSuggestion?"Previous source account is inactive or unavailable. Choose the actual paying account.":"No eligible Pay In or previous payout found. Choose the actual paying account."}</p>
+         {ledgerPaidFromManual&&validPayOutSource?<button type="button" onClick={()=>{setLedgerPaidFromManual(false);setLedgerEntryAccountId("");setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-xs font-black text-[var(--accent)]">Use suggested source</button>:null}
         </div>:null}
       </div>}
     {ledgerIsPhysicalCash?<div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-950">
