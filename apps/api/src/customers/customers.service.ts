@@ -1627,6 +1627,15 @@ export class CustomersService {
     // Use completed Pay In movements as the only candidates for the
     // Pay Out source suggestion. Never infer a debit account from a swipe,
     // unrelated customer or a reversed entry.
+    // Customer's full card-swiped value must remain visible independently
+    // of customer commission and the net financial liability. These are
+    // display-only totals, not new journal postings.
+    const swipeSummary = {
+      grossSwipe: money(swipes.reduce((sum, row) => sum + Number(row.swipeAmount), 0)),
+      customerCharges: money(swipes.reduce((sum, row) => sum + Number(row.commissionAmount), 0)),
+      netSwipePayable: money(swipes.reduce((sum, row) => sum + Number(row.customerPayableAmount), 0)),
+      swipeCount: swipes.length,
+    };
     const payInSources = manualEntries
       .filter(entry =>
         entry.direction === 'PAY_IN' &&
@@ -1723,6 +1732,7 @@ export class CustomersService {
         mobile: customer.mobile,
       },
       availableAdvances,
+      swipeSummary,
       payInSources,
       payOutSources,
       cards: customer.cards.map((card) => ({

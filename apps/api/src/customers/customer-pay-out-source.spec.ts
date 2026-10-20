@@ -91,6 +91,10 @@ describe('Pay Out source suggestions from Pay In', () => {
     const service = new CustomersService(prisma as never,null as never,null as never,null as never,null as never);
     const result = await service.getCardLedger('customer-1');
     expect(result.payInSources).toHaveLength(0);
+    expect(result.swipeSummary).toEqual({
+      grossSwipe: 4100, customerCharges: 100,
+      netSwipePayable: 4000, swipeCount: 1,
+    });
     expect(result.payOutSources.map(item => item.transactionId)).toContain('payout-tx-1');
     expect(result.payOutSources.map(item => item.transactionId)).toContain('tx-old-out');
     expect(result.payOutSources.map(item => item.transactionId)).not.toContain('swipe-tx-1');

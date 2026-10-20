@@ -281,6 +281,7 @@ export default function CardSwipePage(){
   const [newCardNickname,setNewCardNickname]=useState("");
   const [addingCardBusy,setAddingCardBusy]=useState(false);
   const [amount,setAmount]=useState("");
+  const [reusedSwipeAmount,setReusedSwipeAmount]=useState(false);
   const [providerId,setProviderId]=useState("");
   const [gatewayId,setGatewayId]=useState("");
   const [providerRate,setProviderRate]=useState("0");
@@ -323,6 +324,12 @@ export default function CardSwipePage(){
       apiFetch<Network[]>("/settings/card-networks"),
     ]).then(([c,p,a,t,n])=>{
       setCustomers(c);setProviders(p);setAccounts(a);setTerms(t);setNetworks(n);
+      try {
+        const lastAmount=Number(localStorage.getItem("cashledger_card_last_saved_swipe_amount")||0);
+        if(Number.isFinite(lastAmount)&&lastAmount>0&&lastAmount<=999999999) {
+          setAmount(String(lastAmount));setReusedSwipeAmount(true);
+        }
+      }catch{}
       try{
         const rates=JSON.parse(localStorage.getItem("cashledger_card_commission_recent")||"[]");
         if(Array.isArray(rates))setRecentRates(rates.map(Number).filter(Number.isFinite).slice(0,3));
@@ -584,7 +591,11 @@ export default function CardSwipePage(){
 
   function resetSwipeDetails(openRouting=false){
     const instant=terms.find(term=>term.name.toLowerCase().includes("instant"))??terms.find(term=>term.durationValue===0)??terms[0];
-    setAmount("");
+    let recent=0;
+    try{recent=Number(localStorage.getItem("cashledger_card_last_saved_swipe_amount")||0);}catch{}
+    const useRecent=Number.isFinite(recent)&&recent>0&&recent<=999999999;
+    setAmount(useRecent?String(recent):"");
+    setReusedSwipeAmount(useRecent);
     setProviderId("");
     setGatewayId("");
     setProviderRate("0");
@@ -789,6 +800,7 @@ export default function CardSwipePage(){
       }
       rememberCustomerName(result.createdCustomer?.customer.fullName??customer?.fullName??quickName);
       savePreferences(preferenceCustomerId,result.createdCustomer?.card.id||cardId);
+      try{localStorage.setItem("cashledger_card_last_saved_swipe_amount",String(swipe));}catch{}
       setSaved(result);
       window.scrollTo({top:0,behavior:"smooth"});
     }catch(err){setError(err instanceof Error?err.message:"Failed to save swipe");}
@@ -797,7 +809,8 @@ export default function CardSwipePage(){
 
   function repeatSwipe(){
     setSaved(null);
-    setAmount("");
+    setAmount(swipe>0?String(swipe):"");
+    setReusedSwipeAmount(swipe>0);
     setSettledNow(true);
     setRecordCustomerPayment(false);
     setPayoutTouched(false);
@@ -923,8 +936,9 @@ export default function CardSwipePage(){
           <section className="entry-section entry-section-amount">
             <div>
               <div className="flex items-center justify-between gap-3"><h2 className="entry-title">Swipe amount</h2><span className="currency-badge">₹ INR</span></div>
-              <div className="relative mt-2"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-[var(--text-muted)]">₹</span><input className="entry-amount-input" type="text" inputMode="decimal" value={formatAmountInput(amount)} onChange={e=>setAmount(cleanAmountInput(e.target.value))} placeholder="0" required/></div>
+              <div className="relative mt-2"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-[var(--text-muted)]">₹</span><input className="entry-amount-input" type="text" inputMode="decimal" value={formatAmountInput(amount)} onChange={e=>{setAmount(cleanAmountInput(e.target.value));setReusedSwipeAmount(false);}} placeholder="0" required/></div>
               <p className="mt-1.5 truncate text-xs font-medium text-[var(--text-muted)]">{amountWords||"Enter swipe amount"}</p>
+              {reusedSwipeAmount?<p className="mt-1 text-xs font-semibold text-indigo-700">Last saved gross swipe amount suggested · confirm or edit before saving</p>:null}
             </div>
             <div className="mt-4 border-t border-[var(--border)] pt-3">
               <div className="flex items-center justify-between gap-3"><h3 className="operational-label">Payment term</h3>{instantTerm?<span className="status-chip status-chip-blue">Due now</span>:customPayment&&customPaymentDate?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(customPaymentDate+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:selectedTerm?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(dueAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:customPayment?<span className="text-xs font-semibold text-[var(--text-muted)]">Choose date</span>:null}</div>
