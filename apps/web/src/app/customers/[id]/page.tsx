@@ -266,7 +266,12 @@ function switchView(next:"details"|"activity"){
    ? cardLedger?.openPayOutItems.find(item=>!ledgerCardId||item.cardId===ledgerCardId)
    : null;
   const nextAmount=nextPayable?String(nextPayable.remainingAmount):"";
-  setLedgerPayoutDestination("");setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerCashConfirmed(false);setLedgerEntryDirection(direction);setLedgerEntryAmount(nextAmount);setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(nextPayable?.cardId??ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerAllocations(nextAmount?suggestedLedgerAllocations(nextAmount,direction,nextPayable?.cardId??ledgerCardId):{});setLedgerEntryError("");
+  // An only active customer bank account is an unambiguous default.
+  // Never guess when multiple accounts are saved; staff can always change it.
+  const activeCustomerBanks=c?.bankAccounts.filter(account=>account.isActive)??[];
+  const defaultPayoutDestination=direction==="PAY_OUT"&&activeCustomerBanks.length===1
+   ?"BANK:"+activeCustomerBanks[0].id:"";
+  setLedgerPayoutDestination(defaultPayoutDestination);setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerCashConfirmed(false);setLedgerEntryDirection(direction);setLedgerEntryAmount(nextAmount);setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(nextPayable?.cardId??ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerAllocations(nextAmount?suggestedLedgerAllocations(nextAmount,direction,nextPayable?.cardId??ledgerCardId):{});setLedgerEntryError("");
  }
  function matchingLedgerItems(direction=ledgerEntryDirection,cardId=ledgerEntryCardId){
   const items=direction==="PAY_IN"?(cardLedger?.openPayInItems??[]):(cardLedger?.openPayOutItems??[]);
