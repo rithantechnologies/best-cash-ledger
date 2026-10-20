@@ -8,7 +8,7 @@ import { EmptyState, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, 
 import { apiFetch } from "@/lib/api";
 import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 import { MoneyFlowIcon } from "@/components/money-flow-icon";
-import { transactionParticulars } from "@/lib/transaction-particulars";
+import { isCashOutTransaction, transactionParticulars } from "@/lib/transaction-particulars";
 
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
@@ -55,6 +55,8 @@ const DESKTOP_COLUMN_META:Record<DesktopColumnKey,{label:string;width:number;rig
  dueDate:{label:"Due date",width:115},status:{label:"Status",width:150},
 };
 const SORTABLE_DESKTOP_COLUMNS:Partial<Record<DesktopColumnKey,string>>={transactionId:"transactionNumber",date:"transactionAt",service:"transactionType",processed:"grossAmount",net:"netAmount",status:"status"};
+const CASH_OUT_ROW = "bg-[color-mix(in_srgb,var(--money-out)_13%,var(--surface))] hover:bg-[color-mix(in_srgb,var(--money-out)_20%,var(--surface))]";
+const CASH_OUT_STICKY_CELL = "lg:sticky lg:z-10 bg-[color-mix(in_srgb,var(--money-out)_13%,var(--surface))] group-hover:bg-[color-mix(in_srgb,var(--money-out)_20%,var(--surface))]";
 const txHref=(tx:Tx)=>tx.transactionType==="CARD_DUE_CLEARING"?"/transactions/card-due-clearing?id="+tx.id:"/transactions/"+tx.id;
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
 const providerIncome=(tx:Tx)=>tx.commissions.filter(c=>c.commissionType.endsWith("_PROVIDER")).reduce((a,x)=>a+Number(x.amount),0);
@@ -388,17 +390,18 @@ export default function TransactionsPage(){
   {error?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
   {loading?<PageLoader label="Loading transactions…"/>:<>
    <div className="space-y-4 md:hidden">
-    {[...grouped.entries()].map(([day,rows])=><section key={day}><div className="sticky top-15 z-10 mb-1.5 bg-[var(--bg)] py-1 text-xs font-semibold text-[var(--text-muted)]">{day}</div><Surface className="overflow-hidden"><div className="divide-y divide-[var(--border)]">{rows.map(tx=>{const context=activityContext(tx),direction=activityDirection(tx),source=settlementSource(tx);return <Link key={tx.id} href={txHref(tx)} className="block px-4 py-3.5 hover:bg-[var(--surface-soft)]">
+    {[...grouped.entries()].map(([day,rows])=><section key={day}><div className="sticky top-15 z-10 mb-1.5 bg-[var(--bg)] py-1 text-xs font-semibold text-[var(--text-muted)]">{day}</div><Surface className="overflow-hidden"><div className="divide-y divide-[var(--border)]">{rows.map(tx=>{const context=activityContext(tx),direction=activityDirection(tx),source=settlementSource(tx),cashOut=isCashOutTransaction(tx);return <Link key={tx.id} href={txHref(tx)} className={"block px-4 py-3.5 "+(cashOut?"border-l-4 border-l-[var(--money-out)] "+CASH_OUT_ROW:"hover:bg-[var(--surface-soft)]")}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-black leading-5">{context.title}</p>
+          <p className={"text-sm font-black leading-5 "+(cashOut?"text-[var(--money-out)]":"")}>{context.title}</p>
+          {cashOut?<span className="mt-1 inline-block rounded-md bg-[color-mix(in_srgb,var(--money-out)_14%,transparent)] px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[var(--money-out)]">Cash Out</span>:null}
           {displayServiceDetail(tx)?<p className="mt-0.5 text-xs leading-4 text-[var(--text-muted)]">{displayServiceDetail(tx)}</p>:null}
           <div className="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">
             <p className="truncate">{tx.transactionNumber} · {new Date(tx.transactionAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · {displayUser(tx)}</p>
             {source||tx.transactionType==="SERVICE_INCOME"?<p className="mt-0.5 line-clamp-2"><span className="font-semibold text-[var(--text)]">Received in:</span> {sourceContext(tx)}</p>:null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">{direction?<MoneyFlowIcon direction={direction}/>:null}<p className={"money text-sm font-black "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</p></div>
+        <div className="flex shrink-0 items-center gap-2">{direction?<MoneyFlowIcon direction={direction}/>:null}<p className={"money text-sm font-black "+(cashOut||direction==="OUT"?"text-[var(--money-out)]":direction==="IN"?"text-[var(--money-in)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</p></div>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:null}</div>
     </Link>})}</div></Surface></section>)}
@@ -413,15 +416,15 @@ export default function TransactionsPage(){
        {sortKey?<button type="button" onClick={()=>changeSort(key)} className={"inline-flex items-center gap-1 font-bold uppercase tracking-wide hover:text-[var(--text)] "+(meta.right?"ml-auto":"")}>{meta.label}{sortBy===sortKey?<span aria-hidden>{sortDir==="asc"?"↑":"↓"}</span>:null}</button>:meta.label}
       </th>;
     })}</tr></thead>
-    <tbody>{items.map(tx=>{const providerFees=sum(tx.charges.filter(charge=>charge.chargeType!=="SERVICE_PARTNER_COST")),customerCommission=customerCommissionIncome(tx),providerEarn=providerIncome(tx),service=serviceRevenue(tx),partnerCost=tx.transactionType==="SERVICE_INCOME"?Number(tx.quickCashTransfer?.servicePartnerCharge??0):0,netServiceEarning=service-partnerCost,income=customerCommission+providerEarn+service,profit=income-providerFees-partnerCost,direction=activityDirection(tx),source=settlementSource(tx),mStatus=moneyStatus(tx);
+    <tbody>{items.map(tx=>{const providerFees=sum(tx.charges.filter(charge=>charge.chargeType!=="SERVICE_PARTNER_COST")),customerCommission=customerCommissionIncome(tx),providerEarn=providerIncome(tx),service=serviceRevenue(tx),partnerCost=tx.transactionType==="SERVICE_INCOME"?Number(tx.quickCashTransfer?.servicePartnerCharge??0):0,netServiceEarning=service-partnerCost,income=customerCommission+providerEarn+service,profit=income-providerFees-partnerCost,direction=activityDirection(tx),source=settlementSource(tx),mStatus=moneyStatus(tx),cashOut=isCashOutTransaction(tx);
       const content=(key:DesktopColumnKey)=>{
-       if(key==="transactionId")return <Link className="font-bold text-[var(--accent)] whitespace-nowrap" href={txHref(tx)}>{tx.transactionNumber}</Link>;
+       if(key==="transactionId")return <Link className={"font-bold whitespace-nowrap "+(cashOut?"text-[var(--money-out)]":"text-[var(--accent)]")} href={txHref(tx)}>{tx.transactionNumber}</Link>;
        if(key==="date")return <span className="text-xs whitespace-nowrap">{new Date(tx.transactionAt).toLocaleString("en-IN")}</span>;
-       if(key==="service")return <><span className="flex min-w-0 items-start gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span className="min-w-0 break-words font-medium leading-5">{displayService(tx)}{displayServiceDetail(tx)?<span className="mt-0.5 block text-[11px] font-normal leading-4 text-[var(--text-muted)]">{displayServiceDetail(tx)}</span>:null}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold leading-4 text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</>;
+       if(key==="service")return <><span className="flex min-w-0 items-start gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span className={"min-w-0 break-words font-medium leading-5 "+(cashOut?"text-[var(--money-out)]":"")}>{displayService(tx)}{displayServiceDetail(tx)?<span className="mt-0.5 block text-[11px] font-normal leading-4 text-[var(--text-muted)]">{displayServiceDetail(tx)}</span>:null}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold leading-4 text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</>;
        if(key==="customer")return <span className="block break-words font-semibold">{displayCustomer(tx)}</span>;
        if(key==="source")return source||tx.transactionType==="SERVICE_INCOME"?<span className="block whitespace-normal break-words text-xs leading-5 text-[var(--text)]">{sourceContext(tx)}</span>:<span className="text-[var(--text-muted)]">—</span>;
        if(key==="user")return <span className="text-xs font-semibold whitespace-nowrap">{displayUser(tx)}</span>;
-       if(key==="processed")return <span className={"money font-semibold whitespace-nowrap "+(direction==="IN"?"text-[var(--money-in)]":direction==="OUT"?"text-[var(--money-out)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</span>;
+       if(key==="processed")return <span className={"money font-semibold whitespace-nowrap "+(cashOut||direction==="OUT"?"text-[var(--money-out)]":direction==="IN"?"text-[var(--money-in)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</span>;
        if(key==="customerFee")return <span className="money font-bold text-[var(--money-in)] whitespace-nowrap">{customerCommission?"+"+money(customerCommission):"—"}</span>;
        if(key==="providerIncome")return <span className="money font-bold text-[var(--money-in)] whitespace-nowrap">{providerEarn?"+"+money(providerEarn):"—"}</span>;
        if(key==="serviceIncome")return <span className="money font-bold text-[var(--money-in)] whitespace-nowrap">{service?"+"+money(service):"—"}</span>;
@@ -435,7 +438,7 @@ export default function TransactionsPage(){
        if(key==="dueDate")return <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{mStatus?.dueAt?new Date(mStatus.dueAt).toLocaleDateString("en-IN"):"—"}</span>;
        return <StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>;
       };
-      return <tr key={tx.id} className="group border-t border-[var(--border)] align-top hover:bg-[var(--surface-soft)]">{desktopColumns.map((key,index)=>{const meta=DESKTOP_COLUMN_META[key],sticky=index<4;return <td key={key} style={sticky?{left:desktopStickyLefts[index]}:undefined} className={"px-3 py-3 "+(meta.right?"text-right ":"")+(sticky?"lg:sticky lg:z-10 bg-[var(--surface)] group-hover:bg-[var(--surface-soft)] ":"")}>{content(key)}</td>;})}</tr>;
+      return <tr key={tx.id} className={"group border-t align-top "+(cashOut?"border-l-4 border-l-[var(--money-out)] border-t-[color-mix(in_srgb,var(--money-out)_25%,var(--border))] "+CASH_OUT_ROW:"border-[var(--border)] hover:bg-[var(--surface-soft)]")}>{desktopColumns.map((key,index)=>{const meta=DESKTOP_COLUMN_META[key],sticky=index<4;return <td key={key} style={sticky?{left:desktopStickyLefts[index]}:undefined} className={"px-3 py-3 "+(meta.right?"text-right ":"")+(sticky?(cashOut?CASH_OUT_STICKY_CELL+" ":"lg:sticky lg:z-10 bg-[var(--surface)] group-hover:bg-[var(--surface-soft)] "):"")}>{content(key)}</td>;})}</tr>;
     })}</tbody>
    </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="transaction" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>

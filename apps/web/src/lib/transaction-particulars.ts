@@ -61,3 +61,17 @@ export function transactionParticulars(tx: ParticularsTransaction): { title: str
   }
   return { title: readable(tx.transactionType), detail: null };
 }
+
+
+/**
+ * Highlight rows where cash is actually paid out, not every outward bank
+ * movement. Quick Cash's explicit direction is authoritative; standalone
+ * withdrawal modules also hand physical cash to the customer.
+ * This is presentation-only: no amounts or ledger classifications change.
+ */
+export function isCashOutTransaction(tx: ParticularsTransaction): boolean {
+  if (tx.quickCashTransfer) {
+    return tx.quickCashTransfer.purpose === 'TRANSFER' && tx.quickCashTransfer.direction === 'OUT';
+  }
+  return ['AEPS_WITHDRAWAL', 'MICRO_ATM', 'ATM_WITHDRAWAL'].includes(tx.transactionType);
+}

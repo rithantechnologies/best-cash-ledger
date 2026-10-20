@@ -9,7 +9,7 @@ const source = readFileSync(new URL('./transaction-particulars.ts', import.meta.
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { transactionParticulars } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { transactionParticulars, isCashOutTransaction } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 const quick = (direction, extra = {}) => ({
   transactionType: 'CASH_TRANSFER',
   quickCashTransfer: { direction, purpose: 'TRANSFER', serviceName: null, cashOutType: 'UPI_QR', beneficiaryMode: null, ...extra },
@@ -51,4 +51,24 @@ test('service income stays named and unknown transfers do not claim a specific p
     title: 'Aadhaar Lamination', detail: null,
   });
   assert.deepEqual(transactionParticulars({ transactionType: 'CASH_TRANSFER' }), { title: 'Cash Transfer', detail: null });
+});
+
+
+test('Cash Out row highlighting follows saved transaction direction and withdrawal type', () => {
+  assert.equal(isCashOutTransaction(quick('OUT')), true);
+  assert.equal(isCashOutTransaction(quick('OUT', {cashOutType:'AEPS'})), true);
+  assert.equal(isCashOutTransaction(quick('OUT', {cashOutType:'MICRO_ATM'})), true);
+  assert.equal(isCashOutTransaction({transactionType:'AEPS_WITHDRAWAL'}), true);
+  assert.equal(isCashOutTransaction({transactionType:'MICRO_ATM'}), true);
+  assert.equal(isCashOutTransaction({transactionType:'ATM_WITHDRAWAL'}), true);
+  assert.equal(isCashOutTransaction(quick('IN')), false);
+  assert.equal(isCashOutTransaction(quick('IN', {beneficiaryMode:'UPI'})), false);
+  assert.equal(isCashOutTransaction({
+    transactionType:'SERVICE_INCOME', quickCashTransfer:{
+      purpose:'SERVICE',direction:'OUT',serviceName:'PAN Card',
+    },
+  }), false);
+  assert.equal(isCashOutTransaction({transactionType:'INTERNAL_TRANSFER'}), false);
+  assert.equal(isCashOutTransaction({transactionType:'CASH_TRANSFER'}), false);
+  assert.equal(isCashOutTransaction({transactionType:'CUSTOMER_PAYOUT'}), false);
 });
