@@ -141,6 +141,16 @@ export default function TransactionsPage(){
   return apiFetch<Paged>("/transactions?"+params.toString()).then(r=>{setItems(r.items);setPagination(r.pagination);setAggregates(r.aggregates);setError("");}).finally(()=>setLoading(false));
  }
  useEffect(()=>{const initial=new URLSearchParams(window.location.search).get("type");if(!initial)return;const timer=window.setTimeout(()=>setType(initial),0);return()=>window.clearTimeout(timer);},[]);
+ useEffect(()=>{
+  if(!desktopFiltersOpen&&!columnsOpen&&!mobileFiltersOpen)return;
+  const closeOnEscape=(event:KeyboardEvent)=>{
+   // Let an open SearchableSelect dismiss itself first.
+   if(event.key!=="Escape"||event.defaultPrevented)return;
+   setDesktopFiltersOpen(false);setColumnsOpen(false);setMobileFiltersOpen(false);
+  };
+  document.addEventListener("keydown",closeOnEscape);
+  return()=>document.removeEventListener("keydown",closeOnEscape);
+ },[desktopFiltersOpen,columnsOpen,mobileFiltersOpen]);
  useEffect(()=>{const timer=setTimeout(()=>load(1).catch(e=>setError(e instanceof Error?e.message:"Failed to load transactions")),160);return()=>clearTimeout(timer);},[q,type,status,moneyStatusFilter,range,pagination.pageSize,sortBy,sortDir]);
  useEffect(()=>{
   const timer=window.setTimeout(()=>{
@@ -182,13 +192,20 @@ export default function TransactionsPage(){
   <Surface className="p-3 md:hidden">
    <div className="flex gap-2">
     <input name="cashledger_search_transactions" autoComplete="on" className="app-control min-w-0 flex-1" placeholder="Search transactions" value={q} onChange={e=>setQ(e.target.value)}/>
-    <button type="button" onClick={()=>setMobileFiltersOpen(v=>!v)} className={"min-h-11 shrink-0 rounded-xl border px-3 text-xs font-bold transition "+(mobileFiltersOpen?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] bg-[var(--surface)] text-[var(--text)]")}>Filters{activeFilterCount?" ("+activeFilterCount+")":""}</button>
+    <button type="button" aria-expanded={mobileFiltersOpen} aria-controls="mobile-transaction-filters" onClick={()=>setMobileFiltersOpen(v=>!v)} className={"min-h-11 shrink-0 rounded-xl border px-3 text-xs font-bold transition "+(mobileFiltersOpen?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] bg-[var(--surface)] text-[var(--text)]")}>Filters{activeFilterCount?" ("+activeFilterCount+")":""}</button>
    </div>
-   {mobileFiltersOpen?<div className="mt-2 grid gap-2">
-    <SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All services</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","SERVICE_INCOME","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","ACCOUNT_ENTRY","CUSTOMER_LEDGER_ENTRY","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect>
-    <SearchableSelect className="app-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All transaction statuses</option>{["PENDING","PARTIALLY_PAID","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect>
-    <SearchableSelect className="app-control" value={moneyStatusFilter} onChange={e=>setMoneyStatusFilter(e.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</SearchableSelect>
-    {(type||status||moneyStatusFilter)?<button type="button" onClick={()=>{setType("");setStatus("");setMoneyStatusFilter("");}} className="min-h-10 rounded-xl text-xs font-bold text-[var(--accent)]">Clear filters</button>:null}
+   {mobileFiltersOpen?<div id="mobile-transaction-filters" className="mt-3 grid gap-3 border-t border-[var(--border)] pt-3">
+    <div className="flex items-center justify-between gap-2"><div><p className="text-sm font-black">Filter transactions</p><p className="text-[11px] text-[var(--text-muted)]">Filters update the list automatically</p></div><button type="button" aria-label="Close transaction filters" onClick={()=>setMobileFiltersOpen(false)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--border)] text-xl font-bold">×</button></div>
+    <label className="block text-xs font-semibold">Service</label>
+    <SearchableSelect mobileSheet aria-label="Filter by service" className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All services</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","SERVICE_INCOME","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","ACCOUNT_ENTRY","CUSTOMER_LEDGER_ENTRY","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect>
+    <label className="block text-xs font-semibold">Transaction status</label>
+    <SearchableSelect mobileSheet aria-label="Filter by transaction status" className="app-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All transaction statuses</option>{["PENDING","PARTIALLY_PAID","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect>
+    <label className="block text-xs font-semibold">Payout / Pay-in</label>
+    <SearchableSelect mobileSheet aria-label="Filter by payout or pay-in" className="app-control" value={moneyStatusFilter} onChange={e=>setMoneyStatusFilter(e.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</SearchableSelect>
+    <div className="grid grid-cols-2 gap-2 pt-1">
+     <button type="button" onClick={clearFilters} className="min-h-11 rounded-xl border border-[var(--border)] text-xs font-bold">Reset filters</button>
+     <button type="button" onClick={()=>setMobileFiltersOpen(false)} className="min-h-11 rounded-xl bg-[var(--accent)] text-xs font-black text-white">Show results</button>
+    </div>
    </div>:null}
   </Surface>
   <Surface className="relative z-30 hidden overflow-visible p-3 md:block">
@@ -204,24 +221,29 @@ export default function TransactionsPage(){
       </div>
      </div>:null}
     </div>
-    <button type="button" onClick={()=>{setDesktopFiltersOpen(v=>!v);setColumnsOpen(false);setDesktopSearchOpen(false);}} className={"min-h-11 rounded-xl border px-4 text-sm font-bold transition "+(desktopFiltersOpen?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] hover:bg-[var(--surface-soft)]")}>Filters{activeFilterCount?" ("+activeFilterCount+")":""}</button>
-    <button type="button" onClick={()=>{setColumnsOpen(v=>!v);setDesktopFiltersOpen(false);setDesktopSearchOpen(false);}} className={"min-h-11 rounded-xl border px-4 text-sm font-bold transition "+(columnsOpen?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] hover:bg-[var(--surface-soft)]")}>Columns · {desktopColumns.length}/{DEFAULT_DESKTOP_COLUMNS.length}</button>
+    <button type="button" aria-expanded={desktopFiltersOpen} aria-controls="desktop-transaction-filters" onClick={()=>{setDesktopFiltersOpen(v=>!v);setColumnsOpen(false);setDesktopSearchOpen(false);}} className={"min-h-11 rounded-xl border px-4 text-sm font-bold transition "+(desktopFiltersOpen?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] hover:bg-[var(--surface-soft)]")}>Filters{activeFilterCount?" ("+activeFilterCount+")":""}</button>
+    <button type="button" aria-expanded={columnsOpen} aria-controls="desktop-transaction-columns" onClick={()=>{setColumnsOpen(v=>!v);setDesktopFiltersOpen(false);setDesktopSearchOpen(false);}} className={"min-h-11 rounded-xl border px-4 text-sm font-bold transition "+(columnsOpen?"border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]":"border-[var(--border)] hover:bg-[var(--surface-soft)]")}>Columns · {desktopColumns.length}/{DEFAULT_DESKTOP_COLUMNS.length}</button>
     {(q||activeFilterCount)?<button type="button" onClick={clearFilters} className="min-h-11 rounded-xl px-3 text-sm font-semibold text-[var(--text-muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--text)]">Clear</button>:null}
    </div>
-   {desktopFiltersOpen?<div className="absolute right-3 top-[calc(100%+.45rem)] z-[80] w-[min(760px,calc(100vw-3rem))] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[0_22px_60px_rgba(15,23,42,.20)]">
-    <div className="mb-3 flex items-center justify-between"><div><p className="text-sm font-black">Filter transactions</p><p className="text-[11px] text-[var(--text-muted)]">Narrow the full transaction list.</p></div><button type="button" onClick={clearFilters} className="rounded-lg px-3 py-2 text-xs font-bold text-[var(--accent)] hover:bg-[var(--accent-soft)]">Clear filters</button></div>
+   {desktopFiltersOpen?<div id="desktop-transaction-filters" className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+    <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-sm font-black">Filter transactions</p><p className="text-[11px] text-[var(--text-muted)]">Choose filters below. Results update automatically.</p></div><button type="button" aria-label="Close transaction filters" onClick={()=>setDesktopFiltersOpen(false)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xl font-bold">×</button></div>
     <div className="mb-3"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Date</p><div className="grid grid-cols-4 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">{([["today","Today"],["yesterday","Yesterday"],["week","7 days"],["all","All"]] as [Range,string][]).map(([v,l])=><button key={v} type="button" onClick={()=>setRange(v)} className={"min-h-9 rounded-lg px-2 text-xs font-bold "+(range===v?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)] hover:text-[var(--text)]")}>{l}</button>)}</div></div>
     <div className="grid gap-3 lg:grid-cols-3">
      <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Service</p><SearchableSelect className="app-control" value={type} onChange={e=>setType(e.target.value)}><option value="">All services</option>{["CARD_SWIPE","CARD_DUE_CLEARING","CARD_DUE_RECOVERY","CARD_DUE_COMMISSION_COLLECTION","CASH_TRANSFER","AEPS_WITHDRAWAL","MICRO_ATM","SERVICE_INCOME","CUSTOMER_PAYOUT","CUSTOMER_RECEIPT","INTERNAL_TRANSFER","ACCOUNT_ENTRY","CUSTOMER_LEDGER_ENTRY","BUSINESS_EXPENSE","PERSONAL_EXPENSE","ATM_WITHDRAWAL","OWNER_CC_PAYMENT","REVERSAL"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect></div>
      <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Transaction status</p><SearchableSelect className="app-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_PAID","COMPLETED","CANCELLED","REVERSED"].map(x=><option key={x} value={x}>{label(x)}</option>)}</SearchableSelect></div>
      <div><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payout / Pay-in</p><SearchableSelect className="app-control" value={moneyStatusFilter} onChange={e=>setMoneyStatusFilter(e.target.value)}><option value="">All payout / pay-in</option>{moneyStatusOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</SearchableSelect></div>
     </div>
+    <div className="mt-4 flex items-center justify-end gap-2 border-t border-[var(--border)] pt-3">
+     <button type="button" onClick={clearFilters} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-xs font-bold">Reset filters</button>
+     <button type="button" onClick={()=>setDesktopFiltersOpen(false)} className="min-h-10 rounded-xl bg-[var(--accent)] px-5 text-xs font-black text-white">Done · Show results</button>
+    </div>
    </div>:null}
-   {columnsOpen?<div className="absolute right-3 top-[calc(100%+.45rem)] z-[80] w-[min(720px,calc(100vw-3rem))] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[0_22px_60px_rgba(15,23,42,.20)]">
-    <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-sm font-black">Desktop columns</p><p className="text-[11px] text-[var(--text-muted)]">Choose columns and drag them to change order.</p></div><button type="button" onClick={resetDesktopColumns} className="rounded-lg px-3 py-2 text-xs font-bold text-[var(--accent)] hover:bg-[var(--accent-soft)]">Reset default</button></div>
+   {columnsOpen?<div id="desktop-transaction-columns" className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+    <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-sm font-black">Desktop columns</p><p className="text-[11px] text-[var(--text-muted)]">Choose columns and drag them to change order.</p></div><div className="flex items-center gap-2"><button type="button" onClick={resetDesktopColumns} className="rounded-lg px-3 py-2 text-xs font-bold text-[var(--accent)] hover:bg-[var(--accent-soft)]">Reset default</button><button type="button" onClick={()=>setColumnsOpen(false)} aria-label="Close column settings" className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xl font-bold">×</button></div></div>
     <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">{desktopColumnOrder.map(key=><label key={key} draggable onDragStart={()=>setDraggedColumn(key)} onDragEnd={()=>setDraggedColumn(null)} onDragOver={e=>e.preventDefault()} onDrop={()=>{if(draggedColumn)moveDesktopColumn(draggedColumn,key);setDraggedColumn(null);}} className={"flex cursor-grab items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm "+(draggedColumn===key?"opacity-50":"")}>
       <span className="select-none text-[var(--text-muted)]">⋮⋮</span><input type="checkbox" checked={desktopVisibleColumns.includes(key)} disabled={LOCKED_DESKTOP_COLUMNS.has(key)} onChange={()=>toggleDesktopColumn(key)}/><span className="min-w-0 flex-1 font-semibold">{DESKTOP_COLUMN_META[key].label}</span>{LOCKED_DESKTOP_COLUMNS.has(key)?<span className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Fixed</span>:null}
     </label>)}</div>
+    <div className="mt-4 flex justify-end border-t border-[var(--border)] pt-3"><button type="button" onClick={()=>setColumnsOpen(false)} className="min-h-10 rounded-xl bg-[var(--accent)] px-5 text-xs font-black text-white">Done</button></div>
    </div>:null}
   </Surface>
 
