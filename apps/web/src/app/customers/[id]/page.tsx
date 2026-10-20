@@ -284,6 +284,7 @@ function switchView(next:"details"|"activity"){
   if(!effectiveLedgerEntryAccountId){setLedgerEntryError(ledgerEntryDirection==="PAY_IN"?"Choose Received in (our account) before saving.":"Choose Paid from (our account) before saving. No prior funding account was confirmed for this customer; select the bank, wallet or cash drawer actually making this payout.");return;}
   if(ledgerIsPhysicalCash&&!ledgerCashConfirmed){setLedgerEntryError("Confirm physical cash was actually received or handed over. Credit-card swipes must use Card Swipe instead.");return;}
   if(ledgerCashDestinationMismatch){setLedgerEntryError("Cash drawer payouts must be handed over in cash. For bank or UPI transfers, choose the real bank or wallet as Paid from.");return;}
+  if(ledgerNonCashSourceCashDestinationMismatch){setLedgerEntryError("Cash handed to customer must be paid from an actual cash drawer, not a bank or wallet. Record any wallet-to-drawer transfer separately first.");return;}
   if(ledgerEntryDirection==="PAY_OUT"&&!ledgerPayoutDestination){setLedgerEntryError("Choose where the customer received this payout.");return;}
   if(ledgerEntryDirection==="PAY_OUT"&&ledgerPayoutDestination==="OTHER"&&!ledgerPayoutDetails.trim()){setLedgerEntryError("Enter who received the payout or the destination details.");return;}
   if(!ledgerEntryDate){setLedgerEntryError("Choose the entry date.");return;}
@@ -451,6 +452,8 @@ function switchView(next:"details"|"activity"){
    :ledgerEntryAccountId;
  const ledgerIsPhysicalCash=ledgerAccounts.some(account=>account.id===effectiveLedgerEntryAccountId&&account.accountType==="CASH");
  const ledgerCashDestinationMismatch=ledgerIsPhysicalCash&&ledgerEntryDirection==="PAY_OUT"&&!!ledgerPayoutDestination&&ledgerPayoutDestination!=="CASH";
+ const ledgerNonCashSourceCashDestinationMismatch=ledgerEntryDirection==="PAY_OUT"&&!!effectiveLedgerEntryAccountId&&!ledgerIsPhysicalCash&&ledgerPayoutDestination==="CASH";
+ const selectedManualPayOutAccount=ledgerPaidFromManual?ledgerAccounts.find(account=>account.id===ledgerEntryAccountId):null;
  const ledgerEntryValue=Number(ledgerEntryAmount)||0;
  const ledgerEntryStartingBalance=ledgerEntryCardId?(cardLedger?.rows.filter(row=>row.cardId===ledgerEntryCardId).reduce((sum,row)=>sum+row.credit-row.debit,0)??0):Number(cardLedger?.totals.balance??0);
  const ledgerEntryStartingLabel=ledgerEntryStartingBalance>0.001?"Pay to customer":ledgerEntryStartingBalance<-.001?"Customer to pay us":"Settled";
@@ -649,7 +652,7 @@ function switchView(next:"details"|"activity"){
      {esevaiCatalog.map(row=><option key={row.id} value={row.name}>{row.name}</option>)}
      {esevaiTarget?.serviceName&&!esevaiCatalog.some(row=>row.name===esevaiTarget.serviceName)?<option value={esevaiTarget.serviceName}>{esevaiTarget.serviceName} (previously saved)</option>:null}
     </SearchableSelect></Field>
-    {esevaiCatalogStatus==="error"?<p role="alert" className="text-xs text-rose-700">Couldn't load services. Close and reopen to retry.</p>:esevaiCatalogStatus==="loaded"&&!esevaiCatalog.length?<p className="text-xs text-[var(--text-muted)]">No active services configured. <Link href="/settings" className="font-semibold text-indigo-700 underline">Add services in Settings</Link> to use them here.</p>:null}
+    {esevaiCatalogStatus==="error"?<p role="alert" className="text-xs text-rose-700">Couldn&apos;t load services. Close and reopen to retry.</p>:esevaiCatalogStatus==="loaded"&&!esevaiCatalog.length?<p className="text-xs text-[var(--text-muted)]">No active services configured. <Link href="/settings" className="font-semibold text-indigo-700 underline">Add services in Settings</Link> to use them here.</p>:null}
     {esevaiError?<p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{esevaiError}</p>:null}
    </form>
   </Modal>
@@ -708,8 +711,8 @@ function switchView(next:"details"|"activity"){
      :<div className="space-y-1">
        <Field label={ledgerEntryDirection==="PAY_IN"?"Received in (our account)":"Paid from (our account) *"}><SearchableSelect className={control} value={ledgerEntryAccountId} onChange={e=>{setLedgerEntryAccountId(e.target.value);setLedgerCashConfirmed(false);if(ledgerEntryDirection==="PAY_OUT")setLedgerPaidFromManual(true);setLedgerEntryError("");}}><option value="">Choose account…</option>{ledgerAccounts.map(account=><option key={account.id} value={account.id}>{account.accountName+" · "+account.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>
        {ledgerEntryDirection==="PAY_OUT"?<div className="flex items-center justify-between gap-2">
-         <p className="text-[11px] font-semibold text-amber-700">{ledgerPaidFromManual&&validPayOutSource?"Source manually changed.":payOutSuggestion?"Previous source account is inactive or unavailable. Choose the actual paying account.":"No eligible Pay In or previous payout found. Choose the actual paying account."}</p>
-         {ledgerPaidFromManual&&validPayOutSource?<button type="button" onClick={()=>{setLedgerPaidFromManual(false);setLedgerEntryAccountId("");setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-xs font-black text-[var(--accent)]">Use suggested source</button>:null}
+         <p className="text-[11px] font-semibold text-amber-700">{selectedManualPayOutAccount?"Manually selected: "+selectedManualPayOutAccount.accountName+". This account will be debited.":payOutSuggestion?"Previous source account is inactive or unavailable. Choose the actual paying account.":"No eligible Pay In or previous payout found. Choose the actual paying account."}</p>
+         {ledgerPaidFromManual&&validPayOutSource&&payOutSuggestion?<button type="button" onClick={()=>{setLedgerPaidFromManual(false);setLedgerEntryAccountId("");setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-xs font-black text-[var(--accent)]">Use suggested source</button>:null}
         </div>:null}
       </div>}
     {ledgerIsPhysicalCash?<div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-950">
@@ -727,6 +730,7 @@ function switchView(next:"details"|"activity"){
       {c.beneficiaries.filter(b=>b.isActive).flatMap(b=>b.accounts.filter(a=>a.isActive).map(a=><option key={a.id} value={"BENEFICIARY_ACCOUNT:"+a.id}>{"Beneficiary · "+b.beneficiaryName+" · "+(a.bankName||a.upiId||"UPI")+" "+(a.accountReference?"••••"+a.accountReference.replace(/\D/g,"").slice(-4):a.mobileNumber||"")}</option>))}
       <option value="OTHER">Other / new recipient bank or UPI</option>
      </SearchableSelect></Field>
+     {ledgerNonCashSourceCashDestinationMismatch?<p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-2 text-xs font-bold text-rose-800">Cash handed to customer requires a cash drawer under Paid from. A wallet or bank transfer must use the real bank/UPI recipient instead. If cash was moved from a wallet to the drawer first, record that transfer separately.</p>:null}
      {ledgerPayoutDestination==="OTHER"?<Field label="Recipient / destination details *"><input className={control+" bg-[var(--surface)]"} value={ledgerPayoutDetails} onChange={e=>{setLedgerPayoutDetails(e.target.value);setLedgerEntryError("");}} maxLength={160} placeholder="Recipient name, bank or UPI reference"/></Field>:null}
      <p className="text-[11px] font-semibold text-[var(--text-muted)]">Paid from debits our account. Paid to records the recipient separately in the transaction and audit history.</p>
     </div>:null}

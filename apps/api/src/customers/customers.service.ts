@@ -773,6 +773,17 @@ export class CustomersService {
       ) {
         throw new BadRequestException('Main Cash Reserve is owner-only');
       }
+      // A customer receiving notes must debit the cash drawer that actually
+      // handed over those notes. A wallet-to-cash transfer is a separate movement.
+      if (
+        dto.direction === 'PAY_OUT' &&
+        dto.payoutDestinationType === 'CASH' &&
+        account.accountType !== AccountType.CASH
+      ) {
+        throw new BadRequestException(
+          'Cash handed to customer requires a physical cash drawer as Paid from. Record any wallet-to-drawer transfer separately first.',
+        );
+      }
       if (account.accountType === AccountType.CASH) {
         if (dto.physicalCashConfirmed !== true) {
           throw new BadRequestException(

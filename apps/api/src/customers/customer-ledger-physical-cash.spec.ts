@@ -58,6 +58,19 @@ describe('customer Card Ledger physical cash safeguards', () => {
     expect(tx.transaction.create).not.toHaveBeenCalled();
   });
 
+  it.each([AccountType.BANK, AccountType.PROVIDER_WALLET])(
+    'rejects cash handed to customer from a non-cash source (%s)',
+    async (accountType) => {
+      const { create, tx, validation } = setup(accountType);
+      await expect(create({
+        direction: 'PAY_OUT',
+        payoutDestinationType: 'CASH',
+      })).rejects.toThrow('Cash handed to customer requires a physical cash drawer');
+      expect(validation.requireOpenCashDesk).not.toHaveBeenCalled();
+      expect(tx.transaction.create).not.toHaveBeenCalled();
+    },
+  );
+
   it('allows a confirmed real cash movement to reach the normal cash-session checks', async () => {
     const { create, validation } = setup(AccountType.CASH);
     await expect(create({ physicalCashConfirmed: true })).rejects.toThrow(
