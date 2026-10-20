@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/exhaustive-deps */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface } from "@/components/ui";
@@ -25,7 +25,7 @@ type Tx={
    microAtm:{customerBankName:string|null;cardLastFour:string}|null;
    aeps:{customerBankName:string;aadhaarLastFour:string}|null;
  }}}|null;
- charges:{amount:string}[];commissions:{amount:string;commissionType:string}[];
+ charges:{amount:string;chargeType:string}[];commissions:{amount:string;commissionType:string}[];
  accountEntry:{direction:"IN"|"OUT";entryKind:string;entryLabel:string|null;account:{accountName:string}}|null;
  customerLedgerEntry:{direction:"PAY_IN"|"PAY_OUT";amount:string;remarks:string;customerCard:{bankName:string;lastFourDigits:string}|null;financialAccount:{accountName:string}}|null;
  payable:{originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string}|null;
@@ -33,6 +33,9 @@ type Tx={
 };
 type TransactionAggregates={processed:number;customerCommission:number;providerIncome:number;serviceRevenue:number;totalIncome:number;providerCost:number;partnerCost:number;profit:number};
 type Paged={items:Tx[];pagination:{page:number;pageSize:number;total:number;totalPages:number};aggregates:TransactionAggregates};
+type EarningAmounts={customerCommission:number;providerIncome:number;serviceRevenue:number;totalIncome:number;providerCost:number;payoutCost:number;partnerCost:number;netIncome:number};
+type EarningCategory={category:string;count:number;totals:EarningAmounts;examples:{id:string;transactionNumber:string;transactionAt:string;customer:string|null;amounts:EarningAmounts}[]};
+type EarningBreakdown={summary:EarningAmounts;transactionCount:number;categories:EarningCategory[];basis:string};
 type Range="today"|"yesterday"|"week"|"all";
 const money=(v:string|number|null)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(v??0));
 const statusTone=(s:string)=>s==="COMPLETED"?"emerald":s==="PENDING"?"amber":s==="REVERSED"?"rose":"slate";
@@ -57,7 +60,6 @@ const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
 const providerIncome=(tx:Tx)=>tx.commissions.filter(c=>c.commissionType.endsWith("_PROVIDER")).reduce((a,x)=>a+Number(x.amount),0);
 const customerCommissionIncome=(tx:Tx)=>tx.commissions.filter(c=>!c.commissionType.endsWith("_PROVIDER")).reduce((a,x)=>a+Number(x.amount),0);
 const serviceRevenue=(tx:Tx)=>tx.transactionType==="SERVICE_INCOME"?Number(tx.grossAmount):0;
-const totalIncome=(tx:Tx)=>customerCommissionIncome(tx)+providerIncome(tx)+serviceRevenue(tx);
 const displayService=(tx:Tx)=>tx.customerLedgerEntry?(tx.customerLedgerEntry.direction==="PAY_IN"?"Pay In":"Pay Out")+" · "+tx.customerLedgerEntry.remarks:tx.accountEntry?(tx.accountEntry.entryLabel||"Manual amount entry"):transactionParticulars(tx).title;
 const displayServiceDetail=(tx:Tx)=>transactionParticulars(tx).detail;
 function activityDirection(tx:Tx):"IN"|"OUT"|null{
@@ -130,8 +132,12 @@ export default function TransactionsPage(){
  const [desktopVisibleColumns,setDesktopVisibleColumns]=useState<DesktopColumnKey[]>(DEFAULT_DESKTOP_COLUMNS);
  const [desktopColumnsReady,setDesktopColumnsReady]=useState(false),[draggedColumn,setDraggedColumn]=useState<DesktopColumnKey|null>(null);
  const [sortBy,setSortBy]=useState("transactionAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("desc");
+ const [incomeOpen,setIncomeOpen]=useState(false),[incomeLoading,setIncomeLoading]=useState(false);
+ const [incomeBreakdown,setIncomeBreakdown]=useState<EarningBreakdown|null>(null);
+ const [incomeError,setIncomeError]=useState(""),[expandedIncomeCategory,setExpandedIncomeCategory]=useState<string|null>(null);
+ const incomeRequest=useRef(0);
 
- function load(page=pagination.page){
+ function filterParams(page=pagination.page){
   const params=new URLSearchParams({page:String(page),pageSize:String(pagination.pageSize),sortBy,sortDir});
   if(q.trim())params.set("q",q.trim());if(type)params.set("type",type);if(status)params.set("status",status);if(moneyStatusFilter)params.set("moneyStatus",moneyStatusFilter);
   if(range!=="all"){
@@ -140,8 +146,23 @@ export default function TransactionsPage(){
    if(range==="week")start.setDate(start.getDate()-6);
    params.set("from",start.toISOString());params.set("to",end.toISOString());
   }
+  return params;
+ }
+ function load(page=pagination.page){
+  const params=filterParams(page);
+  ++incomeRequest.current;
+  setIncomeOpen(false);setIncomeBreakdown(null);
   setLoading(true);
   return apiFetch<Paged>("/transactions?"+params.toString()).then(r=>{setItems(r.items);setPagination(r.pagination);setAggregates(r.aggregates);setError("");}).finally(()=>setLoading(false));
+ }
+ function toggleIncomeBreakdown(){
+  if(incomeOpen){++incomeRequest.current;setIncomeOpen(false);return;}
+  const request=++incomeRequest.current;
+  setIncomeOpen(true);setIncomeLoading(true);setIncomeError("");setIncomeBreakdown(null);setExpandedIncomeCategory(null);
+  apiFetch<EarningBreakdown>("/transactions/income-breakdown?"+filterParams(1).toString())
+   .then(data=>{if(request===incomeRequest.current)setIncomeBreakdown(data);})
+   .catch(err=>{if(request===incomeRequest.current)setIncomeError(err instanceof Error?err.message:"Unable to load income breakdown");})
+   .finally(()=>{if(request===incomeRequest.current)setIncomeLoading(false);});
  }
  useEffect(()=>{const initial=new URLSearchParams(window.location.search).get("type");if(!initial)return;const timer=window.setTimeout(()=>setType(initial),0);return()=>window.clearTimeout(timer);},[]);
  useEffect(()=>{
@@ -270,6 +291,7 @@ export default function TransactionsPage(){
 
   <div className="-mx-3 overflow-x-auto px-3 pb-1 md:hidden">
    <div className="flex min-w-max gap-2">
+    <button type="button" onClick={toggleIncomeBreakdown} aria-expanded={incomeOpen} aria-controls="transactions-net-income-breakdown" className="w-[165px] shrink-0 text-left"><Surface className="h-full border border-[var(--money-in)] p-3"><p className="text-[9px] font-black uppercase tracking-[.07em]">Net income <span aria-hidden>↗</span></p><p className={"money mt-1 text-base font-black "+(aggregates.profit<0?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{money(aggregates.profit)}</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">After transaction costs</p></Surface></button>
     {[
      ["Processed",money(aggregates.processed),"text-[var(--text)]"],
      ["Total income",money(aggregates.totalIncome),"text-[var(--money-in)]"],
@@ -282,9 +304,10 @@ export default function TransactionsPage(){
     ].map(([name,value,tone])=><Surface key={name} className="w-[145px] shrink-0 p-3"><p className="text-[9px] font-bold uppercase tracking-[.07em] text-[var(--text-muted)]">{name}</p><p className={"money mt-1 truncate text-base font-black "+tone}>{value}</p></Surface>)}
    </div>
   </div>
-  <div className="hidden gap-2.5 md:grid md:grid-cols-4 xl:grid-cols-8">
+  <div className="hidden gap-2.5 md:grid md:grid-cols-4 xl:grid-cols-9">
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Processed</p><p className="money mt-1.5 truncate text-lg font-bold">{money(aggregates.processed)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Total income</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-in)]">{money(aggregates.totalIncome)}</p></Surface>
+   <Surface className="border border-[var(--money-in)] p-0"><button type="button" onClick={toggleIncomeBreakdown} aria-expanded={incomeOpen} aria-controls="transactions-net-income-breakdown" className="block h-full w-full p-3.5 text-left hover:bg-[var(--surface-soft)]"><p className="text-[10px] font-bold uppercase tracking-[.07em]">Net income ↗</p><p className={"money mt-1.5 truncate text-lg font-black "+(aggregates.profit<0?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{money(aggregates.profit)}</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">After transaction costs</p></button></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Customer commission</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-in)]">{money(aggregates.customerCommission)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Provider income</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-in)]">{money(aggregates.providerIncome)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Service revenue</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-in)]">{money(aggregates.serviceRevenue)}</p></Surface>
@@ -292,6 +315,48 @@ export default function TransactionsPage(){
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Partner cost</p><p className="money mt-1.5 truncate text-lg font-bold text-[var(--money-out)]">{money(aggregates.partnerCost)}</p></Surface>
    <Surface className="p-3.5"><p className="text-[10px] font-semibold uppercase tracking-[.07em] text-[var(--text-muted)]">Transactions</p><p className="money mt-1.5 text-lg font-bold">{pagination.total}</p></Surface>
   </div>
+
+  {incomeOpen?<Surface className="overflow-hidden" >
+   <div id="transactions-net-income-breakdown" className="p-4 sm:p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+     <div><h3 className="text-lg font-black">Net income breakdown</h3><p className="mt-1 text-xs text-[var(--text-muted)]">Same date and transaction filters as above · Recorded revenue less recorded transaction costs.</p></div>
+     <button type="button" onClick={()=>{++incomeRequest.current;setIncomeOpen(false);}} className="min-h-9 rounded-lg border border-[var(--border)] px-3 text-xs font-bold">Close</button>
+    </div>
+    {incomeLoading?<p className="mt-4 text-sm text-[var(--text-muted)]">Calculating recorded income and fees across the selected transactions…</p>:null}
+    {incomeError?<p role="alert" className="mt-3 text-sm text-[var(--money-out)]">{incomeError}</p>:null}
+    {incomeBreakdown?<div className="mt-4 space-y-4">
+     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      {([["Customer commission",incomeBreakdown.summary.customerCommission,false],["Provider commission",incomeBreakdown.summary.providerIncome,false],["Service revenue",incomeBreakdown.summary.serviceRevenue,false],["Provider / bank fees",incomeBreakdown.summary.providerCost,true],["Payout fees",incomeBreakdown.summary.payoutCost,true],["Partner costs",incomeBreakdown.summary.partnerCost,true]] as [string,number,boolean][]).map(([title,amount,cost])=>
+       <div key={title} className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold text-[var(--text-muted)]">{title}</p><p className={"money mt-1 text-sm font-black "+(cost?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{cost?"−":"+"}{money(amount)}</p></div>)}
+     </div>
+     <div className="flex flex-wrap items-center justify-between gap-2 border-y border-[var(--border)] py-3">
+      <p className="text-sm font-bold">Total income {money(incomeBreakdown.summary.totalIncome)} − costs {money(incomeBreakdown.summary.providerCost+incomeBreakdown.summary.payoutCost+incomeBreakdown.summary.partnerCost)}</p>
+      <p className={"money text-lg font-black "+(incomeBreakdown.summary.netIncome<0?"text-[var(--money-out)]":"text-[var(--money-in)]")}>Net income {money(incomeBreakdown.summary.netIncome)}</p>
+     </div>
+     <p className="text-xs leading-5 text-[var(--text-muted)]">{incomeBreakdown.basis} Payout costs may appear on a later transaction date than the original swipe. Only recorded charges are deducted; missing provider costs need to be entered to make this accurate.</p>
+     <div>
+      <h4 className="mb-2 text-sm font-black">Earnings by transaction / service type</h4>
+      {incomeBreakdown.categories.length? <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
+       {incomeBreakdown.categories.map(group=><div key={group.category}>
+        <button type="button" aria-expanded={expandedIncomeCategory===group.category} onClick={()=>setExpandedIncomeCategory(value=>value===group.category?null:group.category)}
+         className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-3 text-left hover:bg-[var(--surface-soft)]">
+         <span className="min-w-0"><span className="block text-sm font-bold">{group.category} <span aria-hidden>{expandedIncomeCategory===group.category?"▴":"▾"}</span></span><span className="block text-[11px] text-[var(--text-muted)]">{group.count} contributing transaction(s) · Income {money(group.totals.totalIncome)} · Costs {money(group.totals.providerCost+group.totals.payoutCost+group.totals.partnerCost)}</span></span>
+         <strong className={"money text-sm "+(group.totals.netIncome<0?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{money(group.totals.netIncome)}</strong>
+        </button>
+        {expandedIncomeCategory===group.category?<div className="space-y-1 border-t border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2">
+         <p className="mb-1 text-[11px] text-[var(--text-muted)]">Latest {group.examples.length} of {group.count} contributing transaction(s). Select an ID for the full audited fee and commission details.</p>
+         {group.examples.map(item=><Link key={item.id} href={"/transactions/"+item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--surface)] p-2 text-xs hover:underline">
+          <span className="font-semibold text-[var(--accent)]">{item.transactionNumber}{item.customer?" · "+item.customer:""}</span>
+          <span className="text-[var(--text-muted)]">Income {money(item.amounts.totalIncome)} · Costs {money(item.amounts.providerCost+item.amounts.payoutCost+item.amounts.partnerCost)}</span>
+          <strong className={"money "+(item.amounts.netIncome<0?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{money(item.amounts.netIncome)}</strong>
+         </Link>)}
+        </div>:null}
+       </div>)}
+      </div>:<p className="text-sm text-[var(--text-muted)]">No recorded income or transaction costs for the selected range.</p>}
+     </div>
+    </div>:null}
+   </div>
+  </Surface>:null}
 
   {error?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
   {loading?<PageLoader label="Loading transactions…"/>:<>
@@ -321,7 +386,7 @@ export default function TransactionsPage(){
        {sortKey?<button type="button" onClick={()=>changeSort(key)} className={"inline-flex items-center gap-1 font-bold uppercase tracking-wide hover:text-[var(--text)] "+(meta.right?"ml-auto":"")}>{meta.label}{sortBy===sortKey?<span aria-hidden>{sortDir==="asc"?"↑":"↓"}</span>:null}</button>:meta.label}
       </th>;
     })}</tr></thead>
-    <tbody>{items.map(tx=>{const providerFees=sum(tx.charges),customerCommission=customerCommissionIncome(tx),providerEarn=providerIncome(tx),service=serviceRevenue(tx),partnerCost=tx.transactionType==="SERVICE_INCOME"?Number(tx.quickCashTransfer?.servicePartnerCharge??0):0,netServiceEarning=service-partnerCost,income=customerCommission+providerEarn+service,profit=income-providerFees-partnerCost,direction=activityDirection(tx),source=settlementSource(tx),mStatus=moneyStatus(tx);
+    <tbody>{items.map(tx=>{const providerFees=sum(tx.charges.filter(charge=>charge.chargeType!=="SERVICE_PARTNER_COST")),customerCommission=customerCommissionIncome(tx),providerEarn=providerIncome(tx),service=serviceRevenue(tx),partnerCost=tx.transactionType==="SERVICE_INCOME"?Number(tx.quickCashTransfer?.servicePartnerCharge??0):0,netServiceEarning=service-partnerCost,income=customerCommission+providerEarn+service,profit=income-providerFees-partnerCost,direction=activityDirection(tx),source=settlementSource(tx),mStatus=moneyStatus(tx);
       const content=(key:DesktopColumnKey)=>{
        if(key==="transactionId")return <Link className="font-bold text-[var(--accent)] whitespace-nowrap" href={txHref(tx)}>{tx.transactionNumber}</Link>;
        if(key==="date")return <span className="text-xs whitespace-nowrap">{new Date(tx.transactionAt).toLocaleString("en-IN")}</span>;

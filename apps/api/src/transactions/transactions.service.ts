@@ -23,6 +23,20 @@ import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 import { UpdateTransactionDetailsDto } from './dto/update-transaction-details.dto.js';
 import { UpdateCustomerLedgerEntryDto } from './dto/update-customer-ledger-entry.dto.js';
+import { emptyIncome, transactionIncome, type IncomeAmounts, type IncomeDetail } from './transaction-income.js';
+
+type TransactionListFilters = {
+    page?: number;
+    pageSize?: number;
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+    q?: string;
+    type?: TransactionType;
+    status?: TransactionStatus;
+    moneyStatus?: string;
+    from?: Date;
+    to?: Date;
+};
 
 @Injectable()
 export class TransactionsService {
@@ -100,18 +114,7 @@ export class TransactionsService {
     });
   }
 
-  async list(options?: {
-    page?: number;
-    pageSize?: number;
-    sortBy?: string;
-    sortDir?: 'asc' | 'desc';
-    q?: string;
-    type?: TransactionType;
-    status?: TransactionStatus;
-    moneyStatus?: string;
-    from?: Date;
-    to?: Date;
-  }) {
+  private transactionListWhere(options?: TransactionListFilters): Prisma.TransactionWhereInput {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const moneyStatusWhere: Prisma.TransactionWhereInput = options?.moneyStatus
@@ -163,6 +166,12 @@ export class TransactionsService {
           }
         : {}),
     };
+
+    return where;
+  }
+
+  async list(options?: TransactionListFilters) {
+    const where = this.transactionListWhere(options);
 
     const allowedSort = new Set(['transactionAt', 'transactionNumber', 'transactionType', 'grossAmount', 'netAmount', 'status']);
     const sortBy = allowedSort.has(options?.sortBy ?? '') ? options!.sortBy! : 'transactionAt';
@@ -259,7 +268,7 @@ export class TransactionsService {
       this.prisma.transaction.aggregate({ where: serviceRevenueWhere, _sum: { grossAmount: true } }),
       this.prisma.transactionCommission.aggregate({ where: customerCommissionWhere, _sum: { amount: true } }),
       this.prisma.transactionCommission.aggregate({ where: providerCommissionWhere, _sum: { amount: true } }),
-      this.prisma.transactionCharge.aggregate({ where: { transaction: where }, _sum: { amount: true } }),
+      this.prisma.transactionCharge.aggregate({ where: { transaction: where, chargeType: { not: 'SERVICE_PARTNER_COST' } }, _sum: { amount: true } }),
       this.prisma.quickCashTransferDetail.aggregate({
         where: { transaction: where, purpose: 'SERVICE' },
         _sum: { servicePartnerCharge: true },
@@ -292,6 +301,72 @@ export class TransactionsService {
         partnerCost: this.money(partnerCostAmount),
         profit: this.money(totalIncomeAmount - providerCostAmount - partnerCostAmount),
       },
+    };
+  }
+
+  /**
+   * On-demand, read-only source breakdown for Net Income. Uses the SAME date,
+   * status, search and service filters as the main Transactions summary.
+   * Cursor-batched to avoid loading an entire year into the 2GB VPS RAM.
+   */
+  async incomeBreakdown(options?: TransactionListFilters) {
+    const where = this.transactionListWhere(options);
+    const grouped = new Map<string, {
+      category: string; count: number; totals: IncomeAmounts; examples: IncomeDetail[];
+    }>();
+    const summary = emptyIncome();
+    let cursor: string | undefined;
+    let transactionCount = 0;
+    for (;;) {
+      const rows = await this.prisma.transaction.findMany({
+        where, orderBy: { id: 'asc' }, take: 250,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: {
+          id: true, transactionNumber: true, transactionType: true,
+          transactionAt: true, grossAmount: true,
+          customer: { select: { fullName: true } },
+          charges: { select: { amount: true, chargeType: true } },
+          commissions: { select: { amount: true, commissionType: true } },
+          quickCashTransfer: {
+            select: {
+              direction: true, purpose: true, cashOutType: true, serviceName: true,
+              beneficiaryMode: true, servicePartnerCharge: true,
+            },
+          },
+        },
+      });
+      if (!rows.length) break;
+      transactionCount += rows.length;
+      for (const row of rows) {
+        const detail = transactionIncome(row);
+        // Principal-only movements have zero profit and do not affect this
+        // profitability breakdown (but remain on the Transactions page).
+        if (!detail.amounts.totalIncome && !detail.amounts.providerCost &&
+            !detail.amounts.payoutCost && !detail.amounts.partnerCost) continue;
+        const group = grouped.get(detail.category) ?? {
+          category: detail.category, count: 0, totals: emptyIncome(), examples: [],
+        };
+        group.count++;
+        for (const key of Object.keys(summary) as (keyof IncomeAmounts)[]) {
+          // Work in paise to preserve exact reconciliation across many rows.
+          summary[key] = this.money(summary[key] + detail.amounts[key]);
+          group.totals[key] = this.money(group.totals[key] + detail.amounts[key]);
+        }
+        // Show the latest eight contributing transactions per category, with
+        // links to the full audited transaction detail.
+        group.examples.push(detail);
+        group.examples.sort((a,b)=>b.transactionAt.localeCompare(a.transactionAt));
+        if (group.examples.length > 8) group.examples.length = 8;
+        grouped.set(detail.category, group);
+      }
+      cursor = rows[rows.length - 1].id;
+      if (rows.length < 250) break;
+    }
+    return {
+      summary,
+      transactionCount,
+      categories: [...grouped.values()].sort((a,b)=>b.totals.netIncome-a.totals.netIncome),
+      basis: 'Recorded commission and service revenue minus provider/bank/payout fees and partner costs. This is transaction net earning, not final shop profit after rent or salaries.',
     };
   }
 

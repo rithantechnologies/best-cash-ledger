@@ -63,6 +63,22 @@ export class TransactionsController {
     });
   }
 
+  @Get('income-breakdown')
+  incomeBreakdown(
+    @Query('q') q?: string,
+    @Query('type') type?: TransactionType,
+    @Query('status') status?: TransactionStatus,
+    @Query('moneyStatus') moneyStatus?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.transactions.incomeBreakdown({
+      q, type, status, moneyStatus,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+    });
+  }
+
   @Get('customer/:customerId/card-swipes')
   customerCardSwipes(@Param('customerId') customerId: string) {
     return this.transactions.listCustomerCardSwipes(customerId);
