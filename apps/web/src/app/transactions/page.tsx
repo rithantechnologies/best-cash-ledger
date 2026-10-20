@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/api";
 import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 import { MoneyFlowIcon } from "@/components/money-flow-icon";
 import { isCashOutTransaction, transactionParticulars } from "@/lib/transaction-particulars";
+import { pendingClearingHref } from "@/lib/pending-clearing";
 
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
@@ -16,7 +17,7 @@ type Tx={
  cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
  microAtm:{customerBankName:string|null;cardLastFour:string}|null;
  aeps:{customerBankName:string;aadhaarLastFour:string}|null;
- quickCashTransfer:{direction:string;purpose:string;serviceName:string|null;cashOutType:string;beneficiaryMode:string|null;sourceAccount:{accountName:string}|null;servicePaymentMode:string;serviceFulfillmentMode?:string;servicePartnerName?:string|null;servicePartnerCharge?:string;cashAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
+ quickCashTransfer:{id:string;direction:string;purpose:string;serviceName:string|null;cashOutType:string;beneficiaryMode:string|null;sourceAccount:{accountName:string}|null;servicePaymentMode:string;serviceFulfillmentMode?:string;servicePartnerName?:string|null;servicePartnerCharge?:string;cashAccount:{id:string;accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
  cashTransfer:{customerUpiAccount:object|null;customerBankAccount:object|null;beneficiaryAccount:object|null;sourceAccount:{accountName:string}|null}|null;
  internalTransfer:{sourceAccount:{accountName:string};destinationAccount:{accountName:string}}|null;
  providerSettlementReceipt:{settlement:{sourceTransaction:{
@@ -390,7 +391,7 @@ export default function TransactionsPage(){
   {error?<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>:null}
   {loading?<PageLoader label="Loading transactions…"/>:<>
    <div className="space-y-4 md:hidden">
-    {[...grouped.entries()].map(([day,rows])=><section key={day}><div className="sticky top-15 z-10 mb-1.5 bg-[var(--bg)] py-1 text-xs font-semibold text-[var(--text-muted)]">{day}</div><Surface className="overflow-hidden"><div className="divide-y divide-[var(--border)]">{rows.map(tx=>{const context=activityContext(tx),direction=activityDirection(tx),source=settlementSource(tx),cashOut=isCashOutTransaction(tx);return <Link key={tx.id} href={txHref(tx)} className={"block px-4 py-3.5 "+(cashOut?"border-l-4 border-l-[var(--money-out)] "+CASH_OUT_ROW:"hover:bg-[var(--surface-soft)]")}>
+    {[...grouped.entries()].map(([day,rows])=><section key={day}><div className="sticky top-15 z-10 mb-1.5 bg-[var(--bg)] py-1 text-xs font-semibold text-[var(--text-muted)]">{day}</div><Surface className="overflow-hidden"><div className="divide-y divide-[var(--border)]">{rows.map(tx=>{const context=activityContext(tx),direction=activityDirection(tx),source=settlementSource(tx),cashOut=isCashOutTransaction(tx);return <div key={tx.id} className={"px-4 py-3.5 "+(cashOut?"border-l-4 border-l-[var(--money-out)] "+CASH_OUT_ROW:"hover:bg-[var(--surface-soft)]")}><Link href={txHref(tx)} className="block">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className={"text-sm font-black leading-5 "+(cashOut?"text-[var(--money-out)]":"")}>{context.title}</p>
@@ -404,7 +405,7 @@ export default function TransactionsPage(){
         <div className="flex shrink-0 items-center gap-2">{direction?<MoneyFlowIcon direction={direction}/>:null}<p className={"money text-sm font-black "+(cashOut||direction==="OUT"?"text-[var(--money-out)]":direction==="IN"?"text-[var(--money-in)]":"")}>{direction==="IN"?"+":direction==="OUT"?"−":""}{money(tx.grossAmount)}</p></div>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>{moneyStatus(tx)?<StatusBadge tone={moneyStatus(tx)!.tone}>{moneyStatus(tx)!.label}</StatusBadge>:null}</div>
-    </Link>})}</div></Surface></section>)}
+    </Link>{pendingClearingHref(tx)?<Link href={pendingClearingHref(tx)!} aria-label={"Complete pending transaction "+tx.transactionNumber} className="mt-2 inline-flex min-h-10 items-center rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-black text-amber-900 hover:bg-amber-100">Complete pending →</Link>:null}</div>})}</div></Surface></section>)}
     {!items.length?<EmptyState title="No transactions" description="Try another date or filter."/>:null}
    </div>
 
@@ -436,6 +437,7 @@ export default function TransactionsPage(){
        if(key==="net")return <span className="money font-semibold whitespace-nowrap">{money(tx.netAmount??tx.grossAmount)}</span>;
        if(key==="payout")return mStatus?<StatusBadge tone={mStatus.tone}>{mStatus.label}</StatusBadge>:<span className="text-[var(--text-muted)]">—</span>;
        if(key==="dueDate")return <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{mStatus?.dueAt?new Date(mStatus.dueAt).toLocaleDateString("en-IN"):"—"}</span>;
+       if(key==="status")return <div className="flex flex-col items-start gap-1.5"><StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>{pendingClearingHref(tx)?<Link href={pendingClearingHref(tx)!} aria-label={"Complete pending transaction "+tx.transactionNumber} className="inline-flex min-h-8 items-center whitespace-nowrap rounded-lg border border-amber-300 bg-amber-50 px-2.5 text-[11px] font-black text-amber-900 hover:bg-amber-100">Complete pending →</Link>:null}</div>;
        return <StatusBadge tone={statusTone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{label(tx.status)}</StatusBadge>;
       };
       return <tr key={tx.id} className={"group border-t align-top "+(cashOut?"border-l-4 border-l-[var(--money-out)] border-t-[color-mix(in_srgb,var(--money-out)_25%,var(--border))] "+CASH_OUT_ROW:"border-[var(--border)] hover:bg-[var(--surface-soft)]")}>{desktopColumns.map((key,index)=>{const meta=DESKTOP_COLUMN_META[key],sticky=index<4;return <td key={key} style={sticky?{left:desktopStickyLefts[index]}:undefined} className={"px-3 py-3 "+(meta.right?"text-right ":"")+(sticky?(cashOut?CASH_OUT_STICKY_CELL+" ":"lg:sticky lg:z-10 bg-[var(--surface)] group-hover:bg-[var(--surface-soft)] "):"")}>{content(key)}</td>;})}</tr>;

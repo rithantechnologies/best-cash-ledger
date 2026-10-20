@@ -462,7 +462,11 @@ export default function CashCounterWorkspace({
       currentBalance:balanceMap.get(account.id)?.currentBalance??account.currentBalance??0,
     }));
     const cashRows=mergedAccounts.filter((account)=>account.accountType==="CASH"&&account.isActive!==false);
-    let targetId=preferredCashAccountId||cashAccountId||cashRows[0]?.id||"";
+    // Pending-clearing links target the drawer attached to the original entry.
+    const linkedDrawer=typeof window!=="undefined"&&!modalOnly
+      ?new URLSearchParams(window.location.search).get("cashAccountId"):"";
+    const requestedDrawer=linkedDrawer&&cashRows.some(account=>account.id===linkedDrawer)?linkedDrawer:"";
+    let targetId=preferredCashAccountId||requestedDrawer||cashAccountId||cashRows[0]?.id||"";
     let session=targetId
       ?await apiFetch<Session|null>("/cash-counter/current?cashAccountId="+encodeURIComponent(targetId))
       :null;
@@ -485,6 +489,24 @@ export default function CashCounterWorkspace({
   };
 
   useEffect(()=>{load().catch(()=>setError("Failed to load cash desk")).finally(()=>setLoading(false));},[]);
+  useEffect(()=>{
+    if(modalOnly||loading||typeof window==="undefined")return;
+    const url=new URL(window.location.href);
+    const requested=url.searchParams.get("completePending");
+    if(!requested)return;
+    // Consume the one-time intent before opening the modal so a later session
+    // refresh cannot reopen it or complete a different transaction.
+    url.searchParams.delete("completePending");
+    url.searchParams.delete("cashAccountId");
+    window.history.replaceState({},"",url.pathname+url.search+url.hash);
+    const item=pendingQuickCash.find(pending=>pending.id===requested);
+    if(item){
+      openPendingCompletion(item);
+    }else{
+      setError("Pending clearing is unavailable for this transaction. It may already be completed or your account may not have access. Review pending entries in the correct cash drawer.");
+      setPendingListOpen(true);
+    }
+  },[loading,modalOnly,pendingQuickCash]);
   useEffect(()=>{setPortalReady(true);},[]);
   useEffect(()=>{
     const openQuickCash=(event:Event)=>{
