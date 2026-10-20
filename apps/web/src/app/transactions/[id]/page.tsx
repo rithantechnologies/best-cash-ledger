@@ -48,6 +48,7 @@ type Tx={
  customer:{id:string;fullName:string;mobile:string|null}|null;charges:Charge[];commissions:Commission[];journal:{journalNumber:string;description:string;entries:Entry[]}|null;
  payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;internalTransfer:InternalTransfer|null;atmWithdrawal:AtmWithdrawal|null;creditCardPayment:CreditCardPayment|null;accountEntry:AccountEntry|null;customerLedgerEntry:CustomerLedgerEntry|null;cardDueClearing:CardDueClearing|null;cardDueRecovery:CardDueRecovery|null;cardDueCommissionCollection:CardDueCommissionCollection|null;
  correctionSource:CorrectionLink|null;correctedTransaction:CorrectionLink|null;expenseAdjustments?:ExpenseAdjustment[];reversedTransactionId?:string|null;
+ quickCashCompletion?:{id:string;transactionNumber:string;charges:Charge[]}|null;
  aepsCommissionCorrections?:{id:string;transactionNumber:string;transactionAt:string;commissions:{amount:string}[];accountEntry:{account:{accountName:string}}|null}[];
 
 };
@@ -143,6 +144,8 @@ function MoneyFlow({tx}:{tx:Tx}){
  }
  if(tx.transactionType==="CASH_TRANSFER"&&tx.quickCashTransfer){
   const d=tx.quickCashTransfer;
+  const completionFees=sum(tx.quickCashCompletion?.charges??[]);
+  const completionFeeReference=tx.quickCashCompletion?.transactionNumber;
   const principal=Number(d.amount);
   const commission=Number(d.commissionAmount||0);
   const cashCommission=d.commissionCashAmount!==null&&d.commissionCashAmount!==undefined
@@ -154,7 +157,7 @@ function MoneyFlow({tx}:{tx:Tx}){
    const commissionMeta=cashCommission>0&&digitalCommission>0
     ?money(cashCommission)+" cash + "+money(digitalCommission)+" bank / UPI"
     :cashCommission>0?"Cash":digitalCommission>0?"Bank / UPI":"No commission";
-   return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Money movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Transfer principal and commission are tracked separately.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Transfer amount" value={principal} meta="Beneficiary principal"/><FlowCard label="Cash received" value={cashReceived} meta={d.cashAccount.accountName}/><FlowCard label="Business earns" value={"+"+money(commission)} tone="positive" meta={commissionMeta}/><FlowCard label="Transfer source" value={d.sourceAccount?.accountName??(tx.status==="PENDING"?"Pending":"—")} tone="accent" meta={tx.status==="PENDING"?"Complete source later":"Principal sent from this account"}/></div></Surface>;
+   return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Money movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Transfer principal and commission are tracked separately.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Transfer amount" value={principal} meta="Beneficiary principal"/><FlowCard label="Cash received" value={cashReceived} meta={d.cashAccount.accountName}/><FlowCard label="Business earns" value={"+"+money(commission)} tone="positive" meta={commissionMeta}/><FlowCard label="Transfer source" value={d.sourceAccount?.accountName??(tx.status==="PENDING"?"Pending":"—")} tone="accent" meta={tx.status==="PENDING"?"Complete source later":"Principal sent from this account"}/>{completionFees>0?<FlowCard label="Provider / payout charges" value={"−"+money(completionFees)} tone="negative" meta={"Settlement posting "+completionFeeReference}/>:null}<FlowCard label="Net transaction earning" value={money(commission-completionFees)} tone={commission-completionFees>=0?"positive":"negative"} meta="Commission minus recorded transfer fees"/></div></Surface>;
   }
   // The original cash journal never changes when a late commission is posted.
   // Show its subsequent income separately from the original cash paid out.
@@ -163,7 +166,7 @@ function MoneyFlow({tx}:{tx:Tx}){
   const commissionMeta=cashCommission>0&&digitalCommission>0
    ?money(cashCommission)+" cash + "+money(digitalCommission)+" bank / UPI"
    :cashCommission>0?"Cash":digitalCommission>0?"Bank / UPI":"No commission";
-  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Money movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Cash-out principal and commission are tracked separately.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Cash-out amount" value={principal}/><FlowCard label="Net drawer out" value={cashPaid} meta={d.cashAccount.accountName}/><FlowCard label="Business earns" value={"+"+money(commission+addedLater)} tone="positive" meta={addedLater>0?money(addedLater)+" entered later; original payout unchanged":commissionMeta}/><FlowCard label="Incoming source" value={d.sourceAccount?.accountName??(tx.status==="PENDING"?"Pending":"—")} tone="accent"/></div></Surface>;
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Money movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Cash-out principal and commission are tracked separately.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Cash-out amount" value={principal}/><FlowCard label="Net drawer out" value={cashPaid} meta={d.cashAccount.accountName}/><FlowCard label="Business earns" value={"+"+money(commission+addedLater)} tone="positive" meta={addedLater>0?money(addedLater)+" entered later; original payout unchanged":commissionMeta}/><FlowCard label="Incoming source" value={d.sourceAccount?.accountName??(tx.status==="PENDING"?"Pending":"—")} tone="accent"/>{completionFees>0?<FlowCard label="Provider / payout charges" value={"−"+money(completionFees)} tone="negative" meta={"Settlement posting "+completionFeeReference}/>:null}<FlowCard label="Net earning incl. late commission" value={money(commission+addedLater-completionFees)} tone={commission+addedLater-completionFees>=0?"positive":"negative"}/></div></Surface>;
  }
  if(tx.transactionType==="CARD_SWIPE"){
   const customer=Number(tx.payable?.originalAmount??tx.cardSwipe?.customerPayableAmount??net);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { transactionIncome } from './transaction-income.js';
+import { attributePayoutIncome, transactionIncome } from './transaction-income.js';
 const row = (values: Record<string, unknown> = {}) => ({
   id:'tx-1', transactionNumber:'TEST-001',transactionType:'CASH_TRANSFER',
   transactionAt:'2026-10-20T05:00:00.000Z',grossAmount:10000,
@@ -35,5 +35,29 @@ describe('read-only net income breakdown', () => {
       commissions:[{amount:40,commissionType:'AEPS_CUSTOMER'}],charges:[{amount:12,chargeType:'PROVIDER'}]}));
     expect(aeps.category).toBe('AEPS Withdrawal');
     expect(aeps.amounts.netIncome).toBe(28);
+  });
+});
+
+describe('linked payout attribution', () => {
+  it('assigns the saved ₹7 payout charge to its original card swipe without changing its total', () => {
+    const payout = transactionIncome(row({transactionType:'CUSTOMER_PAYOUT',grossAmount:10007,
+      charges:[{chargeType:'PAYOUT',amount:7}]}));
+    const entries = attributePayoutIncome(payout,10000,[{
+      transactionType:'CARD_SWIPE',transactionNumber:'CCS-ONE',amount:10000,
+    }]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({category:'Card Swipe',attribution:'Payout fee linked to CCS-ONE'});
+    expect(entries[0].amounts).toMatchObject({netIncome:-7,payoutCost:7});
+  });
+  it('splits fees across linked card swipes in exact paise and preserves unallocated remainder', () => {
+    const payout=transactionIncome(row({transactionType:'CUSTOMER_LEDGER_ENTRY',grossAmount:1000,
+      charges:[{chargeType:'PAYOUT',amount:7}]}));
+    const results=attributePayoutIncome(payout,1000,[
+      {transactionType:'CARD_SWIPE',transactionNumber:'CCS-A',amount:600},
+      {transactionType:'CARD_SWIPE',transactionNumber:'CCS-B',amount:300},
+    ]);
+    expect(results.map(r=>r.amounts.payoutCost)).toEqual([4.2,2.1,0.7]);
+    expect(results.reduce((total,r)=>total+Math.round(r.amounts.payoutCost*100),0)).toBe(700);
+    expect(results.reduce((total,r)=>total+Math.round(r.amounts.netIncome*100),0)).toBe(-700);
   });
 });

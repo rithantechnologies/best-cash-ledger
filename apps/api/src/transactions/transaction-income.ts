@@ -20,7 +20,7 @@ export type IncomeAmounts = {
 };
 export type IncomeDetail = {
   id: string; transactionNumber: string; transactionAt: string; customer: string | null;
-  category: string; amounts: IncomeAmounts;
+  category: string; amounts: IncomeAmounts; attribution?: string;
 };
 const cents = (value: Amount) => Math.round(Number(value ?? 0) * 100);
 const name = (value: string | null | undefined) => value?.trim() || null;
@@ -43,6 +43,7 @@ export function categoryForIncome(tx: IncomeTransaction): string {
     if (quick.cashOutType === 'MICRO_ATM') return 'Micro ATM';
     return 'UPI / QR Cash Out';
   }
+  if (tx.transactionNumber.startsWith('QCM-')) return 'AEPS Withdrawal';
   if (tx.transactionType === 'AEPS_WITHDRAWAL') return 'AEPS Withdrawal';
   if (tx.transactionType === 'MICRO_ATM') return 'Micro ATM';
   if (tx.transactionType === 'CASH_TRANSFER') return 'Bank / Cash Transfer';
@@ -80,4 +81,47 @@ export function transactionIncome(tx: IncomeTransaction): IncomeDetail {
       netIncome: money(totalIncome - providerCost - payoutCost - partnerCost),
     },
   };
+}
+
+
+/** Allocate one recorded payout fee across its actual linked source swipes in
+ * whole paise, with the remainder staying on the other payout category.
+ * Never add a fee back to its parent transaction: that would double count.
+ */
+export function attributePayoutIncome(
+  detail: IncomeDetail,
+  payoutAmount: Amount,
+  targets: readonly { transactionType: string; transactionNumber: string; amount: Amount }[],
+): IncomeDetail[] {
+  const totalFee = cents(detail.amounts.payoutCost);
+  const totalPayout = cents(payoutAmount);
+  if (totalFee <= 0 || totalPayout <= 0 || !targets.length) return [detail];
+  const result: IncomeDetail[] = [];
+  let used = 0;
+  let allocatedBase = 0;
+  for (const target of targets) {
+    const amount = Math.max(0, cents(target.amount));
+    if (!amount || allocatedBase >= totalPayout) continue;
+    const share = Math.min(amount, totalPayout - allocatedBase);
+    allocatedBase += share;
+    const cost = Math.min(totalFee - used, Math.floor(totalFee * share / totalPayout));
+    if (!cost) continue;
+    used += cost;
+    const kind = target.transactionType === 'CARD_SWIPE' ? 'Card Swipe'
+      : target.transactionType.startsWith('CARD_DUE') ? 'Card Due' : detail.category;
+    result.push({
+      ...detail, category: kind,
+      attribution: 'Payout fee linked to ' + target.transactionNumber,
+      amounts: { ...emptyIncome(), payoutCost: money(cost), netIncome: money(-cost) },
+    });
+  }
+  const remainder = totalFee - used;
+  if (remainder > 0 || detail.amounts.totalIncome || detail.amounts.providerCost || detail.amounts.partnerCost) {
+    result.push({
+      ...detail,
+      amounts: { ...detail.amounts, payoutCost: money(remainder),
+        netIncome: money(cents(detail.amounts.netIncome) + used) },
+    });
+  }
+  return result;
 }

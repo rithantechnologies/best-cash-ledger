@@ -19,10 +19,23 @@ using the exact same date, status, type and search filters.
 - The value is **transaction net earning**, not overall shop profit after ordinary
   overhead (rent, salaries, etc.). Unrecorded charges cannot be inferred.
 
-The breakdown endpoint is authenticated, cursor-batched, uses the same list
-filters, and includes category totals, counts and the latest eight linked
-transaction rows per category; the totals cover **all** matching transactions,
-not just the eight displayed rows. The ordinary Transactions list continues to
+The breakdown endpoint is authenticated and cursor-batched, uses the same list
+filters, and includes category totals and counts. It shows the latest eight
+linked transaction rows as a preview and offers a **View all** action with
+25-row paged navigation through all matching income rows. A separate
+read-only raw-aggregate reconciliation is computed for the exact date range:
+commissions, service revenue, partner cost, direct charges and charges on
+linked hidden QCC completion postings are independently summed and compared
+with the summary and the complete category totals. Any discrepancy must be
+shown to staff; never claim successful reconciliation by default.
+A card payout charge can appear under the Card Swipe *category* using its
+linked payable source, while the actual expense stays on its original payout
+transaction and business date. A multi-payable manual payout apportions
+fees by the linked amounts in whole paise. The original transfer's detail
+page shows linked completion charges and their audit reference; neither
+hidden completion principal nor provider settlement principal is income.
+The check is an authenticated read of saved data and may need refreshing if
+transactions are edited during its execution. The ordinary Transactions list continues to
 paginate separately. No accounting mutation or automatic backfill occurs.
 
 Target: dedicated client VPS at ledger.bestmoney.in, built with

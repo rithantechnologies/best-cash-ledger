@@ -23,7 +23,7 @@ import { ReverseTransactionDto } from './dto/reverse-transaction.dto.js';
 import { UpdateTransactionDateTimeDto } from './dto/update-transaction-date-time.dto.js';
 import { UpdateTransactionDetailsDto } from './dto/update-transaction-details.dto.js';
 import { UpdateCustomerLedgerEntryDto } from './dto/update-customer-ledger-entry.dto.js';
-import { emptyIncome, transactionIncome, type IncomeAmounts, type IncomeDetail } from './transaction-income.js';
+import { attributePayoutIncome, emptyIncome, transactionIncome, type IncomeAmounts, type IncomeDetail } from './transaction-income.js';
 
 type TransactionListFilters = {
     page?: number;
@@ -275,11 +275,24 @@ export class TransactionsService {
       }),
     ]);
 
+    // QCC completion postings are hidden from list/count/processed principal,
+    // but their provider payout fees are real business expenses.
+    const completionLinks = await this.prisma.quickCashTransferDetail.findMany({
+      where: { transaction: where, completionTransactionId: { not: null } },
+      select: { completionTransactionId: true },
+    });
+    const completionIds = completionLinks.map(row => row.completionTransactionId).filter((id): id is string => !!id);
+    const completionFees = completionIds.length
+      ? await this.prisma.transactionCharge.aggregate({
+          where: { transactionId: { in: completionIds }, transaction: { status: TransactionStatus.COMPLETED },
+            chargeType: { not: 'SERVICE_PARTNER_COST' } },
+          _sum: { amount: true },
+        }) : null;
     const processedAmount = Number(processed._sum.grossAmount ?? 0);
     const serviceRevenueAmount = Number(serviceRevenue._sum.grossAmount ?? 0);
     const customerCommissionAmount = Number(customerCommission._sum.amount ?? 0);
     const providerIncomeAmount = Number(providerIncome._sum.amount ?? 0);
-    const providerCostAmount = Number(providerCost._sum.amount ?? 0);
+    const providerCostAmount = Number(providerCost._sum.amount ?? 0) + Number(completionFees?._sum.amount ?? 0);
     const partnerCostAmount = Number(partnerCost._sum.servicePartnerCharge ?? 0);
     const totalIncomeAmount = customerCommissionAmount + providerIncomeAmount + serviceRevenueAmount;
 
@@ -309,8 +322,11 @@ export class TransactionsService {
    * status, search and service filters as the main Transactions summary.
    * Cursor-batched to avoid loading an entire year into the 2GB VPS RAM.
    */
-  async incomeBreakdown(options?: TransactionListFilters) {
+  async incomeBreakdown(options?: TransactionListFilters & { detailCategory?: string; detailPage?: number }) {
     const where = this.transactionListWhere(options);
+    const detailCategory = options?.detailCategory?.trim() || null;
+    const detailPage = Math.max(1, Math.min(1000, Math.floor(options?.detailPage ?? 1)));
+    const detailPageSize = 25;
     const grouped = new Map<string, {
       category: string; count: number; totals: IncomeAmounts; examples: IncomeDetail[];
     }>();
@@ -330,42 +346,153 @@ export class TransactionsService {
           quickCashTransfer: {
             select: {
               direction: true, purpose: true, cashOutType: true, serviceName: true,
-              beneficiaryMode: true, servicePartnerCharge: true,
+              beneficiaryMode: true, servicePartnerCharge: true, completionTransactionId: true,
             },
+          },
+          payablePayment: {
+            select: { payable: { select: { sourceTransaction: { select: {
+              transactionType: true, transactionNumber: true,
+            } } } } },
+          },
+          customerLedgerEntry: {
+            select: { direction: true, amount: true, allocations: {
+              select: { amount: true, payable: { select: { sourceTransaction: {
+                select: { transactionType: true, transactionNumber: true },
+              } } }, cardDueClearing: { select: { transaction: {
+                select: { transactionType: true, transactionNumber: true },
+              } } } },
+            } },
           },
         },
       });
       if (!rows.length) break;
       transactionCount += rows.length;
+      const completionIds = rows.map(row => row.quickCashTransfer?.completionTransactionId)
+        .filter((id): id is string => !!id);
+      const completionTxs = completionIds.length
+        ? await this.prisma.transaction.findMany({
+            where: { id: { in: completionIds }, status: TransactionStatus.COMPLETED },
+            select: { id: true, charges: { select: { amount: true, chargeType: true } } },
+          }) : [];
+      const completionCharges = new Map(completionTxs.map(row => [row.id, row.charges]));
       for (const row of rows) {
-        const detail = transactionIncome(row);
-        // Principal-only movements have zero profit and do not affect this
-        // profitability breakdown (but remain on the Transactions page).
-        if (!detail.amounts.totalIncome && !detail.amounts.providerCost &&
-            !detail.amounts.payoutCost && !detail.amounts.partnerCost) continue;
-        const group = grouped.get(detail.category) ?? {
-          category: detail.category, count: 0, totals: emptyIncome(), examples: [],
-        };
-        group.count++;
-        for (const key of Object.keys(summary) as (keyof IncomeAmounts)[]) {
-          // Work in paise to preserve exact reconciliation across many rows.
-          summary[key] = this.money(summary[key] + detail.amounts[key]);
-          group.totals[key] = this.money(group.totals[key] + detail.amounts[key]);
+        const extras = row.quickCashTransfer?.completionTransactionId
+          ? completionCharges.get(row.quickCashTransfer.completionTransactionId) ?? [] : [];
+        const detail = transactionIncome({ ...row, charges: [...row.charges, ...extras] });
+        const source = row.payablePayment?.payable.sourceTransaction;
+        const targets = source ? [{ ...source, amount: row.grossAmount }] :
+          row.customerLedgerEntry?.direction === 'PAY_OUT'
+            ? row.customerLedgerEntry.allocations.flatMap(a => {
+                const linked = a.payable?.sourceTransaction ?? a.cardDueClearing?.transaction;
+                return linked ? [{ ...linked, amount: a.amount }] : [];
+              }) : [];
+        const entries = attributePayoutIncome(detail,
+          row.customerLedgerEntry?.amount ?? row.grossAmount, targets);
+        for (const entry of entries) {
+          if (!entry.amounts.totalIncome && !entry.amounts.providerCost &&
+              !entry.amounts.payoutCost && !entry.amounts.partnerCost) continue;
+          const group = grouped.get(entry.category) ?? {
+            category: entry.category, count: 0, totals: emptyIncome(), examples: [],
+          };
+          group.count++;
+          for (const key of Object.keys(summary) as (keyof IncomeAmounts)[]) {
+            summary[key] = this.money(summary[key] + entry.amounts[key]);
+            group.totals[key] = this.money(group.totals[key] + entry.amounts[key]);
+          }
+          if (!detailCategory || detailCategory === entry.category) {
+            group.examples.push(entry);
+            group.examples.sort((a,b)=>b.transactionAt.localeCompare(a.transactionAt) || b.id.localeCompare(a.id));
+            const limit = detailCategory ? detailPage * detailPageSize : 8;
+            if (group.examples.length > limit) group.examples.length = limit;
+          }
+          grouped.set(entry.category, group);
         }
-        // Show the latest eight contributing transactions per category, with
-        // links to the full audited transaction detail.
-        group.examples.push(detail);
-        group.examples.sort((a,b)=>b.transactionAt.localeCompare(a.transactionAt));
-        if (group.examples.length > 8) group.examples.length = 8;
-        grouped.set(detail.category, group);
       }
       cursor = rows[rows.length - 1].id;
       if (rows.length < 250) break;
     }
+    const categories = [...grouped.values()].sort((a,b)=>b.totals.netIncome-a.totals.netIncome);
+    if (detailCategory) {
+      for (const group of categories) {
+        group.examples = group.category === detailCategory
+          ? group.examples.slice((detailPage - 1) * detailPageSize, detailPage * detailPageSize)
+          : [];
+      }
+    }
+    // Independent raw-database reconciliation. These amounts are aggregated
+    // directly from recorded charges, commissions and service detail, not from
+    // the category calculation above; never silently report "reconciled".
+    const [rawCount, rawCustomer, rawProvider, rawServices, rawPartner, rawCharges] = await Promise.all([
+      this.prisma.transaction.count({ where }),
+      this.prisma.transactionCommission.aggregate({ where: { transaction: where,
+        NOT: { commissionType: { endsWith: '_PROVIDER' } } }, _sum: { amount: true } }),
+      this.prisma.transactionCommission.aggregate({ where: { transaction: where,
+        commissionType: { endsWith: '_PROVIDER' } }, _sum: { amount: true } }),
+      this.prisma.transaction.aggregate({ where: { AND: [where,
+        { transactionType: TransactionType.SERVICE_INCOME }] }, _sum: { grossAmount: true } }),
+      this.prisma.quickCashTransferDetail.aggregate({
+        where: { transaction: where, purpose: 'SERVICE' }, _sum: { servicePartnerCharge: true },
+      }),
+      this.prisma.transactionCharge.groupBy({
+        by: ['chargeType'], where: { transaction: where,
+          chargeType: { not: 'SERVICE_PARTNER_COST' } }, _sum: { amount: true },
+      }),
+    ]);
+    const completionLinks = await this.prisma.quickCashTransferDetail.findMany({
+      where: { transaction: where, completionTransactionId: { not: null } },
+      select: { completionTransactionId: true },
+    });
+    const linkedIds = completionLinks.map(row => row.completionTransactionId)
+      .filter((id): id is string => !!id);
+    const rawCompletionFees = linkedIds.length
+      ? await this.prisma.transactionCharge.groupBy({
+          by: ['chargeType'], where: { transactionId: { in: linkedIds },
+            transaction: { status: TransactionStatus.COMPLETED },
+            chargeType: { not: 'SERVICE_PARTNER_COST' } }, _sum: { amount: true },
+        }) : [];
+    const rawFeeRows = [...rawCharges, ...rawCompletionFees];
+    const rawPayout = this.money(rawFeeRows.filter(row => row.chargeType === 'PAYOUT')
+      .reduce((n,row) => n+Number(row._sum.amount ?? 0),0));
+    const rawOther = this.money(rawFeeRows.filter(row => row.chargeType !== 'PAYOUT')
+      .reduce((n,row) => n+Number(row._sum.amount ?? 0),0));
+    const reconciledAmounts = {
+      customerCommission: this.money(Number(rawCustomer._sum.amount ?? 0)),
+      providerIncome: this.money(Number(rawProvider._sum.amount ?? 0)),
+      serviceRevenue: this.money(Number(rawServices._sum.grossAmount ?? 0)),
+      providerCost: rawOther, payoutCost: rawPayout,
+      partnerCost: this.money(Number(rawPartner._sum.servicePartnerCharge ?? 0)),
+    };
+    const rawTotalIncome = this.money(reconciledAmounts.customerCommission +
+      reconciledAmounts.providerIncome + reconciledAmounts.serviceRevenue);
+    const rawNetIncome = this.money(rawTotalIncome - reconciledAmounts.providerCost -
+      reconciledAmounts.payoutCost - reconciledAmounts.partnerCost);
+    const categoryTotals = Object.fromEntries(
+      (Object.keys(summary) as (keyof IncomeAmounts)[]).map(key => [
+        key, this.money(categories.reduce((n,category) => n + category.totals[key], 0)),
+      ]),
+    ) as IncomeAmounts;
+    const discrepancies = (Object.keys(summary) as (keyof IncomeAmounts)[])
+      .filter(key => this.money(categoryTotals[key]) !== this.money(summary[key]));
+    for (const key of Object.keys(reconciledAmounts) as (keyof typeof reconciledAmounts)[]) {
+      if (this.money(reconciledAmounts[key]) !== this.money(summary[key])) discrepancies.push(key);
+    }
+    if (this.money(rawTotalIncome) !== this.money(summary.totalIncome))
+      discrepancies.push('totalIncome');
+    if (this.money(rawNetIncome) !== this.money(summary.netIncome))
+      discrepancies.push('netIncome');
+    if (rawCount !== transactionCount) discrepancies.push('transactionCount' as keyof IncomeAmounts);
+    const reconciliation = {
+      checked: true, balanced: discrepancies.length === 0,
+      independentIncome: rawTotalIncome, independentCosts: this.money(
+        reconciledAmounts.providerCost + reconciledAmounts.payoutCost + reconciledAmounts.partnerCost),
+      independentNetIncome: rawNetIncome,
+      transactionCount: rawCount,
+      quickCompletionCount: completionLinks.length,
+      discrepancies: [...new Set(discrepancies)],
+    };
     return {
-      summary,
-      transactionCount,
-      categories: [...grouped.values()].sort((a,b)=>b.totals.netIncome-a.totals.netIncome),
+      summary, transactionCount, categories, detailPage, detailPageSize,
+      reconciliation,
       basis: 'Recorded commission and service revenue minus provider/bank/payout fees and partner costs. This is transaction net earning, not final shop profit after rent or salaries.',
     };
   }
@@ -5061,6 +5188,12 @@ export class TransactionsService {
         select: { id: true, transactionNumber: true, status: true },
       }),
     ]);
+    const quickCashCompletion = transaction.quickCashTransfer?.completionTransactionId
+      ? await this.prisma.transaction.findUnique({
+          where: { id: transaction.quickCashTransfer.completionTransactionId },
+          select: { id: true, transactionNumber: true, status: true,
+            charges: { include: { sourceAccount: true } } },
+        }) : null;
     const expenseAdjustments = transaction.expense
       ? await this.prisma.transaction.findMany({
           where: { reversedTransactionId: id, transactionNumber: { startsWith: 'EXA-' } },
@@ -5090,6 +5223,8 @@ export class TransactionsService {
       correctionSource,
       correctedTransaction,
       expenseAdjustments,
+      quickCashCompletion: quickCashCompletion?.status === TransactionStatus.COMPLETED
+        ? quickCashCompletion : null,
       aepsCommissionCorrections,
     };
   }

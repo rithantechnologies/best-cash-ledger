@@ -34,8 +34,8 @@ type Tx={
 type TransactionAggregates={processed:number;customerCommission:number;providerIncome:number;serviceRevenue:number;totalIncome:number;providerCost:number;partnerCost:number;profit:number};
 type Paged={items:Tx[];pagination:{page:number;pageSize:number;total:number;totalPages:number};aggregates:TransactionAggregates};
 type EarningAmounts={customerCommission:number;providerIncome:number;serviceRevenue:number;totalIncome:number;providerCost:number;payoutCost:number;partnerCost:number;netIncome:number};
-type EarningCategory={category:string;count:number;totals:EarningAmounts;examples:{id:string;transactionNumber:string;transactionAt:string;customer:string|null;amounts:EarningAmounts}[]};
-type EarningBreakdown={summary:EarningAmounts;transactionCount:number;categories:EarningCategory[];basis:string};
+type EarningCategory={category:string;count:number;totals:EarningAmounts;examples:{id:string;transactionNumber:string;transactionAt:string;customer:string|null;amounts:EarningAmounts;attribution?:string}[]};
+type EarningBreakdown={summary:EarningAmounts;transactionCount:number;categories:EarningCategory[];basis:string;detailPage?:number;detailPageSize?:number;reconciliation?:{checked:boolean;balanced:boolean;independentIncome:number;independentCosts:number;independentNetIncome:number;transactionCount:number;quickCompletionCount:number;discrepancies:string[]}};
 type Range="today"|"yesterday"|"week"|"all";
 const money=(v:string|number|null)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(v??0));
 const statusTone=(s:string)=>s==="COMPLETED"?"emerald":s==="PENDING"?"amber":s==="REVERSED"?"rose":"slate";
@@ -135,6 +135,8 @@ export default function TransactionsPage(){
  const [incomeOpen,setIncomeOpen]=useState(false),[incomeLoading,setIncomeLoading]=useState(false);
  const [incomeBreakdown,setIncomeBreakdown]=useState<EarningBreakdown|null>(null);
  const [incomeError,setIncomeError]=useState(""),[expandedIncomeCategory,setExpandedIncomeCategory]=useState<string|null>(null);
+ const [incomeDetails,setIncomeDetails]=useState<{category:string;page:number;pageSize:number;count:number;rows:EarningCategory["examples"]}|null>(null);
+ const [incomeDetailsLoading,setIncomeDetailsLoading]=useState(false);
  const incomeRequest=useRef(0);
 
  function filterParams(page=pagination.page){
@@ -158,11 +160,25 @@ export default function TransactionsPage(){
  function toggleIncomeBreakdown(){
   if(incomeOpen){++incomeRequest.current;setIncomeOpen(false);return;}
   const request=++incomeRequest.current;
-  setIncomeOpen(true);setIncomeLoading(true);setIncomeError("");setIncomeBreakdown(null);setExpandedIncomeCategory(null);
+  setIncomeOpen(true);setIncomeLoading(true);setIncomeError("");setIncomeBreakdown(null);setExpandedIncomeCategory(null);setIncomeDetails(null);
   apiFetch<EarningBreakdown>("/transactions/income-breakdown?"+filterParams(1).toString())
    .then(data=>{if(request===incomeRequest.current)setIncomeBreakdown(data);})
    .catch(err=>{if(request===incomeRequest.current)setIncomeError(err instanceof Error?err.message:"Unable to load income breakdown");})
    .finally(()=>{if(request===incomeRequest.current)setIncomeLoading(false);});
+ }
+ function showIncomeDetails(category:string,page=1){
+  const request=++incomeRequest.current;
+  setIncomeDetailsLoading(true);setIncomeError("");
+  const params=filterParams(1);
+  params.set("detailCategory",category);params.set("detailPage",String(page));
+  apiFetch<EarningBreakdown>("/transactions/income-breakdown?"+params.toString())
+   .then(data=>{
+    if(request!==incomeRequest.current)return;
+    const group=data.categories.find(g=>g.category===category);
+    setIncomeDetails({category,page:data.detailPage??page,pageSize:data.detailPageSize??25,count:group?.count??0,rows:group?.examples??[]});
+   })
+   .catch(err=>{if(request===incomeRequest.current)setIncomeError(err instanceof Error?err.message:"Failed to load contributing transactions");})
+   .finally(()=>{if(request===incomeRequest.current)setIncomeDetailsLoading(false);});
  }
  useEffect(()=>{const initial=new URLSearchParams(window.location.search).get("type");if(!initial)return;const timer=window.setTimeout(()=>setType(initial),0);return()=>window.clearTimeout(timer);},[]);
  useEffect(()=>{
@@ -325,6 +341,11 @@ export default function TransactionsPage(){
     {incomeLoading?<p className="mt-4 text-sm text-[var(--text-muted)]">Calculating recorded income and fees across the selected transactions…</p>:null}
     {incomeError?<p role="alert" className="mt-3 text-sm text-[var(--money-out)]">{incomeError}</p>:null}
     {incomeBreakdown?<div className="mt-4 space-y-4">
+     {incomeBreakdown.reconciliation?<div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3" role="status">
+      <p className="text-sm font-black">{incomeBreakdown.reconciliation.balanced?"✓ Reconciled with saved transaction records":"⚠ Income reconciliation mismatch — review required"}</p>
+      <p className="mt-1 text-xs text-[var(--text-muted)]">Independent totals for the selected date and filters: Income {money(incomeBreakdown.reconciliation.independentIncome)} · Costs {money(incomeBreakdown.reconciliation.independentCosts)} · Net {money(incomeBreakdown.reconciliation.independentNetIncome)}</p>
+      <p className="mt-1 text-xs text-[var(--text-muted)]">{incomeBreakdown.reconciliation.transactionCount} transactions, including charges from {incomeBreakdown.reconciliation.quickCompletionCount} linked Quick Cash completions. {incomeBreakdown.reconciliation.balanced?"Source totals and all category totals match.":"Differences: "+incomeBreakdown.reconciliation.discrepancies.join(", ")}</p>
+     </div>:null}
      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
       {([["Customer commission",incomeBreakdown.summary.customerCommission,false],["Provider commission",incomeBreakdown.summary.providerIncome,false],["Service revenue",incomeBreakdown.summary.serviceRevenue,false],["Provider / bank fees",incomeBreakdown.summary.providerCost,true],["Payout fees",incomeBreakdown.summary.payoutCost,true],["Partner costs",incomeBreakdown.summary.partnerCost,true]] as [string,number,boolean][]).map(([title,amount,cost])=>
        <div key={title} className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold text-[var(--text-muted)]">{title}</p><p className={"money mt-1 text-sm font-black "+(cost?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{cost?"−":"+"}{money(amount)}</p></div>)}
@@ -338,18 +359,24 @@ export default function TransactionsPage(){
       <h4 className="mb-2 text-sm font-black">Earnings by transaction / service type</h4>
       {incomeBreakdown.categories.length? <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
        {incomeBreakdown.categories.map(group=><div key={group.category}>
-        <button type="button" aria-expanded={expandedIncomeCategory===group.category} onClick={()=>setExpandedIncomeCategory(value=>value===group.category?null:group.category)}
+        <button type="button" aria-expanded={expandedIncomeCategory===group.category} onClick={()=>{++incomeRequest.current;setIncomeDetails(null);setExpandedIncomeCategory(value=>value===group.category?null:group.category);}}
          className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-3 text-left hover:bg-[var(--surface-soft)]">
          <span className="min-w-0"><span className="block text-sm font-bold">{group.category} <span aria-hidden>{expandedIncomeCategory===group.category?"▴":"▾"}</span></span><span className="block text-[11px] text-[var(--text-muted)]">{group.count} contributing transaction(s) · Income {money(group.totals.totalIncome)} · Costs {money(group.totals.providerCost+group.totals.payoutCost+group.totals.partnerCost)}</span></span>
          <strong className={"money text-sm "+(group.totals.netIncome<0?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{money(group.totals.netIncome)}</strong>
         </button>
         {expandedIncomeCategory===group.category?<div className="space-y-1 border-t border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2">
-         <p className="mb-1 text-[11px] text-[var(--text-muted)]">Latest {group.examples.length} of {group.count} contributing transaction(s). Select an ID for the full audited fee and commission details.</p>
-         {group.examples.map(item=><Link key={item.id} href={"/transactions/"+item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--surface)] p-2 text-xs hover:underline">
-          <span className="font-semibold text-[var(--accent)]">{item.transactionNumber}{item.customer?" · "+item.customer:""}</span>
+         <p className="mb-1 text-[11px] text-[var(--text-muted)]">{incomeDetails?.category===group.category?'Showing page '+incomeDetails.page+' of the complete history':'Latest '+group.examples.length+' of '+group.count+' contributing transaction(s)'}. Select an ID for the full audited fee and commission details.</p>
+         {(incomeDetails?.category===group.category?incomeDetails.rows:group.examples).map((item,index)=><Link key={item.id+"-"+index} href={"/transactions/"+item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--surface)] p-2 text-xs hover:underline">
+          <span className="font-semibold text-[var(--accent)]">{item.transactionNumber}{item.customer?" · "+item.customer:""}{"attribution" in item && typeof item.attribution==="string"?" · "+item.attribution:""}</span>
           <span className="text-[var(--text-muted)]">Income {money(item.amounts.totalIncome)} · Costs {money(item.amounts.providerCost+item.amounts.payoutCost+item.amounts.partnerCost)}</span>
           <strong className={"money "+(item.amounts.netIncome<0?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{money(item.amounts.netIncome)}</strong>
          </Link>)}
+         {incomeDetailsLoading&&incomeDetails?.category===group.category?<p className="py-2 text-xs">Loading transaction history…</p>:null}
+         {incomeDetails?.category===group.category?<div className="flex flex-wrap items-center justify-between gap-2 py-2">
+           <button type="button" disabled={incomeDetails.page<=1||incomeDetailsLoading} onClick={()=>showIncomeDetails(group.category,incomeDetails.page-1)} className="rounded-md border border-[var(--border)] px-3 py-2 text-xs font-bold disabled:opacity-40">Previous</button>
+           <span className="text-xs font-medium">Page {incomeDetails.page} / {Math.max(1,Math.ceil(incomeDetails.count/incomeDetails.pageSize))}</span>
+           <button type="button" disabled={incomeDetailsLoading||incomeDetails.page*incomeDetails.pageSize>=incomeDetails.count} onClick={()=>showIncomeDetails(group.category,incomeDetails.page+1)} className="rounded-md border border-[var(--border)] px-3 py-2 text-xs font-bold disabled:opacity-40">Next</button>
+          </div>:group.count>8?<button type="button" onClick={()=>showIncomeDetails(group.category)} disabled={incomeDetailsLoading} className="mt-2 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-bold hover:bg-[var(--surface)]">View all {group.count} transactions</button>:null}
         </div>:null}
        </div>)}
       </div>:<p className="text-sm text-[var(--text-muted)]">No recorded income or transaction costs for the selected range.</p>}
