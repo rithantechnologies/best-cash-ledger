@@ -10,7 +10,7 @@ This profile is for a dedicated, low-traffic client VPS. Keep the application po
 - One NestJS API process and one Next.js standalone process.
 - Do not build Next.js or NestJS on the production VPS.
 
-The repository workflow `.github/workflows/build-release.yml` builds both applications on GitHub Actions and publishes a short-lived production artifact. The web artifact uses Next.js standalone output, so the VPS does not need the full frontend `node_modules` tree.
+The repository workflow `.github/workflows/build-release.yml` builds both applications on GitHub Actions and publishes a short-lived production artifact. The web artifact uses Next.js standalone output, so the VPS does not need the full frontend `node_modules` tree. The dedicated client web must be built with `NEXT_PUBLIC_BASE_PATH=""` because Nginx serves this app at the domain root (`/login`, not `/cashledger/login`). Verify `apps/web/.next/routes-manifest.json` has an empty `basePath` before staging. The older/demo VPS may require a different prefix and must be built separately.
 
 ## Release layout
 

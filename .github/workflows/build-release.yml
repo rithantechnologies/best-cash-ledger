@@ -40,8 +40,15 @@ jobs:
         run: npm --prefix apps/web run build
         env:
           CASHLEDGER_STANDALONE: "1"
-          NEXT_PUBLIC_BASE_PATH: "/cashledger"
+          # The client deployment is served at https://ledger.bestmoney.in/login,
+          # NOT at /cashledger/login. Demo deployments have their own build.
+          NEXT_PUBLIC_BASE_PATH: ""
           API_ORIGIN: "http://127.0.0.1:4001"
+
+      - name: Check client web route prefix
+        shell: bash
+        run: |
+          node -e "const routes=require('./apps/web/.next/routes-manifest.json'); if (routes.basePath) { console.error('Unexpected client basePath:', routes.basePath); process.exit(1); }"
 
       - name: Stage release
         shell: bash
