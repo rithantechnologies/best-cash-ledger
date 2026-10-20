@@ -31,7 +31,7 @@ type CashTransfer={requestedAmount:string;commissionMethod:string;commissionRate
 type Aeps={withdrawalAmount:string;platformChargeRate:string|null;platformChargeAmount:string;providerCommissionCalculationType:string|null;providerCommissionRate:string|null;providerCommissionAmount:string;commissionRate:string|null;commissionMethod:string;commissionAmount:string;cashGiven:string;settlementAmount:string;cashAccount:Account|null;settlementAccount:Account;customerBankName:string;aadhaarLastFour:string};
 type MicroAtm={withdrawalAmount:string;providerCommissionRate:string;providerCommissionAmount:string;cashGiven:string;settlementAmount:string;cashAccount:Account;settlementAccount:Account;customerBankName:string|null;cardLastFour:string};
 type Expense={expenseCategoryId:string;payee:string|null;amount:string;description:string|null;paymentAccountId:string|null;expenseCategory:{name:string};paymentAccount:Account|null};
-type QuickCash={direction:"IN"|"OUT";purpose:string;serviceName:string|null;serviceProfileId:string|null;serviceReferenceLabel:string|null;serviceProviderName:string|null;serviceReferenceNumber:string|null;servicePaymentMode:string;amount:string;commissionAmount:string;commissionCashAmount:string|null;commissionMode:"CASH"|"UPI"|"SPLIT"|null;serviceFulfillmentMode:"INTERNAL"|"PARTNER";servicePartnerName:string|null;servicePartnerCharge:string;servicePartnerPaymentTiming:"PAID_NOW"|"PAY_LATER"|null;servicePartnerPaidAt:string|null;cashAccount:Account;sourceAccount:Account|null;commissionAccount:Account|null;servicePaymentAccount:Account|null;servicePartnerPaymentAccount:Account|null};
+type QuickCash={direction:"IN"|"OUT";purpose:string;cashOutType?:string|null;serviceName:string|null;serviceProfileId:string|null;serviceReferenceLabel:string|null;serviceProviderName:string|null;serviceReferenceNumber:string|null;servicePaymentMode:string;amount:string;commissionAmount:string;commissionCashAmount:string|null;commissionMode:"CASH"|"UPI"|"SPLIT"|null;serviceFulfillmentMode:"INTERNAL"|"PARTNER";servicePartnerName:string|null;servicePartnerCharge:string;servicePartnerPaymentTiming:"PAID_NOW"|"PAY_LATER"|null;servicePartnerPaidAt:string|null;cashAccount:Account;sourceAccount:Account|null;commissionAccount:Account|null;servicePaymentAccount:Account|null;servicePartnerPaymentAccount:Account|null};
 type InternalTransfer={transferAmount:string;chargeAmount:string;sourceAccount:Account;destinationAccount:Account};
 type AtmWithdrawal={cashReceived:string;atmCharge:string;withdrawalAmount:string;bankAccount:Account;cashAccount:Account};
 type CreditCardPayment={paymentAmount:string;creditCardAccount:Account;sourceAccount:Account};
@@ -48,12 +48,15 @@ type Tx={
  customer:{id:string;fullName:string;mobile:string|null}|null;charges:Charge[];commissions:Commission[];journal:{journalNumber:string;description:string;entries:Entry[]}|null;
  payable:Payable|null;providerSettlementSource:Settlement|null;cardSwipe:CardSwipe|null;cashTransfer:CashTransfer|null;quickCashTransfer:QuickCash|null;aeps:Aeps|null;microAtm:MicroAtm|null;expense:Expense|null;internalTransfer:InternalTransfer|null;atmWithdrawal:AtmWithdrawal|null;creditCardPayment:CreditCardPayment|null;accountEntry:AccountEntry|null;customerLedgerEntry:CustomerLedgerEntry|null;cardDueClearing:CardDueClearing|null;cardDueRecovery:CardDueRecovery|null;cardDueCommissionCollection:CardDueCommissionCollection|null;
  correctionSource:CorrectionLink|null;correctedTransaction:CorrectionLink|null;expenseAdjustments?:ExpenseAdjustment[];reversedTransactionId?:string|null;
+ aepsCommissionCorrections?:{id:string;transactionNumber:string;transactionAt:string;commissions:{amount:string}[];accountEntry:{account:{accountName:string}}|null}[];
+
 };
 
 const money=(v:string|number|null)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(v||0));
 const tone=(s:string)=>s==="COMPLETED"?"emerald":s==="PENDING"?"amber":s==="REVERSED"?"rose":"slate";
 const label=(s:string)=>s.replaceAll("_"," ").toLowerCase().replace(/w/g,c=>c.toUpperCase());
 const sum=(rows:{amount:string}[])=>rows.reduce((a,x)=>a+Number(x.amount),0);
+const sumAmounts=(rows:{amount:string}[])=>sum(rows);
 const allocatedCharge=(allocationAmount:string|number,movementAmount:string|number,charges:{amount:string}[])=>{const movement=Number(movementAmount||0);if(movement<=0)return 0;return charges.reduce((total,x)=>total+Number(x.amount||0),0)*Number(allocationAmount||0)/movement;};
 const chargeLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"Partner / external service cost"+(c.sourceAccount?.accountName?" · paid from "+c.sourceAccount.accountName:" · payable"):c.chargeType==="PAYOUT"?"Payout charge"+(c.sourceAccount?.accountName?" · "+c.sourceAccount.accountName:""):"Provider / bank fee";
 const chargeRuleLabel=(c:Charge)=>c.chargeType==="SERVICE_PARTNER_COST"?"":c.calculationType==="PERCENTAGE"&&c.rate?Number(c.rate)+"%":c.chargeType==="PAYOUT"?"Fixed payout slab":c.rate?"₹"+Number(c.rate):"";
@@ -153,11 +156,14 @@ function MoneyFlow({tx}:{tx:Tx}){
     :cashCommission>0?"Cash":digitalCommission>0?"Bank / UPI":"No commission";
    return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Money movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Transfer principal and commission are tracked separately.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Transfer amount" value={principal} meta="Beneficiary principal"/><FlowCard label="Cash received" value={cashReceived} meta={d.cashAccount.accountName}/><FlowCard label="Business earns" value={"+"+money(commission)} tone="positive" meta={commissionMeta}/><FlowCard label="Transfer source" value={d.sourceAccount?.accountName??(tx.status==="PENDING"?"Pending":"—")} tone="accent" meta={tx.status==="PENDING"?"Complete source later":"Principal sent from this account"}/></div></Surface>;
   }
+  // The original cash journal never changes when a late commission is posted.
+  // Show its subsequent income separately from the original cash paid out.
+  const addedLater=tx.aepsCommissionCorrections?.reduce((acc,row)=>acc+sum(row.commissions),0)??0;
   const cashPaid=Math.max(0,principal-cashCommission);
   const commissionMeta=cashCommission>0&&digitalCommission>0
    ?money(cashCommission)+" cash + "+money(digitalCommission)+" bank / UPI"
    :cashCommission>0?"Cash":digitalCommission>0?"Bank / UPI":"No commission";
-  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Money movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Cash-out principal and commission are tracked separately.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Cash-out amount" value={principal}/><FlowCard label="Net drawer out" value={cashPaid} meta={d.cashAccount.accountName}/><FlowCard label="Business earns" value={"+"+money(commission)} tone="positive" meta={commissionMeta}/><FlowCard label="Incoming source" value={d.sourceAccount?.accountName??(tx.status==="PENDING"?"Pending":"—")} tone="accent"/></div></Surface>;
+  return <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Money movement</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">Cash-out principal and commission are tracked separately.</p></div><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-4 sm:p-4"><FlowCard label="Cash-out amount" value={principal}/><FlowCard label="Net drawer out" value={cashPaid} meta={d.cashAccount.accountName}/><FlowCard label="Business earns" value={"+"+money(commission+addedLater)} tone="positive" meta={addedLater>0?money(addedLater)+" entered later; original payout unchanged":commissionMeta}/><FlowCard label="Incoming source" value={d.sourceAccount?.accountName??(tx.status==="PENDING"?"Pending":"—")} tone="accent"/></div></Surface>;
  }
  if(tx.transactionType==="CARD_SWIPE"){
   const customer=Number(tx.payable?.originalAmount??tx.cardSwipe?.customerPayableAmount??net);
@@ -212,6 +218,13 @@ export default function TransactionDetailPage(){
  const [correctOpen,setCorrectOpen]=useState(false),[correctedAmount,setCorrectedAmount]=useState(""),[correctReason,setCorrectReason]=useState("");
  const [expenseSourceOpen,setExpenseSourceOpen]=useState(false),[expenseSourceId,setExpenseSourceId]=useState(""),[expenseSourceNote,setExpenseSourceNote]=useState(""),[expenseAccounts,setExpenseAccounts]=useState<Account[]>([]);
  const [partnerPaymentOpen,setPartnerPaymentOpen]=useState(false),[partnerPaymentAccountId,setPartnerPaymentAccountId]=useState(""),[partnerPaymentNote,setPartnerPaymentNote]=useState(""),[partnerPaymentAccounts,setPartnerPaymentAccounts]=useState<Account[]>([]);
+ const [aepsCommissionOpen,setAepsCommissionOpen]=useState(false);
+ const [aepsCommissionAmount,setAepsCommissionAmount]=useState("");
+ const [aepsCommissionVia,setAepsCommissionVia]=useState<"CASH"|"BANK_UPI">("CASH");
+ const [aepsCommissionAccountId,setAepsCommissionAccountId]=useState("");
+ const [aepsCommissionAccounts,setAepsCommissionAccounts]=useState<Account[]>([]);
+ const [aepsCommissionReason,setAepsCommissionReason]=useState("");
+
  const load=()=>apiFetch<Tx>("/transactions/"+id).then(setTx);
  useEffect(()=>{setReturnTo(transactionReturnPath());try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}load().catch(e=>setError(e instanceof Error?e.message:"Failed to load transaction"));},[id]);
  function openDetailsEditor(){
@@ -284,6 +297,35 @@ export default function TransactionDetailPage(){
      setExpenseSourceOpen(false);setExpenseSourceId("");await load();
    }catch(err){setError(err instanceof Error?err.message:"Could not complete expense");}finally{setSaving(false);}
  }
+ async function openAepsCommission(){
+   if(!tx?.quickCashTransfer)return;
+   setError("");setAepsCommissionAmount("");setAepsCommissionReason("");
+   setAepsCommissionVia("CASH");setAepsCommissionAccountId("");
+   try{
+     const accounts=await apiFetch<Account[]>("/dashboard/accounts");
+     setAepsCommissionAccounts(accounts.filter(a=>a.isActive!==false&&["BANK","UPI"].includes(a.accountType||"")));
+     setAepsCommissionOpen(true);
+   }catch(err){setError(err instanceof Error?err.message:"Could not load receiving accounts");}
+ }
+ async function saveAepsCommission(event:FormEvent){
+   event.preventDefault();
+   const amount=Number(aepsCommissionAmount);
+   if(!Number.isFinite(amount)||amount<=0||!aepsCommissionReason.trim()||
+      (aepsCommissionVia==="BANK_UPI"&&!aepsCommissionAccountId))return;
+   setSaving(true);setError("");
+   try{
+     await apiFetch("/transactions/quick-cash/"+id+"/missing-aeps-commission",{
+       method:"POST",
+       body:JSON.stringify({
+         amount,receivedVia:aepsCommissionVia,
+         accountId:aepsCommissionVia==="BANK_UPI"?aepsCommissionAccountId:undefined,
+         reason:aepsCommissionReason.trim(),
+       }),
+     });
+     setAepsCommissionOpen(false);await load();
+   }catch(err){setError(err instanceof Error?err.message:"Could not record missing commission");}
+   finally{setSaving(false);}
+ }
  async function openPartnerPayment(){
    if(!tx?.quickCashTransfer)return;
    setPartnerPaymentAccountId("");setPartnerPaymentNote("");setError("");
@@ -314,6 +356,11 @@ export default function TransactionDetailPage(){
  const canReverse=(role==="ADMIN"||(role==="OWNER"&&cardDueType))&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const payoutState=tx.transactionType==="CARD_SWIPE"?payoutDisplay(tx.payable):null;
  const partnerPayablePending=tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceFulfillmentMode==="PARTNER"&&tx.quickCashTransfer.servicePartnerPaymentTiming==="PAY_LATER"&&!tx.quickCashTransfer.servicePartnerPaidAt;
+ const eligibleLateAepsCommission=role==="OWNER"&&tx.transactionType==="CASH_TRANSFER"&&
+  tx.quickCashTransfer?.direction==="OUT"&&tx.quickCashTransfer?.purpose==="TRANSFER"&&
+  tx.quickCashTransfer?.cashOutType==="AEPS"&&["PENDING","COMPLETED"].includes(tx.status)&&
+  Number(tx.quickCashTransfer.commissionAmount)===0&&!(tx.aepsCommissionCorrections?.length);
+
  const fees=sum(tx.charges),commissionIncome=sum(tx.commissions),serviceIncome=tx.transactionType==="SERVICE_INCOME"?Number(tx.grossAmount):0,totalIncome=commissionIncome+serviceIncome,gross=Number(tx.grossAmount),net=Number(tx.netAmount??tx.grossAmount);
  const payoutFees=(tx.payable?.payments.filter(p=>p.status==="COMPLETED").reduce((total,p)=>total+sum(p.transaction.charges),0)??0)+(tx.payable?.manualLedgerAllocations.reduce((total,a)=>total+allocatedCharge(a.amount,a.customerLedgerEntry.amount,a.customerLedgerEntry.transaction.charges),0)??0);
  const cardProfit=commissionIncome-fees-payoutFees;
@@ -323,10 +370,15 @@ export default function TransactionDetailPage(){
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href={returnTo} className="text-xs font-bold text-[var(--accent)]">← Back to previous view</Link><p className="mt-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--text-muted)]">{["BUSINESS_EXPENSE","PERSONAL_EXPENSE"].includes(tx.transactionType)?"Expense":displayService(tx)}</p><h1 className="mt-1 text-2xl font-black tracking-[-.035em] sm:text-3xl">{tx.transactionNumber}</h1><p className="mt-1 text-xs text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleString("en-IN")} · {tx.createdBy?.fullName??tx.createdById}</p></div>
-   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{partnerPayablePending?<button onClick={()=>void openPartnerPayment()} className="min-h-10 rounded-xl bg-violet-100 px-3 text-xs font-black text-violet-800">Pay partner {money(tx.quickCashTransfer?.servicePartnerCharge??0)}</button>:null}{tx.expense&&tx.status==="PENDING"&&!tx.journal?<button onClick={()=>void openExpenseSource()} className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-800">Add payment source</button>:null}{canEditDateTime?<button onClick={()=>tx.customerLedgerEntry?setLedgerEditOpen(true):openDetailsEditor()} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 text-xs font-black text-[var(--accent)]">Edit transaction</button>:null}{tx.expense&&tx.status!=="REVERSED"?<Link href={expenseEditHref} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2.5 text-xs font-black text-[var(--accent)]">Edit all fields</Link>:null}{canCorrect?<button onClick={openAmountCorrection} className="min-h-10 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800">Correct amount</button>:null}{canEditDateTime&&!tx.expense&&!tx.customerLedgerEntry?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canDelete?<button onClick={()=>{setReason("");setDeleteOpen(true)}} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">Delete</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
+   <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{eligibleLateAepsCommission?<button type="button" onClick={()=>void openAepsCommission()} className="min-h-10 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-800">+ Add missing AEPS commission</button>:null}{partnerPayablePending?<button onClick={()=>void openPartnerPayment()} className="min-h-10 rounded-xl bg-violet-100 px-3 text-xs font-black text-violet-800">Pay partner {money(tx.quickCashTransfer?.servicePartnerCharge??0)}</button>:null}{tx.expense&&tx.status==="PENDING"&&!tx.journal?<button onClick={()=>void openExpenseSource()} className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-800">Add payment source</button>:null}{canEditDateTime?<button onClick={()=>tx.customerLedgerEntry?setLedgerEditOpen(true):openDetailsEditor()} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 text-xs font-black text-[var(--accent)]">Edit transaction</button>:null}{tx.expense&&tx.status!=="REVERSED"?<Link href={expenseEditHref} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2.5 text-xs font-black text-[var(--accent)]">Edit all fields</Link>:null}{canCorrect?<button onClick={openAmountCorrection} className="min-h-10 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800">Correct amount</button>:null}{canEditDateTime&&!tx.expense&&!tx.customerLedgerEntry?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canDelete?<button onClick={()=>{setReason("");setDeleteOpen(true)}} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">Delete</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
-  {tx.correctionSource?<div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This is the corrected replacement for <Link className="font-black underline" href={"/transactions/"+tx.correctionSource.id}>{tx.correctionSource.transactionNumber}</Link>{tx.correctionReason?" · "+tx.correctionReason:""}.</div>:null}
+  {tx.aepsCommissionCorrections?.length?<div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+   <p className="font-black">Commission entered later · {money(tx.aepsCommissionCorrections.reduce((sum,row)=>sum+sumAmounts(row.commissions),0))}</p>
+   {tx.aepsCommissionCorrections.map(row=><p key={row.id} className="mt-1 text-xs">Recorded on {new Date(row.transactionAt).toLocaleString("en-IN")} into {row.accountEntry?.account.accountName??"selected account"} · <Link href={"/transactions/"+row.id} className="font-black underline">{row.transactionNumber}</Link>. The original cash payout was not changed.</p>)}
+  </div>:null}
+  {tx.correctionSource?.transactionNumber&&tx.transactionNumber.startsWith("QCM-")?<div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">This is a late AEPS commission receipt linked to <Link className="font-black underline" href={"/transactions/"+tx.correctionSource.id}>{tx.correctionSource.transactionNumber}</Link>, not a replacement for the original cash payout.</div>:null}
+  {tx.correctionSource&&!tx.transactionNumber.startsWith("QCM-")?<div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This is the corrected replacement for <Link className="font-black underline" href={"/transactions/"+tx.correctionSource.id}>{tx.correctionSource.transactionNumber}</Link>{tx.correctionReason?" · "+tx.correctionReason:""}.</div>:null}
   {tx.correctedTransaction?<div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">This transaction was corrected. Active replacement: <Link className="font-black underline" href={"/transactions/"+tx.correctedTransaction.id}>{tx.correctedTransaction.transactionNumber}</Link>.</div>:null}
   {tx.transactionNumber.startsWith("EXA-")&&tx.reversedTransactionId?<div className="rounded-xl border border-[var(--border)] p-3 text-xs">This is an audited expense ledger adjustment. <Link href={"/transactions/"+tx.reversedTransactionId} className="font-bold text-[var(--accent)]">Open original expense →</Link></div>:null}
 
@@ -339,6 +391,29 @@ export default function TransactionDetailPage(){
   </div>
 
   <MoneyFlow tx={tx}/>
+  {aepsCommissionOpen?<Modal open title="Add missing AEPS commission" description="Owner approval · Posts a separate commission entry today" onClose={()=>{if(!saving)setAepsCommissionOpen(false);}}
+   footer={<div className="grid grid-cols-2 gap-2">
+    <button type="button" onClick={()=>setAepsCommissionOpen(false)} disabled={saving} className="min-h-11 rounded-xl border border-[var(--border)] text-sm font-bold">Cancel</button>
+    <button form="late-aeps-commission" disabled={saving||Number(aepsCommissionAmount)<=0||aepsCommissionReason.trim().length<10||(aepsCommissionVia==="BANK_UPI"&&!aepsCommissionAccountId)} className="app-primary-button min-h-11 text-sm font-black disabled:opacity-40">{saving?"Saving…":"Record commission"}</button>
+   </div>}>
+   <form id="late-aeps-commission" onSubmit={saveAepsCommission} className="space-y-4">
+     {error?<p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-800">{error}</p>:null}
+     <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">Original Cash Out: {tx.transactionNumber}. This does NOT change the cash paid to the customer. Only enter commission genuinely received and not already recorded. A cash entry requires an active cash session; a closed session will not be rewritten.</p>
+     <label className="block text-xs font-bold">Missing commission received (₹)
+      <input required inputMode="decimal" type="number" min="0.01" max="1000000" step="0.01" value={aepsCommissionAmount} onChange={e=>setAepsCommissionAmount(e.target.value)} className="app-control mt-1.5 w-full" placeholder="0.00"/>
+     </label>
+     <div className="space-y-2"><p className="text-xs font-bold">Where was commission received?</p>
+      <label className="flex items-center gap-2 text-sm"><input type="radio" checked={aepsCommissionVia==="CASH"} onChange={()=>setAepsCommissionVia("CASH")}/> Cash · original drawer</label>
+      <label className="flex items-center gap-2 text-sm"><input type="radio" checked={aepsCommissionVia==="BANK_UPI"} onChange={()=>setAepsCommissionVia("BANK_UPI")}/> Bank / UPI</label>
+     </div>
+     {aepsCommissionVia==="BANK_UPI"?<label className="block text-xs font-bold">Received in account
+      <SearchableSelect className="app-control mt-1.5 w-full" value={aepsCommissionAccountId} onChange={e=>setAepsCommissionAccountId(e.target.value)}><option value="">Select actual receiving account</option>{aepsCommissionAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</SearchableSelect>
+     </label>:<p className="text-xs text-[var(--text-muted)]">Cash receipt will be posted today into {tx.quickCashTransfer?.cashAccount.accountName}. If its session is closed, open a current session before recording a cash receipt.</p>}
+     <label className="block text-xs font-bold">Why was the commission missed?
+      <textarea required minLength={10} value={aepsCommissionReason} onChange={e=>setAepsCommissionReason(e.target.value)} className="app-control mt-1.5 min-h-24 w-full" placeholder="Example: AEPS cash-out completed without entering commission; verified against receipt."/>
+     </label>
+   </form>
+  </Modal>:null}
   {tx.expense?<Surface className="p-4 sm:p-5">
    <div className="flex flex-wrap items-center justify-between gap-3"><div>
     <h3 className="text-sm font-black">Expense details</h3>
@@ -358,7 +433,7 @@ export default function TransactionDetailPage(){
   {tx.payable?<Surface className="overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><h3 className="text-sm font-black">Customer payout</h3><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">{tx.payable.payments.length?tx.payable.payments.map(p=>p.sourceAccount.accountName).join(", "):"Not paid yet"}</p></div><StatusBadge tone={(payoutDisplay(tx.payable)?.tone??"amber")}>{payoutDisplay(tx.payable)?.label??label(tx.payable.status)}</StatusBadge></div><div className="border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-2.5 text-[11px] text-[var(--text-muted)] sm:px-5">Due <b className="text-[var(--text)]">{new Date(tx.payable.dueAt).toLocaleDateString("en-IN")}</b></div><div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4"><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Customer gets</p><p className="money mt-1 font-black">{money(tx.payable.originalAmount)}</p></div><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Paid</p><p className="money mt-1 font-black text-[var(--money-in)]">{money(tx.payable.paidAmount)}</p></div><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Payout charges</p><p className="money mt-1 font-black text-[var(--money-out)]">{money(payoutFees)}</p></div><div className="bg-[var(--surface)] p-3.5"><p className="text-[10px] text-[var(--text-muted)]">Remaining</p><p className="money mt-1 font-black">{money(tx.payable.remainingAmount)}</p></div></div></Surface>:null}
 
   <div className="grid gap-4 lg:grid-cols-2">
-   <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Income & pricing</h3></div><div className="divide-y divide-[var(--border)] px-4 sm:px-5">{tx.transactionType==="SERVICE_INCOME"?<div className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">Service income · {tx.quickCashTransfer?.serviceName??"Service"}</span><strong className="money text-[var(--money-in)]">+{money(serviceIncome)}</strong></div>:null}{tx.charges.map(c=><div key={c.id} className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">{chargeLabel(c)}{chargeRuleLabel(c)?" · "+chargeRuleLabel(c):""}</span><strong className="money text-[var(--money-out)]">−{money(c.amount)}</strong></div>)}{tx.commissions.map(c=><div key={c.id} className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">{c.commissionType==="MICRO_ATM_PROVIDER"?"Provider commission":"Commission income"} · {Number(c.rate)}%</span><strong className="money text-[var(--money-in)]">+{money(c.amount)}</strong></div>)}{tx.transactionType==="CARD_SWIPE"&&payoutFees>0?<div className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">Payout / wallet charges</span><strong className="money text-[var(--money-out)]">−{money(payoutFees)}</strong></div>:null}{tx.transactionType==="CARD_SWIPE"?<div className="flex items-center justify-between gap-4 py-3 text-sm font-bold"><span>Business profit</span><strong className={"money "+(cardProfit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(cardProfit)}</strong></div>:null}{!tx.charges.length&&!tx.commissions.length&&tx.transactionType!=="CARD_SWIPE"&&tx.transactionType!=="SERVICE_INCOME"?<div className="py-4 text-sm text-[var(--text-muted)]">No fees or income components.</div>:null}</div></Surface>
+   <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Income & pricing</h3></div><div className="divide-y divide-[var(--border)] px-4 sm:px-5">{tx.transactionType==="SERVICE_INCOME"?<div className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">Service income · {tx.quickCashTransfer?.serviceName??"Service"}</span><strong className="money text-[var(--money-in)]">+{money(serviceIncome)}</strong></div>:null}{tx.charges.map(c=><div key={c.id} className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">{chargeLabel(c)}{chargeRuleLabel(c)?" · "+chargeRuleLabel(c):""}</span><strong className="money text-[var(--money-out)]">−{money(c.amount)}</strong></div>)}{tx.commissions.map(c=><div key={c.id} className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">{c.commissionType==="MICRO_ATM_PROVIDER"?"Provider commission":c.commissionType==="AEPS_CUSTOMER_LATE"?"Missing AEPS commission added later":"Commission income"}{c.commissionType==="AEPS_CUSTOMER_LATE"?"":" · "+Number(c.rate)+"%"}</span><strong className="money text-[var(--money-in)]">+{money(c.amount)}</strong></div>)}{tx.transactionType==="CARD_SWIPE"&&payoutFees>0?<div className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-[var(--text-muted)]">Payout / wallet charges</span><strong className="money text-[var(--money-out)]">−{money(payoutFees)}</strong></div>:null}{tx.transactionType==="CARD_SWIPE"?<div className="flex items-center justify-between gap-4 py-3 text-sm font-bold"><span>Business profit</span><strong className={"money "+(cardProfit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(cardProfit)}</strong></div>:null}{!tx.charges.length&&!tx.commissions.length&&tx.transactionType!=="CARD_SWIPE"&&tx.transactionType!=="SERVICE_INCOME"?<div className="py-4 text-sm text-[var(--text-muted)]">No fees or income components.</div>:null}</div></Surface>
    <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><h3 className="text-sm font-black">Reference & notes</h3></div><div className="space-y-3 p-4 text-sm sm:p-5"><div><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Reference</p><p className="mt-1 font-semibold">{tx.referenceNumber??"—"}</p></div>{tx.notes?<div><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Notes</p><p className="mt-1 whitespace-pre-wrap text-[var(--text-muted)]">{tx.notes}</p></div>:null}{tx.reversalReason?<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-800"><strong className="block text-xs">Reversal reason</strong><p className="mt-1">{tx.reversalReason}</p></div>:null}</div></Surface>
   </div>
 

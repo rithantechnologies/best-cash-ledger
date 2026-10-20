@@ -5,6 +5,7 @@ import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateAccountEntryDto } from './dto/create-account-entry.dto.js';
 import { CreateAepsDto } from './dto/create-aeps.dto.js';
+import { AddMissingAepsCommissionDto } from './dto/add-missing-aeps-commission.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
 import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
@@ -161,6 +162,16 @@ export class TransactionsController {
       req.user.role,
       key,
     );
+  }
+
+  @Post('quick-cash/:id/missing-aeps-commission')
+  @Roles(RoleName.OWNER)
+  addMissingAepsCommission(
+    @Param('id') id: string,
+    @Body() dto: AddMissingAepsCommissionDto,
+    @Req() req: any,
+  ) {
+    return this.transactions.addMissingAepsCommission(id, dto, req.user.userId);
   }
 
   @Post('quick-cash/:id/complete')

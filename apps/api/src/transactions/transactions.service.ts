@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { AccountNature, AccountType, CalculationType, CommissionMethod, CustomerType, EntryType, JournalStatus, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
@@ -8,6 +9,7 @@ import { ProviderSettlementsService } from '../provider-settlements/provider-set
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateAccountEntryDto } from './dto/create-account-entry.dto.js';
 import { CreateAepsDto } from './dto/create-aeps.dto.js';
+import { AddMissingAepsCommissionDto } from './dto/add-missing-aeps-commission.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
 import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
@@ -1693,6 +1695,169 @@ export class TransactionsService {
       await this.auditCreated(tx, transaction, userId);
       return transaction;
     });
+  }
+
+  /**
+   * Supplement a successful AePS quick Cash Out that had no recorded customer
+   * commission. Keep the original payout, business date and closed cash sessions
+   * immutable. Income and the actual receipt are posted NOW as a new journal.
+   */
+  async addMissingAepsCommission(
+    id: string,
+    dto: AddMissingAepsCommissionDto,
+    actorId: string,
+  ) {
+    const amount = this.money(dto.amount);
+    if (!Number.isFinite(dto.amount) || dto.amount <= 0 ||
+        amount !== dto.amount || amount > 1000000) {
+      throw new BadRequestException('Enter a valid positive commission up to ₹10,00,000');
+    }
+    const reason = dto.reason?.trim();
+    if (!reason || reason.length < 10) {
+      throw new BadRequestException('Explain why the original AEPS commission was missing (at least 10 characters)');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize amendments on the original row, so concurrent Owner retries
+      // cannot create the same commission twice.
+      await tx.$queryRawUnsafe('SELECT id FROM "Transaction" WHERE id = $1 FOR UPDATE', id);
+      const original = await tx.transaction.findUnique({
+        where: { id },
+        include: { quickCashTransfer: true, commissions: true },
+      });
+      const detail = original?.quickCashTransfer;
+      if (!original || !detail ||
+          original.transactionType !== TransactionType.CASH_TRANSFER ||
+          detail.purpose !== 'TRANSFER' || detail.direction !== 'OUT' ||
+          detail.cashOutType !== 'AEPS' ||
+          original.status !== TransactionStatus.PENDING && original.status !== TransactionStatus.COMPLETED) {
+        throw new BadRequestException('Only successful AEPS Cash Out entries are eligible');
+      }
+      if (Number(detail.commissionAmount) !== 0 ||
+          original.commissions.some((row) => Number(row.amount) > 0)) {
+        throw new BadRequestException('This AEPS transaction already records commission; do not add it twice');
+      }
+      const existing = await tx.transaction.findFirst({
+        where: {
+          correctionSourceTransactionId: id,
+          transactionNumber: { startsWith: 'QCM-' },
+          status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] },
+        },
+        select: { id: true, transactionNumber: true },
+      });
+      if (existing) {
+        throw new BadRequestException(
+          'A missing-commission entry is already recorded: ' + existing.transactionNumber,
+        );
+      }
+
+      const receiptAccountId = dto.receivedVia === 'CASH'
+        ? detail.cashAccountId : dto.accountId;
+      if (!receiptAccountId) {
+        throw new BadRequestException('Select the bank / UPI account that received the commission');
+      }
+      await this.validation.lockAccount(tx, receiptAccountId);
+      const account = dto.receivedVia === 'CASH'
+        ? await this.validation.cashAccount(tx, receiptAccountId, 'AePS commission drawer')
+        : await this.validation.liquidAsset(tx, receiptAccountId, 'Commission received account');
+      if (dto.receivedVia === 'BANK_UPI' &&
+          account.accountType !== AccountType.BANK && account.accountType !== AccountType.UPI) {
+        throw new BadRequestException('Select a bank or UPI account for digital commission');
+      }
+      if (dto.receivedVia === 'CASH') {
+        // No posting to a closed/reconciled historical cash session.
+        await this.validation.requireOpenCashDesk(
+          tx, detail.cashAccountId, 'AEPS commission received in cash',
+        );
+      }
+      if (!account.ledgerAccount) {
+        throw new NotFoundException('Commission receipt account ledger not found');
+      }
+      const incomeLedger = await tx.ledgerAccount.findUnique({
+        where: { ledgerCode: 'SYS-COMMISSION' },
+      });
+      if (!incomeLedger) throw new NotFoundException('Commission income ledger is missing');
+
+      const now = new Date();
+      const correction = await tx.transaction.create({
+        data: {
+          transactionNumber: 'QCM-' + randomUUID().replaceAll('-', '').slice(0, 18).toUpperCase(),
+          transactionType: TransactionType.ACCOUNT_ENTRY,
+          transactionAt: now,
+          customerId: original.customerId,
+          grossAmount: new Prisma.Decimal(amount),
+          netAmount: new Prisma.Decimal(amount),
+          status: TransactionStatus.COMPLETED,
+          correctionSourceTransactionId: id,
+          correctionReason: reason,
+          referenceNumber: original.transactionNumber,
+          notes: 'Missing AEPS Cash Out commission linked to ' +
+            original.transactionNumber + ' · ' + reason,
+          createdById: actorId,
+        },
+      });
+      await tx.accountEntryDetail.create({
+        data: {
+          transactionId: correction.id,
+          accountId: receiptAccountId,
+          direction: 'IN',
+          entryKind: 'AEPS_MISSING_COMMISSION',
+          amount: new Prisma.Decimal(amount),
+          entryLabel: 'Late AEPS commission · ' + original.transactionNumber,
+        },
+      });
+      await tx.transactionCommission.create({
+        data: {
+          transactionId: correction.id,
+          commissionType: 'AEPS_CUSTOMER_LATE',
+          calculationType: CalculationType.FIXED,
+          rate: new Prisma.Decimal(0),
+          amount: new Prisma.Decimal(amount),
+        },
+      });
+      await this.ledger.post(
+        tx, correction.id, actorId,
+        'Missing AEPS commission · ' + original.transactionNumber,
+        [
+          {
+            ledgerAccountId: account.ledgerAccount.id,
+            entryType: EntryType.DEBIT,
+            amount,
+            description: 'Late AEPS commission received · ' + original.transactionNumber,
+          },
+          {
+            ledgerAccountId: incomeLedger.id,
+            entryType: EntryType.CREDIT,
+            amount,
+            description: 'Earned customer AEPS commission · ' + original.transactionNumber,
+          },
+        ],
+      );
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'TRANSACTION',
+          entityId: id,
+          action: 'ADD_MISSING_AEPS_COMMISSION',
+          oldValues: { originalCommission: Number(detail.commissionAmount), linkedCorrectionId: null },
+          newValues: {
+            commissionAmount: amount,
+            receivedVia: dto.receivedVia,
+            receiptAccountId,
+            correctionTransactionId: correction.id,
+            correctionTransactionNumber: correction.transactionNumber,
+            postingDate: now.toISOString(),
+            reason,
+          },
+        },
+      });
+      await this.auditCreated(tx, correction, actorId);
+      return {
+        originalTransactionId: id,
+        correctionTransactionId: correction.id,
+        correctionTransactionNumber: correction.transactionNumber,
+        amount,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   async completeQuickCash(
@@ -4813,7 +4978,10 @@ export class TransactionsService {
           })
         : Promise.resolve(null),
       this.prisma.transaction.findFirst({
-        where: { correctionSourceTransactionId: transaction.id },
+        where: {
+          correctionSourceTransactionId: transaction.id,
+          NOT: { transactionNumber: { startsWith: 'QCM-' } },
+        },
         orderBy: { createdAt: 'desc' },
         select: { id: true, transactionNumber: true, status: true },
       }),
@@ -4826,12 +4994,28 @@ export class TransactionsService {
             journal: { select: { journalNumber: true, postingDate: true,
               entries: { include: { ledgerAccount: true } } } } },
         }) : [];
+    const aepsCommissionCorrections = transaction.quickCashTransfer?.cashOutType === 'AEPS'
+      ? await this.prisma.transaction.findMany({
+          where: {
+            correctionSourceTransactionId: id,
+            transactionNumber: { startsWith: 'QCM-' },
+            status: TransactionStatus.COMPLETED,
+          },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true, transactionNumber: true, transactionAt: true,
+            commissions: { select: { amount: true } },
+            accountEntry: { select: { account: { select: { accountName: true } } } },
+          },
+        })
+      : [];
     return {
       ...transaction,
       createdBy: creator,
       correctionSource,
       correctedTransaction,
       expenseAdjustments,
+      aepsCommissionCorrections,
     };
   }
 
@@ -6088,10 +6272,28 @@ export class TransactionsService {
           cardDueClearing: true,
           cardDueRecovery: true,
           cardDueCommissionCollection: true,
+          quickCashTransfer: true,
         },
       });
 
       if (!original) throw new NotFoundException('Transaction not found');
+      if (original.quickCashTransfer?.direction === 'OUT' &&
+          original.quickCashTransfer.cashOutType === 'AEPS') {
+        const supplementalCommission = await tx.transaction.findFirst({
+          where: {
+            correctionSourceTransactionId: original.id,
+            transactionNumber: { startsWith: 'QCM-' },
+            status: { notIn: [TransactionStatus.REVERSED, TransactionStatus.CANCELLED] },
+          },
+          select: { transactionNumber: true },
+        });
+        if (supplementalCommission) {
+          throw new BadRequestException(
+            'Reverse linked commission entry ' + supplementalCommission.transactionNumber +
+            ' before reversing this AEPS withdrawal',
+          );
+        }
+      }
       if (original.status === TransactionStatus.REVERSED || original.transactionType === TransactionType.REVERSAL) {
         throw new BadRequestException('Transaction is already reversed or is a reversal');
       }
