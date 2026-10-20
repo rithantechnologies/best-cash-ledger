@@ -174,8 +174,23 @@ export class TransactionsService {
       payable: true,
       receivableSource: true,
       cardSwipe: { include: { customerCard: true } },
+      cashTransfer: {
+        select: {
+          sourceAccount: { select: { accountName: true } },
+          customerUpiAccount: { select: { id: true } },
+          customerBankAccount: { select: { id: true } },
+          beneficiaryAccount: { select: { id: true } },
+        },
+      },
+      internalTransfer: {
+        select: {
+          sourceAccount: { select: { accountName: true } },
+          destinationAccount: { select: { accountName: true } },
+        },
+      },
       quickCashTransfer: {
         include: {
+          sourceAccount: { select: { accountName: true } },
           cashAccount: true,
           servicePaymentAccount: true,
           servicePartnerPaymentAccount: true,

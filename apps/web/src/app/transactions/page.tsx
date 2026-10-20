@@ -8,6 +8,7 @@ import { EmptyState, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, 
 import { apiFetch } from "@/lib/api";
 import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 import { MoneyFlowIcon } from "@/components/money-flow-icon";
+import { transactionParticulars } from "@/lib/transaction-particulars";
 
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
@@ -15,7 +16,9 @@ type Tx={
  cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
  microAtm:{customerBankName:string|null;cardLastFour:string}|null;
  aeps:{customerBankName:string;aadhaarLastFour:string}|null;
- quickCashTransfer:{purpose:string;serviceName:string|null;servicePaymentMode:string;serviceFulfillmentMode?:string;servicePartnerName?:string|null;servicePartnerCharge?:string;cashAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
+ quickCashTransfer:{direction:string;purpose:string;serviceName:string|null;cashOutType:string;beneficiaryMode:string|null;sourceAccount:{accountName:string}|null;servicePaymentMode:string;serviceFulfillmentMode?:string;servicePartnerName?:string|null;servicePartnerCharge?:string;cashAccount:{accountName:string}|null;servicePaymentAccount:{accountName:string}|null;commissionAccount:{accountName:string}|null}|null;
+ cashTransfer:{customerUpiAccount:object|null;customerBankAccount:object|null;beneficiaryAccount:object|null;sourceAccount:{accountName:string}|null}|null;
+ internalTransfer:{sourceAccount:{accountName:string};destinationAccount:{accountName:string}}|null;
  providerSettlementReceipt:{settlement:{sourceTransaction:{
    transactionNumber:string;transactionType:string;customer:{fullName:string}|null;createdBy:{id:string;fullName:string}|null;
    cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
@@ -39,7 +42,7 @@ const DEFAULT_DESKTOP_COLUMNS:DesktopColumnKey[]=["transactionId","date","servic
 const LOCKED_DESKTOP_COLUMNS=new Set<DesktopColumnKey>(["transactionId","date","service","processed","status"]);
 const DESKTOP_COLUMN_STORAGE_KEY="cashledger.transactions.desktop-columns.v3";
 const DESKTOP_COLUMN_META:Record<DesktopColumnKey,{label:string;width:number;right?:boolean}>={
- transactionId:{label:"Transaction ID",width:170},date:{label:"Date & time",width:165},service:{label:"Service",width:185},
+ transactionId:{label:"Transaction ID",width:170},date:{label:"Date & time",width:165},service:{label:"Particulars / Service",width:255},
  customer:{label:"Customer",width:155},source:{label:"Source / settlement",width:315},user:{label:"User",width:115},
  processed:{label:"Processed",width:135,right:true},customerFee:{label:"Customer commission",width:155,right:true},
  providerIncome:{label:"Provider income",width:140,right:true},serviceIncome:{label:"Service revenue",width:140,right:true},
@@ -55,7 +58,8 @@ const providerIncome=(tx:Tx)=>tx.commissions.filter(c=>c.commissionType.endsWith
 const customerCommissionIncome=(tx:Tx)=>tx.commissions.filter(c=>!c.commissionType.endsWith("_PROVIDER")).reduce((a,x)=>a+Number(x.amount),0);
 const serviceRevenue=(tx:Tx)=>tx.transactionType==="SERVICE_INCOME"?Number(tx.grossAmount):0;
 const totalIncome=(tx:Tx)=>customerCommissionIncome(tx)+providerIncome(tx)+serviceRevenue(tx);
-const displayService=(tx:Tx)=>tx.customerLedgerEntry?(tx.customerLedgerEntry.direction==="PAY_IN"?"Pay In":"Pay Out")+" · "+tx.customerLedgerEntry.remarks:tx.accountEntry?(tx.accountEntry.entryLabel||"Manual amount entry"):tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceName?tx.quickCashTransfer.serviceName:label(tx.transactionType);
+const displayService=(tx:Tx)=>tx.customerLedgerEntry?(tx.customerLedgerEntry.direction==="PAY_IN"?"Pay In":"Pay Out")+" · "+tx.customerLedgerEntry.remarks:tx.accountEntry?(tx.accountEntry.entryLabel||"Manual amount entry"):transactionParticulars(tx).title;
+const displayServiceDetail=(tx:Tx)=>transactionParticulars(tx).detail;
 function activityDirection(tx:Tx):"IN"|"OUT"|null{
  if(tx.customerLedgerEntry)return tx.customerLedgerEntry.direction==="PAY_IN"?"IN":"OUT";
  if(tx.accountEntry)return tx.accountEntry.direction;
@@ -296,6 +300,7 @@ export default function TransactionsPage(){
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black leading-5">{context.title}</p>
+          {displayServiceDetail(tx)?<p className="mt-0.5 text-xs leading-4 text-[var(--text-muted)]">{displayServiceDetail(tx)}</p>:null}
           <div className="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">
             <p className="truncate">{tx.transactionNumber} · {new Date(tx.transactionAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · {displayUser(tx)}</p>
             {source||tx.transactionType==="SERVICE_INCOME"?<p className="mt-0.5 line-clamp-2"><span className="font-semibold text-[var(--text)]">Received in:</span> {sourceContext(tx)}</p>:null}
@@ -320,7 +325,7 @@ export default function TransactionsPage(){
       const content=(key:DesktopColumnKey)=>{
        if(key==="transactionId")return <Link className="font-bold text-[var(--accent)] whitespace-nowrap" href={txHref(tx)}>{tx.transactionNumber}</Link>;
        if(key==="date")return <span className="text-xs whitespace-nowrap">{new Date(tx.transactionAt).toLocaleString("en-IN")}</span>;
-       if(key==="service")return <><span className="flex min-w-0 items-start gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span className="min-w-0 break-words font-medium leading-5">{displayService(tx)}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold leading-4 text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</>;
+       if(key==="service")return <><span className="flex min-w-0 items-start gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span className="min-w-0 break-words font-medium leading-5">{displayService(tx)}{displayServiceDetail(tx)?<span className="mt-0.5 block text-[11px] font-normal leading-4 text-[var(--text-muted)]">{displayServiceDetail(tx)}</span>:null}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold leading-4 text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</>;
        if(key==="customer")return <span className="block break-words font-semibold">{displayCustomer(tx)}</span>;
        if(key==="source")return source||tx.transactionType==="SERVICE_INCOME"?<span className="block whitespace-normal break-words text-xs leading-5 text-[var(--text)]">{sourceContext(tx)}</span>:<span className="text-[var(--text-muted)]">—</span>;
        if(key==="user")return <span className="text-xs font-semibold whitespace-nowrap">{displayUser(tx)}</span>;
