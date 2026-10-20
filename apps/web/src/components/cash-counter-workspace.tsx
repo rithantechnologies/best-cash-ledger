@@ -332,6 +332,14 @@ export default function CashCounterWorkspace({
   const [quickEbConnections,setQuickEbConnections]=useState<{id:string;number:string;label:string|null;ownerName?:string|null}[]>([]);
   const quickSelectedCustomerRef=useRef("");
   const [quickCustomerSearchLoading,setQuickCustomerSearchLoading]=useState(false);
+  // Register a reusable customer without leaving an unsaved Cash In draft.
+  // The optional mobile is not replaced with a fabricated placeholder.
+  const [quickRegisterOpen,setQuickRegisterOpen]=useState(false);
+  const [quickRegisterName,setQuickRegisterName]=useState("");
+  const [quickRegisterMobile,setQuickRegisterMobile]=useState("");
+  const [quickRegisterSaving,setQuickRegisterSaving]=useState(false);
+  const [quickRegisterError,setQuickRegisterError]=useState("");
+
   const [quickCustomerName,setQuickCustomerName]=useState("");
   const [quickMobile,setQuickMobile]=useState("");
   const [quickAadhaarLastFour,setQuickAadhaarLastFour]=useState("");
@@ -525,11 +533,11 @@ export default function CashCounterWorkspace({
   useEffect(()=>{
     if(!quickDirection)return;
     const handleEscape=(event:KeyboardEvent)=>{
-      if(event.key==="Escape"&&!quickSaving){event.preventDefault();closeQuickCash();}
+      if(event.key==="Escape"&&!quickSaving&&!quickRegisterSaving){event.preventDefault();closeQuickCash();}
     };
     window.addEventListener("keydown",handleEscape);
     return()=>window.removeEventListener("keydown",handleEscape);
-  },[quickDirection,quickSaving,modalOnly,onModalFinished]);
+  },[quickDirection,quickSaving,quickRegisterSaving,modalOnly,onModalFinished]);
   useEffect(()=>{
     if(quickCustomerId||!quickDirection||quickDirection==="IN"&&quickPurpose==="SERVICE"&&!quickIsEbBill){
       setQuickCustomerSuggestions([]);setQuickCustomerSearchLoading(false);return;
@@ -899,7 +907,7 @@ export default function CashCounterWorkspace({
   }
 
   function resetQuickCash(){
-    quickSelectedCustomerRef.current="";setQuickProfile(null);setQuickProfileLoading(false);setQuickDestinationKey("");setQuickAepsAccountId("");setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickServiceProfileId("");setQuickServiceReference("");setQuickServiceReferenceLabel("");setQuickServiceProviderName("");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickServiceFulfillmentMode("INTERNAL");setQuickServicePartnerName("");setQuickServicePartnerCharge("");setQuickServicePartnerPaymentTiming("PAID_NOW");setQuickServicePartnerPaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickEbConnections([]);setQuickCustomerSearchLoading(false);setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
+    quickSelectedCustomerRef.current="";setQuickProfile(null);setQuickProfileLoading(false);setQuickDestinationKey("");setQuickAepsAccountId("");setQuickDirection(null);setQuickCashOutType("UPI_QR");setQuickSuccessful(true);setQuickAmount("");setQuickPurpose("TRANSFER");setQuickServiceName("");setQuickServiceProfileId("");setQuickServiceReference("");setQuickServiceReferenceLabel("");setQuickServiceProviderName("");setQuickCommission("");setQuickCommissionOverridden(false);setQuickCommissionMode("CASH");setQuickCommissionCash("");setQuickCashReceived("");setQuickCashReceivedOverridden(false);setQuickTransferTypeId("");setQuickBeneficiaryMode("UPI");setQuickBeneficiaryUpi("");setQuickBankAccountHolder("");setQuickBankAccountNumber("");setQuickBankIfsc("");setQuickServicePaymentMode("CASH");setQuickServicePaymentAccountId("");setQuickServiceFulfillmentMode("INTERNAL");setQuickServicePartnerName("");setQuickServicePartnerCharge("");setQuickServicePartnerPaymentTiming("PAID_NOW");setQuickServicePartnerPaymentAccountId("");setQuickCustomerId("");setQuickCustomerLookup("");setQuickCustomerSuggestions([]);setQuickEbConnections([]);setQuickCustomerSearchLoading(false);setQuickRegisterOpen(false);setQuickRegisterName("");setQuickRegisterMobile("");setQuickRegisterError("");setQuickCustomerName("");setQuickMobile("");setQuickAadhaarLastFour("");setQuickCustomerBank("");setQuickCardLastFour("");setQuickRemarks("");setQuickTransactionAt("");setQuickFieldErrors({});setQuickError("");
   }
   function closeQuickCash(){
     const customerId=returnCustomerProfileRef.current;
@@ -939,7 +947,42 @@ export default function CashCounterWorkspace({
       .catch(()=>{if(quickSelectedCustomerRef.current===customerId)setQuickProfile(null);})
       .finally(()=>{if(quickSelectedCustomerRef.current===customerId)setQuickProfileLoading(false);});
   }
+  function beginQuickRegistration(){
+    const term=quickCustomerLookup.trim();
+    const digits=term.replace(/\D/g,"");
+    const looksLikePhone=/^\d{6,10}$/.test(term);
+    setQuickRegisterName((quickCustomerName.trim()||(looksLikePhone?"":term)).toUpperCase());
+    setQuickRegisterMobile((quickMobile|| (looksLikePhone?digits:"")).replace(/\D/g,"").slice(0,10));
+    setQuickRegisterError("");
+    setQuickRegisterOpen(true);
+  }
+
+  async function saveQuickRegistration(){
+    if(quickRegisterSaving)return;
+    const fullName=quickRegisterName.trim().toUpperCase();
+    const mobile=quickRegisterMobile.replace(/\D/g,"");
+    if(fullName.length<2){setQuickRegisterError("Enter the customer's name (at least 2 characters).");return;}
+    if(mobile&&!/^[6-9]\d{9}$/.test(mobile)){
+      setQuickRegisterError("Mobile is optional. If entered, use a valid 10-digit Indian number.");
+      return;
+    }
+    setQuickRegisterSaving(true);setQuickRegisterError("");
+    try{
+      const types=await apiFetch<Array<{id:string;isActive:boolean;legacyType:string|null}>>("/settings/customer-types?includeInactive=true");
+      const type=types.find(item=>item.isActive&&item.legacyType==="REGULAR")||types.find(item=>item.isActive);
+      if(!type)throw new Error("No active customer type. Configure a customer type in Settings.");
+      const saved=await apiFetch<{id:string;fullName:string;mobile:string|null;customerCode:string}>("/customers",{
+        method:"POST",body:JSON.stringify({customerTypeId:type.id,fullName,mobile:mobile||undefined}),
+      });
+      setQuickRegisterOpen(false);setQuickRegisterError("");
+      selectQuickCustomer(saved);
+    }catch(error){
+      setQuickRegisterError(error instanceof Error?error.message:"Could not register customer.");
+    }finally{setQuickRegisterSaving(false);}
+  }
+
   function clearQuickCustomer(){
+    setQuickRegisterOpen(false);setQuickRegisterError("");
     quickSelectedCustomerRef.current="";setQuickCustomerId("");setQuickCustomerLookup("");
     setQuickCustomerSuggestions([]);setQuickCustomerName("");setQuickMobile("");
     setQuickProfile(null);setQuickProfileLoading(false);setQuickDestinationKey("");setQuickAepsAccountId("");
@@ -952,6 +995,7 @@ export default function CashCounterWorkspace({
     rememberCustomerName(customer.fullName);
     const searchTerm=quickCustomerLookup.trim();
     quickSelectedCustomerRef.current=customer.id;
+    setQuickRegisterOpen(false);setQuickRegisterError("");
     setQuickCustomerId(customer.id);
     setQuickCustomerLookup(customer.fullName+(customer.mobile?" · "+customer.mobile:""));
     setQuickCustomerName(customer.fullName);
@@ -1173,7 +1217,7 @@ export default function CashCounterWorkspace({
               <p className="text-[12px] font-bold text-[var(--text-muted)]">{quickDirection==="IN"&&quickPurpose==="SERVICE"?"Service income · completes now":quickDirection==="OUT"?(quickCashOutType==="AEPS"?"Aadhaar-linked withdrawal · settlement details later":quickCashOutType==="MICRO_ATM"?"Micro ATM withdrawal · settlement details later":"UPI / QR received · cash paid to customer"):"Transfer · complete source later"}</p>
             </div>
           </div>
-          <button type="button" disabled={quickSaving} onClick={closeQuickCash} className="grid h-10 w-10 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)]" aria-label="Close">×</button>
+          <button type="button" disabled={quickSaving||quickRegisterSaving} onClick={closeQuickCash} className="grid h-10 w-10 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)]" aria-label="Close">×</button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -1328,7 +1372,23 @@ export default function CashCounterWorkspace({
           {!quickCustomerId&&(quickDirection==="IN"&&quickPurpose==="TRANSFER"&&!quickIsEbBill||quickDirection==="OUT"&&quickCashOutType==="UPI_QR")?<div className="relative mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
             <label className="block text-[10px] font-black uppercase tracking-wide text-[var(--text-muted)]">Find saved customer · mobile, name, card last 4</label>
             <input name="cashledger_quick_customer_lookup" inputMode="search" autoComplete="off" value={quickCustomerLookup} onChange={event=>{clearQuickCustomer();setQuickCustomerLookup(event.target.value);}} className="mt-1.5 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold" placeholder="Phone, name or saved detail"/>
-            {!quickCustomerId&&quickCustomerLookup.trim().length>=2?<div className="absolute inset-x-3 top-full z-40 max-h-56 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">{quickCustomerSearchLoading?<p className="p-2 text-xs">Searching…</p>:quickCustomerSuggestions.length?quickCustomerSuggestions.map(customer=><button key={customer.id} type="button" onClick={()=>selectQuickCustomer(customer)} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-[var(--surface-soft)]"><span><strong className="block text-sm">{customer.fullName}</strong><span className="text-xs text-[var(--text-muted)]">{customer.mobile||customer.customerCode}</span></span><span className="text-xs font-black text-[var(--accent)]">Select</span></button>):<p className="p-2 text-xs text-[var(--text-muted)]">No match. You can still enter a walk-in transaction.</p>}</div>:null}
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold text-[var(--text-muted)]">New customer? Save for future Cash In visits.</p>
+              <button type="button" onClick={()=>quickRegisterOpen?setQuickRegisterOpen(false):beginQuickRegistration()} className="shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-black text-emerald-800">{quickRegisterOpen?"Cancel registration":"+ Register here"}</button>
+            </div>
+            {quickRegisterOpen?<div className="mt-3 space-y-2 rounded-xl border border-emerald-200 bg-[var(--surface)] p-3" aria-label="Register customer in Cash In">
+              <p className="text-xs font-black text-emerald-800">Register customer · Cash In</p>
+              <label className="block text-[11px] font-bold">Customer name <span className="text-rose-600">*</span>
+                <input autoComplete="off" maxLength={150} className="mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold" value={quickRegisterName} onChange={e=>{setQuickRegisterName(e.target.value.toUpperCase());setQuickRegisterError("");}} placeholder="Customer name"/>
+              </label>
+              <label className="block text-[11px] font-bold">Mobile number <span className="font-normal text-[var(--text-muted)]">(optional)</span>
+                <input type="tel" inputMode="numeric" autoComplete="off" maxLength={10} className="mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-bold" value={quickRegisterMobile} onChange={e=>{setQuickRegisterMobile(e.target.value.replace(/\D/g,"").slice(0,10));setQuickRegisterError("");}} placeholder="10-digit mobile, if available"/>
+              </label>
+              <p className="text-[10px] text-[var(--text-muted)]">Existing customers should be selected above to avoid duplicates. Saving here creates a customer profile only; your Cash In draft stays open.</p>
+              {quickRegisterError?<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs font-bold text-rose-700">{quickRegisterError}</p>:null}
+              <button type="button" disabled={quickRegisterSaving||quickRegisterName.trim().length<2} onClick={()=>void saveQuickRegistration()} className="min-h-10 w-full rounded-lg bg-emerald-600 px-3 text-xs font-black text-white disabled:opacity-40">{quickRegisterSaving?"Registering…":"Save customer & select"}</button>
+            </div>:null}
+            {!quickRegisterOpen&&!quickCustomerId&&quickCustomerLookup.trim().length>=2?<div className="absolute inset-x-3 top-full z-40 max-h-56 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">{quickCustomerSearchLoading?<p className="p-2 text-xs">Searching…</p>:quickCustomerSuggestions.length?quickCustomerSuggestions.map(customer=><button key={customer.id} type="button" onClick={()=>selectQuickCustomer(customer)} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-[var(--surface-soft)]"><span><strong className="block text-sm">{customer.fullName}</strong><span className="text-xs text-[var(--text-muted)]">{customer.mobile||customer.customerCode}</span></span><span className="text-xs font-black text-[var(--accent)]">Select</span></button>):<p className="p-2 text-xs text-[var(--text-muted)]">No match. You can still enter a walk-in transaction.</p>}</div>:null}
           </div>:null}
           {quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"?<div className="mt-3 rounded-[17px] bg-[var(--surface-soft)] p-3">
             <div className="grid grid-cols-2 rounded-xl bg-[var(--surface)] p-1">
@@ -1406,8 +1466,8 @@ export default function CashCounterWorkspace({
         </div>
         <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
           <div className="flex gap-2">
-            <button type="button" disabled={quickSaving} onClick={closeQuickCash} className="min-h-[52px] shrink-0 rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] px-4 text-sm font-black text-[var(--text)] disabled:opacity-50">Cancel</button>
-            <button disabled={quickSaving} className={"min-h-[52px] min-w-0 flex-1 rounded-[16px] px-5 text-base font-black text-white shadow-[0_10px_22px_rgba(15,23,42,.12)] transition active:scale-[.99] disabled:opacity-50 "+(quickDirection==="IN"?"bg-emerald-600":"bg-rose-600")}>{quickSaving?"Saving…":quickPurpose==="SERVICE"?"Record service":quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful?"Record failed attempt":quickDirection==="OUT"?"Save cash out":"Save transfer"}</button>
+            <button type="button" disabled={quickSaving||quickRegisterSaving} onClick={closeQuickCash} className="min-h-[52px] shrink-0 rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] px-4 text-sm font-black text-[var(--text)] disabled:opacity-50">Cancel</button>
+            <button disabled={quickSaving||quickRegisterSaving||quickRegisterOpen} className={"min-h-[52px] min-w-0 flex-1 rounded-[16px] px-5 text-base font-black text-white shadow-[0_10px_22px_rgba(15,23,42,.12)] transition active:scale-[.99] disabled:opacity-50 "+(quickDirection==="IN"?"bg-emerald-600":"bg-rose-600")}>{quickSaving?"Saving…":quickPurpose==="SERVICE"?"Record service":quickDirection==="OUT"&&quickCashOutType!=="UPI_QR"&&!quickSuccessful?"Record failed attempt":quickDirection==="OUT"?"Save cash out":"Save transfer"}</button>
           </div>
         </footer>
       </form>
