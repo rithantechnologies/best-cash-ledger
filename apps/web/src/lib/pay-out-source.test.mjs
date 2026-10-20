@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { suggestedPayOutSource } from './pay-out-source.ts';
+import { suggestedPayOutSource, suggestedPayOutFundingSource } from './pay-out-source.ts';
 
 const payIn = (id, account, card, date) => ({
   financialAccountId: account,
@@ -59,4 +59,18 @@ test('previous actual payouts can provide an eligible source for a customer with
   assert.equal(suggestedPayOutSource(actualPayouts, 'card-2', '2026-10-18')?.financialAccountId, 'wallet-other');
   assert.equal(suggestedPayOutSource(actualPayouts, 'card-1', '2026-10-13'), null);
   assert.equal(suggestedPayOutSource(actualPayouts, '', '2026-10-18')?.financialAccountId, 'wallet-other');
+});
+
+
+test('prefers confirmed previous payout wallet over newer Pay In and never invents a swipe source', () => {
+  const payIns=[payIn('received','bank-account',null,'2026-10-19T12:00:00.000Z')];
+  const priorPayouts=[payIn('paid','cash-drawer','card-1','2026-10-18T10:00:00.000Z')];
+  assert.deepEqual(suggestedPayOutFundingSource(payIns,priorPayouts,'card-1','2026-10-20'),{
+    source:priorPayouts[0],kind:'PREVIOUS_PAYOUT',
+  });
+  assert.deepEqual(suggestedPayOutFundingSource(payIns,[],'card-1','2026-10-20'),{
+    source:payIns[0],kind:'PAY_IN',
+  });
+  assert.equal(suggestedPayOutFundingSource([],[],'card-1','2026-10-20'),null);
+  assert.equal(suggestedPayOutFundingSource([],priorPayouts,'card-1','2026-10-17'),null);
 });

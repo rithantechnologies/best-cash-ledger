@@ -95,6 +95,7 @@ describe('Pay Out source suggestions from Pay In', () => {
       grossSwipe: 4100, customerCharges: 100,
       netSwipePayable: 4000, swipeCount: 1,
     });
+    expect(result.openPayOutItems).toHaveLength(0); // This swipe was already fully paid.
     expect(result.payOutSources.map(item => item.transactionId)).toContain('payout-tx-1');
     expect(result.payOutSources.map(item => item.transactionId)).toContain('tx-old-out');
     expect(result.payOutSources.map(item => item.transactionId)).not.toContain('swipe-tx-1');
@@ -107,6 +108,40 @@ describe('Pay Out source suggestions from Pay In', () => {
         accountName: 'PaySwitch Wallet',
         transactionNumber: 'PAYOUT-1',
       });
+  });
+
+  it('returns original swipe provider, gateway, charges and card for a pending payout', async () => {
+    const swipe = {
+      id: 'swipe-unpaid', providerId: 'phonepe-provider', gatewayId: 'rupay-gateway',
+      customerCardId: 'card-1', customerCard: { bankName: 'HDFC', lastFourDigits: '1234' },
+      swipeAmount: 30000, commissionAmount: 900, customerPayableAmount: 29100,
+      transaction: {
+        id: 'swipe-unpaid-tx', transactionNumber: 'CCS-PHONEPE',
+        transactionAt: new Date('2026-10-19T08:00:00.000Z'), referenceNumber: null,
+        payable: {
+          id: 'payable-unpaid', remainingAmount: 29100, originalAmount: 29100,
+          dueAt: new Date('2026-10-20T08:00:00.000Z'), payments: [],
+        },
+      },
+    };
+    const prisma = {
+      customer: { findUnique: vi.fn().mockResolvedValue({id:'customer-1',fullName:'Example Customer',mobile:null,cards:[]}) },
+      cardSwipeDetail: { findMany: vi.fn().mockResolvedValue([swipe]) },
+      cardDueClearingDetail: { findMany: vi.fn().mockResolvedValue([]) },
+      customerLedgerEntryDetail: { findMany: vi.fn().mockResolvedValue([]) },
+      provider: { findMany: vi.fn().mockResolvedValue([{id:'phonepe-provider',name:'PHONEPE'}]) },
+      providerGateway: { findMany: vi.fn().mockResolvedValue([{id:'rupay-gateway',gatewayName:'HDFC RUPAY'}]) },
+    };
+    const service = new CustomersService(prisma as never,null as never,null as never,null as never,null as never);
+    const result = await service.getCardLedger('customer-1');
+    expect(result.openPayOutItems).toHaveLength(1);
+    expect(result.openPayOutItems[0]).toMatchObject({
+      targetId:'payable-unpaid', sourceKind:'CARD_SWIPE', cardId:'card-1',
+      providerName:'PHONEPE', gatewayName:'HDFC RUPAY',
+      swipeAmount:30000, customerCharge:900, originalAmount:29100,
+      remainingAmount:29100, transactionId:'swipe-unpaid-tx',
+    });
+    expect(result.payOutSources).toHaveLength(0); // A swipe does not prove its funding source.
   });
 
 });

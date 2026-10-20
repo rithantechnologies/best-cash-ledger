@@ -35,3 +35,18 @@ export function suggestedPayOutSource(
     b.transactionId.localeCompare(a.transactionId),
   )[0] ?? null;
 }
+
+/** The last account actually debited to pay the customer is preferred to Pay In.
+ * A card-swipe settlement/provider account is never treated as payout evidence.
+ */
+export function suggestedPayOutFundingSource(
+  payIns: readonly PayInSource[],
+  previousPayouts: readonly PayInSource[],
+  cardId: string,
+  entryDate: string,
+): { source: PayInSource; kind: 'PREVIOUS_PAYOUT' | 'PAY_IN' } | null {
+  const payout = suggestedPayOutSource(previousPayouts, cardId, entryDate);
+  if (payout) return { source: payout, kind: 'PREVIOUS_PAYOUT' };
+  const payIn = suggestedPayOutSource(payIns, cardId, entryDate);
+  return payIn ? { source: payIn, kind: 'PAY_IN' } : null;
+}

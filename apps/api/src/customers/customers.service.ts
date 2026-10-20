@@ -1593,6 +1593,10 @@ export class CustomersService {
           remainingAmount: money(Number(payable.remainingAmount)),
           cardId: swipe.customerCardId,
           cardLabel,
+          providerName: providerName.get(swipe.providerId) ?? 'Card provider',
+          gatewayName: gatewayName.get(swipe.gatewayId) ?? '',
+          swipeAmount: money(Number(swipe.swipeAmount)),
+          customerCharge: money(Number(swipe.commissionAmount)),
           label: 'Swipe ' + swipe.transaction.transactionNumber,
         }];
       }),

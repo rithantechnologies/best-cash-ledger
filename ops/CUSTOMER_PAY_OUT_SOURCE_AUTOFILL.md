@@ -25,10 +25,11 @@ as if it were the actual payout source.
 
 UI selection order:
 
-1. Completed eligible Pay In on/before selected business date, with card-specific
-   priority and then customer-wide matching.
-2. If **no** eligible Pay In exists, most recent real prior payout account in
-   that same card/customer scope, on/before the selected date.
+1. Most recent actual completed customer payout account in the same
+   card/customer scope, on/before the selected business date. Prefer the
+   card-specific history over the customer's other cards.
+2. If **no** eligible prior customer payout exists, suggest a completed
+   eligible Pay In (card-specific first, then customer-wide).
 3. If the proposed account is inactive/not authorized, or no previous source is
    available, require manual selection. Do not quietly choose an older unrelated
    account. Staff do not see the owner's Main Cash Reserve in account options.
@@ -51,3 +52,20 @@ If a customer has **neither** eligible Pay In **nor** a prior actual payout,
 there is no evidence-based source to auto-select; user must choose the funding
 account manually. A screenshot without customer identifier cannot establish the
 particular customer's transaction history.
+
+## Linked swipe context (2026-10-20)
+
+Opening Pay Out for an unpaid card swipe preselects the original swipe's
+customer card, its remaining net payable amount, and the matching payable
+allocation. The modal now displays a direct link to the originating swipe and
+its provider, gateway, gross swipe amount, customer commission, and net
+payable. Example: PhonePe/HDFC RuPay swipe ₹30,000 less ₹900 customer fee
+means a ₹29,100 payable.
+
+The **swipe provider** is context only; it does not prove the **Paid from**
+cash/bank/wallet account, and must never automatically debit that provider
+based only on a card swipe. A prior confirmed real payout can suggest the
+funding account, with Change available. An actual cash handover must debit
+the physical cash drawer and require cash confirmation; a digital destination
+uses the actual digital paying account. The operation still requires explicit
+Save and retains full payable allocation and audit linkage.
