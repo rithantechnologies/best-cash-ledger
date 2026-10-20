@@ -87,6 +87,7 @@ describe('Pay Out source suggestions from Pay In', () => {
       ]) },
       provider: { findMany: vi.fn().mockResolvedValue([]) },
       providerGateway: { findMany: vi.fn().mockResolvedValue([]) },
+      financialAccount: { findMany: vi.fn().mockResolvedValue([]) },
     };
     const service = new CustomersService(prisma as never,null as never,null as never,null as never,null as never);
     const result = await service.getCardLedger('customer-1');
@@ -131,6 +132,10 @@ describe('Pay Out source suggestions from Pay In', () => {
       customerLedgerEntryDetail: { findMany: vi.fn().mockResolvedValue([]) },
       provider: { findMany: vi.fn().mockResolvedValue([{id:'phonepe-provider',name:'PHONEPE'}]) },
       providerGateway: { findMany: vi.fn().mockResolvedValue([{id:'rupay-gateway',gatewayName:'HDFC RUPAY'}]) },
+      financialAccount: { findMany: vi.fn().mockResolvedValue([
+        {id:'phonepe-wallet', accountName:'PhonePe Wallet', providerId:'phonepe-provider'},
+        {id:'other-wallet', accountName:'Other Provider Wallet', providerId:'another-provider'},
+      ]) },
     };
     const service = new CustomersService(prisma as never,null as never,null as never,null as never,null as never);
     const result = await service.getCardLedger('customer-1');
@@ -138,10 +143,31 @@ describe('Pay Out source suggestions from Pay In', () => {
     expect(result.openPayOutItems[0]).toMatchObject({
       targetId:'payable-unpaid', sourceKind:'CARD_SWIPE', cardId:'card-1',
       providerName:'PHONEPE', gatewayName:'HDFC RUPAY',
+      providerWalletAccountId:'phonepe-wallet',
       swipeAmount:30000, customerCharge:900, originalAmount:29100,
       remainingAmount:29100, transactionId:'swipe-unpaid-tx',
     });
-    expect(result.payOutSources).toHaveLength(0); // A swipe does not prove its funding source.
+    expect(result.payOutSources).toHaveLength(0); // Provider suggestion is not a prior payout.
+    // No account associated to PhonePe? Do not pick a different provider wallet.
+    prisma.financialAccount.findMany.mockResolvedValueOnce([
+      {id:'wrong-wallet', accountName:'Unrelated Provider Wallet', providerId:'other-provider'},
+    ]);
+    const unmatched = await service.getCardLedger('customer-1');
+    expect(unmatched.openPayOutItems[0].providerWalletAccountId).toBeNull();
+    // Legacy wallet setup: allow one uniquely named PhonePe wallet without providerId.
+    prisma.financialAccount.findMany.mockResolvedValueOnce([
+      {id:'legacy-phonepe', accountName:'PhonePe Wallet', providerId:null},
+      {id:'wrong-wallet', accountName:'Other Wallet', providerId:'other-provider'},
+    ]);
+    const legacy = await service.getCardLedger('customer-1');
+    expect(legacy.openPayOutItems[0].providerWalletAccountId).toBe('legacy-phonepe');
+    // Ambiguous provider wallet configuration requires explicit selection.
+    prisma.financialAccount.findMany.mockResolvedValueOnce([
+      {id:'phonepe-1', accountName:'PhonePe Wallet 1', providerId:'phonepe-provider'},
+      {id:'phonepe-2', accountName:'PhonePe Wallet 2', providerId:'phonepe-provider'},
+    ]);
+    const ambiguous = await service.getCardLedger('customer-1');
+    expect(ambiguous.openPayOutItems[0].providerWalletAccountId).toBeNull();
   });
 
 });

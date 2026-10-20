@@ -41,7 +41,7 @@ type Customer={
 };
 type CardLedgerCard={id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean;label:string};
 type CardLedgerRow={id:string;at:string;kind:"CARD_SWIPE"|"CUSTOMER_PAYOUT"|"CARD_DUE_PAYMENT"|"CARD_DUE_RECOVERY"|"PAY_IN"|"PAY_OUT";remarks:string;detail:string;debit:number;credit:number;closingBalance:number;cardId:string|null;cardLabel:string;transactionId:string;transactionNumber:string;referenceNumber:string|null};
-type CardLedgerOpenItem={targetType:"PAYABLE"|"CARD_DUE";targetId:string;sourceKind:"CARD_SWIPE"|"EXCESS_RECOVERY"|"CARD_DUE";transactionId:string;transactionNumber:string;transactionAt:string;dueAt:string;originalAmount:number;remainingAmount:number;cardId:string;cardLabel:string;label:string;providerName?:string;gatewayName?:string;swipeAmount?:number;customerCharge?:number};
+type CardLedgerOpenItem={targetType:"PAYABLE"|"CARD_DUE";targetId:string;sourceKind:"CARD_SWIPE"|"EXCESS_RECOVERY"|"CARD_DUE";transactionId:string;transactionNumber:string;transactionAt:string;dueAt:string;originalAmount:number;remainingAmount:number;cardId:string;cardLabel:string;label:string;providerName?:string;gatewayName?:string;providerWalletAccountId?:string|null;swipeAmount?:number;customerCharge?:number};
 type Advance={id:string;customerCardId:string|null;amount:number;applied:number;remaining:number;transactionId:string;transactionNumber:string;date:string;source:string};
 type CardLedger={payInSources:PayInSource[];payOutSources?:PayInSource[];availableAdvances:Advance[];customer:{id:string;fullName:string;mobile:string|null};cards:CardLedgerCard[];selectedCardId:string|null;openPayOutItems:CardLedgerOpenItem[];openPayInItems:CardLedgerOpenItem[];swipeSummary?:{grossSwipe:number;customerCharges:number;netSwipePayable:number;swipeCount:number};totals:{debit:number;credit:number;balance:number;position:"TO_PAY_CUSTOMER"|"TO_RECOVER_FROM_CUSTOMER"|"SETTLED"};rows:CardLedgerRow[]};
 type EditState={kind:"card";item:Card}|{kind:"bank";item:Bank}|{kind:"upi";item:Upi}|{kind:"beneficiary";item:Beneficiary}|{kind:"beneficiaryAccount";item:BAccount}|null;
@@ -296,7 +296,7 @@ function switchView(next:"details"|"activity"){
   setLedgerEntryBusy(true);setLedgerEntryError("");
   try{
    const [payoutKind,payoutId]=ledgerPayoutDestination.split(":");
-   const payoutPayload={direction:ledgerEntryDirection,amount,financialAccountId:effectiveLedgerEntryAccountId,physicalCashConfirmed:ledgerIsPhysicalCash?ledgerCashConfirmed:undefined,sourcePayInTransactionId:ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual&&validPayOutSource&&fundingSuggestion?.kind==="PAY_IN"?fundingSuggestion.source.transactionId:undefined,customerCardId:ledgerEntryCardId||undefined,allocations,remarks:ledgerEntryRemarks.trim()||undefined,transactionAt:dateWithCurrentLocalTime(ledgerEntryDate),referenceNumber:ledgerEntryReference.trim()||undefined,notes:ledgerEntryNote.trim()||undefined,...(ledgerEntryDirection==="PAY_OUT"?{payoutDestinationType:payoutKind,payoutDestinationId:payoutId||undefined,payoutDestinationDetails:payoutKind==="OTHER"?ledgerPayoutDetails.trim():undefined}:{})};
+   const payoutPayload={direction:ledgerEntryDirection,amount,financialAccountId:effectiveLedgerEntryAccountId,physicalCashConfirmed:ledgerIsPhysicalCash?ledgerCashConfirmed:undefined,sourcePayInTransactionId:ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual&&!providerWalletSuggestion&&historicPayOutAccount&&fundingSuggestion?.kind==="PAY_IN"?fundingSuggestion.source.transactionId:undefined,customerCardId:ledgerEntryCardId||undefined,allocations,remarks:ledgerEntryRemarks.trim()||undefined,transactionAt:dateWithCurrentLocalTime(ledgerEntryDate),referenceNumber:ledgerEntryReference.trim()||undefined,notes:ledgerEntryNote.trim()||undefined,...(ledgerEntryDirection==="PAY_OUT"?{payoutDestinationType:payoutKind,payoutDestinationId:payoutId||undefined,payoutDestinationDetails:payoutKind==="OTHER"?ledgerPayoutDetails.trim():undefined}:{})};
    // Reuse the exact same key on a retry after a lost response. A changed
    // field gets a new key; date is compared by business day, not click second.
    const {transactionAt:_submissionTime,...stablePayload}=payoutPayload;
@@ -440,14 +440,21 @@ function switchView(next:"details"|"activity"){
  });
  const savedMatchCount=foundCards.length+foundBanks.length+foundUpi.length+foundEb.length+foundAeps.length+foundEsevai.length+foundBeneficiaries.length;
  const ledgerCardLabel=ledgerCardId?(cardLedger?.cards.find(card=>card.id===ledgerCardId)?.label??"Selected card"):"All cards";
+ const ledgerMatchItems=matchingLedgerItems();
+ const linkedSwipe=ledgerEntryDirection==="PAY_OUT"?ledgerMatchItems.find(item=>item.sourceKind==="CARD_SWIPE"&&Number(ledgerAllocations[item.targetId]||0)>0):undefined;
+ const providerWalletSuggestion=linkedSwipe?.providerWalletAccountId
+   ?ledgerAccounts.find(account=>account.id===linkedSwipe.providerWalletAccountId&&account.accountType==="PROVIDER_WALLET")
+   :undefined;
  const fundingSuggestion=suggestedPayOutFundingSource(cardLedger?.payInSources??[],cardLedger?.payOutSources??[],ledgerEntryCardId,ledgerEntryDate);
- // A confirmed prior customer payout is better evidence than a receipt/Pay In.
- // Never infer a funding account from the card-swipe provider/settlement account.
+ // The linked card swipe's configured provider wallet is the first suggestion.
+ // Prior actual payouts/Pay In only provide a fallback when none is configured.
  const payOutSuggestion=fundingSuggestion?.source??null;
- const validPayOutSource=payOutSuggestion?ledgerAccounts.find(account=>account.id===payOutSuggestion.financialAccountId):null;
- const payOutSourceAvailable=Boolean(validPayOutSource);
+ const historicPayOutAccount=payOutSuggestion?ledgerAccounts.find(account=>account.id===payOutSuggestion.financialAccountId):null;
+ // With a linked swipe, do not quietly use another funding source when its
+ // provider wallet is missing/inaccessible. Require an explicit staff choice.
+ const validPayOutSource=linkedSwipe?(providerWalletSuggestion??null):historicPayOutAccount;
  const effectiveLedgerEntryAccountId=ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual
-   ?(payOutSourceAvailable?payOutSuggestion!.financialAccountId:"")
+   ?(validPayOutSource?.id??"")
    :ledgerEntryAccountId;
  const ledgerIsPhysicalCash=ledgerAccounts.some(account=>account.id===effectiveLedgerEntryAccountId&&account.accountType==="CASH");
  const ledgerCashDestinationMismatch=ledgerIsPhysicalCash&&ledgerEntryDirection==="PAY_OUT"&&!!ledgerPayoutDestination&&ledgerPayoutDestination!=="CASH";
@@ -458,8 +465,6 @@ function switchView(next:"details"|"activity"){
  const ledgerEntryStartingLabel=ledgerEntryStartingBalance>0.001?"Pay to customer":ledgerEntryStartingBalance<-.001?"Customer to pay us":"Settled";
  const ledgerEntryPreview=ledgerEntryStartingBalance+(ledgerEntryDirection==="PAY_IN"?ledgerEntryValue:ledgerEntryDirection==="PAY_OUT"?-ledgerEntryValue:0);
  const ledgerEntryPreviewLabel=ledgerEntryPreview>0.001?"Pay to customer":ledgerEntryPreview<-.001?"Customer to pay us":"Settled";
- const ledgerMatchItems=matchingLedgerItems();
- const linkedSwipe=ledgerEntryDirection==="PAY_OUT"?ledgerMatchItems.find(item=>item.sourceKind==="CARD_SWIPE"&&Number(ledgerAllocations[item.targetId]||0)>0):undefined;
  const ledgerMatchedAmount=Math.round(ledgerMatchItems.reduce((sum,item)=>sum+Number(ledgerAllocations[item.targetId]||0),0)*100)/100;
  const ledgerUnallocatedAmount=Math.max(0,Math.round((ledgerEntryValue-ledgerMatchedAmount)*100)/100);
  function printCardLedger(){
@@ -708,17 +713,17 @@ function switchView(next:"details"|"activity"){
       <div className="grid grid-cols-3 gap-2 text-[11px]"><div><p className="font-semibold text-indigo-700">Gross swipe</p><p className="font-black text-indigo-950">{money(linkedSwipe.swipeAmount??0)}</p></div><div><p className="font-semibold text-indigo-700">Customer fee</p><p className="font-black text-indigo-950">{money(linkedSwipe.customerCharge??0)}</p></div><div><p className="font-semibold text-indigo-700">Net payable</p><p className="font-black text-indigo-950">{money(linkedSwipe.originalAmount)}</p></div></div>
       <p className="text-[11px] text-indigo-800">The card-swipe provider identifies where the swipe was processed, not necessarily which account pays the customer. Paid from must debit the account actually used.</p>
      </div>:null}
-    {ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual&&validPayOutSource&&payOutSuggestion
+    {ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual&&validPayOutSource&&(providerWalletSuggestion||payOutSuggestion)
      ?<div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
-       <div className="flex items-center justify-between gap-2"><span className="text-xs font-black text-emerald-900">Paid from · {fundingSuggestion?.kind==="PREVIOUS_PAYOUT"?"Previous customer payout":"Previous Pay In"}</span><button type="button" onClick={()=>{setLedgerPaidFromManual(true);setLedgerEntryAccountId(payOutSuggestion.financialAccountId);setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="min-h-9 rounded-lg border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-800">Change</button></div>
+       <div className="flex items-center justify-between gap-2"><span className="text-xs font-black text-emerald-900">Paid from · {providerWalletSuggestion?"Linked swipe provider wallet":fundingSuggestion?.kind==="PREVIOUS_PAYOUT"?"Previous customer payout":"Previous Pay In"}</span><button type="button" onClick={()=>{setLedgerPaidFromManual(true);setLedgerEntryAccountId(validPayOutSource.id);setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="min-h-9 rounded-lg border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-800">Change</button></div>
        <p className="mt-1 text-base font-black text-emerald-900">{validPayOutSource.accountName} <span className="text-xs font-semibold">· {validPayOutSource.accountType.replaceAll("_"," ")}</span></p>
-       <p className="mt-1 text-[11px] font-medium text-emerald-800">Suggested from <Link href={transactionHref(payOutSuggestion.transactionId, "/customers/"+id+"?tab=activity")} className="font-black underline">{payOutSuggestion.transactionNumber}</Link> · {new Date(payOutSuggestion.transactionAt).toLocaleDateString("en-IN")}. Confirm this is the actual account paying the customer. It will be debited.</p>
+       <p className="mt-1 text-[11px] font-medium text-emerald-800">Suggested from <Link href={transactionHref(providerWalletSuggestion?linkedSwipe!.transactionId:payOutSuggestion!.transactionId, "/customers/"+id+"?tab=activity")} className="font-black underline">{providerWalletSuggestion?linkedSwipe!.transactionNumber:payOutSuggestion!.transactionNumber}</Link> · {new Date(providerWalletSuggestion?linkedSwipe!.transactionAt:payOutSuggestion!.transactionAt).toLocaleDateString("en-IN")}. Verify this wallet actually pays the customer before saving; it will be debited.</p>
       </div>
      :<div className="space-y-1">
        <Field label={ledgerEntryDirection==="PAY_IN"?"Received in (our account)":"Paid from (our account) *"}><SearchableSelect className={control} value={ledgerEntryAccountId} onChange={e=>{setLedgerEntryAccountId(e.target.value);setLedgerCashConfirmed(false);if(ledgerEntryDirection==="PAY_OUT")setLedgerPaidFromManual(true);setLedgerEntryError("");}}><option value="">Choose account…</option>{ledgerAccounts.map(account=><option key={account.id} value={account.id}>{account.accountName+" · "+account.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>
        {ledgerEntryDirection==="PAY_OUT"?<div className="flex items-center justify-between gap-2">
-         <p className="text-[11px] font-semibold text-amber-700">{selectedManualPayOutAccount?"Manually selected: "+selectedManualPayOutAccount.accountName+". This account will be debited.":payOutSuggestion?"Previous source account is inactive or unavailable. Choose the actual paying account.":"No eligible Pay In or previous payout found. Choose the actual paying account."}</p>
-         {ledgerPaidFromManual&&validPayOutSource&&payOutSuggestion?<button type="button" onClick={()=>{setLedgerPaidFromManual(false);setLedgerEntryAccountId("");setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-xs font-black text-[var(--accent)]">Use suggested source</button>:null}
+         <p className="text-[11px] font-semibold text-amber-700">{selectedManualPayOutAccount?"Manually selected: "+selectedManualPayOutAccount.accountName+". This account will be debited.":linkedSwipe?"No accessible, uniquely configured provider wallet found for "+(linkedSwipe.providerName??"this swipe")+". Choose the actual paying account.":payOutSuggestion?"Previous source account is inactive or unavailable. Choose the actual paying account.":"No eligible Pay In or previous payout found. Choose the actual paying account."}</p>
+         {ledgerPaidFromManual&&validPayOutSource?<button type="button" onClick={()=>{setLedgerPaidFromManual(false);setLedgerEntryAccountId("");setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-xs font-black text-[var(--accent)]">Use suggested source</button>:null}
         </div>:null}
       </div>}
     {ledgerIsPhysicalCash?<div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-950">

@@ -69,3 +69,21 @@ funding account, with Change available. An actual cash handover must debit
 the physical cash drawer and require cash confirmation; a digital destination
 uses the actual digital paying account. The operation still requires explicit
 Save and retains full payable allocation and audit linkage.
+
+## Swipe provider wallet default (2026-10-20 client clarification)
+
+When Pay Out is auto-matched to a CARD_SWIPE payable, first suggest that
+swipe provider's unique active PROVIDER_WALLET account (for example a PhonePe
+swipe suggests PhonePe Wallet). Match by provider ID; for legacy unmapped
+wallets, a *unique exact* normalized provider/wallet name is acceptable.
+Never pick a wallet belonging to a different provider. If multiple eligible
+wallets exist, use the original settlement wallet only if it is among the
+provider-matched wallets; otherwise require an explicit selection. If no
+eligible provider wallet exists or the user cannot access it, require manual
+Paid from selection, rather than defaulting to an unrelated prior payout.
+
+This changes the **proposed** paying account only. Staff may override it,
+and must confirm the actual debit account. Cash handed physically to the
+customer cannot be recorded as a payout from the provider wallet without a
+separately recorded cash transfer/cash drawer movement. Bank/UPI destinations
+remain separately required. No payout is posted without explicit Save.

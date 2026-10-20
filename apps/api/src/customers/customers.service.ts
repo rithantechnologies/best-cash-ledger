@@ -1371,6 +1371,27 @@ export class CustomersService {
     ]);
     const providerName = new Map(providers.map((row) => [row.id, row.name]));
     const gatewayName = new Map(gateways.map((row) => [row.id, row.gatewayName]));
+    // A provider-specific wallet is the requested *default* for its card swipe.
+    // Select only a unique, active provider wallet, never an arbitrary bank,
+    // cash drawer or other provider's wallet. The staff can override the default.
+    const providerWallets = providerIds.length
+      ? await this.prisma.financialAccount.findMany({
+          where: { accountType: AccountType.PROVIDER_WALLET, isActive: true },
+          select: { id: true, accountName: true, providerId: true },
+        })
+      : [];
+    const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const walletForSwipe = (providerId: string, settlementAccountId: string) => {
+      const linked = providerWallets.filter(wallet => wallet.providerId === providerId);
+      const name = providerName.get(providerId);
+      const matches = linked.length || !name ? linked : providerWallets.filter(wallet =>
+        !wallet.providerId && [normalized(name), normalized(name + ' Wallet')].includes(normalized(wallet.accountName)),
+      );
+      // If a provider owns multiple wallets, prefer the exact wallet already
+      // selected for settlement. Otherwise avoid guessing which one to debit.
+      return matches.find(wallet => wallet.id === settlementAccountId)?.id ??
+        (matches.length === 1 ? matches[0].id : null);
+    };
     const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
     type Movement = {
       id: string;
@@ -1595,6 +1616,7 @@ export class CustomersService {
           cardLabel,
           providerName: providerName.get(swipe.providerId) ?? 'Card provider',
           gatewayName: gatewayName.get(swipe.gatewayId) ?? '',
+          providerWalletAccountId: walletForSwipe(swipe.providerId, swipe.settlementAccountId),
           swipeAmount: money(Number(swipe.swipeAmount)),
           customerCharge: money(Number(swipe.commissionAmount)),
           label: 'Swipe ' + swipe.transaction.transactionNumber,
