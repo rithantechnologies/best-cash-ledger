@@ -549,16 +549,27 @@ export default function AccountLedgerPage(){
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100"><i className="block h-full rounded-full bg-rose-400" style={{width:utilisation+"%"}}/></div>
           </div>:null}
 
-          {showPayoutCharges?<div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--border)] pt-4 sm:grid-cols-4">
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-[var(--text-muted)]">Period opening</p><p className="money mt-1 truncate text-sm font-black">{money(periodOpening)}</p></div>
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">{isCard?"Debit · Paid / Reduced":"Debit · Money Out"}</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(movement.out)}</p></div>
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-emerald-700">{isCard?"Credit · Added / Charged":"Credit · Money In"}</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>
-            <div className="min-w-0"><p className="text-[11px] font-semibold text-rose-600">Recorded fees</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(payoutChargeTotal)}</p><p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Already included in {isCard?"Added / charged":"Pay OUT"}; not deducted twice</p></div>
-          </div>:<div className="mt-4 grid grid-cols-3 divide-x divide-[var(--border)] border-t border-[var(--border)] pt-4">
-            <div className="min-w-0 pr-2.5 sm:pr-4"><p className="text-[11px] font-semibold text-[var(--text-muted)]">Period opening</p><p className="money mt-1 truncate text-sm font-black">{money(periodOpening)}</p></div>
-            <div className="min-w-0 px-2.5 sm:px-4"><p className="text-[11px] font-semibold text-rose-600">{isCard?"Debit · Paid / Reduced":"Debit · Money Out"}</p><p className="money mt-1 truncate text-sm font-black text-rose-600">{money(movement.out)}</p></div>
-            <div className="min-w-0 pl-2.5 sm:pl-4"><p className="text-[11px] font-semibold text-emerald-700">{isCard?"Credit · Added / Charged":"Credit · Money In"}</p><p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p></div>
-          </div>}
+          <div className={"mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--border)] pt-4 "+(showPayoutCharges?"sm:grid-cols-4":"sm:grid-cols-3")}>
+            {/* Match the ledger columns below on every screen: Credit LEFT, Debit RIGHT.
+                Movement is a display-only flow classification, not journal entryType. */}
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-emerald-700">{isCard?"Credit · Added / Charged":"Credit · Money In"}</p>
+              <p className="money mt-1 truncate text-sm font-black text-emerald-700">{money(movement.in)}</p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-rose-600">{isCard?"Debit · Paid / Reduced":"Debit · Money Out"}</p>
+              <p className="money mt-1 truncate text-sm font-black text-rose-600">{money(movement.out)}</p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-[var(--text-muted)]">Period opening</p>
+              <p className="money mt-1 truncate text-sm font-black">{money(periodOpening)}</p>
+            </div>
+            {showPayoutCharges?<div className="min-w-0">
+              <p className="text-[11px] font-semibold text-rose-600">Recorded fees</p>
+              <p className="money mt-1 truncate text-sm font-black text-rose-600">{money(payoutChargeTotal)}</p>
+              <p className="mt-0.5 text-[9px] font-semibold text-[var(--text-muted)]">Already included in {isCard?"Added / charged":"Pay OUT"}; not deducted twice</p>
+            </div>:null}
+          </div>
         </div>
       </Surface>
 
@@ -590,8 +601,8 @@ export default function AccountLedgerPage(){
           </div>
         </Surface>
         <div className="grid gap-3 lg:grid-cols-2">
-          <WalletLedgerColumn title={isCard?"Debit · Paid / Reduced":"Debit · Money Out"} direction="OUT" rows={rows.filter((row)=>!increases(data.account,row))} account={data.account} onOpen={openMovement}/>
           <WalletLedgerColumn title={isCard?"Credit · Added / Charged":"Credit · Money In"} direction="IN" rows={rows.filter((row)=>increases(data.account,row))} account={data.account} onOpen={openMovement}/>
+          <WalletLedgerColumn title={isCard?"Debit · Paid / Reduced":"Debit · Money Out"} direction="OUT" rows={rows.filter((row)=>!increases(data.account,row))} account={data.account} onOpen={openMovement}/>
         </div>
       </div>:      <Surface className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
@@ -607,7 +618,7 @@ export default function AccountLedgerPage(){
         </div>
         {rows.length?<div className="divide-y divide-[var(--border)]">
           {!showPayoutCharges?<div className="hidden border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-2.5 text-[10px] font-black uppercase tracking-wide text-[var(--text-muted)] sm:grid sm:grid-cols-[110px_minmax(0,1fr)_110px_110px_130px] sm:gap-2">
-            <span>Date</span><span>Activity</span><span className="text-right text-rose-700">Debit · Out</span><span className="text-right text-emerald-700">Credit · In</span><span className="text-right">Balance</span>
+            <span>Date</span><span>Activity</span><span className="text-right text-emerald-700">Credit · In</span><span className="text-right text-rose-700">Debit · Out</span><span className="text-right">Balance</span>
           </div>:null}
           {showPayoutCharges?<div className="hidden bg-[var(--surface-soft)] px-5 py-2.5 text-[10px] font-black uppercase tracking-[.06em] text-[var(--text-muted)] sm:grid sm:grid-cols-[110px_minmax(240px,1fr)_120px_110px_140px_130px] sm:items-center sm:gap-2">
             <span>Date</span><span>Activity</span><span className="text-right">Transaction amount</span><span className="text-right">Payout charge</span><span className="text-right">Wallet movement</span><span className="text-right">Balance</span>
@@ -641,8 +652,8 @@ export default function AccountLedgerPage(){
                   </div>
                 </div>
                 {!showPayoutCharges?<div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-soft)] p-2.5 text-xs">
-                  <div><p className="text-[10px] font-bold uppercase text-rose-700">Debit · Out</p><p className="money mt-1 font-black text-rose-700">{!isIn?money(row.amount):"—"}</p></div>
-                  <div className="text-right"><p className="text-[10px] font-bold uppercase text-emerald-700">Credit · In</p><p className="money mt-1 font-black text-emerald-700">{isIn?money(row.amount):"—"}</p></div>
+                  <div><p className="text-[10px] font-bold uppercase text-emerald-700">Credit · In</p><p className="money mt-1 font-black text-emerald-700">{isIn?money(row.amount):"—"}</p></div>
+                  <div className="text-right"><p className="text-[10px] font-bold uppercase text-rose-700">Debit · Out</p><p className="money mt-1 font-black text-rose-700">{!isIn?money(row.amount):"—"}</p></div>
                 </div>:null}
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                   <StatusBadge tone={tx.status==="COMPLETED"?"emerald":tx.status==="REVERSED"?"rose":"amber"}>{nice(tx.status)}</StatusBadge>
@@ -678,8 +689,8 @@ export default function AccountLedgerPage(){
                   <div className="flex items-center justify-end gap-2"><MoneyFlowIcon direction={isIn?"IN":"OUT"} size="sm"/><p className={"money text-sm font-extrabold "+(isIn?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{isIn?"+":"−"}{money(row.amount)}</p></div>
                   <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
                 </>:<>
-                  <div className="money text-right text-sm font-extrabold text-[var(--money-out)]">{!isIn?money(row.amount):"—"}</div>
                   <div className="money text-right text-sm font-extrabold text-[var(--money-in)]">{isIn?money(row.amount):"—"}</div>
+                  <div className="money text-right text-sm font-extrabold text-[var(--money-out)]">{!isIn?money(row.amount):"—"}</div>
                   <div className="text-right"><p className="money text-xs font-bold text-[var(--text-muted)]">{money(row.runningBalance)}</p></div>
                 </>}
               </div>
