@@ -199,9 +199,20 @@ export class CustomersService {
 
     const page = Math.max(1, options.page);
     const pageSize = Math.min(Math.max(options.pageSize ?? 25, 5), 100);
+    // Paginated searches only need the columns shown in the customer list.
+    // Avoid eagerly loading every beneficiary, bank and UPI account for each keystroke.
+    // The unpaged API retains its existing richer response for other screens.
     const [items,total] = await Promise.all([
       this.prisma.customer.findMany({
-        where, include, orderBy,
+        where,
+        select: {
+          id: true, customerCode: true, customerType: true, fullName: true,
+          mobile: true, ebNumber: true, notes: true, isActive: true,
+          customerTypeId: true,
+          customerTypeConfig: { select: { id: true, name: true, isActive: true } },
+          cards: { select: { id: true, bankName: true, lastFourDigits: true, isActive: true } },
+        },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import { SearchableSelect } from "@/components/searchable-select";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -35,17 +35,41 @@ export default function CustomersPage(){
  const [addingCard,setAddingCard]=useState(false),[cardCustomerId,setCardCustomerId]=useState(""),[cardBank,setCardBank]=useState(""),[cardLast4,setCardLast4]=useState(""),[cardNickname,setCardNickname]=useState("");
  const [editing,setEditing]=useState<Customer|null>(null),[editName,setEditName]=useState(""),[editMobile,setEditMobile]=useState(""),[editEbNumber,setEditEbNumber]=useState(""),[editTypeId,setEditTypeId]=useState(""),[editNotes,setEditNotes]=useState("");
  const [toggleTarget,setToggleTarget]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
+ const [resultsKey,setResultsKey]=useState("");
+ const currentRequest=useRef(0);
+ const currentAbort=useRef<AbortController|null>(null);
  const control="app-control";
  const admin=role==="OWNER"||role==="ADMIN";
+ const filterKey=[q.trim(),sortBy,sortDir,pagination.pageSize,admin].join("|");
+ const listReady=!loading&&resultsKey===filterKey;
+ function invalidateSearch(){
+  currentRequest.current+=1;
+  currentAbort.current?.abort();
+ }
  function load(page=pagination.page){
+  invalidateSearch();
+  const request=currentRequest.current;
+  const controller=new AbortController();
+  currentAbort.current=controller;
+  const search=q.trim();
+  const key=[search,sortBy,sortDir,pagination.pageSize,admin].join("|");
   const params=new URLSearchParams({page:String(page),pageSize:String(pagination.pageSize),sortBy,sortDir,includeInactive:admin?"true":"false"});
-  if(q.trim())params.set("q",q.trim());
+  if(search)params.set("q",search);
   setLoading(true);
-  return apiFetch<Paged>("/customers?"+params.toString()).then(r=>{setItems(r.items);setPagination(r.pagination);setError("");}).finally(()=>setLoading(false));
+  return apiFetch<Paged>("/customers?"+params.toString(),{signal:controller.signal})
+   .then(r=>{if(request!==currentRequest.current)return;setItems(r.items);setPagination(r.pagination);setResultsKey(key);setError("");})
+   .catch(err=>{if(request===currentRequest.current&&!controller.signal.aborted)throw err;})
+   .finally(()=>{if(request===currentRequest.current)setLoading(false);});
  }
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
  useEffect(()=>{apiFetch<{enabled:boolean}>("/customers/demo-card-availability").then(r=>setDemoEnabled(r.enabled)).catch(()=>setDemoEnabled(false));},[]);
- useEffect(()=>{if(!role)return;const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load customers")),180);return()=>clearTimeout(timer);},[role,q,sortBy,sortDir,pagination.pageSize]);
+ useEffect(()=>{
+  if(!role)return;
+  invalidateSearch();
+  setLoading(true);
+  const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load customers")),150);
+  return()=>{clearTimeout(timer);invalidateSearch();};
+ },[role,q,sortBy,sortDir,pagination.pageSize]);
  useEffect(()=>{
   apiFetch<CustomerTypeChoice[]>("/settings/customer-types?includeInactive=true")
    .then(rows=>{setTypeChoices(rows);setTypesError("");})
@@ -123,23 +147,23 @@ export default function CustomersPage(){
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
-  <p className="text-xs font-semibold text-[var(--text-muted)] sm:hidden">{pagination.total} customer{pagination.total===1?"":"s"}</p>
+  <p className="text-xs font-semibold text-[var(--text-muted)] sm:hidden">{listReady?pagination.total+" customer"+(pagination.total===1?"":"s"):"Searching customers…"}</p>
   <div className="hidden grid-cols-3 gap-2.5 sm:grid">
-   <DetailStat label="Customers" value={pagination.total}/>
-   <DetailStat label="Active on page" value={activeCount} tone="emerald"/>
-   <DetailStat label="Saved cards on page" value={cardCount} tone="indigo"/>
+   <DetailStat label="Customers" value={listReady?pagination.total:"—"}/>
+   <DetailStat label="Active on page" value={listReady?activeCount:"—"} tone="emerald"/>
+   <DetailStat label="Saved cards on page" value={listReady?cardCount:"—"} tone="indigo"/>
   </div>
 
   <Toolbar>
-   <input inputMode="search" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Phone, first name, card last 4, bank, UPI or AEPS PR…" value={q} onChange={e=>setQ(e.target.value)}/>
+   <input inputMode="search" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Phone, first name, card last 4, bank, UPI or AEPS PR…" value={q} onChange={e=>{invalidateSearch();setLoading(true);setQ(e.target.value);}}/>
    <button type="button" onClick={()=>setShowMobileFilters(v=>!v)} aria-expanded={showMobileFilters} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-muted)] sm:hidden">{showMobileFilters?"Hide options":"Sort & page size"}</button>
    <div className={(showMobileFilters?"grid":"hidden")+" grid-cols-2 gap-2 sm:contents"}>
     <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="createdAt">Created date</option><option value="fullName">Name</option><option value="customerCode">Customer code</option><option value="customerType">Type</option><option value="mobile">Mobile</option></SearchableSelect>
     <SearchableSelect className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
    </div>
   </Toolbar>
-  {admin&&!loading&&pagination.total===0&&q.trim().length>=2?<div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-3" role="status"><span className="text-sm font-semibold text-[var(--text-muted)]">No customer found for <strong className="text-[var(--text)]">{q.trim()}</strong></span><button type="button" onClick={()=>openCustomerCreate(q)} className="app-primary-button min-h-11 px-4 text-sm font-black">+ Create customer</button></div>:null}
-  {loading?<PageLoader label="Loading customers…"/>:<>
+  {admin&&listReady&&pagination.total===0&&q.trim().length>=2?<div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-3" role="status"><span className="text-sm font-semibold text-[var(--text-muted)]">No customer found for <strong className="text-[var(--text)]">{q.trim()}</strong></span><button type="button" onClick={()=>openCustomerCreate(q)} className="app-primary-button min-h-11 px-4 text-sm font-black">+ Create customer</button></div>:null}
+  {!listReady?<PageLoader label={q.trim()?"Searching customers…":"Loading customers…"}/>:<>
    <div className="space-y-2 md:hidden">{items.map(c=><Surface key={c.id} className={!c.isActive?"p-3.5 opacity-60":"p-3.5"}>
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Link href={"/customers/"+c.id} className="block truncate text-sm font-black">{c.fullName}</Link><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{c.mobile||"No mobile"} · {c.customerCode}</p></div><StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge></div>
     <p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">{typeName(c)} · {c.cards.filter(x=>x.isActive).length} cards</p>
