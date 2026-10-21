@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { SearchableSelect } from "@/components/searchable-select";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Field, Modal, PageLoader, Surface } from "@/components/ui";
@@ -286,6 +286,11 @@ export default function CardSwipePage(){
   const [gatewayId,setGatewayId]=useState("");
   const [providerRate,setProviderRate]=useState("0");
   const [commissionRate,setCommissionRate]=useState("0");
+  // Refocus refreshes payment terms. It must never re-apply an old card setup
+  // over a gateway or commission that staff explicitly chose for this swipe.
+  const hydratedCardSetupRef=useRef("");
+  const defaultedTermRef=useRef("");
+  const manualCommissionRef=useRef(false);
   const [suggestedCommission,setSuggestedCommission]=useState<number|null>(null);
   const [recentRates,setRecentRates]=useState<number[]>([]);
   const [usualProviderId,setUsualProviderId]=useState("");
@@ -475,7 +480,12 @@ export default function CardSwipePage(){
 
   useEffect(()=>{
     if(customerMode!=="existing"||!cardId||historyLoading)return;
+    const setupKey=customerId+":"+cardId+":"+(selectedCardHistory?.id??"new");
+    if(hydratedCardSetupRef.current===setupKey)return;
     if(!selectedCardSetup){
+      if(!terms.length)return;
+      hydratedCardSetupRef.current=setupKey;
+      manualCommissionRef.current=false;
       setProviderId("");setGatewayId("");setProviderRate("0");
       const instant=terms.find(term=>term.name.toLowerCase().includes("instant"))??terms.find(term=>term.durationValue===0)??terms[0];
       if(instant)setTermId(instant.id);
@@ -484,19 +494,21 @@ export default function CardSwipePage(){
     }
     const previousProvider=providers.find(item=>item.id===selectedCardSetup.providerId);
     const previousGateway=previousProvider?.gateways.find(item=>item.id===selectedCardSetup.gatewayId);
-    if(previousProvider&&previousGateway){
-      setProviderId(previousProvider.id);
-      setGatewayId(previousGateway.id);
-      setProviderRate(rateText(Number(selectedCardSetup.providerChargeRate)));
-      setRoutingOpen(false);
-    }
+    // Wait for the provider and payment terms before marking the setup hydrated.
+    if(!previousProvider||!previousGateway||!terms.length)return;
+    hydratedCardSetupRef.current=setupKey;
+    manualCommissionRef.current=false;
+    setProviderId(previousProvider.id);
+    setGatewayId(previousGateway.id);
+    setProviderRate(rateText(Number(selectedCardSetup.providerChargeRate)));
+    setRoutingOpen(false);
     if(selectedCardSetup.paymentTermId&&terms.some(item=>item.id===selectedCardSetup.paymentTermId))setTermId(selectedCardSetup.paymentTermId);
     const previousCommission=Number(selectedCardSetup.commissionRate);
     if(Number.isFinite(previousCommission)){
       setCommissionRate(rateText(previousCommission));
       setSuggestedCommission(previousCommission);
     }
-  },[customerMode,cardId,historyLoading,selectedCardSetup,providers,terms]);
+  },[customerMode,customerId,cardId,historyLoading,selectedCardHistory?.id,selectedCardSetup,providers,terms]);
 
   useEffect(()=>{
     if(!providerId)return;
@@ -532,7 +544,9 @@ export default function CardSwipePage(){
 
   useEffect(()=>{
     const term=terms.find(t=>t.id===termId);
-    if(!term)return;
+    if(!term||defaultedTermRef.current===termId)return;
+    defaultedTermRef.current=termId;
+    manualCommissionRef.current=false;
     const historicalRate=selectedCardSetup&&selectedCardSetup.paymentTermId===termId?Number(selectedCardSetup.commissionRate):NaN;
     const nextDefault=Number.isFinite(historicalRate)?historicalRate:Number(term.defaultCommissionRate||0);
     setCommissionRate(rateText(nextDefault));
@@ -547,7 +561,7 @@ export default function CardSwipePage(){
       const historicalRate=Number(selectedCardSetup.commissionRate);
       if(Number.isFinite(historicalRate)){
         setSuggestedCommission(historicalRate);
-        setCommissionRate(rateText(historicalRate));
+        if(!manualCommissionRef.current)setCommissionRate(rateText(historicalRate));
         return;
       }
     }
@@ -564,15 +578,15 @@ export default function CardSwipePage(){
           if(customPayment)return;
           const termDefault=Number(terms.find(t=>t.id===termId)?.defaultCommissionRate||0);
           setSuggestedCommission(termDefault);
-          setCommissionRate(rateText(termDefault));
+          if(!manualCommissionRef.current)setCommissionRate(rateText(termDefault));
           return;
         }
         const resolved=Number(rule.commissionRate);
         setSuggestedCommission(resolved);
-        setCommissionRate(rateText(resolved));
+        if(!manualCommissionRef.current)setCommissionRate(rateText(resolved));
       }).catch(()=>{});
     return()=>{cancelled=true;};
-  },[customerId,providerId,gatewayId,termId,terms,selectedCardSetup,customPayment]);
+  },[customerId,providerId,gatewayId,termId,selectedCardHistory?.id,customPayment]);
 
   useEffect(()=>{
     if(!recordCustomerPayment||payoutTouched||paymentLegs.length!==1)return;
@@ -590,6 +604,9 @@ export default function CardSwipePage(){
   }
 
   function resetSwipeDetails(openRouting=false){
+    hydratedCardSetupRef.current="";
+    defaultedTermRef.current="";
+    manualCommissionRef.current=false;
     const instant=terms.find(term=>term.name.toLowerCase().includes("instant"))??terms.find(term=>term.durationValue===0)??terms[0];
     let recent=0;
     try{recent=Number(localStorage.getItem("cashledger_card_last_saved_swipe_amount")||0);}catch{}
@@ -745,6 +762,7 @@ export default function CardSwipePage(){
   }
 
   function updateCommission(next:number){
+    manualCommissionRef.current=true;
     setCommissionRate(rateText(Math.min(100,Math.max(0,next))));
   }
 
