@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CreatePayablePaymentDto } from './dto/create-payable-payment.dto.js';
 import { CreateAdvanceOffsetDto } from './dto/create-advance-offset.dto.js';
 import { CancelPayableDto } from './dto/cancel-payable.dto.js';
+import { buildDueReport } from './due-report.js';
 
 @Injectable()
 export class PayablesService {
@@ -31,6 +32,51 @@ export class PayablesService {
     };
   }
 
+  /**
+   * Read-only daily customer payout worklist. Uses the active payable's
+   * remaining amount, not gross swipe or cash movement, so partial payouts
+   * and advance offsets are never counted twice.
+   */
+  async dueReport(options?: { q?: string; transactionType?: TransactionType }) {
+    const where: Prisma.CustomerPayableWhereInput = {
+      remainingAmount: { gt: 0 },
+      status: { notIn: [PayableStatus.PAID, PayableStatus.CANCELLED, PayableStatus.REVERSED] },
+      sourceTransaction: {
+        status: { notIn: [TransactionStatus.REVERSED, TransactionStatus.CANCELLED, TransactionStatus.FAILED] },
+        ...(options?.transactionType ? { transactionType: options.transactionType } : {}),
+      },
+      ...(options?.q?.trim() ? {
+        customer: { OR: [
+          { fullName: { contains: options.q.trim(), mode: 'insensitive' } },
+          { mobile: { contains: options.q.trim() } },
+        ] },
+      } : {}),
+    };
+    const payables = await this.prisma.customerPayable.findMany({
+      where,
+      select: {
+        id: true, originalAmount: true, paidAmount: true, offsetAmount: true,
+        remainingAmount: true, dueAt: true, status: true,
+        customer: { select: { id: true, fullName: true, mobile: true } },
+        paymentTerm: { select: { name: true, durationValue: true, durationUnit: true } },
+        sourceTransaction: {
+          select: {
+            transactionNumber: true, transactionType: true, transactionAt: true,
+            cardSwipe: {
+              select: {
+                swipeAmount: true, commissionAmount: true, commissionRate: true,
+                providerChargeAmount: true,
+                customerCard: { select: { bankName: true, lastFourDigits: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+    });
+    return buildDueReport(payables);
+  }
+
   async list(options?: {
     page?: number;
     pageSize?: number;
@@ -39,6 +85,8 @@ export class PayablesService {
     transactionType?: TransactionType;
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
+    openOnly?: boolean;
+    dueDate?: string;
   }) {
     const { start: todayStart, end: todayEnd } = this.indiaDayRange();
     await this.prisma.$transaction([
@@ -71,10 +119,29 @@ export class PayablesService {
       }),
     ]);
 
+    const dueStart = options?.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(options.dueDate)
+      ? new Date(options.dueDate + 'T00:00:00+05:30')
+      : null;
+    if (options?.dueDate && (!dueStart || Number.isNaN(dueStart.getTime()) ||
+        new Date(dueStart.getTime() + 330 * 60_000).toISOString().slice(0, 10) !== options.dueDate)) {
+      throw new BadRequestException('Invalid due date');
+    }
     const where: Prisma.CustomerPayableWhereInput = {
-      ...(options?.q ? { customer: { fullName: { contains: options.q, mode: 'insensitive' } } } : {}),
+      ...(options?.q ? { customer: { OR: [
+        { fullName: { contains: options.q, mode: 'insensitive' } },
+        { mobile: { contains: options.q } },
+      ] } } : {}),
       ...(options?.status ? { status: options.status } : {}),
-      ...(options?.transactionType ? { sourceTransaction: { transactionType: options.transactionType } } : {}),
+      ...(options?.openOnly ? {
+        remainingAmount: { gt: 0 },
+        status: { notIn: [PayableStatus.PAID, PayableStatus.CANCELLED, PayableStatus.REVERSED] },
+        sourceTransaction: { status: { notIn: [TransactionStatus.REVERSED, TransactionStatus.CANCELLED, TransactionStatus.FAILED] } },
+      } : {}),
+      ...(options?.transactionType ? { sourceTransaction: {
+        ...(options?.openOnly ? { status: { notIn: [TransactionStatus.REVERSED, TransactionStatus.CANCELLED, TransactionStatus.FAILED] } } : {}),
+        transactionType: options.transactionType,
+      } } : {}),
+      ...(dueStart ? { dueAt: { gte: dueStart, lt: new Date(dueStart.getTime() + 86_400_000) } } : {}),
     };
     const allowedSort = new Set(['dueAt','createdAt','originalAmount','paidAmount','offsetAmount','remainingAmount','status']);
     const sortBy = allowedSort.has(options?.sortBy ?? '') ? options!.sortBy! : 'dueAt';

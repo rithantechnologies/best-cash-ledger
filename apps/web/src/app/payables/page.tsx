@@ -11,9 +11,11 @@ import { apiFetch } from "@/lib/api";
 
 type BankDestination={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type UpiDestination={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
-type Payable={id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[]};sourceTransaction:{transactionNumber:string;transactionType:string;cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}|null}|null}};
+type Payable={id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[]};sourceTransaction:{transactionNumber:string;transactionType:string;cardSwipe:{swipeAmount:string;commissionAmount:string;providerChargeAmount:string;customerCard:{bankName:string;lastFourDigits:string}|null}|null}};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number};
 type Paged={items:Payable[];pagination:{page:number;pageSize:number;total:number;totalPages:number}};
+type DueDay={date:string;itemCount:number;customerCount:number;cardCount:number;grossSwipe:number;customerCharges:number;netPayable:number;paid:number;advance:number;remaining:number;status:"OVERDUE"|"TODAY"|"UPCOMING"};
+type DueReport={businessDate:string;totals:{outstanding:number;overdue:number;today:number;upcoming:number;itemCount:number;customerCount:number};dates:DueDay[]};
 const money=(v:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(Number(v));
 const statusTone=(s:string)=>s==="PAID"?"emerald":s==="OVERDUE"?"rose":s==="PARTIALLY_PAID"?"indigo":s==="PENDING"?"amber":"slate";
 function payableDisplay(p:Payable){
@@ -29,8 +31,10 @@ const serviceLabel=(v:string)=>({AEPS_WITHDRAWAL:"AEPS",CARD_SWIPE:"Card Swipe",
 
 export default function PayablesPage(){
  const [items,setItems]=useState<Payable[]>([]),[accounts,setAccounts]=useState<Account[]>([]);
+ const [dueReport,setDueReport]=useState<DueReport|null>(null),[dueDate,setDueDate]=useState("");
+ const [downloading,setDownloading]=useState(false),[showAllDates,setShowAllDates]=useState(false);
  const [pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
- const [q,setQ]=useState(""),[status,setStatus]=useState(""),[transactionType,setTransactionType]=useState(""),[sortBy,setSortBy]=useState("dueAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("asc");
+ const [q,setQ]=useState(""),[status,setStatus]=useState("OPEN"),[transactionType,setTransactionType]=useState(""),[sortBy,setSortBy]=useState("dueAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("asc");
  const [selected,setSelected]=useState<Payable|null>(null),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[reference,setReference]=useState(""),[paymentNotes,setPaymentNotes]=useState("");
  const [role,setRole]=useState(""),[cancelTarget,setCancelTarget]=useState<Payable|null>(null),[cancelReason,setCancelReason]=useState("");
  const [error,setError]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
@@ -50,14 +54,23 @@ export default function PayablesPage(){
  const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
  function load(page=pagination.page){
   const params=new URLSearchParams({page:String(page),pageSize:String(pagination.pageSize),sortBy,sortDir});
-  if(q.trim())params.set("q",q.trim());if(status)params.set("status",status);if(transactionType)params.set("transactionType",transactionType);
+  if(q.trim())params.set("q",q.trim());if(status==="OPEN")params.set("openOnly","true");else if(status)params.set("status",status);
+  if(transactionType)params.set("transactionType",transactionType);
+  if(dueDate)params.set("dueDate",dueDate);
+  const summaryParams=new URLSearchParams();
+  if(q.trim())summaryParams.set("q",q.trim());
+  if(transactionType)summaryParams.set("transactionType",transactionType);
   setLoading(true);
-  return Promise.all([apiFetch<Paged>("/payables?"+params.toString()),apiFetch<Account[]>("/dashboard/accounts")])
-   .then(([p,a])=>{setItems(p.items);setPagination(p.pagination);setAccounts(a);setError("");})
+  return Promise.all([
+   apiFetch<Paged>("/payables?"+params.toString()),
+   apiFetch<Account[]>("/dashboard/accounts"),
+   apiFetch<DueReport>("/payables/due-report?"+summaryParams.toString()),
+  ])
+   .then(([p,a,r])=>{setItems(p.items);setPagination(p.pagination);setAccounts(a);setDueReport(r);setError("");})
    .finally(()=>setLoading(false));
  }
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
- useEffect(()=>{const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load payables")),180);return()=>clearTimeout(timer);},[q,status,transactionType,sortBy,sortDir,pagination.pageSize]);
+ useEffect(()=>{const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load payables")),180);return()=>clearTimeout(timer);},[q,status,transactionType,dueDate,sortBy,sortDir,pagination.pageSize]);
 
  async function pay(e:FormEvent){
   e.preventDefault();if(!selected)return;setBusy(true);setError("");
@@ -69,23 +82,76 @@ export default function PayablesPage(){
   try{await apiFetch("/payables/"+cancelTarget.id+"/cancel",{method:"POST",body:JSON.stringify({reason:cancelReason.trim()})});setCancelTarget(null);setCancelReason("");await load();}
   catch(err){setError(err instanceof Error?err.message:"Cancellation failed");}finally{setBusy(false);}
  }
+ async function downloadDueExcel(){
+  if(downloading)return;
+  setDownloading(true);setError("");
+  try{
+   const query=new URLSearchParams();
+   if(q.trim())query.set("q",q.trim());
+   if(transactionType)query.set("transactionType",transactionType);
+   const headers=new Headers();
+   const token=localStorage.getItem("cashledger_token");
+   if(token)headers.set("authorization","Bearer "+token);
+   const response=await fetch((process.env.NEXT_PUBLIC_BASE_PATH??"")+"/api/payables/due-report/excel?"+query.toString(),{headers,credentials:"include",cache:"no-store"});
+   if(!response.ok){
+    const body=await response.json().catch(()=>({}));
+    throw new Error(Array.isArray(body.message)?body.message.join(", "):body.message??"Excel export failed");
+   }
+   const url=URL.createObjectURL(await response.blob());
+   const link=document.createElement("a");
+   link.href=url;link.download="CashLedger_Pending_Payables_"+(dueReport?.businessDate??"today")+".xlsx";
+   document.body.appendChild(link);link.click();link.remove();
+   window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(err){setError(err instanceof Error?err.message:"Unable to download Excel");}
+  finally{setDownloading(false);}
+ }
  function sort(column:string){if(sortBy===column)setSortDir(d=>d==="asc"?"desc":"asc");else{setSortBy(column);setSortDir("asc");}}
  const sh=(label:string,col:string)=><button onClick={()=>sort(col)} className="font-bold">{label}{sortBy===col?(sortDir==="asc"?" ↑":" ↓"):""}</button>;
  return <AppShell><PageFrame>
-  <SectionHeading eyebrow="Money to pay" title="Customer payables" description="See what is due, pay customers quickly, and keep every payout traceable."/>
+  <SectionHeading eyebrow="Money to pay" title="Daily customer payout report" description="See the date-wise amount due first, then the customer and card details. Completed payments stay in history."/>
+  {dueReport?<Surface className="overflow-hidden">
+   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5">
+    <div><h2 className="text-sm font-black">Date-wise outstanding payable</h2><p className="text-xs text-[var(--text-muted)]">Calculated from each open payable after payments and advances</p></div>
+    <button type="button" onClick={()=>void downloadDueExcel()} disabled={downloading} className="app-secondary-button min-h-10 px-4 text-xs font-black disabled:opacity-50">{downloading?"Preparing Excel…":"Export 3-sheet Excel"}</button>
+   </div>
+   <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 sm:gap-3 sm:p-4">
+    {[
+     ["Total still to pay",dueReport.totals.outstanding,""],
+     ["Overdue",dueReport.totals.overdue,"text-rose-700"],
+     ["Due today",dueReport.totals.today,"text-amber-700"],
+     ["Upcoming",dueReport.totals.upcoming,"text-indigo-700"],
+    ].map(([label,value,color])=><div key={label} className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
+     <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
+     <p className={"money mt-1 text-base font-black sm:text-lg "+color}>{money(value)}</p>
+    </div>)}
+   </div>
+   {dueReport.totals.overdue>0||dueReport.totals.today>0?<div role="status" className="mx-3 mb-3 rounded-xl border border-amber-200 px-3 py-2 text-xs font-bold text-amber-900 sm:mx-4">
+    Payment reminder: {money(dueReport.totals.overdue)} overdue and {money(dueReport.totals.today)} due today. Select a due date below to see whom to pay.
+   </div>:null}
+   <div className="overflow-x-auto"><table className="w-full min-w-[690px] text-xs sm:text-sm">
+    <thead className="bg-[var(--surface-soft)] text-left text-[10px] font-black uppercase tracking-wide text-[var(--text-muted)]"><tr><th className="px-4 py-3">Due date</th><th className="text-right">Customers</th><th className="text-right">Entries</th><th className="text-right">Net payable</th><th className="text-right">Already paid + advance</th><th className="text-right">Still to pay</th><th className="px-4 text-right">View</th></tr></thead>
+    <tbody>{(showAllDates?dueReport.dates:dueReport.dates.slice(0,12)).map(g=><tr key={g.date} className={"border-t border-[var(--border)] "+(dueDate===g.date?"bg-indigo-50":"")}>
+     <td className="px-4 py-3"><p className="font-black">{new Date(g.date+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p><p className={"text-[10px] font-bold "+(g.status==="OVERDUE"?"text-rose-700":g.status==="TODAY"?"text-amber-700":"text-[var(--text-muted)]")}>{g.status==="TODAY"?"Due today":g.status==="OVERDUE"?"Overdue":"Upcoming"}</p></td>
+     <td className="text-right">{g.customerCount}</td><td className="text-right">{g.itemCount}</td><td className="money text-right">{money(g.netPayable)}</td><td className="money text-right">{money(g.paid+g.advance)}</td><td className="money text-right font-black">{money(g.remaining)}</td><td className="px-4 text-right"><button type="button" onClick={()=>{setDueDate(current=>current===g.date?"":g.date);setStatus("OPEN");}} className="rounded-lg border border-[var(--border)] px-2.5 py-2 text-[11px] font-bold text-[var(--accent)]">{dueDate===g.date?"Show all":"View dues"}</button></td>
+    </tr>)}</tbody>
+   </table></div>
+   {dueReport.dates.length>12?<button type="button" onClick={()=>setShowAllDates(v=>!v)} className="min-h-10 w-full border-t border-[var(--border)] px-4 text-xs font-bold text-[var(--accent)]">{showAllDates?"Show fewer dates":"Show all "+dueReport.dates.length+" due dates"}</button>:null}
+   {!dueReport.dates.length?<p className="p-4 text-sm text-[var(--text-muted)]">No outstanding customer payments for these filters.</p>:null}
+  </Surface>:null}
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
   <Toolbar>
    <input name="cashledger_q" autoComplete="on" className={control+" bg-slate-50"} placeholder="Search customer…" value={q} onChange={e=>setQ(e.target.value)}/>
-   <SearchableSelect className={control} value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["PENDING","PARTIALLY_PAID","PAID","OVERDUE","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</SearchableSelect>
+   <SearchableSelect className={control} value={status} onChange={e=>setStatus(e.target.value)}><option value="OPEN">Outstanding only</option><option value="">All statuses / history</option>{["PENDING","PARTIALLY_PAID","PAID","OVERDUE","CANCELLED","REVERSED"].map(x=><option key={x}>{x}</option>)}</SearchableSelect>
    <SearchableSelect className={control} value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="">All services</option>{["AEPS_WITHDRAWAL","CARD_SWIPE","MICRO_ATM","ATM_WITHDRAWAL","CASH_TRANSFER"].map(x=><option key={x} value={x}>{serviceLabel(x)}</option>)}</SearchableSelect>
    <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="dueAt">Due date</option><option value="createdAt">Created</option><option value="remainingAmount">Remaining</option><option value="originalAmount">Original</option><option value="paidAmount">Paid</option><option value="offsetAmount">Advance applied</option><option value="status">Status</option></SearchableSelect>
    <SearchableSelect className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
   </Toolbar>
 
+  {dueDate?<div className="flex flex-wrap items-center gap-2 text-xs font-bold"><span>Showing payouts due {new Date(dueDate+"T12:00:00").toLocaleDateString("en-IN")}</span><button type="button" onClick={()=>setDueDate("")} className="rounded-lg border border-[var(--border)] px-3 py-2 text-[var(--accent)]">Clear date filter</button></div>:null}
   {loading?<PageLoader label="Loading payables…"/>:<>
    <div className="space-y-2 md:hidden">{items.map(p=><Surface key={p.id} className="p-4">
-    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-bold">{p.customer.fullName}</p><p className="mt-0.5 text-[11px] text-slate-400">{serviceLabel(p.sourceTransaction.transactionType)} · {p.sourceTransaction.transactionNumber}</p><p className="mt-0.5 text-[11px] text-slate-400">Due {new Date(p.dueAt).toLocaleDateString("en-IN")}</p></div><StatusBadge tone={payableDisplay(p).tone as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{payableDisplay(p).label}</StatusBadge></div>
+    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-bold">{p.customer.fullName}</p><p className="mt-0.5 text-[11px] text-slate-400">{serviceLabel(p.sourceTransaction.transactionType)} · {p.sourceTransaction.transactionNumber}</p><p className="mt-0.5 text-[11px] text-slate-400">Due {new Date(p.dueAt).toLocaleDateString("en-IN")}</p>{p.sourceTransaction.cardSwipe?<p className="mt-1 text-[10px] font-semibold text-slate-500">Gross {money(p.sourceTransaction.cardSwipe.swipeAmount)} − customer charge {money(p.sourceTransaction.cardSwipe.commissionAmount)} = net {money(p.originalAmount)}</p>:null}</div><StatusBadge tone={payableDisplay(p).tone as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{payableDisplay(p).label}</StatusBadge></div>
     <div className="mt-3 grid grid-cols-4 gap-px overflow-hidden rounded-xl bg-slate-200">
      {[["Original",p.originalAmount,""],["Paid",p.paidAmount,"text-emerald-700"],["Advance",p.offsetAmount||"0","text-indigo-700"],["Still to send",p.remainingAmount,"text-amber-700"]].map(([l,v,c])=><div key={l} className="bg-slate-50 p-2.5 text-center"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{l}</p><p className={"mt-1 text-sm font-bold "+c}>{money(v)}</p></div>)}
     </div>
@@ -94,8 +160,8 @@ export default function PayablesPage(){
    </Surface>)}{!items.length?<EmptyState title={q.trim()||status?"No matching payables":"Nothing to pay"} description={q.trim()||status?"Try another search or status.":"No outstanding customer payables."}/>:null}</div>
 
    <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[1030px] text-sm">
-    <thead className="bg-slate-50/80 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Customer</th><th>Service</th><th>{sh("Original","originalAmount")}</th><th>{sh("Paid","paidAmount")}</th><th>{sh("Advance","offsetAmount")}</th><th>{sh("Still to send","remainingAmount")}</th><th>{sh("Due","dueAt")}</th><th>{sh("Status","status")}</th><th className="pr-5">Actions</th></tr></thead>
-    <tbody>{items.map(p=><tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/60"><td className="px-5 py-3 font-semibold">{p.customer.fullName}</td><td><p className="font-semibold">{serviceLabel(p.sourceTransaction.transactionType)}</p><p className="mt-0.5 text-[10px] text-slate-400">{p.sourceTransaction.transactionNumber}</p></td><td>{money(p.originalAmount)}</td><td className="text-emerald-700">{money(p.paidAmount)}</td><td className="text-indigo-700">{money(p.offsetAmount||0)}</td><td className="font-bold text-amber-700">{money(p.remainingAmount)}</td><td>{new Date(p.dueAt).toLocaleString("en-IN")}</td><td><StatusBadge tone={payableDisplay(p).tone as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{payableDisplay(p).label}</StatusBadge></td><td className="pr-5"><div className="flex gap-2"><Link href={"/payables/"+p.id} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold">View</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setCharge("");setSource("");setDestination("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button px-3 py-1.5 text-xs font-bold disabled:opacity-40">Pay</button>{(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.offsetAmount||0)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="rounded-lg px-3 py-1.5 text-xs font-bold text-rose-600">Cancel</button>:null}</div></td></tr>)}</tbody>
+    <thead className="bg-slate-50/80 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Customer</th><th>Service / card</th><th>{sh("Net payable","originalAmount")}</th><th>{sh("Paid","paidAmount")}</th><th>{sh("Advance","offsetAmount")}</th><th>{sh("Still to send","remainingAmount")}</th><th>{sh("Due","dueAt")}</th><th>{sh("Status","status")}</th><th className="pr-5">Actions</th></tr></thead>
+    <tbody>{items.map(p=><tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/60"><td className="px-5 py-3 font-semibold">{p.customer.fullName}</td><td><p className="font-semibold">{serviceLabel(p.sourceTransaction.transactionType)}</p><p className="mt-0.5 text-[10px] text-slate-400">{p.sourceTransaction.transactionNumber}</p>{p.sourceTransaction.cardSwipe?.customerCard?<p className="mt-0.5 text-[10px] text-slate-500">{p.sourceTransaction.cardSwipe.customerCard.bankName} ••••{p.sourceTransaction.cardSwipe.customerCard.lastFourDigits}</p>:null}{p.sourceTransaction.cardSwipe?<p className="mt-1 text-[10px] font-medium text-slate-500">Gross {money(p.sourceTransaction.cardSwipe.swipeAmount)} − service charge {money(p.sourceTransaction.cardSwipe.commissionAmount)}</p>:null}</td><td>{money(p.originalAmount)}</td><td className="text-emerald-700">{money(p.paidAmount)}</td><td className="text-indigo-700">{money(p.offsetAmount||0)}</td><td className="font-bold text-amber-700">{money(p.remainingAmount)}</td><td>{new Date(p.dueAt).toLocaleString("en-IN")}</td><td><StatusBadge tone={payableDisplay(p).tone as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{payableDisplay(p).label}</StatusBadge></td><td className="pr-5"><div className="flex gap-2"><Link href={"/payables/"+p.id} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold">View</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setCharge("");setSource("");setDestination("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button px-3 py-1.5 text-xs font-bold disabled:opacity-40">Pay</button>{(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.offsetAmount||0)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="rounded-lg px-3 py-1.5 text-xs font-bold text-rose-600">Cancel</button>:null}</div></td></tr>)}</tbody>
    </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="payable" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
   </>}
