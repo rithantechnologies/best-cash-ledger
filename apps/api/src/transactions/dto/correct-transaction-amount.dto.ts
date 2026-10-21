@@ -1,4 +1,4 @@
-import { IsNumber, IsString, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsNumber, IsString, Min, MinLength } from 'class-validator';
 
 export class CorrectTransactionAmountDto {
   @IsNumber()
@@ -8,4 +8,8 @@ export class CorrectTransactionAmountDto {
   @IsString()
   @MinLength(3)
   reason!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  confirmProviderSettlementAdjustment?: boolean;
 }

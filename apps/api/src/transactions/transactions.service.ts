@@ -565,6 +565,7 @@ export class TransactionsService {
     userId: string,
     actorRole: RoleName,
     providedIdempotencyKey?: string,
+    transactionClient?: Prisma.TransactionClient,
   ) {
     const idempotencyKey = await this.idempotency.key(
       TransactionType.CARD_SWIPE,
@@ -615,7 +616,7 @@ export class TransactionsService {
       throw new BadRequestException('Customer payment exceeds customer payable');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const createWithinTransaction = async (tx: Prisma.TransactionClient) => {
       let customerId = dto.customerId;
       let customerCardId = dto.customerCardId;
       let createdCustomer: {
@@ -1149,7 +1150,10 @@ export class TransactionsService {
         payoutTransactions,
         createdCustomer,
       };
-    });
+    };
+    return transactionClient
+      ? createWithinTransaction(transactionClient)
+      : this.prisma.$transaction(createWithinTransaction);
   }
 
   async listPendingQuickCash(
@@ -5147,7 +5151,12 @@ export class TransactionsService {
             provider: true,
             gateway: true,
             destinationAccount: true,
-            receipts: { include: { destinationAccount: true } },
+            receipts: {
+              include: {
+                destinationAccount: true,
+                transaction: { select: { id: true, transactionNumber: true, status: true } },
+              },
+            },
           },
         },
         providerSettlementReceipt: {
@@ -5744,6 +5753,170 @@ export class TransactionsService {
     });
   }
 
+  /**
+   * Full provider receipts are part of the card swipe financial chain.
+   * Reverse receipt, reverse source, recreate the corrected swipe and its
+   * recalculated receipt in ONE database transaction. The original posted
+   * journals remain intact and are offset by their audited reversals.
+   */
+  private async correctSettledCardSwipe(
+    id: string,
+    correctedAmount: number,
+    reason: string,
+    userId: string,
+    actorRole: RoleName,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', id);
+      const original = await tx.transaction.findUnique({
+        where: { id },
+        include: {
+          cardSwipe: true,
+          payable: true,
+          providerSettlementSource: {
+            include: {
+              receipts: { include: { transaction: true }, orderBy: { receivedAt: 'asc' } },
+            },
+          },
+        },
+      });
+      if (!original?.cardSwipe || original.transactionType !== TransactionType.CARD_SWIPE ||
+          original.status !== TransactionStatus.COMPLETED) {
+        throw new BadRequestException('Only an active card swipe can be amount-corrected');
+      }
+      const previousCorrection = await tx.transaction.findFirst({
+        where: {
+          correctionSourceTransactionId: id,
+          transactionType: TransactionType.CARD_SWIPE,
+          status: { notIn: [TransactionStatus.REVERSED, TransactionStatus.CANCELLED] },
+        },
+        select: { transactionNumber: true },
+      });
+      if (previousCorrection) {
+        throw new BadRequestException('This card swipe was already corrected: ' + previousCorrection.transactionNumber);
+      }
+      const payable = original.payable;
+      if (!payable || Number(payable.paidAmount) > 0.001 || Number(payable.offsetAmount) > 0.001) {
+        throw new BadRequestException('Reverse customer payouts and advance offsets before correcting this swipe');
+      }
+      const settlement = original.providerSettlementSource;
+      if (!settlement || settlement.status !== ProviderSettlementStatus.SETTLED ||
+          Math.abs(Number(settlement.receivedAmount) - Number(settlement.expectedAmount)) > 0.001) {
+        throw new BadRequestException('Only a fully received provider settlement can be automatically corrected');
+      }
+      const activeReceipts = settlement.receipts.filter(receipt =>
+        receipt.status === PaymentStatus.COMPLETED &&
+        receipt.transaction.status === TransactionStatus.COMPLETED,
+      );
+      if (activeReceipts.length !== 1 ||
+          Math.abs(Number(activeReceipts[0].amount) - Number(settlement.expectedAmount)) > 0.001) {
+        throw new BadRequestException('This provider settlement has multiple or partial receipts. Review those receipts before correcting.');
+      }
+      const receipt = activeReceipts[0];
+      if (receipt.destinationAccountId !== original.cardSwipe.settlementAccountId) {
+        throw new BadRequestException('This receipt used a different destination account. Review the provider settlement before correcting.');
+      }
+      // Recompute against the saved percentages and reject impossible corrected swipes
+      // BEFORE reversing the original. All other operations also share the same transaction.
+      const fee = this.money(correctedAmount * Number(original.cardSwipe.providerChargeRate) / 100);
+      const commission = this.money(correctedAmount * Number(original.cardSwipe.commissionRate) / 100);
+      if (correctedAmount - fee <= 0 || correctedAmount - commission < 0) {
+        throw new BadRequestException('Corrected swipe produces an invalid settlement or customer payout');
+      }
+      const reversalReason = 'Amount correction: ' +
+        Number(original.cardSwipe.swipeAmount).toFixed(2) + ' → ' +
+        correctedAmount.toFixed(2) + ' · ' + reason;
+      await this.reverse(receipt.transactionId, {
+        reason: reversalReason + ' · linked provider receipt',
+      }, userId, tx);
+      await this.reverse(original.id, { reason: reversalReason }, userId, tx);
+      const created = await this.createCardSwipe({
+        customerId: original.customerId ?? undefined,
+        customerCardId: original.cardSwipe.customerCardId,
+        swipeAmount: correctedAmount,
+        providerId: original.cardSwipe.providerId,
+        gatewayId: original.cardSwipe.gatewayId,
+        providerChargeRate: Number(original.cardSwipe.providerChargeRate),
+        commissionRate: Number(original.cardSwipe.commissionRate),
+        paymentTermId: original.cardSwipe.paymentTermId ?? undefined,
+        dueAt: original.cardSwipe.dueAt.toISOString(),
+        settledNow: true,
+        settlementDueAt: settlement.dueAt?.toISOString(),
+        referenceNumber: original.referenceNumber ?? undefined,
+        notes: original.notes ?? undefined,
+      }, userId, actorRole, 'CORRECTION:' + original.id + ':' + correctedAmount, tx);
+      const replacement = created.transaction;
+      if (!created.settlementReceipt?.receipt || !created.settlementReceipt.transaction) {
+        throw new BadRequestException('Corrected provider receipt could not be created');
+      }
+      // Correction changes business amounts, not the date of the original event.
+      await tx.transaction.update({
+        where: { id: replacement.id },
+        data: {
+          correctionSourceTransactionId: original.id,
+          correctionReason: reason,
+          transactionAt: original.transactionAt,
+          updatedById: userId,
+        },
+      });
+      await tx.ledgerJournal.updateMany({
+        where: { transactionId: replacement.id },
+        data: { postingDate: original.transactionAt },
+      });
+      const replacementReceipt = created.settlementReceipt;
+      await tx.providerSettlementReceipt.update({
+        where: { id: replacementReceipt.receipt.id },
+        data: {
+          receivedAt: receipt.receivedAt,
+          referenceNumber: receipt.referenceNumber,
+          notes: receipt.notes,
+        },
+      });
+      await tx.transaction.update({
+        where: { id: replacementReceipt.transaction.id },
+        data: {
+          transactionAt: receipt.receivedAt,
+          referenceNumber: receipt.referenceNumber,
+          notes: receipt.notes,
+        },
+      });
+      await tx.ledgerJournal.updateMany({
+        where: { transactionId: replacementReceipt.transaction.id },
+        data: { postingDate: receipt.receivedAt },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entityType: 'TRANSACTION',
+          entityId: replacement.id,
+          action: 'CORRECT_AMOUNT',
+          oldValues: {
+            sourceTransactionId: original.id,
+            sourceTransactionNumber: original.transactionNumber,
+            amount: original.cardSwipe.swipeAmount.toString(),
+            providerReceiptId: receipt.transactionId,
+            providerReceiptAmount: receipt.amount.toString(),
+          },
+          newValues: {
+            correctedTransactionId: replacement.id,
+            amount: correctedAmount,
+            providerReceiptId: replacementReceipt.transaction.id,
+            providerReceiptAmount: replacementReceipt.receipt.amount.toString(),
+          },
+          reason,
+        },
+      });
+      return {
+        originalId: original.id,
+        reversalCreated: true,
+        correctedTransactionId: replacement.id,
+        correctedTransactionNumber: replacement.transactionNumber,
+        transactionType: replacement.transactionType,
+        inPlace: false,
+      };
+    }, { maxWait: 10000, timeout: 30000 });
+  }
+
   async correctAmount(
     id: string,
     dto: CorrectTransactionAmountDto,
@@ -5955,6 +6128,12 @@ export class TransactionsService {
       original.providerSettlementSource &&
       Number(original.providerSettlementSource.receivedAmount) > 0
     ) {
+      if (original.transactionType === TransactionType.CARD_SWIPE && original.cardSwipe) {
+        if (!dto.confirmProviderSettlementAdjustment) {
+          throw new BadRequestException('Confirm that the linked provider receipt should also be recalculated');
+        }
+        return this.correctSettledCardSwipe(id, correctedAmount, reason, userId, actorRole);
+      }
       throw new BadRequestException(
         'Reverse the linked provider settlement receipt first, then correct this transaction',
       );
@@ -6448,13 +6627,84 @@ export class TransactionsService {
     };
   }
 
+  /** Owner delete of a fully received, unpaid card swipe and its one receipt. */
+  private async reverseSettledCardSwipeForDeletion(
+    id: string,
+    reason: string,
+    userId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', id);
+      const original = await tx.transaction.findUnique({
+        where: { id },
+        include: {
+          cardSwipe: true,
+          payable: true,
+          providerSettlementSource: {
+            include: { receipts: { include: { transaction: true } } },
+          },
+        },
+      });
+      if (!original?.cardSwipe || original.status !== TransactionStatus.COMPLETED) {
+        throw new BadRequestException('Only an active card swipe can be deleted through this workflow');
+      }
+      if (!original.payable ||
+          Number(original.payable.paidAmount) > 0.001 ||
+          Number(original.payable.offsetAmount) > 0.001) {
+        throw new BadRequestException('Reverse customer payouts and advance offsets before deleting this swipe');
+      }
+      const settlement = original.providerSettlementSource;
+      if (!settlement || settlement.status !== ProviderSettlementStatus.SETTLED ||
+          Math.abs(Number(settlement.receivedAmount) - Number(settlement.expectedAmount)) > 0.001) {
+        throw new BadRequestException('Partial provider settlements must be reviewed before deletion');
+      }
+      const activeReceipts = settlement.receipts.filter(receipt =>
+        receipt.status === PaymentStatus.COMPLETED &&
+        receipt.transaction.status === TransactionStatus.COMPLETED,
+      );
+      if (activeReceipts.length !== 1 ||
+          Math.abs(Number(activeReceipts[0].amount) - Number(settlement.expectedAmount)) > 0.001) {
+        throw new BadRequestException('Multiple or partial provider receipts must be reviewed before deletion');
+      }
+      await this.reverse(activeReceipts[0].transactionId, {
+        reason: 'Deleted card swipe ' + original.transactionNumber + ' · ' + reason,
+      }, userId, tx);
+      await this.reverse(original.id, { reason }, userId, tx);
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entityType: 'TRANSACTION',
+          entityId: original.id,
+          action: 'DELETE_LINKED_SETTLED_SWIPE',
+          oldValues: {
+            transactionNumber: original.transactionNumber,
+            amount: original.cardSwipe.swipeAmount.toString(),
+            providerReceiptTransactionId: activeReceipts[0].transactionId,
+            providerReceiptAmount: activeReceipts[0].amount.toString(),
+          },
+          newValues: { status: TransactionStatus.REVERSED, providerReceiptStatus: PaymentStatus.REVERSED },
+          reason,
+        },
+      });
+      return { originalId: original.id, deleted: true };
+    }, { maxWait: 10000, timeout: 30000 });
+  }
+
   async deleteTransaction(id: string, dto: ReverseTransactionDto, userId: string) {
     const original = await this.prisma.transaction.findUnique({
       where: { id },
-      include: { expense: true, journal: { select: { id: true, status: true } } },
+      include: {
+        expense: true,
+        journal: { select: { id: true, status: true } },
+        cardSwipe: true,
+        providerSettlementSource: { select: { receivedAmount: true } },
+      },
     });
     if (!original) throw new NotFoundException('Transaction not found');
     if (original.expense) return this.deleteExpense(id, dto, userId);
+    if (original.cardSwipe && Number(original.providerSettlementSource?.receivedAmount) > 0) {
+      return this.reverseSettledCardSwipeForDeletion(id, dto.reason, userId);
+    }
 
     // Pending expenses saved without a payment source have no accounting journal yet.
     // They can be voided directly because there is no financial movement to reverse.
@@ -6493,8 +6743,8 @@ export class TransactionsService {
     return this.reverse(id, dto, userId);
   }
 
-  async reverse(id: string, dto: ReverseTransactionDto, userId: string) {
-    return this.prisma.$transaction(async (tx) => {
+  async reverse(id: string, dto: ReverseTransactionDto, userId: string, transactionClient?: Prisma.TransactionClient) {
+    const reverseWithinTransaction = async (tx: Prisma.TransactionClient) => {
       await tx.$queryRawUnsafe(
         'SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE',
         id,
@@ -6717,7 +6967,7 @@ export class TransactionsService {
 
       const reversal = await tx.transaction.create({
         data: {
-          transactionNumber: 'REV-' + Date.now().toString(36).toUpperCase(),
+          transactionNumber: 'REV-' + Date.now().toString(36).toUpperCase() + '-' + randomUUID().slice(0, 8).toUpperCase(),
           transactionType: TransactionType.REVERSAL,
           transactionAt: new Date(),
           customerId: original.customerId,
@@ -7130,6 +7380,9 @@ export class TransactionsService {
       });
 
       return { originalId: original.id, reversal };
-    });
+    };
+    return transactionClient
+      ? reverseWithinTransaction(transactionClient)
+      : this.prisma.$transaction(reverseWithinTransaction);
   }
 }

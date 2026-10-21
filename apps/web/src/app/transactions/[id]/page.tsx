@@ -19,7 +19,7 @@ type Commission={id:string;commissionType:string;rate:string;amount:string};
 type Settlement={
  id:string;expectedAmount:string;receivedAmount:string;remainingAmount:string;status:string;dueAt:string|null;
  provider:{name:string}|null;gateway:{gatewayName:string}|null;destinationAccount:Account;
- receipts:{id:string;amount:string;receivedAt:string;destinationAccount:Account}[];
+ receipts:{id:string;amount:string;receivedAt:string;status:string;destinationAccount:Account;transaction:{id:string;transactionNumber:string;status:string}}[];
 };
 type Payable={
  id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;
@@ -218,7 +218,7 @@ export default function TransactionDetailPage(){
  const [returnTo,setReturnTo]=useState("/transactions");
  const [ledgerEditOpen,setLedgerEditOpen]=useState(false);
  const [detailsOpen,setDetailsOpen]=useState(false),[editReference,setEditReference]=useState(""),[editNotes,setEditNotes]=useState(""),[detailsReason,setDetailsReason]=useState("");
- const [correctOpen,setCorrectOpen]=useState(false),[correctedAmount,setCorrectedAmount]=useState(""),[correctReason,setCorrectReason]=useState("");
+ const [correctOpen,setCorrectOpen]=useState(false),[correctedAmount,setCorrectedAmount]=useState(""),[correctReason,setCorrectReason]=useState(""),[confirmSettlementCorrection,setConfirmSettlementCorrection]=useState(false);
  const [expenseSourceOpen,setExpenseSourceOpen]=useState(false),[expenseSourceId,setExpenseSourceId]=useState(""),[expenseSourceNote,setExpenseSourceNote]=useState(""),[expenseAccounts,setExpenseAccounts]=useState<Account[]>([]);
  const [partnerPaymentOpen,setPartnerPaymentOpen]=useState(false),[partnerPaymentAccountId,setPartnerPaymentAccountId]=useState(""),[partnerPaymentNote,setPartnerPaymentNote]=useState(""),[partnerPaymentAccounts,setPartnerPaymentAccounts]=useState<Account[]>([]);
  const [aepsCommissionOpen,setAepsCommissionOpen]=useState(false);
@@ -255,6 +255,7 @@ export default function TransactionDetailPage(){
    if(!tx)return;
    setCorrectedAmount(String(correctionBaseAmount(tx)));
    setCorrectReason("");
+   setConfirmSettlementCorrection(false);
    setError("");
    setCorrectOpen(true);
  }
@@ -265,7 +266,7 @@ export default function TransactionDetailPage(){
    if(!Number.isFinite(amount)||amount<=0)return;
    setSaving(true);setError("");
    try{
-     const result=await apiFetch<{correctedTransactionId:string;inPlace:boolean}>("/transactions/"+id+"/correct-amount",{method:"POST",body:JSON.stringify({correctedAmount:amount,reason:correctReason.trim()})});
+     const result=await apiFetch<{correctedTransactionId:string;inPlace:boolean}>("/transactions/"+id+"/correct-amount",{method:"POST",body:JSON.stringify({correctedAmount:amount,reason:correctReason.trim(),confirmProviderSettlementAdjustment:confirmSettlementCorrection})});
      setCorrectOpen(false);setCorrectReason("");
      // The source ledger reloads its new replacement transaction on return.
      router.replace(returnTo);router.refresh();
@@ -358,6 +359,10 @@ export default function TransactionDetailPage(){
  const canDelete=role==="OWNER"&&!cardDueType&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const canReverse=(role==="ADMIN"||(role==="OWNER"&&cardDueType))&&tx.status!=="REVERSED"&&tx.transactionType!=="REVERSAL";
  const payoutState=tx.transactionType==="CARD_SWIPE"?payoutDisplay(tx.payable):null;
+ const linkedProviderReceipts=(tx.providerSettlementSource?.receipts??[]).filter(receipt=>receipt.status==="COMPLETED"&&receipt.transaction.status!=="REVERSED");
+ const providerReceiptExists=Number(tx.providerSettlementSource?.receivedAmount??0)>0;
+ const simpleSettledSwipe=tx.transactionType==="CARD_SWIPE"&&tx.providerSettlementSource?.status==="SETTLED"&&linkedProviderReceipts.length===1;
+ const receiptTransactionHref=(receipt:{transaction:{id:string}})=>"/transactions/"+encodeURIComponent(receipt.transaction.id)+"?returnTo="+encodeURIComponent("/transactions/"+tx.id);
  const partnerPayablePending=tx.transactionType==="SERVICE_INCOME"&&tx.quickCashTransfer?.serviceFulfillmentMode==="PARTNER"&&tx.quickCashTransfer.servicePartnerPaymentTiming==="PAY_LATER"&&!tx.quickCashTransfer.servicePartnerPaidAt;
  const eligibleLateAepsCommission=role==="OWNER"&&tx.transactionType==="CASH_TRANSFER"&&
   tx.quickCashTransfer?.direction==="OUT"&&tx.quickCashTransfer?.purpose==="TRANSFER"&&
@@ -376,6 +381,12 @@ export default function TransactionDetailPage(){
    <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{eligibleLateAepsCommission?<button type="button" onClick={()=>void openAepsCommission()} className="min-h-10 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-800">+ Add missing AEPS commission</button>:null}{partnerPayablePending?<button onClick={()=>void openPartnerPayment()} className="min-h-10 rounded-xl bg-violet-100 px-3 text-xs font-black text-violet-800">Pay partner {money(tx.quickCashTransfer?.servicePartnerCharge??0)}</button>:null}{tx.expense&&tx.status==="PENDING"&&!tx.journal?<button onClick={()=>void openExpenseSource()} className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-800">Add payment source</button>:null}{canEditDateTime?<button onClick={()=>tx.customerLedgerEntry?setLedgerEditOpen(true):openDetailsEditor()} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 text-xs font-black text-[var(--accent)]">Edit transaction</button>:null}{tx.expense&&tx.status!=="REVERSED"?<Link href={expenseEditHref} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2.5 text-xs font-black text-[var(--accent)]">Edit all fields</Link>:null}{canCorrect?<button onClick={openAmountCorrection} className="min-h-10 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800">Correct amount</button>:null}{canEditDateTime&&!tx.expense&&!tx.customerLedgerEntry?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canDelete?<button onClick={()=>{setReason("");setDeleteOpen(true)}} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">Delete</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
+  {canCorrect&&providerReceiptExists?<div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+   <strong className="block">Provider settlement already received</strong>
+   <p className="mt-1 text-xs leading-5">{money(tx.providerSettlementSource?.receivedAmount??0)} was recorded as received. {simpleSettledSwipe?"Use Correct amount to recalculate the card swipe and its linked provider receipt together. The original and receipt remain in audit history.":"This settlement is partial or has multiple receipts; review them before changing the amount."} No real bank or wallet transfer is initiated by this correction.</p>
+   {linkedProviderReceipts.map(receipt=><Link key={receipt.id} href={receiptTransactionHref(receipt)} className="mt-2 block w-fit rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-900 underline">Review linked receipt {receipt.transaction.transactionNumber} · {money(receipt.amount)} →</Link>)}
+   <p className="mt-2 text-xs">Amounts must match the actual card processing and provider settlement records.</p>
+  </div>:null}
   {tx.aepsCommissionCorrections?.length?<div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
    <p className="font-black">Commission entered later · {money(tx.aepsCommissionCorrections.reduce((sum,row)=>sum+sumAmounts(row.commissions),0))}</p>
    {tx.aepsCommissionCorrections.map(row=><p key={row.id} className="mt-1 text-xs">Recorded on {new Date(row.transactionAt).toLocaleString("en-IN")} into {row.accountEntry?.account.accountName??"selected account"} · <Link href={"/transactions/"+row.id} className="font-black underline">{row.transactionNumber}</Link>. The original cash payout was not changed.</p>)}
@@ -474,12 +485,24 @@ export default function TransactionDetailPage(){
     <p className="text-xs text-[var(--text-muted)]">Amounts and account movements cannot be overwritten here. Use the existing Correct amount, Edit expense or date/time correction controls when allowed.</p>
    </form>
   </Modal>
-  <Modal open={correctOpen} title="Correct transaction amount" description="The posted transaction is not overwritten. Cash Ledger reverses it safely and creates a linked corrected replacement." onClose={()=>{if(!saving)setCorrectOpen(false)}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={saving} onClick={()=>setCorrectOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold disabled:opacity-50">Cancel</button><button form="correct-amount" disabled={saving||!correctedAmount||Number(correctedAmount)<=0||correctReason.trim().length<3||Math.abs(Number(correctedAmount)-correctionBaseAmount(tx))<.001} className="min-h-11 rounded-xl bg-amber-600 text-sm font-black text-white disabled:opacity-50">{saving?"Correcting…":"Confirm correction"}</button></div>}>
+  <Modal open={correctOpen} title="Correct transaction amount" description="The posted transaction is not overwritten. Cash Ledger reverses it safely and creates a linked corrected replacement." onClose={()=>{if(!saving)setCorrectOpen(false)}} footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={saving} onClick={()=>setCorrectOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold disabled:opacity-50">Cancel</button><button form="correct-amount" disabled={saving||(providerReceiptExists&&!confirmSettlementCorrection)||!correctedAmount||Number(correctedAmount)<=0||correctReason.trim().length<3||Math.abs(Number(correctedAmount)-correctionBaseAmount(tx))<.001} className="min-h-11 rounded-xl bg-amber-600 text-sm font-black text-white disabled:opacity-50">{saving?"Correcting…":"Confirm correction"}</button></div>}>
    <form id="correct-amount" onSubmit={correctAmount} className="space-y-3">
     <div className="grid grid-cols-2 gap-2"><div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Current amount</p><p className="money mt-1 text-lg font-black">{money(correctionBaseAmount(tx))}</p></div><div className="rounded-xl bg-amber-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Difference</p><p className={"money mt-1 text-lg font-black "+(Number(correctedAmount)-correctionBaseAmount(tx)>=0?"text-emerald-700":"text-rose-700")}>{Number.isFinite(Number(correctedAmount))?money(Number(correctedAmount)-correctionBaseAmount(tx)):"—"}</p></div></div>
     <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Correct amount</span><div className="flex min-h-12 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 focus-within:border-amber-500"><span className="mr-2 font-black">₹</span><input className="min-w-0 flex-1 bg-transparent text-xl font-black outline-none" type="number" inputMode="decimal" min="0.01" step="0.01" value={correctedAmount} onChange={e=>setCorrectedAmount(e.target.value)} autoFocus required/></div></label>
     <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason for correction</span><textarea name="cashledger_correct_reason" autoComplete="on" className="app-control min-h-24 w-full p-3" minLength={3} value={correctReason} onChange={e=>setCorrectReason(e.target.value)} placeholder="Example: Entered ₹10,000 instead of ₹1,000" required/></label>
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-5 text-amber-900">Percentage-based fees and commissions are recalculated from the saved transaction rates. Fixed charges stay fixed. If this transaction already has a customer payout, receipt or provider settlement receipt, reverse that linked movement first; Cash Ledger will block unsafe correction.</div>
+    {providerReceiptExists?<div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+     <strong>Provider settlement already received: {money(tx.providerSettlementSource?.receivedAmount??0)}</strong>
+     <p className="mt-1">For a fully settled single receipt, Cash Ledger will atomically reverse the original swipe and provider receipt, create the corrected swipe and receipt, and retain the history. It updates the recorded wallet balance, not actual funds at the provider.</p>
+     {tx.cardSwipe?<div className="mt-2 grid grid-cols-2 gap-2 rounded-lg bg-white p-2">
+       <span>Recalculated gateway fee</span><strong className="money text-right">{money(Math.round(Number(correctedAmount||0)*Number(tx.cardSwipe.providerChargeRate||0))/100)}</strong>
+       <span>Recalculated customer fee</span><strong className="money text-right">{money(Math.round(Number(correctedAmount||0)*Number(tx.cardSwipe.commissionRate||0))/100)}</strong>
+       <span>Recalculated provider receipt</span><strong className="money text-right">{money(Number(correctedAmount||0)-Math.round(Number(correctedAmount||0)*Number(tx.cardSwipe.providerChargeRate||0))/100)}</strong>
+       <span>Recalculated customer payable</span><strong className="money text-right">{money(Number(correctedAmount||0)-Math.round(Number(correctedAmount||0)*Number(tx.cardSwipe.commissionRate||0))/100)}</strong>
+     </div>:null}
+     {linkedProviderReceipts.map(receipt=><Link key={receipt.id} href={receiptTransactionHref(receipt)} className="mt-2 block font-black underline">Review receipt {receipt.transaction.transactionNumber} · {money(receipt.amount)} →</Link>)}
+     <label className="mt-3 flex items-start gap-2 rounded-lg bg-white p-3 font-bold"><input type="checkbox" checked={confirmSettlementCorrection} onChange={e=>setConfirmSettlementCorrection(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0"/> <span>I confirm the corrected swipe amount and agree to recalculate the linked provider receipt and account ledger.</span></label>
+     {!simpleSettledSwipe?<p className="mt-2 font-bold text-rose-700">Automatic correction requires one fully settled receipt and no customer payout.</p>:null}
+    </div>:<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-5 text-amber-900">Percentage-based fees and commissions are recalculated from the saved transaction rates. Fixed charges stay fixed. If this transaction has a customer payout or receipt, reverse the linked movement first; Cash Ledger blocks unsafe correction.</div>}
    </form>
   </Modal>
 
@@ -491,7 +514,7 @@ export default function TransactionDetailPage(){
    </form>
   </Modal>
 
-  <Modal open={deleteOpen} title={tx.expense?"Delete expense?":"Delete transaction?"} description={tx.expense?"The same expense record is marked deleted, its journal is voided, and audit history stays intact.":"It will disappear from normal transaction lists. The financial effect is safely reversed and a permanent audit record is retained."} onClose={()=>setDeleteOpen(false)} footer={<div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setDeleteOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold">Keep</button><button form="delete-tx" disabled={saving||reason.trim().length<3} className="min-h-11 rounded-xl bg-rose-700 text-sm font-black text-white disabled:opacity-50">{saving?"Deleting…":"Delete transaction"}</button></div>}>
+  <Modal open={deleteOpen} title={tx.expense?"Delete expense?":"Delete transaction?"} description={tx.expense?"The same expense record is marked deleted, its journal is voided, and audit history stays intact.":tx.cardSwipe&&providerReceiptExists?"This reverses BOTH the card swipe and its linked received provider settlement atomically, and preserves all records in the audit history. The wallet ledger is corrected; no actual bank transfer is made. You can then re-enter the swipe with the right amount.":"It will disappear from normal transaction lists. The financial effect is safely reversed and a permanent audit record is retained."} onClose={()=>setDeleteOpen(false)} footer={<div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setDeleteOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold">Keep</button><button form="delete-tx" disabled={saving||reason.trim().length<3} className="min-h-11 rounded-xl bg-rose-700 text-sm font-black text-white disabled:opacity-50">{saving?"Deleting…":"Delete transaction"}</button></div>}>
    <form id="delete-tx" onSubmit={deleteTransaction} className="space-y-3"><div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{tx.expense?"The original expense and date are retained for audit. Its posted ledger is voided rather than creating a new transaction. Closed cash sessions are protected.":"This is an accounting-safe delete: balances are reversed, linked open dues are updated, and the transaction is removed from normal operating views. Audit history is not erased."}</div><label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason for deletion</span><textarea name="cashledger_reason" autoComplete="on" className="app-control min-h-28 w-full p-3" minLength={3} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Example: Duplicate transaction entered by mistake" required/></label></form>
   </Modal>
 
