@@ -35,11 +35,34 @@ test('due-date and customer views work without creating financial mutations',()=
  assert.ok(component.includes('aria-label="Select customer report"'));
  assert.ok(!component.includes('method:"POST"'));
  assert.ok(!component.includes('apiFetch('));
- assert.ok(web.includes('Download NET BALANCE Excel'));
+ assert.ok(web.includes('Download Excel'));
 });
 test('mobile layout scrolls horizontally instead of hiding table columns',()=>{
  assert.ok(component.includes('overflow-x-auto overscroll-x-contain'));
  assert.ok(component.includes('min-w-[1430px]'));
  assert.ok(component.includes('role="tablist"'));
  assert.ok(component.includes('aria-selected={view===tab.key}'));
+});
+
+test('clean report keeps only customer-useful copy and one summary header',()=>{
+ assert.ok(web.includes('title="Payables"'));
+ assert.ok(web.includes('Overdue: {money(dueReport.totals.overdue)}'));
+ assert.ok(web.includes('Due today: {money(dueReport.totals.today)}'));
+ assert.ok(web.includes('Upcoming: {money(dueReport.totals.upcoming)}'));
+ for(const oldText of [
+  'Calculated from each open payable',
+  'View all due dates, card-wise net balances',
+  'Payment reminder:',
+  'See the date-wise amount due first',
+  'Date-wise outstanding payable',
+ ]) assert.ok(!web.includes(oldText),oldText);
+ for(const oldText of [
+  'Live outstanding amounts · Same structure as Excel',
+  'Purple <b>PAYABLE / AMOUNT</b> columns',
+  'Gross swipe and service charges are shown separately',
+  'All amounts are from live payable records',
+  'Still to pay after customer charges, payments and advances',
+ ]) assert.ok(!component.includes(oldText),oldText);
+ assert.ok(component.includes('label="GRAND TOTAL"'));
+ assert.ok(web.includes('Download Excel'));
 });

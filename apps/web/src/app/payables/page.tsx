@@ -107,28 +107,15 @@ export default function PayablesPage(){
  function sort(column:string){if(sortBy===column)setSortDir(d=>d==="asc"?"desc":"asc");else{setSortBy(column);setSortDir("asc");}}
  const sh=(label:string,col:string)=><button onClick={()=>sort(col)} className="font-bold">{label}{sortBy===col?(sortDir==="asc"?" ↑":" ↓"):""}</button>;
  return <AppShell><PageFrame>
-  <SectionHeading eyebrow="Money to pay" title="Daily customer payout report" description="See the date-wise amount due first, then the customer and card details. Completed payments stay in history."/>
-  {dueReport?<Surface className="overflow-hidden">
-   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5">
-    <div><h2 className="text-sm font-black">Date-wise outstanding payable</h2><p className="text-xs text-[var(--text-muted)]">Calculated from each open payable after payments and advances</p></div>
-    <button type="button" onClick={()=>void downloadDueExcel()} disabled={downloading} className="app-secondary-button min-h-10 px-4 text-xs font-black disabled:opacity-50">{downloading?"Preparing Excel…":"Download NET BALANCE Excel"}</button>
+  <SectionHeading eyebrow="Payments" title="Payables"/>
+  <div className="flex flex-wrap items-center justify-between gap-3">
+   <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+    {dueReport?<><span className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">Overdue: {money(dueReport.totals.overdue)}</span>
+    <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">Due today: {money(dueReport.totals.today)}</span>
+    <span className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-indigo-800">Upcoming: {money(dueReport.totals.upcoming)}</span></>:null}
    </div>
-   <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 sm:gap-3 sm:p-4">
-    {[
-     ["Total still to pay",dueReport.totals.outstanding,""],
-     ["Overdue",dueReport.totals.overdue,"text-rose-700"],
-     ["Due today",dueReport.totals.today,"text-amber-700"],
-     ["Upcoming",dueReport.totals.upcoming,"text-indigo-700"],
-    ].map(([label,value,color])=><div key={label} className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
-     <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
-     <p className={"money mt-1 text-base font-black sm:text-lg "+color}>{money(value)}</p>
-    </div>)}
-   </div>
-   {dueReport.totals.overdue>0||dueReport.totals.today>0?<div role="status" className="mx-3 mb-3 rounded-xl border border-amber-200 px-3 py-2 text-xs font-bold text-amber-900 sm:mx-4">
-    Payment reminder: {money(dueReport.totals.overdue)} overdue and {money(dueReport.totals.today)} due today. Select a due date below to see whom to pay.
-   </div>:null}
-   <div className="px-4 pb-4 text-xs text-[var(--text-muted)]">View all due dates, card-wise net balances and customer worksheets below. Select a date there to filter the payment list.</div>
-  </Surface>:null}
+   <button type="button" onClick={()=>void downloadDueExcel()} disabled={downloading} className="app-secondary-button min-h-10 px-4 text-xs font-black disabled:opacity-50">{downloading?"Preparing Excel…":"Download Excel"}</button>
+  </div>
   {dueReport?<PayablesNetBalanceReport report={dueReport} selectedDate={dueDate} onSelectDate={date=>{setDueDate(current=>current===date?"":date);setStatus("OPEN");}}/>:null}
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 

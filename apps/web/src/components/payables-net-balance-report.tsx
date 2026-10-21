@@ -60,7 +60,7 @@ function MoneyFooter({amount,label}:{amount:number;label:string}){
  return <tr className="bg-[#167a4c] text-white">
   <td colSpan={3} className="px-3 py-4 text-xs font-black uppercase tracking-wide">{label}</td>
   <td className="px-3 py-4 text-right text-base font-black tabular-nums">{cash(amount)}</td>
-  <td colSpan={8} className="px-3 py-4 text-[11px] font-semibold">Still to pay after customer charges, payments and advances</td>
+  <td colSpan={8} />
  </tr>;
 }
 function TableFrame({children}:{children:ReactNode}){
@@ -96,10 +96,10 @@ export function PayablesNetBalanceReport({
  return <section aria-label="Excel-style customer net balance" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
   <div className="flex flex-wrap items-center justify-between gap-3 bg-[#1d3452] px-4 py-4 text-white sm:px-5">
    <div><h2 className="text-lg font-black tracking-wide">NET BALANCE <span className="text-violet-200">/ PAYABLE</span></h2>
-    <p className="mt-0.5 text-xs text-white/75">As of {day(report.businessDate)} · Live outstanding amounts · Same structure as Excel</p>
+    <p className="mt-0.5 text-xs text-white/75">As of {day(report.businessDate)}</p>
    </div>
    <div className="rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-right">
-    <p className="text-[10px] uppercase tracking-wide text-white/70">Grand total still to pay</p>
+    <p className="text-[10px] uppercase tracking-wide text-white/70">Total to pay</p>
     <p className="text-xl font-black tabular-nums">{cash(report.totals.outstanding)}</p>
    </div>
   </div>
@@ -110,7 +110,6 @@ export function PayablesNetBalanceReport({
      (view===tab.key?"bg-[#55328c] text-white":"text-slate-600 hover:bg-violet-100 hover:text-violet-900")}>{tab.label}</button>)}
   </div>
   {view==="net"?<div role="tabpanel" aria-label="NET BALANCE">
-   <div className="px-4 py-3 text-xs text-slate-600">Grouped by due date • Purple <b>PAYABLE / AMOUNT</b> columns • Green grand total • Tap an amount for payment details</div>
    <TableFrame><PayableHeader/><tbody>
     {report.dates.map(dateGroup=><Fragment key={dateGroup.date}>
      <tr className="bg-[#e6e9f4]">
@@ -122,12 +121,11 @@ export function PayablesNetBalanceReport({
      </tr>
      {report.rows.filter(row=>row.dueDate===dateGroup.date).map(row=><GrossRow key={row.id} row={row}/>)}
     </Fragment>)}
-    {!report.rows.length?<tr><td colSpan={12} className="px-5 py-10 text-center text-sm text-slate-500">No outstanding customer payments.</td></tr>:null}
+    {!report.rows.length?<tr><td colSpan={12} className="px-5 py-10 text-center text-sm text-slate-500">No pending payments.</td></tr>:null}
     <MoneyFooter amount={report.totals.outstanding} label="GRAND TOTAL"/>
    </tbody></TableFrame>
   </div>:null}
   {view==="dates"?<div role="tabpanel" aria-label="DATE WISE">
-   <p className="px-4 py-3 text-xs text-slate-600">Click a date to see and pay the individual customers due that day.</p>
    <div className="overflow-x-auto"><table className="w-full min-w-[1030px] text-xs">
     <thead><tr>{["DUE DATE","STATUS","CUSTOMERS","CARDS","ENTRIES","GROSS SWIPE","CUSTOMER CHARGE","NET PAYABLE","PAID","ADVANCE","STILL TO PAY"].map(v=><HeaderCell key={v}>{v}</HeaderCell>)}</tr></thead>
     <tbody>{report.dates.map(dateGroup=><tr key={dateGroup.date} className={"border-b hover:bg-slate-50 "+(selectedDate===dateGroup.date?"bg-violet-50":"")}>
@@ -143,7 +141,6 @@ export function PayablesNetBalanceReport({
    </table></div>
   </div>:null}
   {view==="details"?<div role="tabpanel" aria-label="PENDING DETAILS">
-   <p className="px-4 py-3 text-xs text-slate-600">Gross swipe and service charges are shown separately from net customer payable. Gateway cost is a business expense.</p>
    <div className="overflow-x-auto"><table className="w-full min-w-[1700px] text-xs">
     <thead><tr>{["DUE DATE","SWIPE DATE","CUSTOMER","MOBILE","CARD","SOURCE","REFERENCE","TERM","GROSS SWIPE","CUSTOMER FEE %","CUSTOMER CHARGE","NET PAYABLE","PAID","ADVANCE","STILL TO PAY","GATEWAY COST","PRIORITY"].map(v=><HeaderCell key={v}>{v}</HeaderCell>)}</tr></thead>
     <tbody>{report.rows.map(row=><tr key={row.id} className="border-b border-slate-200 hover:bg-violet-50">
@@ -157,7 +154,6 @@ export function PayablesNetBalanceReport({
    </table></div>
   </div>:null}
   {view==="cards"?<div role="tabpanel" aria-label="CARD TOTALS">
-   <p className="px-4 py-3 text-xs text-slate-600">Customer and card-wise summary with next due date and current outstanding balance.</p>
    <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-xs">
     <thead><tr>{["CUSTOMER","MOBILE","CARD","EARLIEST DUE","ENTRIES","GROSS SWIPE","SERVICE CHARGE","NET PAYABLE","PAID","ADVANCE","BALANCE"].map(v=><HeaderCell key={v}>{v}</HeaderCell>)}</tr></thead>
     <tbody>{report.cards.map((row,i)=><tr key={row.customer+"-"+row.card+"-"+i} className="border-b border-slate-200 hover:bg-slate-50">
@@ -167,7 +163,7 @@ export function PayablesNetBalanceReport({
   </div>:null}
   {view==="customer"?<div role="tabpanel" aria-label="CUSTOMER WISE">
    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-    <label className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-600">Customer sheet
+    <label className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-600">Customer
      <select aria-label="Select customer report" value={visibleCustomer?.id??""} onChange={e=>setCustomerId(e.target.value)} className="max-w-[230px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800">
       {customers.map(customer=><option key={customer.id} value={customer.id}>{customer.name} ({customer.count})</option>)}
      </select>
@@ -176,13 +172,12 @@ export function PayablesNetBalanceReport({
    </div>
    <TableFrame><PayableHeader/><tbody>
     {customerRows.map(row=><GrossRow key={row.id} row={row} cardOnly/>)}
-    {!customerRows.length?<tr><td colSpan={12} className="px-4 py-10 text-center text-sm text-slate-500">No pending entries for this customer.</td></tr>:null}
+    {!customerRows.length?<tr><td colSpan={12} className="px-4 py-10 text-center text-sm text-slate-500">No pending payments.</td></tr>:null}
     <MoneyFooter amount={customerTotal} label="CUSTOMER TOTAL"/>
    </tbody></TableFrame>
   </div>:null}
   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 text-[11px] text-slate-600">
-   <span>All amounts are from live payable records. Paid and reversed transactions are excluded.</span>
-   <span className="font-bold text-[#167a4c]">{report.totals.itemCount} pending entries · {report.totals.customerCount} customers</span>
+   <span className="font-semibold text-[#167a4c]">{report.totals.itemCount} pending · {report.totals.customerCount} customers</span>
   </div>
  </section>;
 }
