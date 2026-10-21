@@ -304,6 +304,12 @@ export default function CardSwipePage(){
   const [payoutTouched,setPayoutTouched]=useState(false);
   const [customerHistory,setCustomerHistory]=useState<CustomerSwipeHistory[]>([]);
   const [historyLoading,setHistoryLoading]=useState(false);
+  const [historyLoadedFor,setHistoryLoadedFor]=useState("");
+  const [historyError,setHistoryError]=useState(false);
+  const [reusedFromCard,setReusedFromCard]=useState(false);
+  const manualAmountRef=useRef(false);
+  const manualGatewayRef=useRef(false);
+  const manualTermRef=useRef(false);
   const [settlementDueAt,setSettlementDueAt]=useState("");
   const [reference,setReference]=useState("");
   const [notes,setNotes]=useState("");
@@ -376,12 +382,14 @@ export default function CardSwipePage(){
   },[accounts]);
 
   useEffect(()=>{
+    setHistoryLoadedFor("");
+    setHistoryError(false);
     if(!customerId){setCustomerHistory([]);setHistoryLoading(false);return;}
     let cancelled=false;
     setHistoryLoading(true);
     apiFetch<CustomerSwipeHistory[]>("/transactions/customer/"+customerId+"/card-swipes")
-      .then(rows=>{if(!cancelled)setCustomerHistory(rows);})
-      .catch(()=>{if(!cancelled)setCustomerHistory([]);})
+      .then(rows=>{if(!cancelled){setCustomerHistory(rows);setHistoryLoadedFor(customerId);}})
+      .catch(()=>{if(!cancelled){setCustomerHistory([]);setHistoryError(true);setHistoryLoadedFor(customerId);}})
       .finally(()=>{if(!cancelled)setHistoryLoading(false);});
     return()=>{cancelled=true;};
   },[customerId]);
@@ -401,7 +409,11 @@ export default function CardSwipePage(){
   })).slice(0,8):[];
   const selectedCard=customer?.cards.find(card=>card.id===cardId);
   const visaNetworkId=networks.find(network=>network.isActive&&network.name.trim().toLowerCase()==="visa")?.id??"";
-  const selectedCardHistory=cardId?customerHistory.find(row=>!["REVERSED","CANCELLED"].includes(row.status)&&row.cardSwipe?.customerCard?.id===cardId):undefined;
+  const readyCardHistory=historyLoadedFor===customerId?customerHistory:[];
+  const validCardHistory=readyCardHistory.filter(row=>row.status==="COMPLETED"&&!!row.cardSwipe)
+    .sort((a,b)=>new Date(b.transactionAt).getTime()-new Date(a.transactionAt).getTime());
+  const latestUsedCardId=validCardHistory.find(row=>customer?.cards.some(card=>card.id===row.cardSwipe?.customerCard?.id&&card.isActive))?.cardSwipe?.customerCard?.id??"";
+  const selectedCardHistory=cardId?validCardHistory.find(row=>row.cardSwipe?.customerCard?.id===cardId):undefined;
   const selectedCardSetup=selectedCardHistory?.cardSwipe;
   const selectedCardHistoryProvider=selectedCardSetup?providers.find(item=>item.id===selectedCardSetup.providerId):undefined;
   const selectedCardHistoryGateway=selectedCardHistoryProvider?.gateways.find(item=>item.id===selectedCardSetup?.gatewayId);
@@ -478,17 +490,24 @@ export default function CardSwipePage(){
     setCardNetworkId(savedNetworkId&&networks.some(network=>network.id===savedNetworkId&&network.isActive)?savedNetworkId:visaNetworkId);
   },[customerMode,selectedCard,selectedCardSetup,networks,visaNetworkId]);
 
+  // If no card was specified, choose the most recently used active card.
+  // An explicit user choice always wins, including when history arrives late.
   useEffect(()=>{
-    if(customerMode!=="existing"||!cardId||historyLoading)return;
+    if(customerMode!=="existing"||!customerId||cardId||historyLoadedFor!==customerId||historyError)return;
+    if(latestUsedCardId)setCardId(latestUsedCardId);
+  },[customerMode,customerId,cardId,historyLoadedFor,historyError,latestUsedCardId]);
+
+  useEffect(()=>{
+    if(customerMode!=="existing"||!cardId||historyLoading||historyLoadedFor!==customerId||historyError)return;
     const setupKey=customerId+":"+cardId+":"+(selectedCardHistory?.id??"new");
     if(hydratedCardSetupRef.current===setupKey)return;
     if(!selectedCardSetup){
       if(!terms.length)return;
       hydratedCardSetupRef.current=setupKey;
-      manualCommissionRef.current=false;
-      setProviderId("");setGatewayId("");setProviderRate("0");
+      if(!manualCommissionRef.current)setSuggestedCommission(Number(terms.find(term=>term.id===termId)?.defaultCommissionRate||0));
+      if(!manualGatewayRef.current){setProviderId("");setGatewayId("");setProviderRate("0");}
       const instant=terms.find(term=>term.name.toLowerCase().includes("instant"))??terms.find(term=>term.durationValue===0)??terms[0];
-      if(instant)setTermId(instant.id);
+      if(instant&&!manualTermRef.current)setTermId(instant.id);
       setRoutingOpen(true);
       return;
     }
@@ -497,16 +516,32 @@ export default function CardSwipePage(){
     // Wait for the provider and payment terms before marking the setup hydrated.
     if(!previousProvider||!previousGateway||!terms.length)return;
     hydratedCardSetupRef.current=setupKey;
-    manualCommissionRef.current=false;
-    setProviderId(previousProvider.id);
-    setGatewayId(previousGateway.id);
-    setProviderRate(rateText(Number(selectedCardSetup.providerChargeRate)));
-    setRoutingOpen(false);
-    if(selectedCardSetup.paymentTermId&&terms.some(item=>item.id===selectedCardSetup.paymentTermId))setTermId(selectedCardSetup.paymentTermId);
+    if(!manualGatewayRef.current){
+      setProviderId(previousProvider.id);
+      setGatewayId(previousGateway.id);
+      setProviderRate(rateText(Number(selectedCardSetup.providerChargeRate)));
+      setRoutingOpen(false);
+    }
+    if(!manualTermRef.current){
+      if(selectedCardSetup.paymentTermId&&terms.some(item=>item.id===selectedCardSetup.paymentTermId)){
+        setTermId(selectedCardSetup.paymentTermId);
+      }else if(!selectedCardSetup.paymentTermId){
+        setTermId(CUSTOM_PAYMENT_DATE);
+        setCustomPaymentDate("");
+      }
+    }
     const previousCommission=Number(selectedCardSetup.commissionRate);
     if(Number.isFinite(previousCommission)){
-      setCommissionRate(rateText(previousCommission));
       setSuggestedCommission(previousCommission);
+      if(!manualCommissionRef.current)setCommissionRate(rateText(previousCommission));
+    }
+    // The prior swipe amount is a suggestion, never a locked value.
+    // Staff-entered amounts and any current payout details always win.
+    const lastAmount=Number(selectedCardSetup.swipeAmount);
+    if(!manualAmountRef.current&&Number.isFinite(lastAmount)&&lastAmount>0){
+      setAmount(String(lastAmount));
+      setReusedSwipeAmount(true);
+      setReusedFromCard(true);
     }
   },[customerMode,customerId,cardId,historyLoading,selectedCardHistory?.id,selectedCardSetup,providers,terms]);
 
@@ -536,9 +571,8 @@ export default function CardSwipePage(){
       const pref=JSON.parse(raw) as CustomerPreference;
       setUsualProviderId(pref.providerId||"");
       setUsualCardId(pref.cardId||"");
-      if(pref.cardId&&customer?.cards.some(card=>card.id===pref.cardId&&card.isActive)){
-        setCardId(current=>current||pref.cardId||"");
-      }
+      // Remember the old card as a visual hint only. The most recent
+      // completed swipe determines the initial selection after history loads.
     }catch{}
   },[customerId,providers,terms,customer]);
 
@@ -546,10 +580,12 @@ export default function CardSwipePage(){
     const term=terms.find(t=>t.id===termId);
     if(!term||defaultedTermRef.current===termId)return;
     defaultedTermRef.current=termId;
-    manualCommissionRef.current=false;
+    // A payment-term change made by staff selects a new default; an async
+    // last-card prefill or settings refresh must not erase a typed commission.
+    if(manualTermRef.current)manualCommissionRef.current=false;
     const historicalRate=selectedCardSetup&&selectedCardSetup.paymentTermId===termId?Number(selectedCardSetup.commissionRate):NaN;
     const nextDefault=Number.isFinite(historicalRate)?historicalRate:Number(term.defaultCommissionRate||0);
-    setCommissionRate(rateText(nextDefault));
+    if(!manualCommissionRef.current)setCommissionRate(rateText(nextDefault));
     setSuggestedCommission(nextDefault);
     const multiplier=term.durationUnit==="DAYS"?24*60*60*1000:60*60*1000;
     setDueAt(dateTimeLocal(new Date(Date.now()+term.durationValue*multiplier)));
@@ -607,6 +643,10 @@ export default function CardSwipePage(){
     hydratedCardSetupRef.current="";
     defaultedTermRef.current="";
     manualCommissionRef.current=false;
+    manualGatewayRef.current=false;
+    manualTermRef.current=false;
+    manualAmountRef.current=false;
+    setReusedFromCard(false);
     const instant=terms.find(term=>term.name.toLowerCase().includes("instant"))??terms.find(term=>term.durationValue===0)??terms[0];
     let recent=0;
     try{recent=Number(localStorage.getItem("cashledger_card_last_saved_swipe_amount")||0);}catch{}
@@ -652,6 +692,21 @@ export default function CardSwipePage(){
   function switchCustomerMode(nextMode:"existing"|"new"){
     clearCustomerIdentity(nextMode);
     resetSwipeDetails(nextMode==="new");
+  }
+
+  function chooseCard(nextCardId:string){
+    if(nextCardId===cardId)return;
+    hydratedCardSetupRef.current="";
+    defaultedTermRef.current="";
+    manualCommissionRef.current=false;
+    manualGatewayRef.current=false;
+    manualTermRef.current=false;
+    resetCustomerPayoutState();
+    setSettlementDueAt("");
+    setCardId(nextCardId);
+    // Clear previous-card routing until the newly chosen card's history loads.
+    setProviderId("");setGatewayId("");setProviderRate("0");
+    setSuggestedCommission(null);
   }
 
   function selectCustomer(next:Customer){
@@ -902,7 +957,8 @@ export default function CardSwipePage(){
     : "Save · pay "+money(payable)+" later";
   const desktopSaveLabel=normalSaveLabel;
   const mobileSaveLabel=swipe<=0?"Save swipe":recordCustomerPayment?(remainingAmount<=.001?"Save & pay":"Save payment"):"Save for later";
-  const activeCards=customer?.cards.filter(card=>card.isActive)??[];
+  const activeCards=(customer?.cards.filter(card=>card.isActive)??[]).sort((a,b)=>
+    (a.id===latestUsedCardId?-1:b.id===latestUsedCardId?1:0));
   const initials=(displayCustomerName||"Customer").split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]?.toUpperCase()).join("")||"CU";
   const amountWords=amountInWords(swipe);
   const providerInitials=(provider?.name||"Provider").split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]?.toUpperCase()).join("")||"PR";
@@ -910,7 +966,12 @@ export default function CardSwipePage(){
   const quickTerms=terms
     .filter(term=>quickTermRank(term)<99)
     .sort((a,b)=>quickTermRank(a)-quickTermRank(b))
-    .filter((term,index,list)=>list.findIndex(other=>quickTermRank(other)===quickTermRank(term))===index);
+    .filter((term,index,list)=>{
+      const sameRank=list.filter(other=>quickTermRank(other)===quickTermRank(term));
+      // Different "Instant" configurations can have different commissions.
+      // Keep the exact last-used term visible instead of masking it as another one.
+      return term.id===(sameRank.find(other=>other.id===termId)??sameRank[0]).id;
+    });
 
   return <AppShell><><form onSubmit={submit} className="swipe-commerce-page">
     <div className="mx-auto max-w-6xl pb-28 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-5 lg:pb-24">
@@ -942,10 +1003,10 @@ export default function CardSwipePage(){
                 <button type="button" onClick={beginExistingCustomer} className="min-h-9 rounded-lg border border-[var(--border)] px-3 text-xs font-semibold">Change</button>
               </div>
               <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                {activeCards.map(card=>{const selected=card.id===cardId;const usual=card.id===usualCardId;const network=networks.find(item=>item.id===card.cardNetworkId);const last=customerHistory.find(row=>!["REVERSED","CANCELLED"].includes(row.status)&&row.cardSwipe?.customerCard?.id===card.id);return <button key={card.id} type="button" onClick={()=>setCardId(card.id)} className={"swipe-card-choice min-w-[168px] rounded-xl border px-3 py-2.5 text-left "+(selected?"swipe-card-choice-selected border-[var(--accent)] bg-[var(--accent-soft)]":"border-[var(--border)] bg-[var(--surface)]")}><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-bold">{card.bankName}</span>{selected?<span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[8px] font-semibold text-white">Selected</span>:usual?<span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700">Usual</span>:null}</div><p className="mt-1 font-mono text-xs font-bold tracking-[.08em]">•••• {card.lastFourDigits}</p><p className="mt-1 truncate text-[9px] font-semibold text-[var(--text-muted)]">{[network?.name,"CREDIT"].filter(Boolean).join(" · ")}{last?" · Used "+new Date(last.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"}):""}</p></button>;})}
+                {activeCards.map(card=>{const selected=card.id===cardId;const usual=card.id===usualCardId;const network=networks.find(item=>item.id===card.cardNetworkId);const last=customerHistory.find(row=>!["REVERSED","CANCELLED"].includes(row.status)&&row.cardSwipe?.customerCard?.id===card.id);return <button key={card.id} type="button" onClick={()=>chooseCard(card.id)} className={"swipe-card-choice min-w-[168px] rounded-xl border px-3 py-2.5 text-left "+(selected?"swipe-card-choice-selected border-[var(--accent)] bg-[var(--accent-soft)]":"border-[var(--border)] bg-[var(--surface)]")}><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-bold">{card.bankName}</span>{selected?<span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[8px] font-semibold text-white">Selected</span>:card.id===latestUsedCardId?<span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700">Last used</span>:usual?<span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700">Usual</span>:null}</div><p className="mt-1 font-mono text-xs font-bold tracking-[.08em]">•••• {card.lastFourDigits}</p><p className="mt-1 truncate text-[9px] font-semibold text-[var(--text-muted)]">{[network?.name,"CREDIT"].filter(Boolean).join(" · ")}{last?" · Used "+new Date(last.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"}):""}</p></button>;})}
                 <button type="button" onClick={openAddCard} className="flex min-w-[110px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] px-3 text-xs font-semibold text-[var(--accent)]">+ Add card</button>
               </div>
-              {cardId?<div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,180px)_minmax(0,220px)_1fr]"><Field label="Card type"><div className={control+" flex items-center bg-[var(--surface-soft)] font-bold text-[var(--text)]"}>CREDIT</div></Field><Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field><div className="self-end pb-1">{historyLoading?<p className="text-[10px] font-semibold text-[var(--text-muted)]">Loading this card setup…</p>:selectedCardSetup?<p className="rounded-lg bg-[var(--accent-soft)] px-2.5 py-2 text-[10px] font-bold text-[var(--accent)]">Last setup loaded: {selectedCardHistoryProvider?.name||"Provider"} · {selectedCardHistoryGateway?.gatewayName||"Gateway"} · {selectedCardHistoryTerm?.name||(selectedCardSetup.paymentTermId?"Term":"Custom date")} · gateway {rateText(Number(selectedCardSetup.providerChargeRate))}% · commission {rateText(Number(selectedCardSetup.commissionRate))}%</p>:<p className="text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Choose the setup once and it will be reused next time.</p>}</div></div>:null}
+              {cardId?<div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,180px)_minmax(0,220px)_1fr]"><Field label="Card type"><div className={control+" flex items-center bg-[var(--surface-soft)] font-bold text-[var(--text)]"}>CREDIT</div></Field><Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field><div className="self-end pb-1">{historyLoading||historyLoadedFor!==customerId?<p className="text-[10px] font-semibold text-[var(--text-muted)]">Loading this card setup…</p>:historyError?<p className="text-[10px] font-semibold text-amber-700">Previous card setup unavailable. Enter this swipe manually.</p>:selectedCardSetup?<p className="rounded-lg bg-[var(--accent-soft)] px-2.5 py-2 text-[10px] font-bold text-[var(--accent)]">Last card setup suggested · editable: {selectedCardHistoryProvider?.name||"Provider"} · {selectedCardHistoryGateway?.gatewayName||"Gateway"} · {selectedCardHistoryTerm?.name||(selectedCardSetup.paymentTermId?"Term":"Custom date")} · gateway {rateText(Number(selectedCardSetup.providerChargeRate))}% · commission {rateText(Number(selectedCardSetup.commissionRate))}%</p>:<p className="text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Choose the setup once and it will be reused next time.</p>}</div></div>:null}
             </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" name="cashledger_customer_search" autoComplete="off" list="cashledger-card-swipe-remembered-names" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, bank/card last 4 or UPI ID" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];const matchBank=customerDigits?match.bankAccounts?.find(bank=>bank.isActive&&bank.accountReference.includes(customerDigits)):undefined;return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):matchBank?" · Bank ••••"+matchBank.accountReference.slice(-4):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
             <datalist id="cashledger-card-swipe-remembered-names">{rememberedCustomerNames.map(name=><option key={name} value={name}/>)}</datalist>
             {customer?<CustomerCardSwipeHistory rows={customerHistory} loading={historyLoading}/>:null}
@@ -954,20 +1015,20 @@ export default function CardSwipePage(){
           <section className="entry-section entry-section-amount">
             <div>
               <div className="flex items-center justify-between gap-3"><h2 className="entry-title">Swipe amount</h2><span className="currency-badge">₹ INR</span></div>
-              <div className="relative mt-2"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-[var(--text-muted)]">₹</span><input className="entry-amount-input" type="text" inputMode="decimal" value={formatAmountInput(amount)} onChange={e=>{setAmount(cleanAmountInput(e.target.value));setReusedSwipeAmount(false);}} placeholder="0" required/></div>
+              <div className="relative mt-2"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-[var(--text-muted)]">₹</span><input className="entry-amount-input" type="text" inputMode="decimal" value={formatAmountInput(amount)} onChange={e=>{manualAmountRef.current=true;setAmount(cleanAmountInput(e.target.value));setReusedSwipeAmount(false);setReusedFromCard(false);}} placeholder="0" required/></div>
               <p className="mt-1.5 truncate text-xs font-medium text-[var(--text-muted)]">{amountWords||"Enter swipe amount"}</p>
-              {reusedSwipeAmount?<p className="mt-1 text-xs font-semibold text-indigo-700">Last saved gross swipe amount suggested · confirm or edit before saving</p>:null}
+              {reusedSwipeAmount?<p className="mt-1 text-xs font-semibold text-indigo-700">{reusedFromCard?"Last swipe amount for this card suggested":"Last saved gross swipe amount suggested"} · confirm or edit before saving</p>:null}
             </div>
             <div className="mt-4 border-t border-[var(--border)] pt-3">
               <div className="flex items-center justify-between gap-3"><h3 className="operational-label">Payment term</h3>{instantTerm?<span className="status-chip status-chip-blue">Due now</span>:customPayment&&customPaymentDate?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(customPaymentDate+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:selectedTerm?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(dueAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:customPayment?<span className="text-xs font-semibold text-[var(--text-muted)]">Choose date</span>:null}</div>
-              <div className="payment-term-strip mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">{quickTerms.map(term=><button key={term.id} type="button" onClick={()=>{setTermId(term.id);setCustomPaymentDate("");}} className={"payment-term-pill min-w-0 "+(term.id===termId?"payment-term-pill-active":"")}>{termLabel(term)}</button>)}<button type="button" onClick={()=>setTermId(CUSTOM_PAYMENT_DATE)} className={"payment-term-pill min-w-0 "+(customPayment?"payment-term-pill-active":"")}>Pick date</button></div>
+              <div className="payment-term-strip mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">{quickTerms.map(term=><button key={term.id} type="button" onClick={()=>{manualTermRef.current=true;setTermId(term.id);setCustomPaymentDate("");}} className={"payment-term-pill min-w-0 "+(term.id===termId?"payment-term-pill-active":"")}>{termLabel(term)}</button>)}<button type="button" onClick={()=>{manualTermRef.current=true;setTermId(CUSTOM_PAYMENT_DATE);}} className={"payment-term-pill min-w-0 "+(customPayment?"payment-term-pill-active":"")}>Pick date</button></div>
               {customPayment?<div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-2.5"><label className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Exact payment date</label><input aria-label="Exact payment date" className={control+" mt-1 w-full bg-[var(--surface)] font-semibold"} type="date" min={minCustomPaymentDate} value={customPaymentDate} onChange={e=>{const value=e.target.value;setCustomPaymentDate(value);if(value)setDueAt(customDueDateTime(value));}} required/><p className="mt-1 text-[10px] font-medium text-[var(--text-muted)]">Choose any future date.</p></div>:null}
             </div>
           </section>
 
           <section className="entry-section entry-section-provider">
             <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h2 className="entry-title">Wallet / Platform</h2>{providerIsUsual?<span className="status-chip bg-amber-50 text-amber-700">Usual</span>:null}</div>{routingReady?<button type="button" onClick={()=>setRoutingOpen(v=>!v)} className="text-xs font-semibold text-[var(--accent)]">{routingOpen?"Done":"Change"}</button>:null}</div>
-            {routingReady&&!routingOpen?<div className="provider-summary-card mt-2 flex flex-wrap items-center gap-3 rounded-xl px-3 py-2.5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-50 text-[10px] font-extrabold text-cyan-700">{providerInitials}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{provider?.name} · {gateway?.gatewayName}</p><p className="mt-0.5 text-[13px] font-semibold text-[var(--text-muted)]">Gateway fee <span className="text-[var(--text)]">{rateText(pRate)}%</span></p></div><div className="ml-auto min-w-0 max-w-full text-right"><p className="money provider-fee-money font-bold text-[var(--money-out)]">−{money(providerCharge)}</p></div></div>:<div className="mt-3 grid gap-3 sm:grid-cols-3">{customerMode==="new"&&!providerId?<div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:col-span-3">Choose wallet / platform for this new customer.</div>:null}<Field label="Wallet / Platform"><SearchableSelect className={control} value={providerId} onChange={e=>{resetCustomerPayoutState();setProviderId(e.target.value);setGatewayId("");setProviderRate("0");setSettlementDueAt("");}} required><option value="">Select wallet / platform</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></Field><Field label="Gateway"><SearchableSelect className={control} value={gatewayId} onChange={e=>{setGatewayId(e.target.value);if(e.target.value)setRoutingOpen(false);}} disabled={!provider?.gateways.length} required><option value="">{provider&&provider.gateways.length===0?"No gateway set":"Select gateway"}</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</SearchableSelect></Field><Field label="Gateway fee %"><div><input aria-label="Gateway fee percentage" className={control+" text-right font-bold"} type="number" inputMode="decimal" step="0.0001" min="0" max="100" value={providerRate} onChange={e=>setProviderRate(e.target.value)} required/><p className="mt-1 px-1 text-[10px] text-[var(--text-muted)]">Default {rateText(Number(gateway?.defaultChargeRate||0))}% · editable for this swipe</p></div></Field></div>}
+            {routingReady&&!routingOpen?<div className="provider-summary-card mt-2 flex flex-wrap items-center gap-3 rounded-xl px-3 py-2.5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-50 text-[10px] font-extrabold text-cyan-700">{providerInitials}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{provider?.name} · {gateway?.gatewayName}</p><p className="mt-0.5 text-[13px] font-semibold text-[var(--text-muted)]">Gateway fee <span className="text-[var(--text)]">{rateText(pRate)}%</span></p></div><div className="ml-auto min-w-0 max-w-full text-right"><p className="money provider-fee-money font-bold text-[var(--money-out)]">−{money(providerCharge)}</p></div></div>:<div className="mt-3 grid gap-3 sm:grid-cols-3">{customerMode==="new"&&!providerId?<div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:col-span-3">Choose wallet / platform for this new customer.</div>:null}<Field label="Wallet / Platform"><SearchableSelect className={control} value={providerId} onChange={e=>{manualGatewayRef.current=true;resetCustomerPayoutState();setProviderId(e.target.value);setGatewayId("");setProviderRate("0");setSettlementDueAt("");}} required><option value="">Select wallet / platform</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></Field><Field label="Gateway"><SearchableSelect className={control} value={gatewayId} onChange={e=>{manualGatewayRef.current=true;setGatewayId(e.target.value);if(e.target.value)setRoutingOpen(false);}} disabled={!provider?.gateways.length} required><option value="">{provider&&provider.gateways.length===0?"No gateway set":"Select gateway"}</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</SearchableSelect></Field><Field label="Gateway fee %"><div><input aria-label="Gateway fee percentage" className={control+" text-right font-bold"} type="number" inputMode="decimal" step="0.0001" min="0" max="100" value={providerRate} onChange={e=>setProviderRate(e.target.value)} required/><p className="mt-1 px-1 text-[10px] text-[var(--text-muted)]">Default {rateText(Number(gateway?.defaultChargeRate||0))}% · editable for this swipe</p></div></Field></div>}
             {providerWallet?<div className="wallet-summary-card mt-2 rounded-xl border border-[var(--border)] px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <div className="min-w-0 flex-1">
