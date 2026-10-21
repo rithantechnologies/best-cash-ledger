@@ -2104,16 +2104,16 @@ export class TransactionsService {
 
       if (splitWalletTransfer) {
         if (!sourceAllocations.length) {
-          throw new BadRequestException('Add at least one wallet source');
+          throw new BadRequestException('Add at least one bank or wallet source');
         }
         const allocatedAmount = this.money(
           sourceAllocations.reduce((sum, allocation) => sum + allocation.amount, 0),
         );
         if (sourceAllocations.some((allocation) => allocation.amount <= 0)) {
-          throw new BadRequestException('Each wallet allocation must be greater than zero');
+          throw new BadRequestException('Each source allocation must be greater than zero');
         }
         if (Math.abs(allocatedAmount - this.money(amount)) > 0.001) {
-          throw new BadRequestException('Wallet allocations must equal the beneficiary payout amount');
+          throw new BadRequestException('Source allocations must equal the beneficiary payout amount');
         }
       } else if (!dto.sourceAccountId) {
         throw new BadRequestException(
@@ -2135,16 +2135,15 @@ export class TransactionsService {
       }
       const sourceAccounts = new Map<string, any>();
       for (const accountId of sourceAccountIds) {
-        const account = await this.validation.liquidAsset(
-          tx,
-          accountId,
-          detail.direction === 'IN' ? 'Transfer source' : 'Incoming transfer account',
-        );
+        const account = splitWalletTransfer
+          ? await this.validation.transferSource(tx, accountId)
+          : await this.validation.liquidAsset(
+              tx,
+              accountId,
+              detail.direction === 'IN' ? 'Transfer source' : 'Incoming transfer account',
+            );
         if (!account.ledgerAccount) {
           throw new NotFoundException('Source account ledger is unavailable');
-        }
-        if (splitWalletTransfer && account.accountType !== AccountType.PROVIDER_WALLET) {
-          throw new BadRequestException('Bank-transfer cash-in sources must be wallet accounts');
         }
         sourceAccounts.set(accountId, account);
       }
@@ -2318,7 +2317,7 @@ export class TransactionsService {
                         row.sourceAccountId === allocation.sourceAccountId
                       )?.amount ?? 0),
                     description:
-                      'Beneficiary transfer from wallet' +
+                      'Beneficiary transfer from bank / wallet' +
                       (allocation.referenceNumber
                         ? ' · ' + allocation.referenceNumber
                         : ''),

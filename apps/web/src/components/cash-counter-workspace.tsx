@@ -1151,9 +1151,9 @@ export default function CashCounterWorkspace({
     event.preventDefault();
     if(!completePendingId)return;
     if(bankTransferSplitCompletion){
-      if(!completeSourceAllocations.length){setCompleteError("Add at least one wallet source.");return;}
-      if(completeSourceAllocations.some((row)=>!row.sourceAccountId||!Number.isFinite(Number(row.amount))||Number(row.amount)<=0)){setCompleteError("Choose a wallet and enter an amount greater than zero for every source.");return;}
-      if(Math.abs(completeAllocationRemaining)>=0.005){setCompleteError("Wallet allocations must equal "+money(Number(completingQuickCash?.amount||0))+".");return;}
+      if(!completeSourceAllocations.length){setCompleteError("Add at least one transfer source account.");return;}
+      if(completeSourceAllocations.some((row)=>!row.sourceAccountId||!Number.isFinite(Number(row.amount))||Number(row.amount)<=0)){setCompleteError("Choose a bank or wallet and enter an amount greater than zero for every source.");return;}
+      if(Math.abs(completeAllocationRemaining)>=0.005){setCompleteError("Source allocations must equal "+money(Number(completingQuickCash?.amount||0))+".");return;}
     }else if(!completeSourceAccountId){setCompleteError(completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Select the provider / settlement account.":"Select the bank / UPI account that received the customer payment."):"Select the bank / UPI / wallet account sending the beneficiary transfer.");return;}
     if(commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0&&!completeCommissionAccountId){setCompleteError("Select the account that received the bank / UPI commission.");return;}
     setQuickSaving(true);setCompleteError("");setError("");
@@ -2020,17 +2020,22 @@ export default function CashCounterWorkspace({
           <div className="space-y-3">
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-3.5 transition focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-[11px] font-black text-[var(--text)]">{bankTransferSplitCompletion?"Transferred from wallets":completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI / bank received in"):"Money transferred from"} <span className="text-rose-500">*</span></span>
+                <span className="text-[11px] font-black text-[var(--text)]">{bankTransferSplitCompletion?"Transferred from accounts":completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Settlement received in":"UPI / bank received in"):"Money transferred from"} <span className="text-rose-500">*</span></span>
                 {bankTransferSplitCompletion?<strong className="money shrink-0 text-xs font-black">{money(completeAllocatedAmount)} / {money(Number(completingQuickCash?.amount||0))}</strong>:null}
               </div>
               {bankTransferSplitCompletion?<div className="mt-3 space-y-2">
                 {completeSourceAllocations.map((row,index)=><div key={index} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1.25fr)_130px_minmax(0,1fr)_auto] sm:items-end">
                     <div>
-                      <span className="mb-1 block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Wallet</span>
-                      <SearchableSelect mobileSheet aria-label={"Wallet source "+(index+1)} searchPlaceholder="Search wallet" className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm font-black text-[var(--text)] outline-none" value={row.sourceAccountId} onChange={(event)=>{const value=event.target.value;setCompleteSourceAllocations((current)=>current.map((item,rowIndex)=>rowIndex===index?{...item,sourceAccountId:value}:item));if(completeSourceAllocations.length===1&&!completeCommissionAccountOverridden)setCompleteCommissionAccountId(value);setCompleteError("");}}>
-                        <option value="">Select wallet</option>
-                        {completionWalletAccounts.map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
+                      <span className="mb-1 block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Source account</span>
+                      <SearchableSelect mobileSheet aria-label={"Transfer source "+(index+1)} searchPlaceholder="Search bank or wallet" className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm font-black text-[var(--text)] outline-none" value={row.sourceAccountId} onChange={(event)=>{const value=event.target.value;setCompleteSourceAllocations((current)=>current.map((item,rowIndex)=>rowIndex===index?{...item,sourceAccountId:value}:item));if(completeSourceAllocations.length===1&&!completeCommissionAccountOverridden)setCompleteCommissionAccountId(value);setCompleteError("");}}>
+                        <option value="">Select bank / wallet</option>
+                        <optgroup label="Wallets">
+                          {completionWalletAccounts.map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
+                        </optgroup>
+                        <optgroup label="Bank / UPI accounts">
+                          {completionAccounts.filter((account)=>account.accountType==="BANK"||account.accountType==="UPI").map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
+                        </optgroup>
                       </SearchableSelect>
                     </div>
                     <label>
@@ -2045,7 +2050,7 @@ export default function CashCounterWorkspace({
                   </div>
                 </div>)}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <button type="button" onClick={()=>{setCompleteSourceAllocations((current)=>[...current,{sourceAccountId:"",amount:completeAllocationRemaining>0?String(Math.round(completeAllocationRemaining*100)/100):"",referenceNumber:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId("");}} className="min-h-10 rounded-xl border border-dashed border-[var(--accent)] px-3 text-xs font-black text-[var(--accent)]">+ Add another wallet</button>
+                  <button type="button" onClick={()=>{setCompleteSourceAllocations((current)=>[...current,{sourceAccountId:"",amount:completeAllocationRemaining>0?String(Math.round(completeAllocationRemaining*100)/100):"",referenceNumber:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId("");}} className="min-h-10 rounded-xl border border-dashed border-[var(--accent)] px-3 text-xs font-black text-[var(--accent)]">+ Add another account</button>
                   <div className="text-right text-xs font-bold"><span className="text-[var(--text-muted)]">Allocated {money(completeAllocatedAmount)}</span><span className={"ml-2 "+(Math.abs(completeAllocationRemaining)<0.005?"text-emerald-700":"text-amber-700")}>{Math.abs(completeAllocationRemaining)<0.005?"Fully allocated":(completeAllocationRemaining>0?money(completeAllocationRemaining)+" remaining":money(Math.abs(completeAllocationRemaining))+" over")}</span></div>
                 </div>
               </div>:<>
