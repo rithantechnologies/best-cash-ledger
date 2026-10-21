@@ -35,7 +35,10 @@ export default function EditExpense(){
   setDescription(t.expense.description||"");setPayee(t.expense.payee||"");setReference(t.referenceNumber||"");setNotes(t.notes||"");
  }).catch(e=>{if(active)setError(e instanceof Error?e.message:"Could not load expense")}).finally(()=>{if(active)setLoading(false)});
  return()=>{active=false}},[id]);
- const categoriesForExpense=categories.filter(c=>c.expenseUsage===tx?.expense?.expenseType);
+ // The original category must remain selectable on historical entries.
+ // MIXED categories apply to both business and personal expense types.
+ const categoriesForExpense=categories.filter(c=>c.id===tx?.expense?.expenseCategoryId||
+  (c.isActive!==false&&(c.expenseUsage===tx?.expense?.expenseType||c.expenseUsage==="MIXED")));
  const accountsForExpense=accounts.filter(a=>(a.isActive!==false||a.id===accountId)&&["CASH","BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(a.accountType));
  async function save(e:FormEvent){e.preventDefault();setSaving(true);setError("");
   try{await apiFetch("/transactions/expense/"+id,{method:"PATCH",body:JSON.stringify({
@@ -57,7 +60,7 @@ export default function EditExpense(){
   {error?<p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
   <FormSection step="1" title="Expense fields" description="Amount, category, date, payment account and all other details can be corrected.">
    <div className="grid gap-4 sm:grid-cols-2">
-    <Field label="Category"><SearchableSelect mobileSheet className={ctl} required value={categoryId} onChange={e=>setCategoryId(e.target.value)}><option value="">Choose category</option>{categoriesForExpense.map(c=><option key={c.id} value={c.id}>{c.name}{c.isActive===false?" (archived)":""}</option>)}</SearchableSelect></Field>
+    <Field label="Category"><SearchableSelect mobileSheet className={ctl} required value={categoryId} onChange={e=>setCategoryId(e.target.value)}><option value="">Choose category</option>{categoriesForExpense.map(c=><option key={c.id} value={c.id}>{c.name}{c.id===tx?.expense?.expenseCategoryId&&c.expenseUsage!==tx?.expense?.expenseType&&c.expenseUsage!=="MIXED"?" (original · different type)":c.isActive===false?" (archived)":""}</option>)}</SearchableSelect></Field>
     <Field label="Amount"><input className={ctl} type="number" step="0.01" min="0.01" required value={amount} onChange={e=>setAmount(e.target.value)}/></Field>
     <Field label="Expense date & time"><input className={ctl} type="datetime-local" required value={date} onChange={e=>setDate(e.target.value)}/></Field>
     <Field label="Bank / cash / wallet / payment method"><SearchableSelect mobileSheet className={ctl} value={accountId} onChange={e=>setAccountId(e.target.value)}><option value="">Not selected · pending</option>{accountsForExpense.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>

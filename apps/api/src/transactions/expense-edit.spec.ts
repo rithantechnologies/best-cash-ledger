@@ -103,6 +103,33 @@ describe('edit the original expense in place',()=>{
    newValues:expect.objectContaining({amount:120,payee:'Supplier',originalTransactionId:'expense-one'}),
   })}));
  });
+ it('keeps the original category on a historical business expense misclassified as personal',async()=>{
+  const {service,tx,dto}=setup();
+  tx.expenseCategory.findUnique.mockResolvedValue({id:'cat-one',name:'Hotel Expenses',expenseUsage:'PERSONAL',isActive:true});
+  dto.amount=100;dto.paymentAccountId='bank-one';dto.description='Corrected old hotel expense';
+  await service.updateExpense('expense-one',dto,'staff-one',RoleName.STAFF);
+  expect(tx.expenseDetail.update).toHaveBeenCalledWith(expect.objectContaining({
+   data:expect.objectContaining({expenseCategoryId:'cat-one'}),
+  }));
+  expect(tx.transaction.create).not.toHaveBeenCalled();
+ });
+ it('allows an active MIXED category when editing an existing business expense',async()=>{
+  const {service,tx,dto}=setup();
+  tx.expenseCategory.findUnique.mockResolvedValue({id:'cat-mixed',name:'Snacks Expenses',expenseUsage:'MIXED',isActive:true});
+  dto.expenseCategoryId='cat-mixed';dto.amount=100;dto.paymentAccountId='bank-one';
+  await service.updateExpense('expense-one',dto,'staff-one',RoleName.STAFF);
+  expect(tx.expenseDetail.update).toHaveBeenCalledWith(expect.objectContaining({
+   data:expect.objectContaining({expenseCategoryId:'cat-mixed'}),
+  }));
+ });
+ it('refuses a new personal-only category for a business expense',async()=>{
+  const {service,tx,dto}=setup();
+  tx.expenseCategory.findUnique.mockResolvedValue({id:'cat-personal',expenseUsage:'PERSONAL',isActive:true});
+  dto.expenseCategoryId='cat-personal';
+  await expect(service.updateExpense('expense-one',dto,'staff-one',RoleName.STAFF))
+   .rejects.toThrow(/category/);
+  expect(tx.expenseDetail.update).not.toHaveBeenCalled();
+ });
  it('edits text and category in the same journal without financial movement',async()=>{
   const {service,tx,ledger,dto}=setup();
   dto.amount=100;dto.paymentAccountId='bank-one';dto.description='Receipt description corrected';
@@ -204,6 +231,14 @@ describe('delete expense and quick category correction',()=>{
   expect(tx.ledgerEntry.deleteMany).not.toHaveBeenCalled();
   expect(tx.ledgerJournal.update).not.toHaveBeenCalled();
   expect(ledger.post).not.toHaveBeenCalled();
+ });
+ it('allows changing to a shared MIXED expense category',async()=>{
+  const {service,tx}=setup();
+  tx.expenseCategory.findUnique.mockResolvedValue({id:'shared',name:'Snacks',expenseUsage:'MIXED',isActive:true});
+  await service.updateExpenseCategory('expense-one',{expenseCategoryId:'shared',reason:'Correcting category'},'staff-one');
+  expect(tx.expenseDetail.update).toHaveBeenCalledWith({
+   where:{transactionId:'expense-one'},data:{expenseCategoryId:'shared'},
+  });
  });
  it('rejects category changes to a mismatched expense type',async()=>{
   const {service,tx}=setup();

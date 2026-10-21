@@ -210,7 +210,7 @@ export default function ExpensesPage(){
     {error?<p role="alert" className="mb-3 text-sm text-rose-700">{error}</p>:null}
     <form id="expense-category-update" onSubmit={changeCategory} className="space-y-4">
      <p className="text-xs text-[var(--text-muted)]">{categoryTarget?.transactionNumber} · {categoryTarget?dateOnly(categoryTarget.transactionAt):""}</p>
-     <label className="block text-sm font-bold">New category<SearchableSelect mobileSheet required className="app-control mt-1 w-full" value={chosenCategory} onChange={e=>setChosenCategory(e.target.value)}>{categories.filter(c=>c.expenseUsage===categoryTarget?.expense?.expenseType&&(c.isActive!==false||c.id===categoryTarget?.expense?.expenseCategoryId)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</SearchableSelect></label>
+     <label className="block text-sm font-bold">New category<SearchableSelect mobileSheet required className="app-control mt-1 w-full" value={chosenCategory} onChange={e=>setChosenCategory(e.target.value)}>{categories.filter(c=>(c.isActive!==false&&(c.expenseUsage===categoryTarget?.expense?.expenseType||c.expenseUsage==="MIXED"))||c.id===categoryTarget?.expense?.expenseCategoryId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</SearchableSelect></label>
      <label className="block text-sm font-bold">Reason<textarea required minLength={3} className="app-control mt-1 min-h-20 w-full p-3" value={categoryReason} onChange={e=>setCategoryReason(e.target.value)} placeholder="Example: Selected the wrong category"/></label>
     </form>
    </Modal>

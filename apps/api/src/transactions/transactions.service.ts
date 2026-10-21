@@ -4194,8 +4194,8 @@ export class TransactionsService {
         throw new BadRequestException('Deleted or reversed expenses cannot be changed');
       }
       const newCategory = await tx.expenseCategory.findUnique({ where: { id: dto.expenseCategoryId } });
-      if (!newCategory || newCategory.expenseUsage !== original.expense.expenseType ||
-        (!newCategory.isActive && newCategory.id !== original.expense.expenseCategoryId)) {
+      if (!newCategory || !newCategory.isActive ||
+        (newCategory.expenseUsage !== original.expense.expenseType && newCategory.expenseUsage !== 'MIXED')) {
         throw new BadRequestException('Select an active category for this expense type');
       }
       if (newCategory.id === original.expense.expenseCategoryId) {
@@ -4355,8 +4355,14 @@ export class TransactionsService {
         throw new BadRequestException('Cancelled or reversed expenses cannot be edited');
       }
       const selectedCategory = await tx.expenseCategory.findUnique({ where: { id: dto.expenseCategoryId } });
-      if (!selectedCategory || selectedCategory.expenseUsage !== original.expense.expenseType ||
-          (!selectedCategory.isActive && dto.expenseCategoryId !== original.expense.expenseCategoryId)) {
+      // A historical category may have been archived or reclassified. Preserve
+      // the unchanged category when editing other fields, but require an active,
+      // compatible category if the editor explicitly chooses a different one.
+      const changingCategory = dto.expenseCategoryId !== original.expense.expenseCategoryId;
+      if (!selectedCategory || (changingCategory && (
+          !selectedCategory.isActive ||
+          (selectedCategory.expenseUsage !== original.expense.expenseType &&
+           selectedCategory.expenseUsage !== 'MIXED')))) {
         throw new BadRequestException('Select an active category matching this expense type');
       }
       const oldAmount = Number(original.expense.amount);
