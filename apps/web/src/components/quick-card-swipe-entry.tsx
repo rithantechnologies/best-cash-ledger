@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
@@ -15,9 +15,10 @@ type Network={id:string;name:string;isActive?:boolean};
 type CommissionRule={commissionRate:string}|null;
 type SwipeHistory={
   transactionAt:string;
+  status:string;
   commissions:{rate:string|null}[];
   cardSwipe:{
-    providerId:string;gatewayId:string;providerChargeRate:string;commissionRate:string;paymentTermId:string|null;
+    providerId:string;gatewayId:string;providerChargeRate:string;commissionRate:string;paymentTermId:string|null;swipeAmount:string;
     customerCard:{id:string;bankName:string;lastFourDigits:string;cardNetworkId?:string|null}|null;
   }|null;
 };
@@ -27,6 +28,10 @@ const INDIAN_BANKS=[
   "State Bank of India","HDFC Bank","ICICI Bank","Axis Bank","Kotak Mahindra Bank","IndusInd Bank","Yes Bank","IDFC FIRST Bank","Federal Bank","RBL Bank","AU Small Finance Bank","Bandhan Bank","Bank of Baroda","Bank of India","Bank of Maharashtra","Canara Bank","Central Bank of India","Indian Bank","Indian Overseas Bank","Punjab National Bank","Punjab & Sind Bank","UCO Bank","Union Bank of India","South Indian Bank","Karur Vysya Bank","Karnataka Bank","City Union Bank","Tamilnad Mercantile Bank","DCB Bank","CSB Bank",
 ];
 const money=(value:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(value||0));
+function lastSavedSwipeAmount(){
+  if(typeof window==="undefined")return "";
+  try{const amount=Number(localStorage.getItem("cashledger_card_last_saved_swipe_amount")||0);return Number.isFinite(amount)&&amount>0&&amount<=999999999?String(amount):"";}catch{return "";}
+}
 const cleanAmount=(value:string)=>{const v=value.replace(/,/g,"").replace(/[^\d.]/g,"");const i=v.indexOf(".");return i<0?v:v.slice(0,i+1)+v.slice(i+1).replace(/\./g,"").slice(0,2);};
 const mobileDigits=(value:string|null|undefined)=>{let d=(value??"").replace(/\D/g,"");if(d.length===12&&d.startsWith("91"))d=d.slice(2);return d;};
 const validMobile=(value:string)=>/^[6-9]\d{9}$/.test(value);
@@ -46,20 +51,25 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const [newName,setNewName]=useState(""),[newMobile,setNewMobile]=useState(""),[newBank,setNewBank]=useState(""),[newLastFour,setNewLastFour]=useState("");
   const [addingCard,setAddingCard]=useState(false),[addingCardBusy,setAddingCardBusy]=useState(false);
   const [existingCardBank,setExistingCardBank]=useState(""),[existingCardLast4,setExistingCardLast4]=useState(""),[existingCardNickname,setExistingCardNickname]=useState(""),[existingCardNetworkId,setExistingCardNetworkId]=useState("");
-  const [network,setNetwork]=useState(""),[amount,setAmount]=useState(""),[providerId,setProviderId]=useState(""),[gatewayId,setGatewayId]=useState(""),[termId,setTermId]=useState(""),[customPaymentDate,setCustomPaymentDate]=useState(""),[commissionRate,setCommissionRate]=useState("2.3"),[previousRate,setPreviousRate]=useState<number|null>(null),[commissionTouched,setCommissionTouched]=useState(false);
+  const [network,setNetwork]=useState(""),[amount,setAmount]=useState(""),[amountTouched,setAmountTouched]=useState(false),[reusedSwipeAmount,setReusedSwipeAmount]=useState(false),[providerId,setProviderId]=useState(""),[gatewayId,setGatewayId]=useState(""),[termId,setTermId]=useState(""),[customPaymentDate,setCustomPaymentDate]=useState(""),[commissionRate,setCommissionRate]=useState("2.3"),[previousRate,setPreviousRate]=useState<number|null>(null),[commissionTouched,setCommissionTouched]=useState(false);
   const [swipeHistory,setSwipeHistory]=useState<SwipeHistory[]>([]),[historyLoading,setHistoryLoading]=useState(false);
   const {values:rememberedCustomerNames,remember:rememberCustomerName}=useRememberedValues("cashledger_recent_customer_names",8);
 
   useEffect(()=>setReady(true),[]);
+  const openWithPreviousAmount=useCallback(()=>{
+    const previousAmount=lastSavedSwipeAmount();
+    setAmount(previousAmount);setAmountTouched(false);setReusedSwipeAmount(!!previousAmount);
+    setOpen(true);
+  },[]);
   useEffect(()=>{
     const fn=(event:Event)=>{
       const hint=(event as CustomEvent<{customerId?:string}>).detail?.customerId;
       setPresetCustomerId(typeof hint==="string"&&/^[0-9a-z-]{10,100}$/i.test(hint)?hint:"");
-      setOpen(true);
+      openWithPreviousAmount();
     };
     window.addEventListener("cashledger:open-quick-card-swipe",fn);
     return()=>window.removeEventListener("cashledger:open-quick-card-swipe",fn);
-  },[]);
+  },[openWithPreviousAmount]);
   useEffect(()=>{
     if(!open||!presetCustomerId)return;
     let cancelled=false;setLoading(true);
@@ -92,13 +102,17 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const provider=providers.find(p=>p.id===providerId),gateway=provider?.gateways.find(g=>g.id===gatewayId),term=terms.find(t=>t.id===termId),selectedCard=customer?.cards.find(c=>c.id===cardId);
   const customPayment=termId===CUSTOM_PAYMENT_DATE,minCustomPaymentDate=tomorrowDateInput();
   const visaNetworkId=networks.find(item=>item.isActive!==false&&item.name.trim().toLowerCase()==="visa")?.id??"";
-  const selectedCardHistory=cardId?swipeHistory.find(row=>row.cardSwipe?.customerCard?.id===cardId):undefined;
+  const selectedCardHistory=cardId?swipeHistory.find(row=>row.status!=="REVERSED"&&row.status!=="CANCELLED"&&row.cardSwipe?.customerCard?.id===cardId):undefined;
   const historySetup=selectedCardHistory?.cardSwipe;
   const historyProvider=historySetup?providers.find(p=>p.id===historySetup.providerId):undefined;
   const historyGateway=historyProvider?.gateways.find(g=>g.id===historySetup?.gatewayId);
   const historyTerm=historySetup?terms.find(t=>t.id===historySetup.paymentTermId):undefined;
+  const priorCardSwipeAmount=Number(historySetup?.swipeAmount??0);
+  const suggestedCardAmount=!amountTouched&&Number.isFinite(priorCardSwipeAmount)&&priorCardSwipeAmount>0?String(priorCardSwipeAmount):"";
+  const displayedAmount=suggestedCardAmount||amount;
+  const showingPreviousAmount=!amountTouched&&(reusedSwipeAmount||!!suggestedCardAmount);
   const providerRate=historySetup&&historySetup.providerId===providerId&&historySetup.gatewayId===gatewayId?Number(historySetup.providerChargeRate):Number(gateway?.defaultChargeRate||0);
-  const swipe=Number(amount||0),commission=swipe*Number(commissionRate||0)/100,providerFee=swipe*providerRate/100,payable=Math.max(0,swipe-commission),profit=commission-providerFee;
+  const swipe=Number(displayedAmount||0),commission=swipe*Number(commissionRate||0)/100,providerFee=swipe*providerRate/100,payable=Math.max(0,swipe-commission),profit=commission-providerFee;
   const activeCards=customer?.cards.filter(c=>c.isActive)??[];
 
   useEffect(()=>{
@@ -161,7 +175,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
     return()=>{cancelled=true;};
   },[customer?.id,providerId,gatewayId,termId,term,historySetup,selectedCardHistory,commissionTouched,customPayment]);
 
-  function reset(){setPresetCustomerId("");setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setCustomPaymentDate("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setAddingCard(false);setAddingCardBusy(false);setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId("");setError("");}
+  function reset(){setPresetCustomerId("");setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setAmountTouched(false);setReusedSwipeAmount(false);setCustomPaymentDate("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setAddingCard(false);setAddingCardBusy(false);setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId("");setError("");}
   function startAddExistingCard(){
     if(!customer)return;
     setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId(network||visaNetworkId);
@@ -215,13 +229,14 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
         swipeAmount:swipe,providerId,gatewayId,providerChargeRate:providerRate,commissionRate:Number(commissionRate),paymentTermId:customPayment?undefined:termId,dueAt:customPayment?customDueDate(customPaymentDate):dueDate(term!),settledNow:true,
       })});
       rememberCustomerName(mode==="existing"?customer?.fullName??"":newName);
+      try{localStorage.setItem("cashledger_card_last_saved_swipe_amount",String(swipe));}catch{}
       try{const customerId=mode==="existing"?customer!.id:result.createdCustomer?.customer.id;if(customerId)localStorage.setItem("cashledger_card_customer_pref_"+customerId,JSON.stringify({providerId,gatewayId,termId:customPayment?"":termId,cardId:mode==="existing"?cardId:result.createdCustomer?.card.id}));}catch{}
       close();onSaved?.();window.dispatchEvent(new CustomEvent("cashledger:card-swipe-saved",{detail:{transactionId:result.transaction.id}}));
     }catch(err){setError(err instanceof Error?err.message:"Card swipe could not be saved");}finally{setSaving(false);}
   }
 
   return <>
-    {showTrigger?<button type="button" onClick={()=>setOpen(true)} className={"flex min-h-10 items-center gap-2 rounded-full bg-indigo-600 px-3.5 text-[13px] font-black text-white shadow-[0_8px_22px_rgba(79,70,229,.26)] transition hover:-translate-y-0.5 active:translate-y-0 "+buttonClassName}><span className="text-base">▣</span><span>Card Swipe</span></button>:null}
+    {showTrigger?<button type="button" onClick={openWithPreviousAmount} className={"flex min-h-10 items-center gap-2 rounded-full bg-indigo-600 px-3.5 text-[13px] font-black text-white shadow-[0_8px_22px_rgba(79,70,229,.26)] transition hover:-translate-y-0.5 active:translate-y-0 "+buttonClassName}><span className="text-base">▣</span><span>Card Swipe</span></button>:null}
     {ready&&open?createPortal(<div className="fixed inset-0 z-[115] grid place-items-center bg-black/45 p-3 sm:p-5" role="dialog" aria-modal="true" aria-label="Quick card swipe">
       <form onSubmit={submit} className="flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-[24px] bg-[var(--surface)] shadow-2xl sm:max-w-[640px] sm:rounded-[26px]">
         <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4"><div><h3 className="text-[22px] font-black tracking-[-.04em]">Card Swipe</h3></div><button type="button" onClick={close} className="grid h-10 w-10 place-items-center rounded-full bg-[var(--surface-soft)] text-xl font-bold text-[var(--text-muted)]">×</button></header>
@@ -249,13 +264,14 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Card type</span><div className="mt-1 flex min-h-11 w-full items-center rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 text-sm font-black text-[var(--text)]">CREDIT</div></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Card network *</span><SearchableSelect mobileSheet searchPlaceholder="Search card network" className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={network} onChange={e=>setNetwork(e.target.value)}><option value="">Choose network</option>{networks.filter(item=>item.isActive!==false).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SearchableSelect></label>
-            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Swipe amount *</span><div className="mt-1 flex min-h-11 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3"><span className="mr-2 font-black">₹</span><input className="min-w-0 flex-1 bg-transparent text-lg font-black outline-none" inputMode="decimal" value={amount} onChange={e=>setAmount(cleanAmount(e.target.value))} placeholder="0"/></div></label>
+            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Swipe amount *</span><div className="mt-1 flex min-h-11 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3"><span className="mr-2 font-black">₹</span><input className="min-w-0 flex-1 bg-transparent text-lg font-black outline-none" inputMode="decimal" value={displayedAmount} onChange={e=>{setAmount(cleanAmount(e.target.value));setAmountTouched(true);setReusedSwipeAmount(false);}} placeholder="0"/></div></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Provider / wallet *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={providerId} onChange={e=>setProviderId(e.target.value)}><option value="">Choose provider</option>{providers.filter(p=>p.isActive!==false).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Gateway *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={gatewayId} onChange={e=>setGatewayId(e.target.value)}><option value="">Choose gateway</option>{provider?.gateways.filter(g=>g.isActive!==false).map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {rateText(g.id===gatewayId?providerRate:Number(g.defaultChargeRate))}%</option>)}</SearchableSelect></label>
             <div className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Payment term *</span><SearchableSelect mobileSheet searchPlaceholder="Search payment term" className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={termId} onChange={e=>setTermId(e.target.value)}><option value="">Choose term</option>{terms.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}<option value={CUSTOM_PAYMENT_DATE}>Choose future date…</option></SearchableSelect>{customPayment?<div className="mt-2"><input aria-label="Custom payment date" className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none" type="date" min={minCustomPaymentDate} value={customPaymentDate} onChange={e=>setCustomPaymentDate(e.target.value)} required/></div>:null}</div>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Customer fee / commission % *</span><div className="relative mt-1"><input className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 pr-9 text-right text-lg font-black outline-none" type="number" inputMode="decimal" min="0" max="100" step="0.0001" value={commissionRate} onChange={e=>{setCommissionRate(e.target.value);setCommissionTouched(true);}}/><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--text-muted)]">%</span></div><p className="mt-1 text-[10px] text-[var(--text-muted)]">{previousRate!==null&&!commissionTouched?"Using this card's last swipe rate":"Defaults to configured rate, otherwise 2.3%"}</p></label>
           </div>
 
+          {showingPreviousAmount?<p className="mt-2 text-xs font-semibold text-indigo-700">Previous gross swipe amount suggested · confirm or edit before saving</p>:null}
           {swipe>0?<div className="mt-3 rounded-[18px] border border-[var(--border)] bg-[var(--surface-soft)] p-3"><div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Customer gets</p><p className="money mt-1 text-xl font-black">{money(payable)}</p></div><div className="text-right"><p className="text-[10px] text-[var(--text-muted)]">Business profit before payout charges</p><p className={"money mt-1 font-black "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(profit)}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--border)] pt-3 text-xs"><div><span className="text-[var(--text-muted)]">Swipe</span><strong className="money mt-1 block">{money(swipe)}</strong></div><div><span className="text-[var(--text-muted)]">Customer fee</span><strong className="money mt-1 block text-[var(--money-in)]">{money(commission)}</strong></div><div><span className="text-[var(--text-muted)]">Gateway fee</span><strong className="money mt-1 block text-[var(--money-out)]">{money(providerFee)}</strong></div></div></div>:null}
           {loading?<p className="mt-3 text-xs font-bold text-[var(--text-muted)]">Loading swipe settings…</p>:null}{error?<div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm font-bold text-rose-700">{error}</div>:null}
         </div>
