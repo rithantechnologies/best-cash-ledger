@@ -57,6 +57,11 @@ function dateTimeLocal(date:Date){
   return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);
 }
 function dateInputValue(date:Date){return dateTimeLocal(date).slice(0,10);}
+function selectedSwipeBusinessTime(date:string){
+  const now=new Date();
+  if(!date)return now;
+  return new Date(date+"T"+dateTimeLocal(now).slice(11,16)+":00");
+}
 function tomorrowDateInput(){const date=new Date();date.setDate(date.getDate()+1);return dateInputValue(date);}
 function customDueDateTime(value:string){return dateTimeLocal(new Date(value+"T23:59:59.999"));}
 function formatAmountInput(value:string){
@@ -281,6 +286,7 @@ export default function CardSwipePage(){
   const [newCardNickname,setNewCardNickname]=useState("");
   const [addingCardBusy,setAddingCardBusy]=useState(false);
   const [amount,setAmount]=useState("");
+  const [swipeDate,setSwipeDate]=useState("");
   const [reusedSwipeAmount,setReusedSwipeAmount]=useState(false);
   const [providerId,setProviderId]=useState("");
   const [gatewayId,setGatewayId]=useState("");
@@ -423,6 +429,10 @@ export default function CardSwipePage(){
   const providerWallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId);
   const selectedTerm=terms.find(t=>t.id===termId);
   const customPayment=termId===CUSTOM_PAYMENT_DATE;
+  const termDurationMs=selectedTerm?selectedTerm.durationValue*(selectedTerm.durationUnit==="DAYS"?86400000:3600000):0;
+  const effectiveDueAt=swipeDate&&selectedTerm
+    ?dateTimeLocal(new Date(selectedSwipeBusinessTime(swipeDate).getTime()+termDurationMs))
+    :dueAt;
   const minCustomPaymentDate=tomorrowDateInput();
   const instantTerm=selectedTerm?.name.toLowerCase().includes("instant")??false;
   const swipe=Number(amount||0);
@@ -652,6 +662,7 @@ export default function CardSwipePage(){
     try{recent=Number(localStorage.getItem("cashledger_card_last_saved_swipe_amount")||0);}catch{}
     const useRecent=Number.isFinite(recent)&&recent>0&&recent<=999999999;
     setAmount(useRecent?String(recent):"");
+    setSwipeDate("");
     setReusedSwipeAmount(useRecent);
     setProviderId("");
     setGatewayId("");
@@ -846,8 +857,9 @@ export default function CardSwipePage(){
           },
         }:{customerId,customerCardId:cardId}),
         swipeAmount:swipe,providerId,gatewayId,
+        ...(swipeDate?{transactionAt:selectedSwipeBusinessTime(swipeDate).toISOString()}:{}),
         providerChargeRate:pRate,commissionRate:cRate,paymentTermId:customPayment?undefined:termId,
-        dueAt:new Date(dueAt).toISOString(),
+        dueAt:new Date(effectiveDueAt).toISOString(),
         settledNow,
         customerPayments:recordCustomerPayment?paymentLegs.map(leg=>({
           sourceAccountId:leg.sourceAccountId,amount:Number(leg.amount),chargeAmount:effectiveLegCharge(leg),
@@ -949,8 +961,9 @@ export default function CardSwipePage(){
   const routingReady=!!provider&&!!gateway&&!!providerWallet;
   const payoutReady=swipe>0&&routingReady&&customerReady;
   const calculationReady=swipe>0&&routingReady;
-  const paymentDateReady=customPayment?!!customPaymentDate&&customPaymentDate>=minCustomPaymentDate:!!termId;
-  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&paymentDateReady&&!!providerId&&!!gatewayId&&!!providerWallet&&payoutValid;
+  const paymentDateReady=customPayment?!!customPaymentDate&&customPaymentDate>=(swipeDate||minCustomPaymentDate):!!termId;
+  const swipeDateReady=!swipeDate||swipeDate<=dateInputValue(new Date());
+  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&paymentDateReady&&swipeDateReady&&!!providerId&&!!gatewayId&&!!providerWallet&&payoutValid;
   const displayCustomerName=customer?.fullName??(customerMode==="new"?quickName.trim():"");
   const normalSaveLabel=swipe<=0?"Save card swipe":recordCustomerPayment
     ? (remainingAmount<=.001?"Save & pay "+money(payable):"Save & record "+money(paidAmount))
@@ -1018,11 +1031,16 @@ export default function CardSwipePage(){
               <div className="relative mt-2"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-[var(--text-muted)]">₹</span><input className="entry-amount-input" type="text" inputMode="decimal" value={formatAmountInput(amount)} onChange={e=>{manualAmountRef.current=true;setAmount(cleanAmountInput(e.target.value));setReusedSwipeAmount(false);setReusedFromCard(false);}} placeholder="0" required/></div>
               <p className="mt-1.5 truncate text-xs font-medium text-[var(--text-muted)]">{amountWords||"Enter swipe amount"}</p>
               {reusedSwipeAmount?<p className="mt-1 text-xs font-semibold text-indigo-700">{reusedFromCard?"Last swipe amount for this card suggested":"Last saved gross swipe amount suggested"} · confirm or edit before saving</p>:null}
+              <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
+                <label htmlFor="card-swipe-business-date" className="text-xs font-bold">Transaction date <span className="font-medium text-[var(--text-muted)]">(optional)</span></label>
+                <input id="card-swipe-business-date" aria-label="Card Swipe transaction date" type="date" max={dateInputValue(new Date())} value={swipeDate} onChange={e=>setSwipeDate(e.target.value)} className="app-control mt-1 bg-[var(--surface)]"/>
+                <p className="mt-1 text-[10px] font-medium text-[var(--text-muted)]">{swipeDate?"Backdated to "+swipeDate+". Swipe, received settlement and any payout will use this business date.":"Leave blank for today's date and current time."} Actual creation and audit timestamps are preserved.</p>
+              </div>
             </div>
             <div className="mt-4 border-t border-[var(--border)] pt-3">
-              <div className="flex items-center justify-between gap-3"><h3 className="operational-label">Payment term</h3>{instantTerm?<span className="status-chip status-chip-blue">Due now</span>:customPayment&&customPaymentDate?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(customPaymentDate+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:selectedTerm?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(dueAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:customPayment?<span className="text-xs font-semibold text-[var(--text-muted)]">Choose date</span>:null}</div>
+              <div className="flex items-center justify-between gap-3"><h3 className="operational-label">Payment term</h3>{instantTerm?<span className="status-chip status-chip-blue">Due now</span>:customPayment&&customPaymentDate?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(customPaymentDate+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:selectedTerm?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(effectiveDueAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:customPayment?<span className="text-xs font-semibold text-[var(--text-muted)]">Choose date</span>:null}</div>
               <div className="payment-term-strip mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">{quickTerms.map(term=><button key={term.id} type="button" onClick={()=>{manualTermRef.current=true;setTermId(term.id);setCustomPaymentDate("");}} className={"payment-term-pill min-w-0 "+(term.id===termId?"payment-term-pill-active":"")}>{termLabel(term)}</button>)}<button type="button" onClick={()=>{manualTermRef.current=true;setTermId(CUSTOM_PAYMENT_DATE);}} className={"payment-term-pill min-w-0 "+(customPayment?"payment-term-pill-active":"")}>Pick date</button></div>
-              {customPayment?<div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-2.5"><label className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Exact payment date</label><input aria-label="Exact payment date" className={control+" mt-1 w-full bg-[var(--surface)] font-semibold"} type="date" min={minCustomPaymentDate} value={customPaymentDate} onChange={e=>{const value=e.target.value;setCustomPaymentDate(value);if(value)setDueAt(customDueDateTime(value));}} required/><p className="mt-1 text-[10px] font-medium text-[var(--text-muted)]">Choose any future date.</p></div>:null}
+              {customPayment?<div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-2.5"><label className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Exact payment date</label><input aria-label="Exact payment date" className={control+" mt-1 w-full bg-[var(--surface)] font-semibold"} type="date" min={swipeDate||minCustomPaymentDate} value={customPaymentDate} onChange={e=>{const value=e.target.value;setCustomPaymentDate(value);if(value)setDueAt(customDueDateTime(value));}} required/><p className="mt-1 text-[10px] font-medium text-[var(--text-muted)]">Choose a due date after the swipe. Historical due dates are supported.</p></div>:null}
             </div>
           </section>
 

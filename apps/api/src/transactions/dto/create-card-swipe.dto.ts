@@ -50,6 +50,8 @@ export class CreateCardSwipeDto {
   @IsNumber() @Min(0) @Max(100) commissionRate!: number;
   @IsOptional() @IsString() paymentTermId?: string;
   @IsDateString() dueAt!: string;
+  // Optional business date; original creation and audit times are always real.
+  @IsOptional() @IsDateString() transactionAt?: string;
   @IsOptional() @IsString() settlementAccountId?: string;
   @IsOptional() @IsBoolean() settledNow?: boolean;
   @IsOptional() @IsDateString() settlementDueAt?: string;

@@ -573,6 +573,11 @@ export class TransactionsService {
       dto,
       providedIdempotencyKey,
     );
+    const transactionAt = dto.transactionAt ? new Date(dto.transactionAt) : new Date();
+    if (!Number.isFinite(transactionAt.getTime()) ||
+        transactionAt.getTime() > Date.now() + 60_000) {
+      throw new BadRequestException('Swipe transaction date must not be in the future');
+    }
     const configuredGateway = await this.prisma.providerGateway.findFirst({
       where: { id: dto.gatewayId, providerId: dto.providerId, isActive: true },
       select: { defaultChargeRate: true },
@@ -746,7 +751,7 @@ export class TransactionsService {
         await this.validation.paymentTerm(tx, dto.paymentTermId);
       } else if (
         !providedIdempotencyKey?.startsWith('CORRECTION:') &&
-        new Date(dto.dueAt).getTime() <= Date.now()
+        new Date(dto.dueAt).getTime() <= transactionAt.getTime()
       ) {
         throw new BadRequestException('Custom payment date must be in the future');
       }
@@ -861,7 +866,7 @@ export class TransactionsService {
         data: {
           transactionNumber: 'CCS-' + Date.now().toString(36).toUpperCase(),
           transactionType: TransactionType.CARD_SWIPE,
-          transactionAt: new Date(),
+          transactionAt,
           customerId: customerId,
           grossAmount: new Prisma.Decimal(dto.swipeAmount),
           netAmount: new Prisma.Decimal(customerPayableAmount),
@@ -987,6 +992,7 @@ export class TransactionsService {
         userId,
         'Credit card swipe',
         entries,
+        transactionAt,
       );
 
       let settlementReceipt = null;
@@ -998,6 +1004,8 @@ export class TransactionsService {
           settlementAmount,
           userId,
           dto.referenceNumber,
+          undefined,
+          transactionAt,
         );
       }
 
@@ -1022,7 +1030,7 @@ export class TransactionsService {
               '-' +
               (index + 1),
             transactionType: TransactionType.CUSTOMER_PAYOUT,
-            transactionAt: new Date(),
+            transactionAt,
             customerId: customerId,
             grossAmount: new Prisma.Decimal(payment.amount + payment.chargeAmount),
             netAmount: new Prisma.Decimal(payment.amount),
@@ -1038,7 +1046,7 @@ export class TransactionsService {
           data: {
             payableId: payable.id,
             transactionId: payoutTransaction.id,
-            paymentDate: new Date(),
+            paymentDate: transactionAt,
             sourceAccountId: sourceAccount.id,
             amount: new Prisma.Decimal(payment.amount),
             referenceNumber: dto.referenceNumber,
@@ -1098,6 +1106,7 @@ export class TransactionsService {
           userId,
           'Customer payable payment',
           payoutEntries,
+          transactionAt,
         );
         await this.auditCreated(tx, payoutTransaction, userId);
         payoutTransactions.push(payoutTransaction);
