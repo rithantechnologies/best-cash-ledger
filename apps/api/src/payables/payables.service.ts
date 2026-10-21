@@ -65,7 +65,7 @@ export class PayablesService {
             cardSwipe: {
               select: {
                 swipeAmount: true, commissionAmount: true, commissionRate: true,
-                providerChargeAmount: true,
+                providerChargeAmount: true, providerId: true, gatewayId: true,
                 customerCard: { select: { bankName: true, lastFourDigits: true } },
               },
             },
@@ -74,7 +74,20 @@ export class PayablesService {
       },
       orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
     });
-    return buildDueReport(payables);
+    const providerIds = [...new Set(payables.map(p => p.sourceTransaction.cardSwipe?.providerId).filter((v): v is string => !!v))];
+    const gatewayIds = [...new Set(payables.map(p => p.sourceTransaction.cardSwipe?.gatewayId).filter((v): v is string => !!v))];
+    const [providers,gateways] = await Promise.all([
+      providerIds.length ? this.prisma.provider.findMany({
+        where: { id: { in: providerIds } }, select: { id: true, name: true },
+      }) : [],
+      gatewayIds.length ? this.prisma.providerGateway.findMany({
+        where: { id: { in: gatewayIds } }, select: { id: true, gatewayName: true },
+      }) : [],
+    ]);
+    return buildDueReport(payables, new Date(), {
+      providers: new Map(providers.map(p => [p.id,p.name])),
+      gateways: new Map(gateways.map(g => [g.id,g.gatewayName])),
+    });
   }
 
   async list(options?: {

@@ -99,7 +99,7 @@ export default function PayablesPage(){
    }
    const url=URL.createObjectURL(await response.blob());
    const link=document.createElement("a");
-   link.href=url;link.download="CashLedger_Pending_Payables_"+(dueReport?.businessDate??"today")+".xlsx";
+   link.href=url;link.download="CashLedger_NET_BALANCE_"+(dueReport?.businessDate??"today")+".xlsx";
    document.body.appendChild(link);link.click();link.remove();
    window.setTimeout(()=>URL.revokeObjectURL(url),60000);
   }catch(err){setError(err instanceof Error?err.message:"Unable to download Excel");}
@@ -112,7 +112,7 @@ export default function PayablesPage(){
   {dueReport?<Surface className="overflow-hidden">
    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5">
     <div><h2 className="text-sm font-black">Date-wise outstanding payable</h2><p className="text-xs text-[var(--text-muted)]">Calculated from each open payable after payments and advances</p></div>
-    <button type="button" onClick={()=>void downloadDueExcel()} disabled={downloading} className="app-secondary-button min-h-10 px-4 text-xs font-black disabled:opacity-50">{downloading?"Preparing Excel…":"Export 3-sheet Excel"}</button>
+    <button type="button" onClick={()=>void downloadDueExcel()} disabled={downloading} className="app-secondary-button min-h-10 px-4 text-xs font-black disabled:opacity-50">{downloading?"Preparing Excel…":"Download NET BALANCE Excel"}</button>
    </div>
    <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 sm:gap-3 sm:p-4">
     {[

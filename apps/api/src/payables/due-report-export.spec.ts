@@ -16,11 +16,11 @@ describe('Excel pending payable worklist', () => {
         transactionAt:new Date('2026-10-06T09:00:00+05:30'),
         cardSwipe:{
           swipeAmount:38000, commissionAmount:1140, commissionRate:3,
-          providerChargeAmount:950,
+          providerChargeAmount:950, providerId:'provider-1',gatewayId:'gateway-2',
           customerCard:{bankName:'HDFC',lastFourDigits:'5264'},
         },
       },
-    }],now);
+    }],now, {providers:new Map([['provider-1','EZYPAY']]),gateways:new Map([['gateway-2','PG2']])});
     const mockService:any={dueReport:vi.fn().mockResolvedValue(report)};
     const response:any={setHeader:vi.fn(),end:vi.fn()};
     const controller=new PayablesController(mockService);
@@ -31,13 +31,24 @@ describe('Excel pending payable worklist', () => {
     expect(data.length).toBeGreaterThan(4000);
     const book=new ExcelJS.Workbook();
     await book.xlsx.load(data);
-    expect(book.worksheets.map(s=>s.name)).toEqual(['Date Wise Summary','Pending Details','Customer Card Totals']);
-    expect(book.getWorksheet('Date Wise Summary')?.getCell('K2').value).toBe(26360);
-    expect(book.getWorksheet('Pending Details')?.getCell('I2').value).toBe(38000);
-    expect(book.getWorksheet('Pending Details')?.getCell('K2').value).toBe(1140);
-    expect(book.getWorksheet('Pending Details')?.getCell('L2').value).toBe(36860);
-    expect(book.getWorksheet('Pending Details')?.getCell('O2').value).toBe(26360);
-    expect(book.getWorksheet('Pending Details')?.getCell('P2').value).toBe(950);
-    expect(book.getWorksheet('Customer Card Totals')?.getCell('K2').value).toBe(26360);
+    expect(book.worksheets.map(s=>s.name)).toEqual(['NET BALANCE','DATE WISE','PENDING DETAILS','CARD TOTALS','RAMESH']);
+    const net=book.getWorksheet('NET BALANCE')!;
+    expect(net.getCell('C9').value).toBe('PAYABLE');
+    expect(net.getCell('D9').value).toBe('AMOUNT');
+    expect(net.getCell('B11').value).toBe('EZYPAY / PG2');
+    expect(net.getCell('D11').value).toBe(26360);
+    expect(net.getCell('D12').value).toBe(26360);
+    expect(net.getCell('D12').fill).toMatchObject({fgColor:{argb:'FF167A4C'}});
+    expect(net.getCell('C11').fill).toMatchObject({fgColor:{argb:'FF5B368E'}});
+    expect(net.pageSetup.orientation).toBe('landscape');
+    expect(net.getCell('F11').value).toBe('15 DAYS');
+    expect(book.getWorksheet('DATE WISE')?.getCell('K10').value).toBe(26360);
+    expect(book.getWorksheet('PENDING DETAILS')?.getCell('I10').value).toBe(38000);
+    expect(book.getWorksheet('PENDING DETAILS')?.getCell('K10').value).toBe(1140);
+    expect(book.getWorksheet('PENDING DETAILS')?.getCell('L10').value).toBe(36860);
+    expect(book.getWorksheet('PENDING DETAILS')?.getCell('O10').value).toBe(26360);
+    expect(book.getWorksheet('PENDING DETAILS')?.getCell('P10').value).toBe(950);
+    expect(book.getWorksheet('CARD TOTALS')?.getCell('K10').value).toBe(26360);
+    expect(book.getWorksheet('RAMESH')?.getCell('D10').value).toBe(26360);
   });
 });

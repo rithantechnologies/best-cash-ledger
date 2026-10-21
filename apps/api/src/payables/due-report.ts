@@ -17,6 +17,8 @@ export type DuePayableInput = {
       commissionAmount: unknown;
       commissionRate: unknown;
       providerChargeAmount: unknown;
+      providerId?: string;
+      gatewayId?: string;
       customerCard: { bankName: string; lastFourDigits: string };
     } | null;
   };
@@ -25,7 +27,12 @@ export type DuePayableInput = {
 const money = (n: unknown) => Math.round((Number(n ?? 0) + Number.EPSILON) * 100) / 100;
 const day = (value: Date) => new Date(value.getTime() + 330 * 60_000).toISOString().slice(0, 10);
 
-export function buildDueReport(items: DuePayableInput[], now = new Date()) {
+export function buildDueReport(
+  items: DuePayableInput[], now = new Date(),
+  sourceNames: { providers: Map<string,string>; gateways: Map<string,string> } = {
+    providers: new Map(), gateways: new Map(),
+  },
+) {
   const today = day(now);
   const dates = new Map<string, {
     date: string; itemCount: number; customerCount: number; cardCount: number;
@@ -49,6 +56,8 @@ export function buildDueReport(items: DuePayableInput[], now = new Date()) {
         customer: p.customer.fullName,
         mobile: p.customer.mobile ?? '',
         card: cardLabel,
+        provider: swipe ? sourceNames.providers.get(swipe.providerId ?? '') ?? '' : '',
+        gateway: swipe ? sourceNames.gateways.get(swipe.gatewayId ?? '') ?? '' : '',
         transactionNumber: p.sourceTransaction.transactionNumber,
         service: p.sourceTransaction.transactionType,
         term: p.paymentTerm?.name ?? 'Custom',
