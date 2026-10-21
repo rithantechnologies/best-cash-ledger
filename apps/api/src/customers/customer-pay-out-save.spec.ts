@@ -43,10 +43,13 @@ function setup() {
       { ledgerCode: 'SYS-CUST-PAYABLE', id: 'payable-ledger' },
       { ledgerCode: 'SYS-PROVIDER-CHARGE', id: 'fee-ledger' },
     ]) },
-    transaction: { create: vi.fn(async ({data}: any) => ({
-      id: 'new-payout-tx', transactionNumber: data.transactionNumber,
-      referenceNumber: data.referenceNumber, ...data,
-    })) },
+    transaction: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn(async ({data}: any) => ({
+        id: 'new-payout-tx', transactionNumber: data.transactionNumber,
+        referenceNumber: data.referenceNumber, ...data,
+      })),
+    },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
   };
   const prisma: any = { $transaction: vi.fn(async (handler: any) => handler(tx)) };
@@ -95,5 +98,33 @@ describe('Customer Pay Out saving three matched swipes', () => {
     await expect(service.createCardLedgerEntry('customer-1',request,'owner-1',RoleName.OWNER,'stable-key'))
       .rejects.toThrow('insufficient balance');
     expect(tx.transaction.create).not.toHaveBeenCalled();
+  });
+
+  it('blocks a second payout using an existing wallet transfer reference, before changing payables', async () => {
+    const {service,request,tx}=setup();
+    request.referenceNumber='629314204378';
+    tx.transaction.findFirst.mockResolvedValue({ transactionNumber:'CLK-ORIGINAL' });
+    await expect(service.createCardLedgerEntry('customer-1',request,'owner-1',RoleName.OWNER,'different-key'))
+      .rejects.toThrow('already recorded under CLK-ORIGINAL');
+    expect(tx.transaction.findFirst).toHaveBeenCalledWith({
+      where: {
+        transactionType:'CUSTOMER_LEDGER_ENTRY',
+        status:TransactionStatus.COMPLETED,
+        referenceNumber:{equals:'629314204378',mode:'insensitive'},
+        customerLedgerEntry:{direction:'PAY_OUT',financialAccountId:'wallet-1'},
+      },
+      select:{transactionNumber:true},
+    });
+    expect(tx.customerPayable.update).not.toHaveBeenCalled();
+    expect(tx.transaction.create).not.toHaveBeenCalled();
+  });
+
+  it('allows a new payout with an unused reference and allocates all matched swipes only once', async () => {
+    const {service,request,tx}=setup();
+    request.referenceNumber='new-bank-utr';
+    const result=await service.createCardLedgerEntry('customer-1',request,'owner-1',RoleName.OWNER,'unused-key');
+    expect(tx.transaction.findFirst).toHaveBeenCalledOnce();
+    expect(tx.transaction.create).toHaveBeenCalledOnce();
+    expect(result.matchedAmount).toBe(117240);
   });
 });

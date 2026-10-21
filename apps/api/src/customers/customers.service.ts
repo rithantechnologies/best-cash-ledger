@@ -838,6 +838,38 @@ export class CustomersService {
         }
       }
 
+      // A bank/UPI transfer reference identifies one actual movement of funds.
+      // Separate swipe payables can be matched to that ONE movement using
+      // allocations; saving the same wallet transfer twice would debit the
+      // wallet and clear the customer's debt a second time.
+      //
+      // lockAccount above serializes competing writers using this wallet, so
+      // the check and the posting happen inside the same transaction/lock.
+      const payoutReference = dto.direction === 'PAY_OUT'
+        ? dto.referenceNumber?.trim()
+        : undefined;
+      if (payoutReference && account.accountType !== AccountType.CASH) {
+        const priorPayout = await tx.transaction.findFirst({
+          where: {
+            transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+            status: TransactionStatus.COMPLETED,
+            referenceNumber: { equals: payoutReference, mode: 'insensitive' },
+            customerLedgerEntry: {
+              direction: 'PAY_OUT',
+              financialAccountId: account.id,
+            },
+          },
+          select: { transactionNumber: true },
+        });
+        if (priorPayout) {
+          throw new BadRequestException(
+            'This wallet/bank transfer reference is already recorded under ' +
+            priorPayout.transactionNumber +
+            '. Do not save the same payout twice. Open that transaction and match its allocations instead.',
+          );
+        }
+      }
+
       if (dto.sourcePayInTransactionId) {
         if (dto.direction !== 'PAY_OUT') {
           throw new BadRequestException('Pay In source is only applicable to Pay Out');
