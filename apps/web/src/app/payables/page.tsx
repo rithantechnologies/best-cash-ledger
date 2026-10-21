@@ -8,14 +8,13 @@ import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { PayablesNetBalanceReport, type NetBalanceReport } from "@/components/payables-net-balance-report";
 
 type BankDestination={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type UpiDestination={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
 type Payable={id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[]};sourceTransaction:{transactionNumber:string;transactionType:string;cardSwipe:{swipeAmount:string;commissionAmount:string;providerChargeAmount:string;customerCard:{bankName:string;lastFourDigits:string}|null}|null}};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number};
 type Paged={items:Payable[];pagination:{page:number;pageSize:number;total:number;totalPages:number}};
-type DueDay={date:string;itemCount:number;customerCount:number;cardCount:number;grossSwipe:number;customerCharges:number;netPayable:number;paid:number;advance:number;remaining:number;status:"OVERDUE"|"TODAY"|"UPCOMING"};
-type DueReport={businessDate:string;totals:{outstanding:number;overdue:number;today:number;upcoming:number;itemCount:number;customerCount:number};dates:DueDay[]};
 const money=(v:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(Number(v));
 const statusTone=(s:string)=>s==="PAID"?"emerald":s==="OVERDUE"?"rose":s==="PARTIALLY_PAID"?"indigo":s==="PENDING"?"amber":"slate";
 function payableDisplay(p:Payable){
@@ -31,8 +30,8 @@ const serviceLabel=(v:string)=>({AEPS_WITHDRAWAL:"AEPS",CARD_SWIPE:"Card Swipe",
 
 export default function PayablesPage(){
  const [items,setItems]=useState<Payable[]>([]),[accounts,setAccounts]=useState<Account[]>([]);
- const [dueReport,setDueReport]=useState<DueReport|null>(null),[dueDate,setDueDate]=useState("");
- const [downloading,setDownloading]=useState(false),[showAllDates,setShowAllDates]=useState(false);
+ const [dueReport,setDueReport]=useState<NetBalanceReport|null>(null),[dueDate,setDueDate]=useState("");
+ const [downloading,setDownloading]=useState(false);
  const [pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
  const [q,setQ]=useState(""),[status,setStatus]=useState("OPEN"),[transactionType,setTransactionType]=useState(""),[sortBy,setSortBy]=useState("dueAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("asc");
  const [selected,setSelected]=useState<Payable|null>(null),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[reference,setReference]=useState(""),[paymentNotes,setPaymentNotes]=useState("");
@@ -64,7 +63,7 @@ export default function PayablesPage(){
   return Promise.all([
    apiFetch<Paged>("/payables?"+params.toString()),
    apiFetch<Account[]>("/dashboard/accounts"),
-   apiFetch<DueReport>("/payables/due-report?"+summaryParams.toString()),
+   apiFetch<NetBalanceReport>("/payables/due-report?"+summaryParams.toString()),
   ])
    .then(([p,a,r])=>{setItems(p.items);setPagination(p.pagination);setAccounts(a);setDueReport(r);setError("");})
    .finally(()=>setLoading(false));
@@ -128,16 +127,9 @@ export default function PayablesPage(){
    {dueReport.totals.overdue>0||dueReport.totals.today>0?<div role="status" className="mx-3 mb-3 rounded-xl border border-amber-200 px-3 py-2 text-xs font-bold text-amber-900 sm:mx-4">
     Payment reminder: {money(dueReport.totals.overdue)} overdue and {money(dueReport.totals.today)} due today. Select a due date below to see whom to pay.
    </div>:null}
-   <div className="overflow-x-auto"><table className="w-full min-w-[690px] text-xs sm:text-sm">
-    <thead className="bg-[var(--surface-soft)] text-left text-[10px] font-black uppercase tracking-wide text-[var(--text-muted)]"><tr><th className="px-4 py-3">Due date</th><th className="text-right">Customers</th><th className="text-right">Entries</th><th className="text-right">Net payable</th><th className="text-right">Already paid + advance</th><th className="text-right">Still to pay</th><th className="px-4 text-right">View</th></tr></thead>
-    <tbody>{(showAllDates?dueReport.dates:dueReport.dates.slice(0,12)).map(g=><tr key={g.date} className={"border-t border-[var(--border)] "+(dueDate===g.date?"bg-indigo-50":"")}>
-     <td className="px-4 py-3"><p className="font-black">{new Date(g.date+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p><p className={"text-[10px] font-bold "+(g.status==="OVERDUE"?"text-rose-700":g.status==="TODAY"?"text-amber-700":"text-[var(--text-muted)]")}>{g.status==="TODAY"?"Due today":g.status==="OVERDUE"?"Overdue":"Upcoming"}</p></td>
-     <td className="text-right">{g.customerCount}</td><td className="text-right">{g.itemCount}</td><td className="money text-right">{money(g.netPayable)}</td><td className="money text-right">{money(g.paid+g.advance)}</td><td className="money text-right font-black">{money(g.remaining)}</td><td className="px-4 text-right"><button type="button" onClick={()=>{setDueDate(current=>current===g.date?"":g.date);setStatus("OPEN");}} className="rounded-lg border border-[var(--border)] px-2.5 py-2 text-[11px] font-bold text-[var(--accent)]">{dueDate===g.date?"Show all":"View dues"}</button></td>
-    </tr>)}</tbody>
-   </table></div>
-   {dueReport.dates.length>12?<button type="button" onClick={()=>setShowAllDates(v=>!v)} className="min-h-10 w-full border-t border-[var(--border)] px-4 text-xs font-bold text-[var(--accent)]">{showAllDates?"Show fewer dates":"Show all "+dueReport.dates.length+" due dates"}</button>:null}
-   {!dueReport.dates.length?<p className="p-4 text-sm text-[var(--text-muted)]">No outstanding customer payments for these filters.</p>:null}
+   <div className="px-4 pb-4 text-xs text-[var(--text-muted)]">View all due dates, card-wise net balances and customer worksheets below. Select a date there to filter the payment list.</div>
   </Surface>:null}
+  {dueReport?<PayablesNetBalanceReport report={dueReport} selectedDate={dueDate} onSelectDate={date=>{setDueDate(current=>current===date?"":date);setStatus("OPEN");}}/>:null}
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
 
   <Toolbar>

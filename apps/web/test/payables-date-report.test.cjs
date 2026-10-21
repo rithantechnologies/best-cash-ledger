@@ -11,7 +11,7 @@ test('date totals are displayed and due day filters detailed payables',()=>{
  assert.ok(source.includes('Daily customer payout report'));
  assert.ok(source.includes('dueReport.totals.overdue'));
  assert.ok(source.includes('dueReport.totals.today'));
- assert.ok(source.includes('setDueDate(current=>current===g.date?"":g.date)'));
+ assert.ok(source.includes('onSelectDate={date=>{setDueDate(current=>current===date?"":date);setStatus("OPEN");}}'));
  assert.ok(source.includes('params.set("dueDate",dueDate)'));
 });
 test('show customer charges separately and download workbook through authenticated session',()=>{
