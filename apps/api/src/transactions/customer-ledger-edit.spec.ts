@@ -31,7 +31,7 @@ function setup(overrides: { allocations?:unknown[], oldBalance?:number }={}) {
     customerLedgerEntry:detail,journal,charges:[]};
   const db={
     $queryRawUnsafe:vi.fn().mockResolvedValue([]),
-    transaction:{findUnique:vi.fn().mockResolvedValue(original),update:vi.fn().mockResolvedValue({id:'tx-a'})},
+    transaction:{findUnique:vi.fn().mockResolvedValue(original),findFirst:vi.fn().mockResolvedValue(null),update:vi.fn().mockResolvedValue({id:'tx-a'})},
     customerAdvanceOffset:{findFirst:vi.fn().mockResolvedValue(null)},
     cashSession:{findFirst:vi.fn().mockResolvedValue(null)},
     ledgerAccount:{findMany:vi.fn().mockResolvedValue([
@@ -88,5 +88,41 @@ describe('customer ledger full edits',()=>{
     await expect(service.updateCustomerLedgerEntry('tx-a',input({amount:60400,payableAmount:60400}),
        'owner-a',RoleName.OWNER)).rejects.toThrow(/insufficient balance/i);
     expect(db.ledgerEntry.createMany).not.toHaveBeenCalled();
+  });
+  it('blocks adding an already-used bank UTR to a previously saved Pay Out',async()=>{
+    const {service,db}=setup();
+    const payout={
+      id:'tx-a',transactionNumber:'CLK-SECOND',status:TransactionStatus.COMPLETED,
+      transactionType:TransactionType.CUSTOMER_LEDGER_ENTRY,customerId:'customer-a',
+      transactionAt:new Date(input().transactionAt),referenceNumber:null,notes:null,
+      customerLedgerEntry:{
+        id:'detail-a',direction:'PAY_OUT',customerCardId:null,amount:decimal(60600),
+        receivableAmount:decimal(0),payableAmount:decimal(60600),
+        advanceAppliedAmount:decimal(0),allocations:[],advanceOffsets:[],
+        financialAccountId:'bank-a',financialAccount:oldAccount,remarks:'PAY OUT',
+        payoutDestination:{type:'BANK',label:'Recipient'},
+      },
+      journal:{id:'journal-a',status:JournalStatus.POSTED,
+        postingDate:new Date(input().transactionAt),
+        entries:[{id:'e1',ledgerAccountId:'asset-a',entryType:EntryType.CREDIT,amount:decimal(60600),customerId:'customer-a'},
+                 {id:'e2',ledgerAccountId:'sys-pay',entryType:EntryType.DEBIT,amount:decimal(60600),customerId:'customer-a'}]},
+      charges:[],
+    };
+    db.transaction.findUnique.mockResolvedValue(payout);
+    db.transaction.findFirst.mockResolvedValue({transactionNumber:'CLK-FIRST'});
+    await expect(service.updateCustomerLedgerEntry('tx-a',input({
+      direction:'PAY_OUT',remarks:'PAY OUT',referenceNumber:'629314204378',
+    }), 'owner-a',RoleName.OWNER)).rejects.toThrow('already recorded under CLK-FIRST');
+    expect(db.transaction.findFirst).toHaveBeenCalledWith({
+      where:{
+        id:{not:'tx-a'},transactionType:TransactionType.CUSTOMER_LEDGER_ENTRY,
+        status:TransactionStatus.COMPLETED,
+        referenceNumber:{equals:'629314204378',mode:'insensitive'},
+        customerLedgerEntry:{direction:'PAY_OUT',financialAccountId:'bank-a'},
+      },
+      select:{transactionNumber:true},
+    });
+    expect(db.transaction.update).not.toHaveBeenCalled();
+    expect(db.ledgerEntry.deleteMany).not.toHaveBeenCalled();
   });
 });

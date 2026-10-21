@@ -5336,6 +5336,32 @@ export class TransactionsService {
       if (!oldAccount.ledgerAccount || !newAccount.ledgerAccount) {
         throw new BadRequestException('Financial account ledger is missing');
       }
+      // A Pay Out may have been entered before its UTR was known. Editing the
+      // reference later must perform the same duplicate-transfer check as
+      // creating the payout; this is how a real duplicate escaped detection.
+      // The source account row locks above serialize creation and edits.
+      if (dto.direction === 'PAY_OUT' && referenceNumber && newAccount.accountType !== AccountType.CASH) {
+        const priorPayout = await tx.transaction.findFirst({
+          where: {
+            id: { not: id },
+            transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+            status: TransactionStatus.COMPLETED,
+            referenceNumber: { equals: referenceNumber, mode: 'insensitive' },
+            customerLedgerEntry: {
+              direction: 'PAY_OUT',
+              financialAccountId: newAccount.id,
+            },
+          },
+          select: { transactionNumber: true },
+        });
+        if (priorPayout) {
+          throw new BadRequestException(
+            'This wallet/bank transfer reference is already recorded under ' +
+            priorPayout.transactionNumber +
+            '. Do not record the same transfer against a second payout.',
+          );
+        }
+      }
       if ([oldAccount, newAccount].some(a => a.accountType === AccountType.CASH &&
           a.accountName === 'Main Cash Reserve') && role !== RoleName.OWNER) {
         throw new ForbiddenException('Main Cash Reserve is owner-only');
