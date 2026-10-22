@@ -14,6 +14,7 @@ const networks=[
   {id:"master",name:"Mastercard",isActive:true},
   {id:"rupay",name:"RuPay",isActive:true},
   {id:"inactive",name:"Maestro",isActive:false},
+  {id:"other",name:"Other",isActive:true},
 ];
 
 test("saved Mastercard remains Mastercard even when Visa exists",()=>{

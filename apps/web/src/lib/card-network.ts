@@ -44,5 +44,6 @@ export function networkForSavedCard(
   // Some imported cards encode their network in the bank label (e.g. ICICI MASTER).
   // Only recognize unambiguous network words. Never infer from the bank itself.
   const explicit = explicitlyNamedNetwork(card.bankName ?? "");
+  if (!explicit) return "";
   return active.find(network => standardNetworkName(network.name) === explicit)?.id ?? "";
 }
