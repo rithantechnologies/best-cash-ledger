@@ -157,6 +157,12 @@ class QuickCashSourceAllocationDto {
   @IsOptional()
   @IsString()
   referenceNumber?: string;
+
+  // Optional manual override; omit to use the provider's configured payout slab.
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  payoutChargeAmount?: number;
 }
 
 export class SettleServicePartnerPayableDto {
@@ -179,6 +185,12 @@ export class CompleteQuickCashTransferDto {
   @ValidateNested({ each: true })
   @Type(() => QuickCashSourceAllocationDto)
   sourceAllocations?: QuickCashSourceAllocationDto[];
+
+  // Used for the single-source UPI beneficiary payout.
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  payoutChargeAmount?: number;
 
   @IsOptional()
   @IsString()

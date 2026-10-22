@@ -1,4 +1,4 @@
-import { AccountNature, AccountType, EntryType, Prisma, RoleName, TransactionStatus } from '@prisma/client';
+import { AccountNature, AccountType, CalculationType, EntryType, Prisma, RoleName, TransactionStatus } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { TransactionsService } from './transactions.service.js';
@@ -47,8 +47,9 @@ function setup(types: Record<string, AccountType> = {
       update: vi.fn().mockResolvedValue({}),
     },
     ledgerAccount: {
-      findUnique: vi.fn().mockResolvedValue({ id: 'SYS-CUST-PAYABLE' }),
+      findUnique: vi.fn(({ where }: any) => Promise.resolve({ id: where.ledgerCode })),
     },
+    transactionCharge: { create: vi.fn().mockResolvedValue({}) },
     transaction: {
       create: vi.fn(({ data }: any) => Promise.resolve({
         id: 'completion-1', customerId: null, ...data,
@@ -67,7 +68,7 @@ function setup(types: Record<string, AccountType> = {
   const service = new TransactionsService(
     prisma, ledger, validation, {} as any, {} as any, payoutCharges,
   );
-  return { service, tx, validation, ledger };
+  return { service, tx, validation, ledger, payoutCharges };
 }
 
 describe('complete pending cash-in with bank or wallet transfer sources', () => {
@@ -109,4 +110,97 @@ describe('complete pending cash-in with bank or wallet transfer sources', () => 
       expect(tx.transaction.create).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('provider payout charge overrides on pending cash completion', () => {
+  it('posts a manual charge of ₹4 on a wallet allocation and deducts it from profit', async () => {
+    const { service, tx, ledger, payoutCharges, validation } = setup();
+    await service.completeQuickCash('quick-1', {
+      beneficiaryMode: 'BANK',
+      sourceAllocations: [
+        { sourceAccountId: 'wallet-1', amount: 300, payoutChargeAmount: 4, referenceNumber: 'UTR-1' },
+        { sourceAccountId: 'bank-1', amount: 200, payoutChargeAmount: 0 },
+      ],
+    }, 'staff-1', RoleName.STAFF);
+
+    expect(payoutCharges.resolve).not.toHaveBeenCalled();
+    expect(tx.transaction.create.mock.calls[0][0].data.grossAmount.toNumber()).toBe(504);
+    const entries = ledger.post.mock.calls[0][4];
+    const wallet = entries.find((e: any) => e.ledgerAccountId === 'ledger-wallet-1');
+    const bank = entries.find((e: any) => e.ledgerAccountId === 'ledger-bank-1');
+    const fee = entries.find((e: any) => e.ledgerAccountId === 'SYS-PROVIDER-CHARGE');
+    expect([wallet.amount, bank.amount, fee.amount]).toEqual([304, 200, 4]);
+    expect(entries.filter((e: any) => e.entryType === EntryType.CREDIT).reduce((n: number, e: any) => n + e.amount, 0))
+      .toBe(504);
+    expect(entries.filter((e: any) => e.entryType === EntryType.DEBIT).reduce((n: number, e: any) => n + e.amount, 0))
+      .toBe(504);
+    expect(tx.transactionCharge.create).toHaveBeenCalledTimes(1);
+    expect(tx.transactionCharge.create.mock.calls[0][0].data).toMatchObject({
+      sourceAccountId: 'wallet-1',
+      providerPayoutChargeRuleId: null,
+      calculationType: CalculationType.FIXED,
+    });
+    expect(tx.transactionCharge.create.mock.calls[0][0].data.amount.toNumber()).toBe(4);
+    expect(validation.ensureSufficientFunds).toHaveBeenCalledWith(tx, expect.objectContaining({ id: 'wallet-1' }), 304);
+    expect(tx.auditLog.create.mock.calls[0][0].data.newValues.payoutChargeSources)
+      .toEqual([
+        { sourceAccountId: 'wallet-1', amount: 4, manualOverride: true, providerPayoutChargeRuleId: null },
+        { sourceAccountId: 'bank-1', amount: 0, manualOverride: true, providerPayoutChargeRuleId: null },
+      ]);
+  });
+
+  it('keeps charges aligned by allocation row even when the same wallet appears twice', async () => {
+    const { service, ledger, validation } = setup();
+    await service.completeQuickCash('quick-1', {
+      beneficiaryMode: 'BANK',
+      sourceAllocations: [
+        { sourceAccountId: 'wallet-1', amount: 200, payoutChargeAmount: 4 },
+        { sourceAccountId: 'wallet-1', amount: 300, payoutChargeAmount: 2 },
+      ],
+    }, 'staff-1', RoleName.STAFF);
+
+    const entries = ledger.post.mock.calls[0][4];
+    expect(entries.filter((e: any) => e.ledgerAccountId === 'ledger-wallet-1').map((e: any) => e.amount))
+      .toEqual([204, 302]);
+    expect(entries.filter((e: any) => e.ledgerAccountId === 'SYS-PROVIDER-CHARGE').map((e: any) => e.amount))
+      .toEqual([4, 2]);
+    expect(validation.ensureSufficientFunds).toHaveBeenCalledOnce();
+    expect(validation.ensureSufficientFunds).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 'wallet-1' }), 506);
+  });
+
+  it('uses configured charge when omitted, but permits explicit zero to override it', async () => {
+    const { service, tx, payoutCharges } = setup();
+    payoutCharges.resolve.mockResolvedValue({
+      amount: 5, ruleId: 'rule-1', providerId: 'provider-1', calculationType: CalculationType.FIXED, rate: 5,
+    });
+    await service.completeQuickCash('quick-1', {
+      beneficiaryMode: 'BANK',
+      sourceAllocations: [{ sourceAccountId: 'wallet-1', amount: 500 }],
+    }, 'staff-1', RoleName.STAFF);
+    expect(tx.transactionCharge.create.mock.calls[0][0].data.providerPayoutChargeRuleId).toBe('rule-1');
+    expect(tx.transactionCharge.create.mock.calls[0][0].data.amount.toNumber()).toBe(5);
+
+    const zero = setup();
+    zero.payoutCharges.resolve.mockResolvedValue({
+      amount: 5, ruleId: 'rule-1', providerId: 'provider-1', calculationType: CalculationType.FIXED, rate: 5,
+    });
+    await zero.service.completeQuickCash('quick-1', {
+      beneficiaryMode: 'BANK',
+      sourceAllocations: [{ sourceAccountId: 'wallet-1', amount: 500, payoutChargeAmount: 0 }],
+    }, 'staff-1', RoleName.STAFF);
+    expect(zero.payoutCharges.resolve).not.toHaveBeenCalled();
+    expect(zero.tx.transactionCharge.create).not.toHaveBeenCalled();
+    expect(zero.tx.transaction.create.mock.calls[0][0].data.grossAmount.toNumber()).toBe(500);
+  });
+
+  it('supports an editable provider charge for a single-source UPI beneficiary payout', async () => {
+    const { service, tx, ledger } = setup();
+    const detail = await tx.quickCashTransferDetail.findUnique();
+    detail.beneficiaryMode = 'UPI';
+    await service.completeQuickCash('quick-1', {
+      beneficiaryMode: 'UPI', sourceAccountId: 'wallet-1', payoutChargeAmount: 4,
+    }, 'staff-1', RoleName.STAFF);
+    expect(tx.transactionCharge.create.mock.calls[0][0].data.amount.toNumber()).toBe(4);
+    expect(ledger.post.mock.calls[0][4].find((e: any) => e.ledgerAccountId === 'ledger-wallet-1').amount).toBe(504);
+  });
 });

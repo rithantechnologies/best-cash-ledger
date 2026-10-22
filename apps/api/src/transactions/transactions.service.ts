@@ -2106,12 +2106,14 @@ export class TransactionsService {
                 sourceAccountId: dto.sourceAccountId,
                 amount,
                 referenceNumber: dto.referenceNumber,
+                payoutChargeAmount: dto.payoutChargeAmount,
               }]
             : []))
             .map((allocation) => ({
               sourceAccountId: allocation.sourceAccountId,
               amount: this.money(allocation.amount),
               referenceNumber: allocation.referenceNumber?.trim() || null,
+              payoutChargeAmount: allocation.payoutChargeAmount,
             }))
         : [];
 
@@ -2199,32 +2201,37 @@ export class TransactionsService {
         sourceAccountId: string;
         amount: number;
         charge: Awaited<ReturnType<ProviderPayoutChargeService['resolve']>>;
+        manualOverride: boolean;
       }> = [];
       if (detail.direction === 'IN') {
         if (splitWalletTransfer) {
           for (const allocation of sourceAllocations) {
             const account = sourceAccounts.get(allocation.sourceAccountId);
-            const charge = await this.payoutCharges.resolve(
+            const manualOverride = allocation.payoutChargeAmount !== undefined;
+            const charge = manualOverride ? null : await this.payoutCharges.resolve(
               tx,
               account,
               allocation.amount,
             );
             payoutChargeRows.push({
               sourceAccountId: allocation.sourceAccountId,
-              amount: charge?.amount ?? 0,
+              amount: manualOverride ? allocation.payoutChargeAmount! : (charge?.amount ?? 0),
               charge,
+              manualOverride,
             });
           }
         } else {
-          const charge = await this.payoutCharges.resolve(
+          const manualOverride = dto.payoutChargeAmount !== undefined;
+          const charge = manualOverride ? null : await this.payoutCharges.resolve(
             tx,
             sourceAccount,
             settlementAmount,
           );
           payoutChargeRows.push({
             sourceAccountId: sourceAccount.id,
-            amount: charge?.amount ?? 0,
+            amount: manualOverride ? dto.payoutChargeAmount! : (charge?.amount ?? 0),
             charge,
+            manualOverride,
           });
         }
       }
@@ -2234,18 +2241,15 @@ export class TransactionsService {
       if (detail.direction === 'IN') {
         if (splitWalletTransfer) {
           const requiredByAccount = new Map<string, number>();
-          for (const allocation of sourceAllocations) {
+          sourceAllocations.forEach((allocation, index) => {
             requiredByAccount.set(
               allocation.sourceAccountId,
               this.money(
                 (requiredByAccount.get(allocation.sourceAccountId) ?? 0) +
-                  allocation.amount +
-                  (payoutChargeRows.find((row) =>
-                    row.sourceAccountId === allocation.sourceAccountId
-                  )?.amount ?? 0),
+                  allocation.amount + payoutChargeRows[index].amount,
               ),
             );
-          }
+          });
           for (const [accountId, requiredAmount] of requiredByAccount) {
             await this.validation.ensureSufficientFunds(
               tx,
@@ -2321,14 +2325,10 @@ export class TransactionsService {
                 description: 'Clear pending transfer obligation',
               },
               ...(splitWalletTransfer
-                ? sourceAllocations.map((allocation) => ({
+                ? sourceAllocations.map((allocation, index) => ({
                     ledgerAccountId: sourceAccounts.get(allocation.sourceAccountId).ledgerAccount.id,
                     entryType: EntryType.CREDIT,
-                    amount:
-                      allocation.amount +
-                      (payoutChargeRows.find((row) =>
-                        row.sourceAccountId === allocation.sourceAccountId
-                      )?.amount ?? 0),
+                    amount: this.money(allocation.amount + payoutChargeRows[index].amount),
                     description:
                       'Beneficiary transfer from bank / wallet' +
                       (allocation.referenceNumber
@@ -2404,7 +2404,7 @@ export class TransactionsService {
                 ? new Prisma.Decimal(row.charge.rate)
                 : null,
             amount: new Prisma.Decimal(row.amount),
-            notes: account.accountName + ' payout charge',
+            notes: account.accountName + (row.manualOverride ? ' manual payout charge' : ' payout charge'),
           },
         });
       }
@@ -2498,12 +2498,12 @@ export class TransactionsService {
                 : detail.beneficiaryDetails,
             completionTransactionId: completion.id,
             payoutChargeAmount: payoutChargeTotal,
-            payoutChargeSources: payoutChargeRows
-              .filter((row) => row.amount > 0)
-              .map((row) => ({
-                sourceAccountId: row.sourceAccountId,
-                amount: row.amount,
-              })),
+            payoutChargeSources: payoutChargeRows.map((row) => ({
+              sourceAccountId: row.sourceAccountId,
+              amount: row.amount,
+              manualOverride: row.manualOverride,
+              providerPayoutChargeRuleId: row.charge?.ruleId ?? null,
+            })),
           },
         },
       });

@@ -56,7 +56,7 @@ type QuickServiceReference={id?:string;key?:string;serviceName:string;referenceN
 type QuickCustomerProfile={cards?:{id:string;bankName:string;lastFourDigits:string;nickname:string|null}[];customer:{id:string;fullName:string;mobile:string|null;ebNumber?:string|null};savedDestinations:QuickSavedDestination[];recentDestinations:QuickSavedDestination[];aepsAccounts:QuickAepsAccount[];serviceProfiles?:(QuickServiceReference&{id:string})[];recentServiceReferences?:QuickServiceReference[]};
 type CustomerSuggestion={id:string;customerCode:string;fullName:string;mobile:string|null;ebNumber?:string|null;ebNumbers?:{id:string;number:string;label:string|null;ownerName?:string|null}[]};
 type BankBeneficiary={accountHolder:string;accountNumber:string;ifsc:string};
-type CompleteSourceAllocation={sourceAccountId:string;amount:string;referenceNumber:string};
+type CompleteSourceAllocation={sourceAccountId:string;amount:string;referenceNumber:string;payoutChargeAmount:string};
 const emptyBankBeneficiary=():BankBeneficiary=>({accountHolder:"",accountNumber:"",ifsc:""});
 function parseBankBeneficiary(value?:string|null):BankBeneficiary{
   if(!value)return emptyBankBeneficiary();
@@ -367,6 +367,7 @@ export default function CashCounterWorkspace({
   const [completePendingId,setCompletePendingId]=useState<string|null>(null);
   const [completeSourceAccountId,setCompleteSourceAccountId]=useState("");
   const [completeSourceAllocations,setCompleteSourceAllocations]=useState<CompleteSourceAllocation[]>([]);
+  const [completePayoutChargeOverride,setCompletePayoutChargeOverride]=useState("");
   const [completeCommissionAccountId,setCompleteCommissionAccountId]=useState("");
   const [completeCommissionAccountOverridden,setCompleteCommissionAccountOverridden]=useState(false);
   const [completeBeneficiaryMode,setCompleteBeneficiaryMode]=useState<"UPI"|"BANK">("UPI");
@@ -422,13 +423,13 @@ export default function CashCounterWorkspace({
     if(bankTransferSplitCompletion){
       return completeSourceAllocations.map((row)=>{
         const account=completionAccounts.find((item)=>item.id===row.sourceAccountId);
-        return {accountName:account?.accountName??"Wallet",amount:configuredPayoutCharge(providers,account,Number(row.amount||0))};
+        return {accountName:account?.accountName??"Wallet",amount:row.payoutChargeAmount.trim()!==""?Number(row.payoutChargeAmount):configuredPayoutCharge(providers,account,Number(row.amount||0))};
       }).filter((row)=>row.amount>0);
     }
     const account=completionAccounts.find((item)=>item.id===completeSourceAccountId);
-    const amount=configuredPayoutCharge(providers,account,Number(completingQuickCash?.amount||0));
+    const amount=completePayoutChargeOverride.trim()!==""?Number(completePayoutChargeOverride):configuredPayoutCharge(providers,account,Number(completingQuickCash?.amount||0));
     return amount>0?[{accountName:account?.accountName??"Wallet",amount}]:[];
-  },[bankTransferSplitCompletion,completeSourceAccountId,completeSourceAllocations,completingQuickCash?.amount,completingQuickCash?.direction,completionAccounts,providers]);
+  },[bankTransferSplitCompletion,completeSourceAccountId,completeSourceAllocations,completePayoutChargeOverride,completingQuickCash?.amount,completingQuickCash?.direction,completionAccounts,providers]);
   const completePayoutChargeTotal=completePayoutChargeBreakdown.reduce((sum,row)=>sum+row.amount,0);
   const completeCustomerCommission=Number(completingQuickCash?.commissionAmount||0);
   const completeNetEarningAfterPayout=Math.round((completeCustomerCommission-completePayoutChargeTotal)*100)/100;
@@ -1154,7 +1155,9 @@ export default function CashCounterWorkspace({
       if(!completeSourceAllocations.length){setCompleteError("Add at least one transfer source account.");return;}
       if(completeSourceAllocations.some((row)=>!row.sourceAccountId||!Number.isFinite(Number(row.amount))||Number(row.amount)<=0)){setCompleteError("Choose a bank or wallet and enter an amount greater than zero for every source.");return;}
       if(Math.abs(completeAllocationRemaining)>=0.005){setCompleteError("Source allocations must equal "+money(Number(completingQuickCash?.amount||0))+".");return;}
+      if(completeSourceAllocations.some((row)=>row.payoutChargeAmount.trim()!==""&&(!Number.isFinite(Number(row.payoutChargeAmount))||Number(row.payoutChargeAmount)<0))){setCompleteError("Enter a valid non-negative provider charge.");return;}
     }else if(!completeSourceAccountId){setCompleteError(completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Select the provider / settlement account.":"Select the bank / UPI account that received the customer payment."):"Select the bank / UPI / wallet account sending the beneficiary transfer.");return;}
+    if(completePayoutChargeOverride.trim()!==""&&(!Number.isFinite(Number(completePayoutChargeOverride))||Number(completePayoutChargeOverride)<0)){setCompleteError("Enter a valid non-negative provider charge.");return;}
     if(commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0&&!completeCommissionAccountId){setCompleteError("Select the account that received the bank / UPI commission.");return;}
     setQuickSaving(true);setCompleteError("");setError("");
     try{
@@ -1163,7 +1166,8 @@ export default function CashCounterWorkspace({
         :completeBeneficiaryUpi.trim();
       await apiFetch("/transactions/quick-cash/"+completePendingId+"/complete",{method:"POST",body:JSON.stringify({
         sourceAccountId:bankTransferSplitCompletion?undefined:completeSourceAccountId,
-        sourceAllocations:bankTransferSplitCompletion?completeSourceAllocations.map((row)=>({sourceAccountId:row.sourceAccountId,amount:Number(row.amount),referenceNumber:row.referenceNumber.trim()||undefined})):undefined,
+        sourceAllocations:bankTransferSplitCompletion?completeSourceAllocations.map((row)=>({sourceAccountId:row.sourceAccountId,amount:Number(row.amount),referenceNumber:row.referenceNumber.trim()||undefined,payoutChargeAmount:row.payoutChargeAmount.trim()!==""?Number(row.payoutChargeAmount):undefined})):undefined,
+        payoutChargeAmount:completingQuickCash?.direction==="IN"&&!bankTransferSplitCompletion&&completePayoutChargeOverride.trim()!==""?Number(completePayoutChargeOverride):undefined,
         commissionAccountId:commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0?completeCommissionAccountId||undefined:undefined,
         beneficiaryMode:completingQuickCash?.direction==="IN"&&beneficiaryDetails?completeBeneficiaryMode:undefined,
         beneficiaryDetails:completingQuickCash?.direction==="IN"?beneficiaryDetails||undefined:undefined,
@@ -1174,7 +1178,7 @@ export default function CashCounterWorkspace({
       })});
       rememberCustomerName(completeCustomerName);
       setCompletedQuickCashIds((current)=>current.includes(completePendingId)?current:[...current,completePendingId]);
-      setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteSourceAllocations([]);setCompleteCommissionAccountId("");setCompleteCommissionAccountOverridden(false);setCompleteBeneficiaryMode("UPI");setCompleteBeneficiaryUpi("");setCompleteBankAccountHolder("");setCompleteBankAccountNumber("");setCompleteBankIfsc("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
+      setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteSourceAllocations([]);setCompletePayoutChargeOverride("");setCompleteCommissionAccountId("");setCompleteCommissionAccountOverridden(false);setCompleteBeneficiaryMode("UPI");setCompleteBeneficiaryUpi("");setCompleteBankAccountHolder("");setCompleteBankAccountNumber("");setCompleteBankIfsc("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
       await load(cashAccountId);
     }catch(err){setCompleteError(err instanceof Error?err.message:"Failed to complete pending cash entry");}
     finally{setQuickSaving(false);}
@@ -1188,14 +1192,14 @@ export default function CashCounterWorkspace({
       :item.cashOutType==="MICRO_ATM"?roinetCompletionAccountId
         :item.cashOutType==="AEPS"?digiSevaCompletionAccountId:"";
     const defaultAllocations=item.direction==="IN"&&mode==="BANK"
-      ?[{sourceAccountId:paySwitchCompletionAccountId,amount:String(Number(item.amount||0)),referenceNumber:""}]
+      ? [{sourceAccountId:paySwitchCompletionAccountId,amount:String(Number(item.amount||0)),referenceNumber:"",payoutChargeAmount:""}]
       :[];
     const defaultCommissionAccountId=mirrorsCompletionCommissionAccount(item,mode)
       ?defaultSourceAccountId
       :item.direction==="IN"&&mode==="BANK"&&defaultAllocations.length===1
         ?defaultAllocations[0].sourceAccountId
         :"";
-    setCompletePendingId(item.id);setCompleteSourceAccountId(defaultSourceAccountId);setCompleteSourceAllocations(defaultAllocations);setCompleteCommissionAccountId(defaultCommissionAccountId);setCompleteCommissionAccountOverridden(false);
+    setCompletePendingId(item.id);setCompleteSourceAccountId(defaultSourceAccountId);setCompleteSourceAllocations(defaultAllocations);setCompletePayoutChargeOverride("");setCompleteCommissionAccountId(defaultCommissionAccountId);setCompleteCommissionAccountOverridden(false);
     setCompleteBeneficiaryMode(mode);
     setCompleteBeneficiaryUpi(mode==="UPI"?(item.beneficiaryDetails||""):"");
     setCompleteBankAccountHolder(bank.accountHolder);setCompleteBankAccountNumber(bank.accountNumber);setCompleteBankIfsc(bank.ifsc);
@@ -2025,7 +2029,7 @@ export default function CashCounterWorkspace({
               </div>
               {bankTransferSplitCompletion?<div className="mt-3 space-y-2">
                 {completeSourceAllocations.map((row,index)=><div key={index} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1.25fr)_130px_minmax(0,1fr)_auto] sm:items-end">
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1.1fr)_95px_105px_minmax(0,.8fr)_auto] sm:items-end">
                     <div>
                       <span className="mb-1 block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Source account</span>
                       <SearchableSelect mobileSheet aria-label={"Transfer source "+(index+1)} searchPlaceholder="Search bank or wallet" className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm font-black text-[var(--text)] outline-none" value={row.sourceAccountId} onChange={(event)=>{const value=event.target.value;setCompleteSourceAllocations((current)=>current.map((item,rowIndex)=>rowIndex===index?{...item,sourceAccountId:value}:item));if(completeSourceAllocations.length===1&&!completeCommissionAccountOverridden)setCompleteCommissionAccountId(value);setCompleteError("");}}>
@@ -2043,6 +2047,11 @@ export default function CashCounterWorkspace({
                       <input inputMode="decimal" className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-right text-sm font-black outline-none" value={row.amount} onChange={(event)=>{const value=event.target.value.replace(/[^0-9.]/g,"");setCompleteSourceAllocations((current)=>current.map((item,rowIndex)=>rowIndex===index?{...item,amount:value}:item));setCompleteError("");}} placeholder="0"/>
                     </label>
                     <label>
+                      <span className="mb-1 block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Provider charge</span>
+                      <input aria-label={"Provider charge for transfer "+(index+1)} inputMode="decimal" className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-right text-sm font-black outline-none" value={row.payoutChargeAmount} onChange={(event)=>{const value=event.target.value.replace(/[^0-9.]/g,"");setCompleteSourceAllocations((current)=>current.map((item,rowIndex)=>rowIndex===index?{...item,payoutChargeAmount:value}:item));setCompleteError("");}} placeholder={String(configuredPayoutCharge(providers,completionAccounts.find((account)=>account.id===row.sourceAccountId),Number(row.amount||0)))} />
+                      <span className="mt-1 block text-[9px] text-[var(--text-muted)]">{row.payoutChargeAmount.trim()===""?"Auto from provider settings":"Manual override"}</span>
+                    </label>
+                    <label>
                       <span className="mb-1 block text-[9px] font-black uppercase tracking-[.08em] text-[var(--text-muted)]">Reference / UTR <span className="normal-case font-semibold">(optional)</span></span>
                       <input className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm font-bold outline-none" value={row.referenceNumber} onChange={(event)=>setCompleteSourceAllocations((current)=>current.map((item,rowIndex)=>rowIndex===index?{...item,referenceNumber:event.target.value}:item))} placeholder="UTR"/>
                     </label>
@@ -2050,7 +2059,7 @@ export default function CashCounterWorkspace({
                   </div>
                 </div>)}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <button type="button" onClick={()=>{setCompleteSourceAllocations((current)=>[...current,{sourceAccountId:"",amount:completeAllocationRemaining>0?String(Math.round(completeAllocationRemaining*100)/100):"",referenceNumber:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId("");}} className="min-h-10 rounded-xl border border-dashed border-[var(--accent)] px-3 text-xs font-black text-[var(--accent)]">+ Add another account</button>
+                  <button type="button" onClick={()=>{setCompleteSourceAllocations((current)=>[...current,{sourceAccountId:"",amount:completeAllocationRemaining>0?String(Math.round(completeAllocationRemaining*100)/100):"",referenceNumber:"",payoutChargeAmount:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId("");}} className="min-h-10 rounded-xl border border-dashed border-[var(--accent)] px-3 text-xs font-black text-[var(--accent)]">+ Add another account</button>
                   <div className="text-right text-xs font-bold"><span className="text-[var(--text-muted)]">Allocated {money(completeAllocatedAmount)}</span><span className={"ml-2 "+(Math.abs(completeAllocationRemaining)<0.005?"text-emerald-700":"text-amber-700")}>{Math.abs(completeAllocationRemaining)<0.005?"Fully allocated":(completeAllocationRemaining>0?money(completeAllocationRemaining)+" remaining":money(Math.abs(completeAllocationRemaining))+" over")}</span></div>
                 </div>
               </div>:<>
@@ -2058,6 +2067,11 @@ export default function CashCounterWorkspace({
                   <option value="">Select Bank / UPI / Wallet</option>
                   {completionSourceAccounts.map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
                 </SearchableSelect>
+                {completingQuickCash?.direction==="IN"?<label className="mt-3 block max-w-[250px]">
+                  <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Provider charge (₹)</span>
+                  <input aria-label="Provider charge for single payout" inputMode="decimal" className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black outline-none" value={completePayoutChargeOverride} onChange={(event)=>{setCompletePayoutChargeOverride(event.target.value.replace(/[^0-9.]/g,""));setCompleteError("");}} placeholder={String(configuredPayoutCharge(providers,completeSelectedSourceAccount,Number(completingQuickCash?.amount||0)))} />
+                  <span className="mt-1 block text-[10px] text-[var(--text-muted)]">{completePayoutChargeOverride.trim()===""?"Default from provider settings · enter to override":"Manual override · clear to use default"}</span>
+                </label>:null}
                 {completeSourceAccountId?<div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-[11px] font-semibold text-[var(--text-muted)]">
                   <span>Balance <strong className="money ml-1 text-[var(--text)]">{money(completeSelectedSourceBalance)}</strong></span>
                   {completeAfterPayoutBalance!==null?<span>After payout <strong className={"money ml-1 "+(completeAfterPayoutBalance>=0?"text-[var(--text)]":"text-rose-600")}>{money(completeAfterPayoutBalance)}</strong></span>:null}
@@ -2065,8 +2079,8 @@ export default function CashCounterWorkspace({
               </>}
             </div>
 
-            {completePayoutChargeTotal>0?<div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] text-center">
-              <div className="px-2 py-2.5"><span className="block text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payout</span><strong className="money mt-0.5 block text-sm font-black text-rose-600">−{money(completePayoutChargeTotal)}</strong></div>
+            {completingQuickCash?.direction==="IN"?<div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] text-center">
+              <div className="px-2 py-2.5"><span className="block text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Provider charge</span><strong className="money mt-0.5 block text-sm font-black text-rose-600">−{money(completePayoutChargeTotal)}</strong></div>
               <div className="border-x border-[var(--border)] px-2 py-2.5"><span className="block text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Commission</span><strong className="money mt-0.5 block text-sm font-black text-[var(--money-in)]">+{money(completeCustomerCommission)}</strong></div>
               <div className="px-2 py-2.5"><span className="block text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Net</span><strong className={"money mt-0.5 block text-sm font-black "+(completeNetEarningAfterPayout>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(completeNetEarningAfterPayout)}</strong></div>
             </div>:null}
@@ -2089,7 +2103,7 @@ export default function CashCounterWorkspace({
           {completingQuickCash?.direction==="IN"?<div className="mt-3 border-t border-[var(--border)] pt-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-black text-[var(--text)]">{completingIsEbBill?"EB bill connection":"Beneficiary"}</span>
-              <div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>{setCompleteBeneficiaryMode("UPI");setCompleteSourceAllocations([]);if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId(paySwitchCompletionAccountId);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(mirrorsCompletionCommissionAccount(completingQuickCash,"UPI")?paySwitchCompletionAccountId:"");}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>{setCompleteBeneficiaryMode("BANK");if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId("");setCompleteSourceAllocations([{sourceAccountId:paySwitchCompletionAccountId,amount:String(Number(completingQuickCash?.amount||0)),referenceNumber:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(paySwitchCompletionAccountId);}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div>
+              <div className="grid grid-cols-2 rounded-[10px] bg-[var(--surface)] p-1 text-[11px] font-black"><button type="button" onClick={()=>{setCompleteBeneficiaryMode("UPI");setCompleteSourceAllocations([]);if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId(paySwitchCompletionAccountId);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(mirrorsCompletionCommissionAccount(completingQuickCash,"UPI")?paySwitchCompletionAccountId:"");}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="UPI"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>UPI</button><button type="button" onClick={()=>{setCompleteBeneficiaryMode("BANK");if(completingQuickCash?.direction==="IN"){setCompleteSourceAccountId("");setCompleteSourceAllocations([{sourceAccountId:paySwitchCompletionAccountId,amount:String(Number(completingQuickCash?.amount||0)),referenceNumber:"",payoutChargeAmount:""}]);if(!completeCommissionAccountOverridden)setCompleteCommissionAccountId(paySwitchCompletionAccountId);}setCompleteError("");}} className={"rounded-[8px] px-3 py-1.5 "+(completeBeneficiaryMode==="BANK"?"bg-blue-50 text-blue-700":"text-[var(--text-muted)]")}>Bank</button></div>
             </div>
             {completeBeneficiaryMode==="UPI"
               ?<input className="mt-2 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-[15px] font-bold text-[var(--text)] outline-none" value={completeBeneficiaryUpi} onChange={(event)=>setCompleteBeneficiaryUpi(event.target.value)} placeholder={completingIsEbBill?"EB consumer number":"UPI ID / mobile"}/>
