@@ -67,7 +67,9 @@ export default function CustomersPage(){
   if(!role)return;
   invalidateSearch();
   setLoading(true);
-  const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load customers")),150);
+  // Avoid firing the expensive cross-account search between consecutive keystrokes.
+  // In-flight responses remain cancelled using the existing AbortController/request ID guard.
+  const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load customers")),q.trim()?450:150);
   return()=>{clearTimeout(timer);invalidateSearch();};
  },[role,q,sortBy,sortDir,pagination.pageSize]);
  useEffect(()=>{

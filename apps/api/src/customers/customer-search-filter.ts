@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 
 /** Each word/number must match somewhere on the same customer or their saved details.
  * Search never requires an exact account number and never returns it in suggestions.
@@ -52,4 +52,38 @@ export function customerSearchFilter(input: string): Prisma.CustomerWhereInput {
       return { OR: filters };
     }),
   };
+}
+
+/** Resolve customer IDs without putting unrelated EXISTS joins in the same OR.
+ * PostgreSQL can take >1 second to plan/execute that combined query even for
+ * small ledgers; independent indexed relations are much cheaper.
+ */
+export async function findCustomerIdsForSearch(
+  prisma: Pick<PrismaClient, 'customer'>,
+  input: string,
+  includeInactive = false,
+): Promise<string[]> {
+  const activeOnly: Prisma.CustomerWhereInput = includeInactive ? {} : { isActive: true };
+  const terms = customerSearchFilter(input).AND as Prisma.CustomerWhereInput[];
+  let matches: Set<string> | undefined;
+  for (const term of terms) {
+    const clauses = (term.OR ?? []) as Prisma.CustomerWhereInput[];
+    const isDirect = (clause: Prisma.CustomerWhereInput) =>
+      ['fullName', 'customerCode', 'ebNumber', 'mobile'].some((key) => key in clause);
+    const direct = clauses.filter(isDirect);
+    const separateQueries: Prisma.CustomerWhereInput[] = [
+      ...(direct.length ? [{ OR: direct }] : []),
+      ...clauses.filter((clause) => !isDirect(clause)),
+    ];
+    const rows = await Promise.all(separateQueries.map((filter) =>
+      prisma.customer.findMany({
+        where: { ...activeOnly, ...filter },
+        select: { id: true },
+      }),
+    ));
+    const termMatches = new Set(rows.flat().map((row) => row.id));
+    matches = matches ? new Set([...matches].filter((id) => termMatches.has(id))) : termMatches;
+    if (!matches.size) break;
+  }
+  return [...(matches ?? [])];
 }

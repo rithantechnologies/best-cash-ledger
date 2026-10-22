@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { customerSearchFilter } from '../customers/customer-search-filter.js';
+import { findCustomerIdsForSearch } from '../customers/customer-search-filter.js';
 
 @Injectable()
 export class SearchService {
@@ -12,8 +12,9 @@ export class SearchService {
     const hasLetters = /[a-z]/i.test(query);
     if ((hasLetters && query.length < 2) || (!hasLetters && digits.length < 3)) return [];
 
+    const matchingIds = await findCustomerIdsForSearch(this.prisma, query);
     const customers = await this.prisma.customer.findMany({
-      where: { isActive: true, ...customerSearchFilter(query) },
+      where: { isActive: true, id: { in: matchingIds } },
       select: {
         id: true,
         customerCode: true,
@@ -114,8 +115,9 @@ export class SearchService {
     const query = q.trim();
     if (!query) return { customers: [], transactions: [], accounts: [], providers: [] };
 
+    const matchingIds = await findCustomerIdsForSearch(this.prisma, query, true);
     const customers = await this.prisma.customer.findMany({
-      where: { ...customerSearchFilter(query) },
+      where: { id: { in: matchingIds } },
       select: {
         id: true,
         customerCode: true,

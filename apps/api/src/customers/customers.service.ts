@@ -1,12 +1,12 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AccountType, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
 import { FinancialValidationService } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
 import { JournalEntry, LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { customerSearchFilter } from './customer-search-filter.js';
+import { findCustomerIdsForSearch } from './customer-search-filter.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
 import { CreateQuickCustomerCardDto } from './dto/create-quick-customer-card.dto.js';
 import { CreateCardDto } from './dto/create-card.dto.js';
@@ -177,9 +177,15 @@ export class CustomersService {
     sortDir?: 'asc' | 'desc';
     includeInactive?: boolean;
   }) {
+    const startedAt = Date.now();
+    const activeOnly: Prisma.CustomerWhereInput = options?.includeInactive ? {} : { isActive: true };
+    const search = options?.search?.trim();
+    const matchingIds = search
+      ? await findCustomerIdsForSearch(this.prisma, search, !!options?.includeInactive)
+      : undefined;
     const where: Prisma.CustomerWhereInput = {
-      ...(options?.includeInactive ? {} : { isActive: true }),
-      ...(options?.search?.trim() ? customerSearchFilter(options.search) : {}),
+      ...activeOnly,
+      ...(matchingIds ? { id: { in: matchingIds } } : {}),
     };
     const allowedSort = new Set(['createdAt','fullName','customerCode','customerType','mobile']);
     const sortBy = allowedSort.has(options?.sortBy ?? '') ? options!.sortBy! : 'createdAt';
@@ -218,6 +224,10 @@ export class CustomersService {
       }),
       this.prisma.customer.count({ where }),
     ]);
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs > 500) {
+      Logger.warn(`Slow customer list: ${elapsedMs}ms; terms=${search?.split(/\\s+/).length ?? 0}; pageSize=${pageSize}`, CustomersService.name);
+    }
     return {
       items,
       pagination: {

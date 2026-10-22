@@ -18,7 +18,8 @@ import sys
 import time
 from urllib.request import urlopen
 
-RUNTIME_NAME = re.compile(r"(?:cashledger-[A-Za-z0-9_-]+-(?:runtime|stage)|[0-9a-f]{7,40})\Z")
+# Client deployments append a name to the Git SHA; keep incomplete copies excluded.
+RUNTIME_NAME = re.compile(r"(?:cashledger-[A-Za-z0-9_-]+-(?:runtime|stage)|[0-9a-f]{7,40}(?:-(?:[a-z0-9]+-)+(?:(?:managed)|(?:root)))?)\Z")
 NEVER_DATA = {"uploads", "upload", "storage", "backups", "backup", "media", "user-data", "user_uploads"}
 SCAN_IGNORE = {".git", "node_modules", ".npm", ".cache", "__pycache__"}
 DEFAULT_SCAN = ("/home/cashledger", "/var/www/cashledger", "/etc/nginx", "/etc/systemd/system")
@@ -178,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scan-root", action="append", type=Path, help="Additional paths to scan for references")
     parser.add_argument("--health-url", action="append", default=[], help="Local health endpoints required before and after apply")
     parser.add_argument("--apply", action="store_true", help="Actually delete approved candidates")
+    parser.add_argument("--allow-recent-retained", action="store_true", help="Permit cleanup while a recent release exists only if each recent release is pinned, running and in the newest rollback set")
     parser.add_argument("--confirm-root", help="Required with --apply; must match --root exactly")
     args = parser.parse_args(argv)
     root = args.root.resolve(strict=True)
@@ -212,7 +214,12 @@ def main(argv: list[str] | None = None) -> int:
     symlinks = external_symlink_references(all_releases, list(map(Path, DEFAULT_SCAN)) + (args.scan_root or []))
     configured = configured_references(all_releases)
     cutoff = time.time() - args.min_age_days * 86400
-    recent_activity = any(p.stat().st_mtime > time.time() - 3600 for p in all_releases)
+    recently_modified = [p for p in all_releases if p.stat().st_mtime > time.time() - 3600]
+    recent_activity = bool(recently_modified)
+    safe_recent_activity = args.allow_recent_retained and all(
+        p.name in pins and p.name in active and p.name in retained
+        for p in recently_modified
+    )
     env_ref = args.env_reference
     candidates = []
     skipped: dict[str, int] = {}
@@ -244,8 +251,8 @@ def main(argv: list[str] | None = None) -> int:
         print("DRY RUN ONLY. To apply, supply --apply --confirm-root and a valid --pins-file.")
         os.close(lock_fd)
         return 0
-    if recent_activity:
-        print("ABORT: a release has been modified in the last 60 minutes", file=sys.stderr)
+    if recent_activity and not safe_recent_activity:
+        print("ABORT: a release has been modified in the last 60 minutes and is not a pinned, active newest release", file=sys.stderr)
         os.close(lock_fd)
         return 4
     health(args.health_url)
