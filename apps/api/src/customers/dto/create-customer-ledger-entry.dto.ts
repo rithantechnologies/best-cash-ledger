@@ -34,8 +34,8 @@ export class CreateCustomerLedgerEntryDto {
   sourcePayInTransactionId?: string;
 
   @IsOptional()
-  @IsIn(['CASH', 'BANK', 'UPI', 'BENEFICIARY_ACCOUNT', 'OTHER'])
-  payoutDestinationType?: 'CASH' | 'BANK' | 'UPI' | 'BENEFICIARY_ACCOUNT' | 'OTHER';
+  @IsIn(['CASH', 'CARD', 'OTHER_CARD', 'BANK', 'UPI', 'BENEFICIARY_ACCOUNT', 'OTHER'])
+  payoutDestinationType?: 'CASH' | 'CARD' | 'OTHER_CARD' | 'BANK' | 'UPI' | 'BENEFICIARY_ACCOUNT' | 'OTHER';
 
   @IsOptional()
   @IsString()

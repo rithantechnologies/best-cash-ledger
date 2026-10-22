@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import { SearchableSelect } from "@/components/searchable-select";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
@@ -12,7 +12,9 @@ import { PayablesNetBalanceReport, type NetBalanceReport } from "@/components/pa
 
 type BankDestination={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type UpiDestination={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
-type Payable={id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[]};sourceTransaction:{transactionNumber:string;transactionType:string;cardSwipe:{swipeAmount:string;commissionAmount:string;providerChargeAmount:string;customerCard:{bankName:string;lastFourDigits:string}|null}|null}};
+type PayoutCard={id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean};
+type PayoutBeneficiary={id:string;beneficiaryName:string;accounts:{id:string;bankName:string|null;accountReference:string|null;upiId:string|null;mobileNumber:string|null;isActive:boolean}[]};
+type Payable={id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[];cards:PayoutCard[];beneficiaries:PayoutBeneficiary[]};sourceTransaction:{transactionNumber:string;transactionType:string;cardSwipe:{swipeAmount:string;commissionAmount:string;providerChargeAmount:string;customerCard:{id:string;bankName:string;lastFourDigits:string}|null}|null}};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number};
 type Paged={items:Payable[];pagination:{page:number;pageSize:number;total:number;totalPages:number}};
 const money=(v:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(Number(v));
@@ -34,12 +36,13 @@ export default function PayablesPage(){
  const [downloading,setDownloading]=useState(false);
  const [pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
  const [q,setQ]=useState(""),[status,setStatus]=useState("OPEN"),[transactionType,setTransactionType]=useState(""),[sortBy,setSortBy]=useState("dueAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("asc");
- const [selected,setSelected]=useState<Payable|null>(null),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[reference,setReference]=useState(""),[paymentNotes,setPaymentNotes]=useState("");
+ const [selected,setSelected]=useState<Payable|null>(null),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[destinationDetails,setDestinationDetails]=useState(""),[reference,setReference]=useState(""),[paymentNotes,setPaymentNotes]=useState(""),[payoutError,setPayoutError]=useState("");
+ const paySaveRetryRef=useRef<{fingerprint:string;key:string}|null>(null);
  const [role,setRole]=useState(""),[cancelTarget,setCancelTarget]=useState<Payable|null>(null),[cancelReason,setCancelReason]=useState("");
  const [error,setError]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
  const control="app-control";
  const sourceAccount=accounts.find(a=>a.id===source);
- const destinationType=destination==="CASH"?"CASH":destination.startsWith("BANK:")?"CUSTOMER_BANK":destination.startsWith("UPI:")?"CUSTOMER_UPI":"";
+ const destinationType=destination==="CASH"?"CASH":destination.startsWith("CARD:")?"CUSTOMER_CARD":destination==="OTHER_CARD"?"OTHER_CARD":destination.startsWith("BANK:")?"CUSTOMER_BANK":destination.startsWith("UPI:")?"CUSTOMER_UPI":destination.startsWith("BENEFICIARY_ACCOUNT:")?"BENEFICIARY_ACCOUNT":destination==="OTHER"?"OTHER":"";
  const destinationId=destination.includes(":")?destination.split(":").slice(1).join(":"):undefined;
  const selectedBank=destinationType==="CUSTOMER_BANK"?selected?.customer.bankAccounts.find(a=>a.id===destinationId):undefined;
  const selectedUpi=destinationType==="CUSTOMER_UPI"?selected?.customer.upiAccounts.find(a=>a.id===destinationId):undefined;
@@ -51,6 +54,15 @@ export default function PayablesPage(){
  const payoutAmount=Number(amount||0);
  const payoutCharge=walletSource?Number(charge||0):0;
  const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
+ const payoutDetailsRequired=["OTHER","OTHER_CARD"].includes(destinationType);
+ const invalidPayoutDetails=payoutDetailsRequired&&!destinationDetails.trim();
+ const payoutAmountInvalid=!Number.isFinite(payoutAmount)||payoutAmount<=0||payoutAmount>Number(selected?.remainingAmount??0)+0.001;
+ function openPayout(payable:Payable){
+  paySaveRetryRef.current=null;
+  setSelected(payable);setAmount(payable.remainingAmount);setCharge("");setSource("");setDestination("");
+  setDestinationDetails("");setReference("");setPaymentNotes("");setPayoutError("");
+ }
+ function closePayout(){if(busy)return;setSelected(null);setPayoutError("");paySaveRetryRef.current=null;}
  function load(page=pagination.page){
   const params=new URLSearchParams({page:String(page),pageSize:String(pagination.pageSize),sortBy,sortDir});
   if(q.trim())params.set("q",q.trim());if(status==="OPEN")params.set("openOnly","true");else if(status)params.set("status",status);
@@ -72,9 +84,34 @@ export default function PayablesPage(){
  useEffect(()=>{const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load payables")),180);return()=>clearTimeout(timer);},[q,status,transactionType,dueDate,sortBy,sortDir,pagination.pageSize]);
 
  async function pay(e:FormEvent){
-  e.preventDefault();if(!selected)return;setBusy(true);setError("");
-  try{await apiFetch("/payables/"+selected.id+"/payments",{method:"POST",body:JSON.stringify({amount:Number(amount),chargeAmount:payoutCharge,sourceAccountId:source,destinationType,destinationId,referenceNumber:reference||undefined,notes:paymentNotes||undefined})});setSelected(null);setAmount("");setCharge("");setSource("");setDestination("");setReference("");setPaymentNotes("");await load();}
-  catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}
+  e.preventDefault();if(!selected||busy)return;
+  if(payoutAmountInvalid||!destinationType||invalidPayoutDetails||!source||sourceShort){
+   setPayoutError("Check the amount, source and recipient.");return;
+  }
+  const payload={
+   amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,destinationType,
+   destinationId,destinationDetails:payoutDetailsRequired?destinationDetails.trim():undefined,
+   referenceNumber:reference.trim()||undefined,notes:paymentNotes.trim()||undefined,
+  };
+  const fingerprint=JSON.stringify({payableId:selected.id,...payload});
+  const previous=paySaveRetryRef.current;
+  const key=previous?.fingerprint===fingerprint?previous.key:crypto.randomUUID();
+  paySaveRetryRef.current={fingerprint,key};
+  setBusy(true);setPayoutError("");
+  try{
+   await apiFetch("/payables/"+selected.id+"/payments",{
+    method:"POST",headers:{"idempotency-key":key},body:JSON.stringify(payload),
+   });
+   setSelected(null);setAmount("");setCharge("");setSource("");setDestination("");
+   setDestinationDetails("");setReference("");setPaymentNotes("");paySaveRetryRef.current=null;
+   try{await load();}catch{setError("Payment saved. Refresh to see the updated balance. Do not pay again.");}
+  }catch(err){
+   const message=err instanceof Error?err.message:"Payment failed";
+   if(message.startsWith("Duplicate request detected:")){
+    try{await load();setSelected(null);paySaveRetryRef.current=null;setError("Payment already recorded. Balances refreshed.");}
+    catch{setPayoutError("Payment may already be recorded. Refresh before trying again.");}
+   }else setPayoutError(message);
+  }finally{setBusy(false);}
  }
  async function cancelPayable(e:FormEvent){
   e.preventDefault();if(!cancelTarget||cancelReason.trim().length<3)return;setBusy(true);setError("");
@@ -134,29 +171,28 @@ export default function PayablesPage(){
     <div className="mt-3 grid grid-cols-4 gap-px overflow-hidden rounded-xl bg-slate-200">
      {[["Original",p.originalAmount,""],["Paid",p.paidAmount,"text-emerald-700"],["Advance",p.offsetAmount||"0","text-indigo-700"],["Still to send",p.remainingAmount,"text-amber-700"]].map(([l,v,c])=><div key={l} className="bg-slate-50 p-2.5 text-center"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{l}</p><p className={"mt-1 text-sm font-bold "+c}>{money(v)}</p></div>)}
     </div>
-    <div className="mt-3 grid grid-cols-2 gap-2"><Link href={"/payables/"+p.id} className="flex min-h-10 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold">View details</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setCharge("");setSource("");setDestination("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button min-h-10 text-xs font-bold disabled:opacity-40">Pay now</button></div>
+    <div className="mt-3 grid grid-cols-2 gap-2"><Link href={"/payables/"+p.id} className="flex min-h-10 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold">View details</Link><button onClick={()=>{openPayout(p);}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button min-h-10 text-xs font-bold disabled:opacity-40">Pay now</button></div>
     {(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.offsetAmount||0)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="mt-2 min-h-9 w-full rounded-xl text-xs font-bold text-rose-600">Cancel payable</button>:null}
    </Surface>)}{!items.length?<EmptyState title={q.trim()||status?"No matching payables":"Nothing to pay"} description={q.trim()||status?"Try another search or status.":"No outstanding customer payables."}/>:null}</div>
 
    <Surface className="hidden overflow-hidden md:block"><div className="overflow-x-auto"><table className="w-full min-w-[1030px] text-sm">
     <thead className="bg-slate-50/80 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Customer</th><th>Service / card</th><th>{sh("Net payable","originalAmount")}</th><th>{sh("Paid","paidAmount")}</th><th>{sh("Advance","offsetAmount")}</th><th>{sh("Still to send","remainingAmount")}</th><th>{sh("Due","dueAt")}</th><th>{sh("Status","status")}</th><th className="pr-5">Actions</th></tr></thead>
-    <tbody>{items.map(p=><tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/60"><td className="px-5 py-3 font-semibold">{p.customer.fullName}</td><td><p className="font-semibold">{serviceLabel(p.sourceTransaction.transactionType)}</p><p className="mt-0.5 text-[10px] text-slate-400">{p.sourceTransaction.transactionNumber}</p>{p.sourceTransaction.cardSwipe?.customerCard?<p className="mt-0.5 text-[10px] text-slate-500">{p.sourceTransaction.cardSwipe.customerCard.bankName} ••••{p.sourceTransaction.cardSwipe.customerCard.lastFourDigits}</p>:null}{p.sourceTransaction.cardSwipe?<p className="mt-1 text-[10px] font-medium text-slate-500">Gross {money(p.sourceTransaction.cardSwipe.swipeAmount)} − service charge {money(p.sourceTransaction.cardSwipe.commissionAmount)}</p>:null}</td><td>{money(p.originalAmount)}</td><td className="text-emerald-700">{money(p.paidAmount)}</td><td className="text-indigo-700">{money(p.offsetAmount||0)}</td><td className="font-bold text-amber-700">{money(p.remainingAmount)}</td><td>{new Date(p.dueAt).toLocaleString("en-IN")}</td><td><StatusBadge tone={payableDisplay(p).tone as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{payableDisplay(p).label}</StatusBadge></td><td className="pr-5"><div className="flex gap-2"><Link href={"/payables/"+p.id} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold">View</Link><button onClick={()=>{setSelected(p);setAmount(p.remainingAmount);setCharge("");setSource("");setDestination("");}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button px-3 py-1.5 text-xs font-bold disabled:opacity-40">Pay</button>{(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.offsetAmount||0)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="rounded-lg px-3 py-1.5 text-xs font-bold text-rose-600">Cancel</button>:null}</div></td></tr>)}</tbody>
+    <tbody>{items.map(p=><tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/60"><td className="px-5 py-3 font-semibold">{p.customer.fullName}</td><td><p className="font-semibold">{serviceLabel(p.sourceTransaction.transactionType)}</p><p className="mt-0.5 text-[10px] text-slate-400">{p.sourceTransaction.transactionNumber}</p>{p.sourceTransaction.cardSwipe?.customerCard?<p className="mt-0.5 text-[10px] text-slate-500">{p.sourceTransaction.cardSwipe.customerCard.bankName} ••••{p.sourceTransaction.cardSwipe.customerCard.lastFourDigits}</p>:null}{p.sourceTransaction.cardSwipe?<p className="mt-1 text-[10px] font-medium text-slate-500">Gross {money(p.sourceTransaction.cardSwipe.swipeAmount)} − service charge {money(p.sourceTransaction.cardSwipe.commissionAmount)}</p>:null}</td><td>{money(p.originalAmount)}</td><td className="text-emerald-700">{money(p.paidAmount)}</td><td className="text-indigo-700">{money(p.offsetAmount||0)}</td><td className="font-bold text-amber-700">{money(p.remainingAmount)}</td><td>{new Date(p.dueAt).toLocaleString("en-IN")}</td><td><StatusBadge tone={payableDisplay(p).tone as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{payableDisplay(p).label}</StatusBadge></td><td className="pr-5"><div className="flex gap-2"><Link href={"/payables/"+p.id} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold">View</Link><button onClick={()=>{openPayout(p);}} disabled={Number(p.remainingAmount)<=0||["CANCELLED","REVERSED","PAID"].includes(p.status)} className="app-primary-button px-3 py-1.5 text-xs font-bold disabled:opacity-40">Pay</button>{(role==="OWNER"||role==="ADMIN")&&Number(p.paidAmount)===0&&Number(p.offsetAmount||0)===0&&Number(p.remainingAmount)>0&&!["CANCELLED","REVERSED"].includes(p.status)?<button onClick={()=>{setCancelTarget(p);setCancelReason("");}} className="rounded-lg px-3 py-1.5 text-xs font-bold text-rose-600">Cancel</button>:null}</div></td></tr>)}</tbody>
    </table></div></Surface>
    <Pager total={pagination.total} page={pagination.page} totalPages={pagination.totalPages} label="payable" onPrevious={()=>load(pagination.page-1).catch(()=>{})} onNext={()=>load(pagination.page+1).catch(()=>{})}/>
   </>}
 
-  <Modal open={!!selected} title={selected?"Pay "+selected.customer.fullName:"Record payout"} description={selected?"Remaining "+money(selected.remainingAmount):undefined} onClose={()=>setSelected(null)}
-   footer={<button form="pay-form" disabled={busy||sourceShort||payoutAmount<=0||!source||!destinationType} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
+  <Modal open={!!selected} title={selected?"Pay "+selected.customer.fullName:"Record payout"} description={selected?"Remaining "+money(selected.remainingAmount):undefined} onClose={closePayout}
+   footer={<button form="pay-form" disabled={busy||sourceShort||payoutAmountInvalid||!source||!destinationType||invalidPayoutDetails} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Record payment"}</button>}>
    {selected?<div className="space-y-3">
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
-     <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payable for</p>
-     <p className="mt-1 text-sm font-black">{selected.customer.fullName}</p>
+     <p className="text-sm font-black">{selected.customer.fullName}</p>
      <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{serviceLabel(selected.sourceTransaction.transactionType)} · {selected.sourceTransaction.transactionNumber}{selected.sourceTransaction.cardSwipe?.customerCard?" · "+selected.sourceTransaction.cardSwipe.customerCard.bankName+" •••• "+selected.sourceTransaction.cardSwipe.customerCard.lastFourDigits:""}</p>
      <p className="text-xs text-[var(--text-muted)]">Due {new Date(selected.dueAt).toLocaleString("en-IN")} · Remaining {money(selected.remainingAmount)}</p>
     </div>
     <form id="pay-form" onSubmit={pay} className="grid gap-3 sm:grid-cols-2">
-     <Field label="Pay from" className="sm:col-span-2" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):"Choose the business account sending the customer payout"}>
-      <SearchableSelect className={control} value={source} onChange={e=>{const next=accounts.find(x=>x.id===e.target.value);setSource(e.target.value);setDestination(next?.accountType==="CASH"?"CASH":"");if(next?.accountType!=="PROVIDER_WALLET")setCharge("");}} required searchPlaceholder="Search wallet or bank account…">
+     <Field label="Paid from *" className="sm:col-span-2" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance):undefined}>
+      <SearchableSelect className={control} value={source} onChange={e=>{const next=accounts.find(x=>x.id===e.target.value);setSource(e.target.value);setDestination(next?.accountType==="CASH"?"CASH":"");setDestinationDetails("");setPayoutError("");if(next?.accountType!=="PROVIDER_WALLET")setCharge("");}} required searchPlaceholder="Search wallet or bank account…">
        <option value="">Select payout source</option>
        <optgroup label="Wallets">{walletPayoutAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</optgroup>
        <optgroup label="Bank / UPI accounts">{bankPayoutAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</optgroup>
@@ -164,21 +200,28 @@ export default function PayablesPage(){
       </SearchableSelect>
       {sourceShort?<span className="mt-1.5 block text-[11px] font-semibold text-rose-600">Payout plus charge is higher than this account&apos;s available balance.</span>:null}
      </Field>
-     <Field label="Pay to" className="sm:col-span-2">
-      <SearchableSelect className={control} value={destination} onChange={e=>setDestination(e.target.value)} disabled={!source} required searchPlaceholder={sourceIsCash?"Cash payout":"Search customer bank or UPI…"}>
-       <option value="">{source?"Select payout destination":"Select Pay from first"}</option>
-       {sourceIsCash?<option value="CASH">Cash directly to {selected.customer.fullName}</option>:null}
-       {!sourceIsCash?<optgroup label="Customer bank accounts">{selected.customer.bankAccounts.map(a=><option key={a.id} value={"BANK:"+a.id}>{a.accountHolderName} · {a.bankName} · {a.accountReference}</option>)}</optgroup>:null}
-       {!sourceIsCash?<optgroup label="Customer UPI accounts">{selected.customer.upiAccounts.map(a=><option key={a.id} value={"UPI:"+a.id}>{a.accountName} · {a.upiId||a.mobileNumber||"UPI"}</option>)}</optgroup>:null}
+     <Field label="Paid to *" className="sm:col-span-2">
+      <SearchableSelect className={control} value={destination} onChange={e=>{setDestination(e.target.value);setDestinationDetails("");setPayoutError("");}} disabled={!source} required searchPlaceholder="Search recipient or card…">
+       <option value="">{source?"Choose recipient…":"Select Paid from first"}</option>
+       {sourceIsCash?<option value="CASH">Cash handed to customer</option>:null}
+       {!sourceIsCash?<optgroup label="Credit cards">
+        {selected.customer.cards.map(card=><option key={card.id} value={"CARD:"+card.id}>{(card.id===selected.sourceTransaction.cardSwipe?.customerCard?.id?"Same swipe card · ":"Other saved card · ")+card.bankName+" ••••"+card.lastFourDigits+(card.nickname?" · "+card.nickname:"")}</option>)}
+        <option value="OTHER_CARD">Another person's credit card</option>
+       </optgroup>:null}
+       {!sourceIsCash?<optgroup label="Bank / UPI / friends">
+        {selected.customer.bankAccounts.map(a=><option key={a.id} value={"BANK:"+a.id}>{a.accountHolderName+" · "+a.bankName+" ••••"+a.accountReference.replace(/\D/g,"").slice(-4)}</option>)}
+        {selected.customer.upiAccounts.map(a=><option key={a.id} value={"UPI:"+a.id}>{a.accountName+" · "+(a.upiId||a.mobileNumber||"UPI")}</option>)}
+        {selected.customer.beneficiaries.flatMap(b=>b.accounts.map(a=><option key={a.id} value={"BENEFICIARY_ACCOUNT:"+a.id}>{"Friend · "+b.beneficiaryName+" · "+(a.bankName||a.upiId||"UPI")}</option>))}
+        <option value="OTHER">Other bank / UPI recipient</option>
+       </optgroup>:null}
       </SearchableSelect>
-      {destinationType==="CUSTOMER_BANK"&&selectedBank?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedBank.accountHolderName}</strong><br/>{selectedBank.bankName} · {selectedBank.accountReference}{selectedBank.ifsc?<><br/>IFSC {selectedBank.ifsc}</>:null}</div>:null}
-      {destinationType==="CUSTOMER_UPI"&&selectedUpi?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedUpi.accountName}</strong>{selectedUpi.providerName?" · "+selectedUpi.providerName:""}<br/>{selectedUpi.upiId||selectedUpi.mobileNumber||"UPI account"}</div>:null}
-      {source&&!sourceIsCash&&!selected.customer.bankAccounts.length&&!selected.customer.upiAccounts.length?<Link href={"/customers/"+selected.customer.id} className="mt-2 inline-block text-xs font-bold text-[var(--accent)]">No saved bank/UPI · Add in customer profile →</Link>:null}
+      {payoutDetailsRequired?<input aria-label={destinationType==="OTHER_CARD"?"Other card details":"Other recipient details"} className={control+" mt-2"} required value={destinationDetails} onChange={e=>{setDestinationDetails(e.target.value);setPayoutError("");}} maxLength={160} placeholder={destinationType==="OTHER_CARD"?"Cardholder, bank and last 4 digits only":"Recipient name and bank / UPI details"}/>:null}
      </Field>
-     <Field label="Customer payout"><input className={control} type="number" step="0.01" max={selected.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
-     {walletSource?<Field label="Wallet payout charge" hint="Deducted from business profit"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
+     <Field label="Amount to pay"><input className={control} type="number" step="0.01" max={selected.remainingAmount} min="0.01" value={amount} onChange={e=>{setAmount(e.target.value);setPayoutError("");}} required/></Field>
+     {walletSource?<Field label="Wallet charge"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
      <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder={destinationType==="CASH"?"Optional cash acknowledgement":"UTR / bank reference"}/></Field>
-     <Field label="Notes" className="sm:col-span-2"><input name="cashledger_notes" autoComplete="on" className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Optional notes"/></Field>
+     <Field label="Notes (optional)" className="sm:col-span-2"><input name="cashledger_notes" autoComplete="on" className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Notes"/></Field>
+     {payoutError?<p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs font-bold text-rose-800 sm:col-span-2">{payoutError}</p>:null}
     </form>
    </div>:null}
   </Modal>

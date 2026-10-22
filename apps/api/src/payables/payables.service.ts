@@ -165,6 +165,8 @@ export class PayablesService {
         include: {
           bankAccounts: { where: { isActive: true } },
           upiAccounts: { where: { isActive: true } },
+          cards: { where: { isActive: true } },
+          beneficiaries: { where: { isActive: true }, include: { accounts: { where: { isActive: true } } } },
         },
       },
       paymentTerm: true,
@@ -395,6 +397,49 @@ export class PayablesService {
           customerId: payable.customerId,
           customerName: payable.customer.fullName,
         };
+      } else if (dto.destinationType === 'CUSTOMER_CARD') {
+        if (!dto.destinationId) throw new BadRequestException('Select customer credit card');
+        const card = await tx.customerCard.findFirst({
+          where: { id: dto.destinationId, customerId: payable.customerId, isActive: true },
+        });
+        if (!card) throw new BadRequestException('Selected credit card does not belong to this customer or is inactive');
+        destinationLabel = card.bankName + ' ••••' + card.lastFourDigits +
+          (card.nickname ? ' · ' + card.nickname : '');
+        destinationReference = 'Card ending ' + card.lastFourDigits;
+        destinationDetails = {
+          customerCardId: card.id, bankName: card.bankName, lastFourDigits: card.lastFourDigits,
+          ...(card.nickname ? { nickname: card.nickname } : {}),
+        };
+      } else if (dto.destinationType === 'BENEFICIARY_ACCOUNT') {
+        if (!dto.destinationId) throw new BadRequestException('Select a beneficiary account');
+        const account = await tx.beneficiaryAccount.findFirst({
+          where: { id: dto.destinationId, isActive: true, beneficiary: { customerId: payable.customerId, isActive: true } },
+          include: { beneficiary: true },
+        });
+        if (!account) throw new BadRequestException('Beneficiary account not found for this customer');
+        const masked = account.accountType === 'BANK'
+          ? '••••' + (account.accountReference || '').replace(/\D/g, '').slice(-4)
+          : account.upiId || account.mobileNumber || 'UPI';
+        destinationLabel = account.beneficiary.beneficiaryName + ' · ' + (account.bankName || 'UPI') + ' ' + masked;
+        destinationReference = masked;
+        destinationDetails = {
+          beneficiaryAccountId: account.id,
+          beneficiaryName: account.beneficiary.beneficiaryName,
+          bankName: account.bankName,
+          accountType: account.accountType,
+          maskedReference: masked,
+        };
+      } else if (dto.destinationType === 'OTHER_CARD' || dto.destinationType === 'OTHER') {
+        const details = dto.destinationDetails?.trim();
+        if (!details || details.length > 160) {
+          throw new BadRequestException('Enter recipient and destination details (maximum 160 characters)');
+        }
+        if (dto.destinationType === 'OTHER_CARD' && /\d{12,19}/.test(details.replace(/[ -]/g, ''))) {
+          throw new BadRequestException('Enter only the last four card digits, never the full card number');
+        }
+        destinationLabel = (dto.destinationType === 'OTHER_CARD' ? 'Other credit card · ' : '') + details;
+        destinationReference = dto.destinationType === 'OTHER_CARD' ? 'Other card' : 'Other recipient';
+        destinationDetails = { description: details };
       } else if (dto.destinationType === 'CUSTOMER_BANK') {
         if (!dto.destinationId) throw new BadRequestException('Select customer bank account');
         const bank = await tx.customerBankAccount.findFirst({

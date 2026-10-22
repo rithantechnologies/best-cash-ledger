@@ -22,6 +22,11 @@ function setup() {
   };
   const tx: any = {
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+    customerCard: { findFirst: vi.fn().mockResolvedValue({
+      id:'card-1', customerId:'customer-1',isActive:true,
+      bankName:'KOTAK VISA',lastFourDigits:'0428',nickname:null,
+    }) },
+
     cardSwipeDetail: { findMany: vi.fn().mockResolvedValue(
       ids.map(id => ({
         customerPayableAmount: amount,
@@ -55,6 +60,7 @@ function setup() {
   const prisma: any = { $transaction: vi.fn(async (handler: any) => handler(tx)) };
   const validation: any = {
     activeCustomer: vi.fn().mockResolvedValue({isActive:true}),
+    customerCard: vi.fn().mockResolvedValue({id:'card-1',customerId:'customer-1',isActive:true}),
     lockAccount: vi.fn(),
     liquidAsset: vi.fn().mockResolvedValue(wallet),
     ensureSufficientFunds: vi.fn(),
@@ -90,6 +96,70 @@ describe('Customer Pay Out saving three matched swipes', () => {
       expect.objectContaining({ledgerAccountId:'payable-ledger', entryType:EntryType.DEBIT, amount:117240}),
     ]));
     expect(idempotency.key).toHaveBeenCalledWith(expect.anything(),'owner-1',expect.anything(),'stable-key');
+  });
+
+  it('saves payout to the same swipe credit card, independently from the funding wallet', async () => {
+    const {service,request,tx,ledger}=setup();
+    request.customerCardId='card-1';
+    request.payoutDestinationType='CARD';
+    request.payoutDestinationId='card-1';
+    delete request.payoutDestinationDetails;
+    await service.createCardLedgerEntry('customer-1',request,'owner-1',RoleName.OWNER,'card-payout');
+    expect(tx.customerCard.findFirst).toHaveBeenCalledWith({
+      where: {id:'card-1',customerId:'customer-1',isActive:true},
+    });
+    expect(tx.customerLedgerEntryDetail.create).toHaveBeenCalledWith({
+      data:expect.objectContaining({
+        financialAccountId:'wallet-1',customerCardId:'card-1',
+        payoutDestination:{type:'CARD',destinationId:'card-1',label:'Credit card · KOTAK VISA ••••0428'},
+      }),
+    });
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data:expect.objectContaining({newValues:expect.objectContaining({
+        payoutDestination:{type:'CARD',destinationId:'card-1',label:'Credit card · KOTAK VISA ••••0428'},
+      })}),
+    });
+    expect(ledger.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires a paid-to destination on all customer Pay Out API requests',async()=>{
+    const {service,request,tx}=setup();
+    delete request.payoutDestinationType;
+    delete request.payoutDestinationDetails;
+    await expect(service.createCardLedgerEntry('customer-1',request,'owner-1',RoleName.OWNER,'no-recipient'))
+      .rejects.toThrow('Select where the payout was paid to');
+    expect(tx.transaction.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a saved card outside the current customer without posting',async()=>{
+    const {service,request,tx}=setup();
+    request.payoutDestinationType='CARD';
+    request.payoutDestinationId='card-elsewhere';
+    tx.customerCard.findFirst.mockResolvedValue(null);
+    await expect(service.createCardLedgerEntry('customer-1',request,'owner-1',RoleName.OWNER,'foreign-card'))
+      .rejects.toThrow('does not belong');
+    expect(tx.transaction.create).not.toHaveBeenCalled();
+  });
+
+  it('allows a third-party card with only a holder/bank/last-four description',async()=>{
+    const {service,request,tx}=setup();
+    request.payoutDestinationType='OTHER_CARD';
+    request.payoutDestinationDetails='Friend Arun · HDFC · 5566';
+    await service.createCardLedgerEntry('customer-1',request,'owner-1',RoleName.OWNER,'other-card');
+    expect(tx.customerLedgerEntryDetail.create).toHaveBeenCalledWith({
+      data:expect.objectContaining({payoutDestination:{
+        type:'OTHER_CARD',label:'Other credit card · Friend Arun · HDFC · 5566',
+      }}),
+    });
+  });
+
+  it('rejects a full card number in the manual card recipient',async()=>{
+    const {service,request,tx}=setup();
+    request.payoutDestinationType='OTHER_CARD';
+    request.payoutDestinationDetails='Friend Arun HDFC 4312 1234 5678 9012';
+    await expect(service.createCardLedgerEntry('customer-1',request,'owner-1',RoleName.OWNER,'full-pan'))
+      .rejects.toThrow('last four');
+    expect(tx.transaction.create).not.toHaveBeenCalled();
   });
 
   it('rejects an unfunded source before creating any financial record', async () => {

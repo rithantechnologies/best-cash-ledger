@@ -821,18 +821,37 @@ export class CustomersService {
       if (dto.payoutDestinationType && dto.direction !== 'PAY_OUT') {
         throw new BadRequestException('Paid-to destination is only valid for Pay Out');
       }
+      if (dto.direction === 'PAY_OUT' && !dto.payoutDestinationType) {
+        throw new BadRequestException('Select where the payout was paid to');
+      }
       if (dto.direction === 'PAY_OUT' && dto.payoutDestinationType) {
         const kind = dto.payoutDestinationType;
         const destinationId = dto.payoutDestinationId?.trim();
         const details = dto.payoutDestinationDetails?.trim();
         if (kind === 'CASH') {
           payoutDestination = { type: kind, label: 'Cash handed to customer' };
-        } else if (kind === 'OTHER') {
+        } else if (kind === 'OTHER' || kind === 'OTHER_CARD') {
           if (!details || details.length > 160) throw new BadRequestException('Enter a recipient or payment destination (maximum 160 characters)');
-          payoutDestination = { type: kind, label: details };
+          if (kind === 'OTHER_CARD' && /\d{12,19}/.test(details.replace(/[ -]/g, ''))) {
+            throw new BadRequestException('Use only the last four card digits, never a full card number');
+          }
+          payoutDestination = {
+            type: kind,
+            label: kind === 'OTHER_CARD' ? 'Other credit card · ' + details : details,
+          };
         } else {
           if (!destinationId) throw new BadRequestException('Choose a saved customer destination');
-          if (kind === 'BANK') {
+          if (kind === 'CARD') {
+            const card = await tx.customerCard.findFirst({
+              where: { id: destinationId, customerId, isActive: true },
+            });
+            if (!card) throw new BadRequestException('Selected credit card does not belong to this customer or is inactive');
+            payoutDestination = {
+              type: kind, destinationId,
+              label: 'Credit card · ' + card.bankName + ' ••••' + card.lastFourDigits +
+                (card.nickname ? ' · ' + card.nickname : ''),
+            };
+          } else if (kind === 'BANK') {
             const saved = await tx.customerBankAccount.findFirst({ where: { id: destinationId, customerId, isActive: true } });
             if (!saved) throw new BadRequestException('Customer bank account not found or inactive');
             payoutDestination = { type: kind, destinationId, label: saved.accountHolderName + ' · ' + saved.bankName + ' ••••' + saved.accountReference.replace(/\D/g, '').slice(-4) };

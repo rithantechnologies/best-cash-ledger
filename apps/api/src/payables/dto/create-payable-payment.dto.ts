@@ -8,12 +8,16 @@ export class CreatePayablePaymentDto {
   @IsString()
   sourceAccountId!: string;
 
-  @IsIn(['CASH', 'CUSTOMER_BANK', 'CUSTOMER_UPI'])
-  destinationType!: 'CASH' | 'CUSTOMER_BANK' | 'CUSTOMER_UPI';
+  @IsIn(['CASH', 'CUSTOMER_CARD', 'OTHER_CARD', 'CUSTOMER_BANK', 'CUSTOMER_UPI', 'BENEFICIARY_ACCOUNT', 'OTHER'])
+  destinationType!: 'CASH' | 'CUSTOMER_CARD' | 'OTHER_CARD' | 'CUSTOMER_BANK' | 'CUSTOMER_UPI' | 'BENEFICIARY_ACCOUNT' | 'OTHER';
 
   @IsOptional()
   @IsString()
   destinationId?: string;
+
+  @IsOptional()
+  @IsString()
+  destinationDetails?: string;
 
   @IsOptional()
   @IsNumber()
