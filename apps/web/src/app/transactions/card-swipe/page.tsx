@@ -7,6 +7,7 @@ import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Field, Modal, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { networkForSavedCard } from "@/lib/card-network";
 import { useRememberedValues } from "@/lib/remembered-values";
 
 type Card={id:string;bankName:string;cardType?:string|null;cardNetworkId?:string|null;lastFourDigits:string;nickname:string|null;isActive:boolean};
@@ -414,7 +415,6 @@ export default function CardSwipePage(){
       (c.beneficiaries??[]).some(recipient=>recipient.isActive&&(recipient.beneficiaryName.toLowerCase().includes(term)||recipient.accounts.some(account=>account.isActive&&((account.upiId??"").toLowerCase().includes(term)||(digits.length>=3&&(account.accountReference??"").includes(digits))))));
   })).slice(0,8):[];
   const selectedCard=customer?.cards.find(card=>card.id===cardId);
-  const visaNetworkId=networks.find(network=>network.isActive&&network.name.trim().toLowerCase()==="visa")?.id??"";
   const readyCardHistory=historyLoadedFor===customerId?customerHistory:[];
   const validCardHistory=readyCardHistory.filter(row=>row.status==="COMPLETED"&&!!row.cardSwipe)
     .sort((a,b)=>new Date(b.transactionAt).getTime()-new Date(a.transactionAt).getTime());
@@ -496,9 +496,8 @@ export default function CardSwipePage(){
 
   useEffect(()=>{
     if(customerMode!=="existing"||!selectedCard)return;
-    const savedNetworkId=selectedCard.cardNetworkId??selectedCardSetup?.customerCard?.cardNetworkId??"";
-    setCardNetworkId(savedNetworkId&&networks.some(network=>network.id===savedNetworkId&&network.isActive)?savedNetworkId:visaNetworkId);
-  },[customerMode,selectedCard,selectedCardSetup,networks,visaNetworkId]);
+    setCardNetworkId(networkForSavedCard(selectedCard,networks,selectedCardSetup?.customerCard?.cardNetworkId));
+  },[customerMode,selectedCard,selectedCardSetup?.customerCard?.cardNetworkId,networks]);
 
   // If no card was specified, choose the most recently used active card.
   // An explicit user choice always wins, including when history arrives late.
@@ -742,14 +741,14 @@ export default function CardSwipePage(){
   function beginNewCustomer(){
     const typedName=customerSearch.trim();
     switchCustomerMode("new");
-    setCardNetworkId(visaNetworkId);
+    setCardNetworkId("");
     if(typedName&&!/\d{4,}/.test(typedName))setQuickName(typedName.toUpperCase());
   }
 
   function openAddCard(){
     if(!customer)return;
     setNewCardBank("");
-    setNewCardNetworkId(visaNetworkId);
+    setNewCardNetworkId("");
     setNewCardLastFour("");
     setNewCardNickname("");
     setError("");

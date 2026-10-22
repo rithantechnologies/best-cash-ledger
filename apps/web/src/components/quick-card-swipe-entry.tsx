@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
+import { networkForSavedCard } from "@/lib/card-network";
 import { useRememberedValues } from "@/lib/remembered-values";
 
 type Card={id:string;bankName:string;cardType?:string|null;cardNetworkId?:string|null;cardNetwork?:{id:string;name:string}|null;lastFourDigits:string;nickname?:string|null;isActive:boolean};
@@ -101,7 +102,6 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
 
   const provider=providers.find(p=>p.id===providerId),gateway=provider?.gateways.find(g=>g.id===gatewayId),term=terms.find(t=>t.id===termId),selectedCard=customer?.cards.find(c=>c.id===cardId);
   const customPayment=termId===CUSTOM_PAYMENT_DATE,minCustomPaymentDate=tomorrowDateInput();
-  const visaNetworkId=networks.find(item=>item.isActive!==false&&item.name.trim().toLowerCase()==="visa")?.id??"";
   const selectedCardHistory=cardId?swipeHistory.find(row=>row.status!=="REVERSED"&&row.status!=="CANCELLED"&&row.cardSwipe?.customerCard?.id===cardId):undefined;
   const historySetup=selectedCardHistory?.cardSwipe;
   const historyProvider=historySetup?providers.find(p=>p.id===historySetup.providerId):undefined;
@@ -130,8 +130,8 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   useEffect(()=>{setCommissionTouched(false);},[termId]);
   useEffect(()=>{
     if(!selectedCard)return;
-    setNetwork(selectedCard.cardNetworkId&&networks.some(item=>item.id===selectedCard.cardNetworkId&&item.isActive!==false)?selectedCard.cardNetworkId:visaNetworkId);
-  },[cardId,selectedCard,networks,visaNetworkId]);
+    setNetwork(networkForSavedCard(selectedCard,networks,historySetup?.customerCard?.cardNetworkId));
+  },[cardId,selectedCard,networks,historySetup?.customerCard?.cardNetworkId]);
   useEffect(()=>{
     if(!customer?.id){setSwipeHistory([]);setPreviousRate(null);setHistoryLoading(false);return;}
     let cancelled=false;setSwipeHistory([]);setPreviousRate(null);setHistoryLoading(true);
@@ -178,7 +178,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   function reset(){setPresetCustomerId("");setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setAmountTouched(false);setReusedSwipeAmount(false);setCustomPaymentDate("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setAddingCard(false);setAddingCardBusy(false);setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId("");setError("");}
   function startAddExistingCard(){
     if(!customer)return;
-    setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId(network||visaNetworkId);
+    setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId("");
     setAddingCard(true);setError("");
   }
   async function saveExistingCard(){
@@ -211,9 +211,9 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
     rememberCustomerName(next.fullName);
     setSwipeHistory([]);setCustomer(next);setQuery(next.fullName+(next.mobile?" · "+next.mobile:""));setMatches([]);setPreviousRate(null);setCommissionTouched(false);
     const digits=query.replace(/\D/g,"");const cards=next.cards.filter(c=>c.isActive);const matched=next.match?.cardLastFour?cards.find(c=>c.lastFourDigits===next.match?.cardLastFour):digits?cards.find(c=>c.lastFourDigits.includes(digits.slice(-4))):undefined;setCardId(matched?.id??(cards.length===1?cards[0].id:""));
-    if(cards.length===0){setExistingCardNetworkId(visaNetworkId);setAddingCard(true);}
+    if(cards.length===0){setExistingCardNetworkId("");setAddingCard(true);}
   }
-  function changeMode(next:"existing"|"new"){setMode(next);setCustomer(null);setCardId("");setQuery("");setMatches([]);setNetwork(next==="new"?visaNetworkId:"");setSwipeHistory([]);setPreviousRate(null);setError("");setCommissionTouched(false);setAddingCard(false);}
+  function changeMode(next:"existing"|"new"){setMode(next);setCustomer(null);setCardId("");setQuery("");setMatches([]);setNetwork("");setSwipeHistory([]);setPreviousRate(null);setError("");setCommissionTouched(false);setAddingCard(false);}
 
   const existingReady=!!customer&&!!cardId&&!!network,newReady=!!newName.trim()&&validMobile(newMobile)&&!!newBank&&newLastFour.length===4&&!!network;
   const commissionValue=Number(commissionRate),commissionReady=commissionRate.trim()!==""&&Number.isFinite(commissionValue)&&commissionValue>=0&&commissionValue<=100;
