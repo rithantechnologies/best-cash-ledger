@@ -7,7 +7,7 @@ const payables=fs.readFileSync(path.join(__dirname,'../src/app/payables/page.tsx
 test('Pay Out recipient offers the linked swipe card and other saved credit cards',()=>{
  assert.match(customer,/value=\{"CARD:"\+card\.id\}/);
  assert.match(customer,/card\.id===ledgerEntryCardId\?"Same swipe card · ":"Other saved card · "/);
- assert.match(customer,/value="OTHER_CARD">Another person's credit card/);
+ assert.match(customer,/value="OTHER_CARD">Another person(?:'|&apos;)s credit card/);
  assert.match(customer,/value="CASH">Cash handed to customer/);
  assert.match(customer,/value="OTHER">Other bank \/ UPI recipient/);
  assert.match(customer,/value=\{"BENEFICIARY_ACCOUNT:"\+a\.id\}/);
