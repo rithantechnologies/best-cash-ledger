@@ -7,12 +7,15 @@ import { useParams, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, PanelHeader, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { defaultPaidToCustomerBank } from "@/lib/customer-bank-payout-default.mjs";
 
 type Payment={
  id:string;paymentDate:string;amount:string;destinationType:string|null;destinationLabel:string|null;destinationReference:string|null;destinationDetails:Record<string,unknown>|null;referenceNumber:string|null;notes:string|null;status:string;
  sourceAccount:{accountName:string;accountType:string};transaction:{transactionNumber:string;status:string;charges:{amount:string}[]};
  createdBy:{id:string;fullName:string}|null;
 };
+type PayoutCard={id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean};
+type PayoutBeneficiary={id:string;beneficiaryName:string;accounts:{id:string;bankName:string|null;accountReference:string|null;upiId:string|null;mobileNumber:string|null;isActive:boolean}[]};
 type BankDestination={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
 type UpiDestination={id:string;accountName:string;upiId:string|null;mobileNumber:string|null;providerName:string|null;isActive:boolean};
 type Advance={
@@ -28,8 +31,8 @@ type AdvanceOffset={
 };
 type Payable={
  id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;createdAt:string;
- customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[]};paymentTerm:{name:string}|null;
- sourceTransaction:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;referenceNumber:string|null;notes:string|null;status:string;cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}|null}|null;providerSettlementSource:{status?:string}|null;charges:{amount:string}[];commissions:{amount:string}[]};
+ customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[];cards:PayoutCard[];beneficiaries:PayoutBeneficiary[]};paymentTerm:{name:string}|null;
+ sourceTransaction:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;referenceNumber:string|null;notes:string|null;status:string;cardSwipe:{customerCard:{id:string;bankName:string;lastFourDigits:string}|null}|null;providerSettlementSource:{status?:string}|null;charges:{amount:string}[];commissions:{amount:string}[]};
  payments:Payment[];advanceOffsets:AdvanceOffset[];availableAdvances:Advance[];manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{amount:string;remarks:string;financialAccount:{accountName:string;accountType:string};transaction:{id:string;transactionNumber:string;transactionAt:string;referenceNumber:string|null;charges:{amount:string}[]}}}[];createdBy:{id:string;fullName:string}|null;
 };
 type Audit={id:string;action:string;reason:string|null;createdAt:string;oldValues:unknown;newValues:unknown;user:{fullName:string}|null};
@@ -48,7 +51,7 @@ export default function PayableDetailPage(){
  const backHref=searchParams.get("from")==="dues"?"/dues":"/payables";
  const backLabel=searchParams.get("from")==="dues"?"Dues":"Payables";
  const [item,setItem]=useState<Payable|null>(null),[audit,setAudit]=useState<Audit[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[providers,setProviders]=useState<Provider[]>([]),[error,setError]=useState("");
- const [payOpen,setPayOpen]=useState(false),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState(""),[busy,setBusy]=useState(false);
+ const [payOpen,setPayOpen]=useState(false),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[destinationDetails,setDestinationDetails]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState(""),[busy,setBusy]=useState(false);
  const [advanceOpen,setAdvanceOpen]=useState(false),[advanceId,setAdvanceId]=useState(""),[advanceAmount,setAdvanceAmount]=useState(""),[advanceNotes,setAdvanceNotes]=useState(""),[role,setRole]=useState("");
  const control="app-control";
  function load(){return apiFetch<Payable>("/payables/"+id).then(x=>{setItem(x);return Promise.all([apiFetch<Audit[]>("/audit?entityType=CUSTOMER_PAYABLE&entityId="+id).then(setAudit).catch(()=>{}),apiFetch<Account[]>("/dashboard/accounts").then(setAccounts),apiFetch<Provider[]>("/providers").then(setProviders)]);});}
@@ -64,10 +67,12 @@ export default function PayableDetailPage(){
  const payoutCharges=item.payments.filter(p=>p.status==="COMPLETED").reduce((sum,p)=>sum+p.transaction.charges.reduce((chargeSum,x)=>chargeSum+Number(x.amount),0),0)+item.manualLedgerAllocations.reduce((sum,a)=>sum+allocatedCharge(a.amount,a.customerLedgerEntry.amount,a.customerLedgerEntry.transaction.charges),0);
  const profit=commission-providerCharge-payoutCharges;
  const sourceAccount=accounts.find(a=>a.id===source);
- const destinationType=destination==="CASH"?"CASH":destination.startsWith("BANK:")?"CUSTOMER_BANK":destination.startsWith("UPI:")?"CUSTOMER_UPI":"";
+ const destinationType=destination==="CASH"?"CASH":destination.startsWith("CARD:")?"CUSTOMER_CARD":destination==="OTHER_CARD"?"OTHER_CARD":destination.startsWith("BANK:")?"CUSTOMER_BANK":destination.startsWith("UPI:")?"CUSTOMER_UPI":destination.startsWith("BENEFICIARY_ACCOUNT:")?"BENEFICIARY_ACCOUNT":destination==="OTHER"?"OTHER":"";
  const destinationId=destination.includes(":")?destination.split(":").slice(1).join(":"):undefined;
  const selectedBank=destinationType==="CUSTOMER_BANK"?item.customer.bankAccounts.find(a=>a.id===destinationId):undefined;
  const selectedUpi=destinationType==="CUSTOMER_UPI"?item.customer.upiAccounts.find(a=>a.id===destinationId):undefined;
+ const payoutDetailsRequired=["OTHER","OTHER_CARD"].includes(destinationType);
+ const invalidPayoutDetails=payoutDetailsRequired&&!destinationDetails.trim();
  const payoutSourceAccounts=accounts.filter(a=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType)).filter(a=>destinationType==="CASH"?a.accountType==="CASH":destinationType?a.accountType!=="CASH":true);
  const walletSource=sourceAccount?.accountType==="PROVIDER_WALLET";
  const payoutAmount=Number(amount||0);
@@ -105,8 +110,8 @@ export default function PayableDetailPage(){
   finally{setBusy(false);}
  }
  const canPay=Number(item.remainingAmount)>0&&!["PAID","CANCELLED","REVERSED"].includes(item.status);
- async function submitPayment(e:FormEvent){e.preventDefault();if(!item||!canPay||!source)return;setBusy(true);setError("");try{await apiFetch("/payables/"+item.id+"/payments",{method:"POST",body:JSON.stringify({amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,destinationType,destinationId,referenceNumber:reference||undefined,notes:notes||undefined})});setPayOpen(false);setAmount("");setCharge("");setSource("");setDestination("");setReference("");setNotes("");await load();}catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}}
- function openPayment(){if(!item)return;setAmount(item.remainingAmount);setCharge("");setSource("");setDestination("");setReference("");setNotes("");setPayOpen(true);}
+ async function submitPayment(e:FormEvent){e.preventDefault();if(!item||!canPay||!source||!destinationType||invalidPayoutDetails)return;setBusy(true);setError("");try{await apiFetch("/payables/"+item.id+"/payments",{method:"POST",body:JSON.stringify({amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,destinationType,destinationId,destinationDetails:payoutDetailsRequired?destinationDetails.trim():undefined,referenceNumber:reference||undefined,notes:notes||undefined})});setPayOpen(false);setAmount("");setCharge("");setSource("");setDestination("");setDestinationDetails("");setReference("");setNotes("");await load();}catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}}
+ function openPayment(){if(!item)return;setAmount(item.remainingAmount);setCharge("");setSource("");setDestination(defaultPaidToCustomerBank(item.customer.bankAccounts));setDestinationDetails("");setReference("");setNotes("");setPayOpen(true);}
 
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -174,12 +179,20 @@ export default function PayableDetailPage(){
     </div>
     <form id="detail-pay-form" onSubmit={submitPayment} className="grid gap-3 sm:grid-cols-2">
      <Field label="Pay to" className="sm:col-span-2">
-      <SearchableSelect className={control} value={destination} onChange={e=>{setDestination(e.target.value);setSource("");setCharge("");}} required searchPlaceholder="Search customer bank or UPI…">
+      <SearchableSelect className={control} value={destination} onChange={e=>{setDestination(e.target.value);setDestinationDetails("");setSource("");setCharge("");}} required searchPlaceholder="Search customer bank, card or recipient…">
        <option value="">Select payout destination</option>
-       <option value="CASH">Cash directly to {item.customer.fullName}</option>
        <optgroup label="Customer bank accounts">{item.customer.bankAccounts.map(a=><option key={a.id} value={"BANK:"+a.id}>{a.accountHolderName} · {a.bankName} · {a.accountReference}</option>)}</optgroup>
-       <optgroup label="Customer UPI accounts">{item.customer.upiAccounts.map(a=><option key={a.id} value={"UPI:"+a.id}>{a.accountName} · {a.upiId||a.mobileNumber||"UPI"}</option>)}</optgroup>
+       <optgroup label="Credit cards">{item.customer.cards.map(card=><option key={card.id} value={"CARD:"+card.id}>{(card.id===item.sourceTransaction.cardSwipe?.customerCard?.id?"Same swipe card · ":"Other saved card · ")+card.bankName+" ••••"+card.lastFourDigits}</option>)}
+        <option value="OTHER_CARD">Another person&apos;s credit card</option>
+       </optgroup>
+       <optgroup label="Other payout destinations">
+        <option value="CASH">Cash directly to {item.customer.fullName}</option>
+        {item.customer.upiAccounts.map(a=><option key={a.id} value={"UPI:"+a.id}>{"Customer UPI · "+a.accountName+" · "+(a.upiId||a.mobileNumber||"UPI")}</option>)}
+        {item.customer.beneficiaries.flatMap(b=>b.accounts.map(a=><option key={a.id} value={"BENEFICIARY_ACCOUNT:"+a.id}>{"Friend · "+b.beneficiaryName+" · "+(a.bankName||a.upiId||"UPI")}</option>))}
+        <option value="OTHER">Other bank / UPI recipient</option>
+       </optgroup>
       </SearchableSelect>
+      {payoutDetailsRequired?<input aria-label={destinationType==="OTHER_CARD"?"Other card details":"Other recipient details"} className={control+" mt-2"} required value={destinationDetails} onChange={e=>setDestinationDetails(e.target.value)} maxLength={160} placeholder={destinationType==="OTHER_CARD"?"Cardholder, bank and last four digits only":"Recipient name and bank / UPI details"}/>:null}
       {destinationType==="CUSTOMER_BANK"&&selectedBank?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedBank.accountHolderName}</strong><br/>{selectedBank.bankName} · {selectedBank.accountReference}{selectedBank.ifsc?<><br/>IFSC {selectedBank.ifsc}</>:null}</div>:null}
       {destinationType==="CUSTOMER_UPI"&&selectedUpi?<div className="mt-2 rounded-xl bg-[var(--surface-soft)] p-3 text-xs leading-5"><strong>{selectedUpi.accountName}</strong>{selectedUpi.providerName?" · "+selectedUpi.providerName:""}<br/>{selectedUpi.upiId||selectedUpi.mobileNumber||"UPI account"}</div>:null}
       {!item.customer.bankAccounts.length&&!item.customer.upiAccounts.length?<Link href={"/customers/"+item.customer.id} className="mt-2 inline-block text-xs font-bold text-[var(--accent)]">No saved bank/UPI · Add in customer profile →</Link>:null}

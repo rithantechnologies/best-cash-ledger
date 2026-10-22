@@ -256,6 +256,8 @@ export class PayablesService {
           include: {
             bankAccounts: { where: { isActive: true } },
             upiAccounts: { where: { isActive: true } },
+            cards: { where: { isActive: true } },
+            beneficiaries: { where: { isActive: true }, include: { accounts: { where: { isActive: true } } } },
           },
         },
         paymentTerm: true,

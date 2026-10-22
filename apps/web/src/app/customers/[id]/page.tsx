@@ -19,6 +19,7 @@ import { matchesSavedDetailSearch } from "@/lib/saved-detail-search";
 import { formatBankCopyText } from "@/lib/bank-copy-text";
 import { suggestedPayOutFundingSource, type PayInSource } from "@/lib/pay-out-source";
 import { defaultPayOutSelection, payOutAllocationsForChoice } from "@/lib/pay-out-allocation.mjs";
+import { defaultPaidToCustomerBank } from "@/lib/customer-bank-payout-default.mjs";
 
 const DEMO_TEST_NUMBERS = ["4242424242424242", "5555555555554444", "4000000000000002", "4111111111111111"];
 // The development demo accepts typed 16-digit samples, not actual card PANs.
@@ -274,8 +275,8 @@ function switchView(next:"details"|"activity"){
   // assign money to an older or different swipe when several are outstanding.
   const nextAmount=nextPayable?String(nextPayable.remainingAmount):"";
   const defaultMatch=defaultPayOutSelection(eligiblePayables,nextAmount);
-  // Recipient must always be confirmed separately from the swipe/card ledger.
-  setLedgerPayoutDestination("");setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerCashConfirmed(false);setLedgerEntryDirection(direction);setLedgerEntryAmount(nextAmount);setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(nextPayable?.cardId??ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerPayOutMatchChoice(defaultMatch.choice);setLedgerUnallocatedConfirmed(false);setLedgerAllocations(direction==="PAY_OUT"?defaultMatch.allocations:direction==="PAY_IN"&&nextAmount?suggestedLedgerAllocations(nextAmount,direction,nextPayable?.cardId??ledgerCardId):{});setLedgerEntryError("");
+  // Default Paid To to the unique customer bank independently of the matched swipe.
+  setLedgerPayoutDestination(direction==="PAY_OUT"?defaultPaidToCustomerBank(c?.bankAccounts):"");setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerCashConfirmed(false);setLedgerEntryDirection(direction);setLedgerEntryAmount(nextAmount);setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(nextPayable?.cardId??ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerPayOutMatchChoice(defaultMatch.choice);setLedgerUnallocatedConfirmed(false);setLedgerAllocations(direction==="PAY_OUT"?defaultMatch.allocations:direction==="PAY_IN"&&nextAmount?suggestedLedgerAllocations(nextAmount,direction,nextPayable?.cardId??ledgerCardId):{});setLedgerEntryError("");
  }
  function matchingLedgerItems(direction=ledgerEntryDirection,cardId=ledgerEntryCardId){
   const items=direction==="PAY_IN"?(cardLedger?.openPayInItems??[]):(cardLedger?.openPayOutItems??[]);

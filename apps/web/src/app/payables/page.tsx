@@ -8,6 +8,7 @@ import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { defaultPaidToCustomerBank } from "@/lib/customer-bank-payout-default.mjs";
 import { PayablesNetBalanceReport, type NetBalanceReport } from "@/components/payables-net-balance-report";
 
 type BankDestination={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
@@ -59,7 +60,7 @@ export default function PayablesPage(){
  const payoutAmountInvalid=!Number.isFinite(payoutAmount)||payoutAmount<=0||payoutAmount>Number(selected?.remainingAmount??0)+0.001;
  function openPayout(payable:Payable){
   paySaveRetryRef.current=null;
-  setSelected(payable);setAmount(payable.remainingAmount);setCharge("");setSource("");setDestination("");
+  setSelected(payable);setAmount(payable.remainingAmount);setCharge("");setSource("");setDestination(defaultPaidToCustomerBank(payable.customer.bankAccounts));
   setDestinationDetails("");setReference("");setPaymentNotes("");setPayoutError("");
  }
  function closePayout(){if(busy)return;setSelected(null);setPayoutError("");paySaveRetryRef.current=null;}
@@ -192,7 +193,7 @@ export default function PayablesPage(){
     </div>
     <form id="pay-form" onSubmit={pay} className="grid gap-3 sm:grid-cols-2">
      <Field label="Paid from *" className="sm:col-span-2" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance):undefined}>
-      <SearchableSelect className={control} value={source} onChange={e=>{const next=accounts.find(x=>x.id===e.target.value);setSource(e.target.value);setDestination(next?.accountType==="CASH"?"CASH":"");setDestinationDetails("");setPayoutError("");if(next?.accountType!=="PROVIDER_WALLET")setCharge("");}} required searchPlaceholder="Search wallet or bank account…">
+      <SearchableSelect className={control} value={source} onChange={e=>{const next=accounts.find(x=>x.id===e.target.value);setSource(e.target.value);setDestination(current=>next?.accountType==="CASH"?"CASH":current&&current!=="CASH"?current:defaultPaidToCustomerBank(selected?.customer.bankAccounts));setDestinationDetails("");setPayoutError("");if(next?.accountType!=="PROVIDER_WALLET")setCharge("");}} required searchPlaceholder="Search wallet or bank account…">
        <option value="">Select payout source</option>
        <optgroup label="Wallets">{walletPayoutAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</optgroup>
        <optgroup label="Bank / UPI accounts">{bankPayoutAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</optgroup>
