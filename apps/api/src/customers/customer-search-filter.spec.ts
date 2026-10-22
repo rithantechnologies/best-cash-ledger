@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { customerSearchFilter } from './customer-search-filter.js';
+import { customerSearchFilter, findCustomerIdsForSearch } from './customer-search-filter.js';
 
 const serialized = (query: string) => JSON.stringify(customerSearchFilter(query));
 
@@ -58,5 +58,50 @@ describe('customer search filter', () => {
 
   it('removes formatting from copied account numbers typed into search', () => {
     expect(serialized('0791-000602-00247')).toContain('079100060200247');
+  });
+});
+
+
+// Focused fast-path tests: do not expose or depend on production customer data.
+describe('indexed mobile search', () => {
+  it('uses one exact indexed lookup when a ten-digit customer mobile matches', async () => {
+    const findMany = vi.fn().mockResolvedValue([{ id: 'matched' }]);
+    const ids = await findCustomerIdsForSearch({ customer: { findMany } } as any, '9876543210');
+    expect(ids).toEqual(['matched']);
+    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(findMany).toHaveBeenCalledWith({
+      where: { isActive: true, mobile: '9876543210' },
+      select: { id: true },
+    });
+  });
+
+  it('keeps inactive-customer visibility for admins', async () => {
+    const findMany = vi.fn().mockResolvedValue([{ id: 'inactive' }]);
+    expect(await findCustomerIdsForSearch({ customer: { findMany } } as any, ' 9876543210 ', true))
+      .toEqual(['inactive']);
+    expect(findMany.mock.calls[0][0].where).toEqual({ mobile: '9876543210' });
+  });
+
+  it('falls back to bank/UPI and other details when phone does not match', async () => {
+    const findMany = vi.fn().mockImplementation(async ({ where }: any) => {
+      if (typeof where.mobile === 'string') return [];
+      if (where.bankAccounts) return [{ id: 'saved-bank' }];
+      return [];
+    });
+    expect(await findCustomerIdsForSearch({ customer: { findMany } } as any, '9876543210'))
+      .toEqual(['saved-bank']);
+    expect(findMany.mock.calls.length).toBeGreaterThan(1);
+    expect(findMany.mock.calls.some(([query]: any[]) => !!query.where.bankAccounts)).toBe(true);
+  });
+
+  it('does not mistake card fragments or longer references for an exact phone', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    await findCustomerIdsForSearch({ customer: { findMany } } as any, '0247');
+    expect(findMany.mock.calls.some(([query]: any[]) => typeof query.where.mobile === 'string'))
+      .toBe(false);
+    findMany.mockClear();
+    await findCustomerIdsForSearch({ customer: { findMany } } as any, '919876543210');
+    expect(findMany.mock.calls.some(([query]: any[]) => typeof query.where.mobile === 'string'))
+      .toBe(false);
   });
 });

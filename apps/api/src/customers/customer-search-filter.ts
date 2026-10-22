@@ -64,6 +64,17 @@ export async function findCustomerIdsForSearch(
   includeInactive = false,
 ): Promise<string[]> {
   const activeOnly: Prisma.CustomerWhereInput = includeInactive ? {} : { isActive: true };
+  const query = input.trim();
+  // Complete Indian mobile numbers use the existing Customer.mobile B-tree
+  // index. Keep the broad saved-details search as fallback if there is no
+  // direct mobile match (e.g., the digits belong to a bank/UPI reference).
+  if (/^\d{10}$/.test(query)) {
+    const phoneMatches = await prisma.customer.findMany({
+      where: { ...activeOnly, mobile: query },
+      select: { id: true },
+    });
+    if (phoneMatches.length) return phoneMatches.map((row) => row.id);
+  }
   const terms = customerSearchFilter(input).AND as Prisma.CustomerWhereInput[];
   let matches: Set<string> | undefined;
   for (const term of terms) {

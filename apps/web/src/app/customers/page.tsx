@@ -67,9 +67,12 @@ export default function CustomersPage(){
   if(!role)return;
   invalidateSearch();
   setLoading(true);
-  // Avoid firing the expensive cross-account search between consecutive keystrokes.
-  // In-flight responses remain cancelled using the existing AbortController/request ID guard.
-  const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load customers")),q.trim()?450:150);
+  // Exact ten-digit mobile searches use an indexed backend lookup and should
+  // start immediately. Debounce partial/mixed searches to avoid request floods.
+  // The existing request ID and AbortController discard stale responses.
+  const search=q.trim();
+  const delay=/^\d{10}$/.test(search)?0:search?300:150;
+  const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load customers")),delay);
   return()=>{clearTimeout(timer);invalidateSearch();};
  },[role,q,sortBy,sortDir,pagination.pageSize]);
  useEffect(()=>{
