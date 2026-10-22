@@ -41,7 +41,7 @@ function setup(overrides: { allocations?:unknown[], oldBalance?:number }={}) {
     ])},
     ledgerEntry:{deleteMany:vi.fn().mockResolvedValue({count:2}),createMany:vi.fn().mockResolvedValue({count:2})},
     ledgerJournal:{update:vi.fn().mockResolvedValue({})},
-    customerLedgerEntryDetail:{update:vi.fn().mockResolvedValue({})},
+    customerLedgerEntryDetail:{update:vi.fn().mockResolvedValue({}),findFirst:vi.fn().mockResolvedValue(null)},
     transactionCharge:{deleteMany:vi.fn().mockResolvedValue({})},
     auditLog:{create:vi.fn().mockResolvedValue({})},
   };
@@ -123,6 +123,13 @@ describe('customer ledger full edits',()=>{
       select:{transactionNumber:true},
     });
     expect(db.transaction.update).not.toHaveBeenCalled();
+    expect(db.ledgerEntry.deleteMany).not.toHaveBeenCalled();
+  });
+  it('blocks editing away credit used by a later payout',async()=>{
+    const {service,db}=setup();
+    db.customerLedgerEntryDetail.findFirst.mockResolvedValue({transaction:{transactionNumber:'CLK-LATER-PAYOUT'}});
+    await expect(service.updateCustomerLedgerEntry('tx-a',input({receivableAmount:30600,payableAmount:30000}),
+      'owner-a',RoleName.OWNER)).rejects.toThrow('CLK-LATER-PAYOUT');
     expect(db.ledgerEntry.deleteMany).not.toHaveBeenCalled();
   });
 });

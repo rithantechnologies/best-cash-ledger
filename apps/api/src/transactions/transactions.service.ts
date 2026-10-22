@@ -5315,6 +5315,37 @@ export class TransactionsService {
         Math.abs(previous.payableAmount - payableAmount) > .001 ||
         previous.financialAccountId !== dto.financialAccountId;
       const dateChanged = transactionAt.getTime() !== original.transactionAt.getTime();
+      // An earlier Pay In's credit may already have funded a subsequent Pay Out.
+      // Do not silently withdraw that credit in an edit while preserving the
+      // later payout's old (no-longer-valid) liability classification.
+      if (detail.direction === 'PAY_IN' && Number(detail.payableAmount) > 0 &&
+          (dto.direction !== 'PAY_IN' ||
+           payableAmount < Number(detail.payableAmount) - .001 ||
+           previous.customerId !== dto.customerId ||
+           previous.customerCardId !== customerCardId)) {
+        const laterPayOut = await tx.customerLedgerEntryDetail.findFirst({
+          where: {
+            direction: 'PAY_OUT',
+            payableAmount: { gt: 0 },
+            transaction: {
+              customerId: original.customerId!,
+              status: TransactionStatus.COMPLETED,
+              transactionAt: { gt: original.transactionAt },
+            },
+            ...(detail.customerCardId
+              ? { OR: [{ customerCardId: detail.customerCardId }, { customerCardId: null }] }
+              : {}),
+          },
+          select: { transaction: { select: { transactionNumber: true } } },
+        });
+        if (laterPayOut) {
+          throw new BadRequestException(
+            'Later Pay Out ' + laterPayOut.transaction.transactionNumber +
+            ' uses customer credit. First edit that existing Pay Out to classify it as an ' +
+            'advance (Creates customer due). Do not record a second bank/wallet transfer.',
+          );
+        }
+      }
       const payoutDestination = dto.direction === 'PAY_OUT'
         ? dto.payoutDestinationDetails?.trim()
           ? { type: 'OTHER', label: dto.payoutDestinationDetails.trim().toUpperCase() }
@@ -6802,6 +6833,44 @@ export class TransactionsService {
       }
       if (original.customerLedgerEntry && Number(original.customerLedgerEntry.advanceAppliedAmount) > 0) {
         throw new BadRequestException('Reverse earlier Pay Out advance adjustments before reversing this Pay Out');
+      }
+      // A Pay In can be the credit consumed by a later manual Pay Out.
+      // Reversing that Pay In without reclassifying the already-paid outgoing
+      // transfer leaves the customer's payable and swipe history inconsistent.
+      // Require an auditable correction of the existing Pay Out first, never
+      // a second wallet debit. Card-specific and customer-level entries both
+      // need protection because either can fund the other.
+      if (original.customerLedgerEntry?.direction === 'PAY_IN' &&
+          Number(original.customerLedgerEntry.payableAmount) > 0 &&
+          original.customerId) {
+        const dependentPayout = await tx.customerLedgerEntryDetail.findFirst({
+          where: {
+            direction: 'PAY_OUT',
+            payableAmount: { gt: 0 },
+            transaction: {
+              customerId: original.customerId,
+              status: TransactionStatus.COMPLETED,
+              transactionAt: { gt: original.transactionAt },
+            },
+            ...(original.customerLedgerEntry.customerCardId
+              ? { OR: [
+                  { customerCardId: original.customerLedgerEntry.customerCardId },
+                  { customerCardId: null },
+                ] }
+              : {}),
+          },
+          select: { transaction: { select: { transactionNumber: true } } },
+          orderBy: { transaction: { transactionAt: 'asc' } },
+        });
+        if (dependentPayout) {
+          throw new BadRequestException(
+            'Later Pay Out ' + dependentPayout.transaction.transactionNumber +
+            ' used customer credit. Before reversing this Pay In, edit the existing Pay Out ' +
+            'to classify its amount as customer advance (Creates customer due), ' +
+            'then match that advance to the appropriate card swipe when available. ' +
+            'Do not send funds from the wallet again.',
+          );
+        }
       }
 
       const activeCardDueStatus = {
