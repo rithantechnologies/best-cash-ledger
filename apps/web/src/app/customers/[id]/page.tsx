@@ -18,7 +18,7 @@ import { BankIfscPicker } from "@/components/bank-ifsc-picker";
 import { matchesSavedDetailSearch } from "@/lib/saved-detail-search";
 import { formatBankCopyText } from "@/lib/bank-copy-text";
 import { suggestedPayOutFundingSource, type PayInSource } from "@/lib/pay-out-source";
-import { payOutAllocationsForChoice } from "@/lib/pay-out-allocation.mjs";
+import { defaultPayOutSelection, payOutAllocationsForChoice } from "@/lib/pay-out-allocation.mjs";
 
 const DEMO_TEST_NUMBERS = ["4242424242424242", "5555555555554444", "4000000000000002", "4111111111111111"];
 // The development demo accepts typed 16-digit samples, not actual card PANs.
@@ -266,12 +266,16 @@ function switchView(next:"details"|"activity"){
   ledgerSaveRetryRef.current=null;
   // Prefill one outstanding net payable (gross swipe minus customer
   // commission), not the gross swipe amount. Still fully editable.
-  const nextPayable=direction==="PAY_OUT"
-   ? cardLedger?.openPayOutItems.find(item=>!ledgerCardId||item.cardId===ledgerCardId)
-   : null;
+  const eligiblePayables=direction==="PAY_OUT"
+   ?(cardLedger?.openPayOutItems??[]).filter(item=>!ledgerCardId||item.cardId===ledgerCardId)
+   :[];
+  const nextPayable=eligiblePayables[0];
+  // Only a uniquely identified payable can be preselected. Never silently
+  // assign money to an older or different swipe when several are outstanding.
   const nextAmount=nextPayable?String(nextPayable.remainingAmount):"";
+  const defaultMatch=defaultPayOutSelection(eligiblePayables,nextAmount);
   // Recipient must always be confirmed separately from the swipe/card ledger.
-  setLedgerPayoutDestination("");setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerCashConfirmed(false);setLedgerEntryDirection(direction);setLedgerEntryAmount(nextAmount);setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(nextPayable?.cardId??ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerPayOutMatchChoice("");setLedgerUnallocatedConfirmed(false);setLedgerAllocations(direction==="PAY_IN"&&nextAmount?suggestedLedgerAllocations(nextAmount,direction,nextPayable?.cardId??ledgerCardId):{});setLedgerEntryError("");
+  setLedgerPayoutDestination("");setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerCashConfirmed(false);setLedgerEntryDirection(direction);setLedgerEntryAmount(nextAmount);setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(nextPayable?.cardId??ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerPayOutMatchChoice(defaultMatch.choice);setLedgerUnallocatedConfirmed(false);setLedgerAllocations(direction==="PAY_OUT"?defaultMatch.allocations:direction==="PAY_IN"&&nextAmount?suggestedLedgerAllocations(nextAmount,direction,nextPayable?.cardId??ledgerCardId):{});setLedgerEntryError("");
  }
  function matchingLedgerItems(direction=ledgerEntryDirection,cardId=ledgerEntryCardId){
   const items=direction==="PAY_IN"?(cardLedger?.openPayInItems??[]):(cardLedger?.openPayOutItems??[]);
@@ -773,27 +777,26 @@ function switchView(next:"details"|"activity"){
      {ledgerNonCashSourceCashDestinationMismatch?<p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-2 text-xs font-bold text-rose-800">Cash handed to customer requires a cash drawer under Paid from. A wallet or bank transfer must use the real bank/UPI recipient instead. If cash was moved from a wallet to the drawer first, record that transfer separately.</p>:null}
      {["OTHER","OTHER_CARD"].includes(ledgerPayoutDestination)?<Field label={ledgerPayoutDestination==="OTHER_CARD"?"Cardholder, bank and last 4 digits *":"Recipient and account / UPI details *"}><input className={control+" bg-[var(--surface)]"} value={ledgerPayoutDetails} onChange={e=>{setLedgerPayoutDetails(e.target.value);setLedgerEntryError("");}} maxLength={160} placeholder={ledgerPayoutDestination==="OTHER_CARD"?"e.g. Friend Raj · HDFC · 1234 (last 4 only)":"Recipient, bank or UPI details"} required/></Field>:null}
     </div>:null}
-    <Field label="Swipe / ledger card (optional)">{ledgerCardId?<div className={control+" flex items-center font-semibold"}>{c.cards.find(card=>card.id===ledgerCardId)?.bankName+" •••• "+c.cards.find(card=>card.id===ledgerCardId)?.lastFourDigits}</div>:<SearchableSelect className={control} value={ledgerEntryCardId} onChange={e=>{const cardId=e.target.value;setLedgerEntryCardId(cardId);setLedgerPayOutMatchChoice("");setLedgerUnallocatedConfirmed(false);setLedgerAllocations(ledgerEntryDirection==="PAY_OUT"?{}:suggestedLedgerAllocations(ledgerEntryAmount,ledgerEntryDirection,cardId));setLedgerEntryError("");}}><option value="">Customer-level / all cards</option>{c.cards.filter(card=>card.isActive).map(card=><option key={card.id} value={card.id}>{card.bankName+" •••• "+card.lastFourDigits+(card.nickname?" · "+card.nickname:"")}</option>)}</SearchableSelect>}</Field>
+    <Field label="Swipe / ledger card (optional)">{ledgerCardId?<div className={control+" flex items-center font-semibold"}>{c.cards.find(card=>card.id===ledgerCardId)?.bankName+" •••• "+c.cards.find(card=>card.id===ledgerCardId)?.lastFourDigits}</div>:<SearchableSelect className={control} value={ledgerEntryCardId} onChange={e=>{const cardId=e.target.value;const defaultMatch=defaultPayOutSelection(matchingLedgerItems("PAY_OUT",cardId),ledgerEntryAmount);setLedgerEntryCardId(cardId);setLedgerPayOutMatchChoice(ledgerEntryDirection==="PAY_OUT"?defaultMatch.choice:"");setLedgerUnallocatedConfirmed(false);setLedgerAllocations(ledgerEntryDirection==="PAY_OUT"?defaultMatch.allocations:suggestedLedgerAllocations(ledgerEntryAmount,ledgerEntryDirection,cardId));setLedgerEntryError("");}}><option value="">Customer-level / all cards</option>{c.cards.filter(card=>card.isActive).map(card=><option key={card.id} value={card.id}>{card.bankName+" •••• "+card.lastFourDigits+(card.nickname?" · "+card.nickname:"")}</option>)}</SearchableSelect>}</Field>
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
      <div className="flex items-start justify-between gap-3">
       <div><p className="text-xs font-black">Match pending dues {ledgerEntryDirection==="PAY_IN"?<span className="font-semibold text-[var(--text-muted)]">(optional)</span>:null}</p>
        {ledgerEntryDirection==="PAY_OUT"?<p className="mt-1 text-[11px] text-[var(--text-muted)]">Choose the exact swipe being paid. Nothing is split automatically.</p>:null}
       </div>
-      <button type="button" onClick={()=>{setLedgerAllocations(suggestedLedgerAllocations(ledgerEntryAmount));if(ledgerEntryDirection==="PAY_OUT")setLedgerPayOutMatchChoice("AUTO");setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-[10px] font-black text-[var(--accent)]">Auto oldest first</button>
+      {ledgerEntryDirection==="PAY_IN"?<button type="button" onClick={()=>{setLedgerAllocations(suggestedLedgerAllocations(ledgerEntryAmount));setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-[10px] font-black text-[var(--accent)]">Auto oldest first</button>:ledgerMatchItems.length>1?<button type="button" onClick={()=>{setLedgerPayOutMatchChoice("SPLIT");setLedgerAllocations({});setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-[10px] font-black text-[var(--accent)]">Split manually</button>:null}
      </div>
      {ledgerEntryDirection==="PAY_OUT"&&ledgerMatchItems.length?<Field label="Apply this Pay Out to *" className="mt-2">
       <SearchableSelect className={control+" bg-[var(--surface)]"} value={ledgerPayOutMatchChoice} onChange={e=>{const choice=e.target.value;setLedgerPayOutMatchChoice(choice);setLedgerAllocations(payOutAllocationsForChoice(ledgerMatchItems,ledgerEntryAmount,choice));setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}}>
        <option value="">Choose a Card Swipe / outstanding item…</option>
        {ledgerMatchItems.map(item=><option key={item.targetId} value={item.targetId}>{item.label+" · "+item.cardLabel+" · remaining "+money(item.remainingAmount)}</option>)}
        <option value="SPLIT">Split manually across several items</option>
-       <option value="AUTO">Auto oldest first (may split across items)</option>
        <option value="UNALLOCATED">Record unmatched advance / other payout</option>
       </SearchableSelect>
      </Field>:null}
-     {ledgerMatchItems.length?(ledgerEntryDirection==="PAY_IN"||ledgerPayOutMatchChoice==="SPLIT"||ledgerPayOutMatchChoice==="AUTO"||ledgerMatchItems.some(item=>item.targetId===ledgerPayOutMatchChoice))?<div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto pr-1">
-      {ledgerMatchItems.filter(item=>ledgerEntryDirection==="PAY_IN"||ledgerPayOutMatchChoice==="SPLIT"||ledgerPayOutMatchChoice==="AUTO"||item.targetId===ledgerPayOutMatchChoice).map(item=><div key={item.targetId} className="grid grid-cols-[minmax(0,1fr)_96px] items-center gap-2 rounded-lg bg-[var(--surface)] px-2.5 py-2 ring-1 ring-[var(--border)]">
+     {ledgerMatchItems.length?(ledgerEntryDirection==="PAY_IN"||ledgerPayOutMatchChoice==="SPLIT"||ledgerMatchItems.some(item=>item.targetId===ledgerPayOutMatchChoice))?<div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto pr-1">
+      {ledgerMatchItems.filter(item=>ledgerEntryDirection==="PAY_IN"||ledgerPayOutMatchChoice==="SPLIT"||item.targetId===ledgerPayOutMatchChoice).map(item=><div key={item.targetId} className="grid grid-cols-[minmax(0,1fr)_96px] items-center gap-2 rounded-lg bg-[var(--surface)] px-2.5 py-2 ring-1 ring-[var(--border)]">
        <div className="min-w-0"><p className="truncate text-[11px] font-black">{item.label}</p><p className="truncate text-[9px] text-[var(--text-muted)]">{item.cardLabel} · remaining {money(item.remainingAmount)}</p></div>
-       <input aria-label={"Amount matched to "+item.label} className="app-control h-9 px-2 text-right text-xs font-black" type="number" min="0" max={item.remainingAmount} step="0.01" inputMode="decimal" value={ledgerAllocations[item.targetId]??""} onChange={e=>{setLedgerAllocations(prev=>({...prev,[item.targetId]:e.target.value}));if(ledgerEntryDirection==="PAY_OUT"&&ledgerPayOutMatchChoice==="AUTO")setLedgerPayOutMatchChoice("SPLIT");setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} placeholder="0"/>
+       <input aria-label={"Amount matched to "+item.label} className="app-control h-9 px-2 text-right text-xs font-black" type="number" min="0" max={item.remainingAmount} step="0.01" inputMode="decimal" value={ledgerAllocations[item.targetId]??""} onChange={e=>{setLedgerAllocations(prev=>({...prev,[item.targetId]:e.target.value}));setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} placeholder="0"/>
       </div>)}
      </div>:ledgerEntryDirection==="PAY_OUT"?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]">{ledgerPayOutMatchChoice==="UNALLOCATED"?"This Pay Out will be recorded as an unmatched advance; no swipe outstanding is reduced.":"Select the swipe above, or choose Split manually to allocate across several swipes."}</p>:null
      :<p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">{ledgerEntryDirection==="PAY_IN"?"No open Card Due principal for this selection.":"No open customer payable; this Pay Out is an unmatched advance."}</p>}
