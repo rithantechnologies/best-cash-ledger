@@ -16,6 +16,17 @@ type AccountOptions = {
   label?: string;
 };
 
+// A physical drawer uses whole-rupee denominations. Keep fractional
+// settlements in a digital account rather than stranding paise in the till.
+export function requireWholeRupeeCashPayout(accountType: AccountType, amount: number) {
+  if (accountType === AccountType.CASH &&
+      (!Number.isFinite(amount) || Math.abs(amount - Math.round(amount)) > 0.001)) {
+    throw new BadRequestException(
+      'Physical cash payout must be a whole-rupee amount. Settle remaining paise from a bank or wallet instead.',
+    );
+  }
+}
+
 @Injectable()
 export class FinancialValidationService {
   constructor(private readonly prisma: PrismaService) {}

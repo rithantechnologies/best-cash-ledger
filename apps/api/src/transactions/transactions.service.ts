@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AccountNature, AccountType, CalculationType, CommissionMethod, CustomerType, EntryType, JournalStatus, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, ReceivableStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
-import { FinancialValidationService } from '../finance/financial-validation.service.js';
+import { FinancialValidationService, requireWholeRupeeCashPayout } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
 import { LedgerService, type JournalEntry } from '../ledger/ledger.service.js';
@@ -788,6 +788,7 @@ export class TransactionsService {
       const effectiveCustomerPayments = [];
       for (const payment of customerPayments) {
         const sourceAccount = payoutAccountById.get(payment.sourceAccountId)!;
+        requireWholeRupeeCashPayout(sourceAccount.accountType, payment.amount);
         const configuredCharge = await this.payoutCharges.resolve(
           tx,
           sourceAccount,
@@ -5383,6 +5384,9 @@ export class TransactionsService {
           dto.direction === 'PAY_IN' ? 'Pay In received-in account' : 'Pay Out paying account');
       if (!oldAccount.ledgerAccount || !newAccount.ledgerAccount) {
         throw new BadRequestException('Financial account ledger is missing');
+      }
+      if (coreChanged && dto.direction === 'PAY_OUT') {
+        requireWholeRupeeCashPayout(newAccount.accountType, amount);
       }
       // A Pay Out may have been entered before its UTR was known. Editing the
       // reference later must perform the same duplicate-transfer check as

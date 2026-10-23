@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AccountType, CustomerType, EntryType, PayableStatus, PaymentStatus, Prisma, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
-import { FinancialValidationService } from '../finance/financial-validation.service.js';
+import { FinancialValidationService, requireWholeRupeeCashPayout } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
 import { JournalEntry, LedgerService } from '../ledger/ledger.service.js';
@@ -806,6 +806,9 @@ export class CustomersService {
         );
       }
       if (account.accountType === AccountType.CASH) {
+        if (dto.direction === 'PAY_OUT') {
+          requireWholeRupeeCashPayout(account.accountType, amount);
+        }
         if (dto.physicalCashConfirmed !== true) {
           throw new BadRequestException(
             'This would change the physical cash drawer. Confirm that real cash notes were received or handed over. For a credit-card swipe, use the Card Swipe transaction instead.',

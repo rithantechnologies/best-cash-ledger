@@ -36,6 +36,7 @@ function fixture() {
       }),
     },
     user:{findUnique:vi.fn(async ({where}:any)=>({id:where.id,fullName:where.id,isActive:true}))},
+    ledgerAccount:{findUnique:vi.fn(async ({where}:any)=>where.ledgerCode==='SYS-CASH-OVER-SHORT'?{id:'cash-over-short',ledgerCode:where.ledgerCode}:null)},
     auditLog:{create:vi.fn(async ({data}:any)=>{audit.push(data);return data})},
   };
   const prisma:any={
@@ -117,6 +118,53 @@ describe('Cash drawer custody workflow — in-memory simulation',()=>{
     await expect(x.service.close(s.id,{denominations:notes(49500)},'staff-1',RoleName.STAFF))
       .rejects.toThrow(/Difference: -500.00/);
     expect(x.tx.cashSession.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps a real five-paise cash mismatch blocked without explicit approval',async()=>{
+    const x=fixture();
+    const s=x.session(staff.id,50000);
+    vi.spyOn(x.service as any,'expectedClosing').mockResolvedValue({expected:49999.95,account:staff});
+    await expect(x.service.close(s.id,{denominations:notes(50000)},'owner-1',RoleName.OWNER))
+      .rejects.toThrow(/Difference: 0.05/);
+    expect(x.tx.transaction.create).not.toHaveBeenCalled();
+    expect(x.posted).toHaveLength(0);
+    expect(x.sessions[0].status).toBe('OPEN');
+  });
+
+  it('forbids staff from approving even a small denomination variance',async()=>{
+    const x=fixture();
+    const s=x.session(staff.id,50000);
+    vi.spyOn(x.service as any,'expectedClosing').mockResolvedValue({expected:49999.95,account:staff});
+    await expect(x.service.close(s.id,{denominations:notes(50000),approveCashRounding:true},'staff-1',RoleName.STAFF))
+      .rejects.toThrow(/owner or admin/);
+    expect(x.posted).toHaveLength(0);
+  });
+
+  it('posts and audits an explicit owner-approved ₹0.05 rounding difference without changing the payout',async()=>{
+    const x=fixture();
+    const s=x.session(staff.id,50000);
+    vi.spyOn(x.service as any,'expectedClosing').mockResolvedValue({expected:49999.95,account:staff});
+    const result=await x.service.close(s.id,{denominations:notes(50000),approveCashRounding:true,notes:'Real physical notes counted'},'owner-1',RoleName.OWNER);
+    expect(result.status).toBe('CLOSED');
+    expect(Number(result.expectedClosingTotal)).toBe(49999.95);
+    expect(Number(result.actualClosingTotal)).toBe(50000);
+    expect(Number(result.differenceAmount)).toBe(0.05);
+    expect(result.adjustmentTransactionId).toBeTruthy();
+    expect(x.posted).toHaveLength(1);
+    expect(x.posted[0].entries).toEqual([
+      expect.objectContaining({ledgerAccountId:staff.ledgerAccount.id,entryType:EntryType.DEBIT,amount:0.05}),
+      expect.objectContaining({ledgerAccountId:'cash-over-short',entryType:EntryType.CREDIT,amount:0.05}),
+    ]);
+    expect(x.audit.at(-1)?.newValues).toMatchObject({cashRoundingApproved:true});
+  });
+
+  it('never permits rounding away a whole-rupee cash discrepancy',async()=>{
+    const x=fixture();
+    const s=x.session(staff.id,50000);
+    vi.spyOn(x.service as any,'expectedClosing').mockResolvedValue({expected:49999.05,account:staff});
+    await expect(x.service.close(s.id,{denominations:notes(50000),approveCashRounding:true},'owner-1',RoleName.OWNER))
+      .rejects.toThrow(/nearest whole rupee/);
+    expect(x.posted).toHaveLength(0);
   });
 
   it('moves all ₹50,000 back into the owner reserve on close-and-handover',async()=>{

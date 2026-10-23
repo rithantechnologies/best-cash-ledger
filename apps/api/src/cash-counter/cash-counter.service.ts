@@ -771,17 +771,29 @@ export class CashCounterService {
       }
 
       const { expected, account } = await this.expectedClosing(tx, session);
-      const difference = actual - expected;
-      if (Math.abs(difference) > 0.005) {
+      // All stored ledger amounts are INR with two decimal places. Round only
+      // floating-point accumulation noise; never round away a real paisa.
+      const difference = Math.round((actual - expected) * 100) / 100;
+      const hasVariance = Math.abs(difference) >= 0.01;
+      const canRoundToPhysicalNotes =
+        hasVariance && Number.isInteger(actual) &&
+        actual === Math.round(expected) && Math.abs(difference) <= 0.50;
+      if (dto.approveCashRounding && !canRoundToPhysicalNotes) {
+        throw new BadRequestException('Cash rounding can only reconcile a fractional-paisa drawer balance to the nearest whole rupee.');
+      }
+      if (hasVariance && !dto.approveCashRounding) {
         throw new BadRequestException(
           'Closing cash does not match the expected drawer. Difference: ' +
             difference.toFixed(2) +
-            '. Review missing cash in/out transactions before closing.',
+            '. Review the ledger or request an owner-approved cash rounding adjustment.',
         );
+      }
+      if (hasVariance && actorRole !== RoleName.OWNER && actorRole !== RoleName.ADMIN) {
+        throw new ForbiddenException('Cash rounding adjustments require an owner or admin');
       }
       let adjustmentTransactionId: string | null = null;
 
-      if (Math.abs(difference) > 0.005) {
+      if (hasVariance) {
         const varianceLedger = await tx.ledgerAccount.findUnique({
           where: { ledgerCode: 'SYS-CASH-OVER-SHORT' },
         });
@@ -798,9 +810,8 @@ export class CashCounterService {
             netAmount: new Prisma.Decimal(Math.abs(difference)),
             status: TransactionStatus.COMPLETED,
             referenceNumber: 'CASH-SESSION-' + session.id,
-            notes:
-              dto.notes ??
-              (difference > 0 ? 'Cash over adjustment' : 'Cash short adjustment'),
+            notes: 'Approved denomination rounding of ' + difference.toFixed(2) +
+              ' during cash session close. ' + (dto.notes?.trim() || 'Physical currency count uses whole rupees.'),
             createdById: userId,
           },
         });
@@ -873,10 +884,14 @@ export class CashCounterService {
             differenceAmount:
               updated.differenceAmount?.toString() ?? null,
             adjustmentTransactionId,
+            cashRoundingApproved: hasVariance && dto.approveCashRounding === true,
             handoverToUserId: dto.handoverToUserId ?? null,
             handoverToCashAccountId: dto.handoverToCashAccountId ?? null,
           },
-          reason: dto.notes,
+          reason: hasVariance
+            ? 'Owner/admin approved cash denomination rounding of INR ' +
+              difference.toFixed(2) + '. ' + (dto.notes?.trim() || '')
+            : dto.notes,
         },
       });
 

@@ -38,7 +38,7 @@ type Operator={id:string;fullName:string;role:{name:string}};
 type Session={
   id:string;cashAccountId:string;businessDate:string;openedAt:string;openingTotal:string;
   expectedClosingTotal:string|null;liveExpectedClosingTotal?:number;liveCashIn?:number;liveCashOut?:number;
-  actualClosingTotal:string|null;differenceAmount:string|null;status:string;closingNotes:string|null;
+  actualClosingTotal:string|null;differenceAmount:string|null;adjustmentTransactionId?:string|null;status:string;closingNotes:string|null;
   cashAccount:{accountName:string};denominationCounts:Count[];movements?:Movement[];activities?:Activity[];
   serviceSummary?:ServiceSummary[];commissionEarned?:number;serviceIncomeEarned?:number;totalIncomeEarned?:number;
   incomeCashReceived?:number;incomeDigitalReceived?:number;incomeUnallocated?:number;transactionCount?:number;
@@ -104,6 +104,7 @@ const defaultTxColumns:TxColumn[]=txColumnDefs.map((column)=>column.id);
 
 const denominations=[500,200,100,50,20,10,5,2,1];
 const money=(value:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(Number(value||0));
+const cashMoney=(value:number|string)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(value||0));
 const configuredPayoutCharge=(providers:Provider[],account:Account|undefined,amount:number)=>{
   if(!account||account.accountType!=="PROVIDER_WALLET"||!account.providerId||amount<=0)return 0;
   const rules=providers.find((provider)=>provider.id===account.providerId)?.payoutChargeRules??[];
@@ -265,6 +266,7 @@ export default function CashCounterWorkspace({
   const [remarks,setRemarks]=useState("");
   const [closing,setClosing]=useState(false);
   const [pendingCloseConfirm,setPendingCloseConfirm]=useState(false);
+  const [roundingApproved,setRoundingApproved]=useState(false);
   const [error,setError]=useState("");
   const [saving,setSaving]=useState(false);
   const [loading,setLoading]=useState(true);
@@ -700,14 +702,20 @@ export default function CashCounterWorkspace({
   const totalIncome=Number(today?.totalIncomeEarned??commissionIncome+serviceIncome);
   const incomeCash=Number(today?.incomeCashReceived??0);
   const incomeDigital=Number(today?.incomeDigitalReceived??0);
-  const previewDifference=countedTotal-expected;
+  const canConfigure=role==="OWNER"||role==="ADMIN";
+  const previewDifference=Math.round((countedTotal-expected)*100)/100;
+  const cashMismatch=Math.abs(previewDifference)>=0.01;
+  const canApproveCashRounding=canConfigure && cashMismatch &&
+    Number.isInteger(countedTotal) && countedTotal===Math.round(expected) &&
+    Math.abs(previewDifference)<=0.50;
+  const canSubmitClose=!cashMismatch||(canApproveCashRounding&&roundingApproved);
+  useEffect(()=>{setRoundingApproved(false);},[qty,expected]);
   const closedDifference=Number(today?.differenceAmount??0);
   const isClosed=today?.status==="CLOSED";
   const cashAccounts=accounts.filter((account)=>account.accountType==="CASH"&&account.isActive!==false);
   const cashDrawer=cashAccounts.find((account)=>account.id===cashAccountId)??cashAccounts[0];
   const anyCashDrawer=accounts.find((account)=>account.accountType==="CASH");
   const otherCashAccounts=cashAccounts.filter((account)=>account.id!==cashAccountId);
-  const canConfigure=role==="OWNER"||role==="ADMIN";
 
   const closedHistory=useMemo(()=>history.filter((session)=>session.status==="CLOSED"),[history]);
   const previousHistory=useMemo(()=>closedHistory.filter((session)=>session.id!==today?.id),[closedHistory,today?.id]);
@@ -913,17 +921,18 @@ export default function CashCounterWorkspace({
       await apiFetch("/cash-counter/"+today.id+"/close",{method:"POST",body:JSON.stringify({
         denominations:denominationPayload(),
         notes:remarks.trim()||undefined,
+        approveCashRounding:cashMismatch && canApproveCashRounding && roundingApproved,
         handoverToUserId,
         handoverToCashAccountId,
       })});
-      setPendingCloseConfirm(false);setQty({});setRemarks("");setHandoverTarget("");setClosing(false);setRange("today");await load(cashAccountId);
+      setPendingCloseConfirm(false);setRoundingApproved(false);setQty({});setRemarks("");setHandoverTarget("");setClosing(false);setRange("today");await load(cashAccountId);
     }catch(err){setError(err instanceof Error?err.message:"Failed to close today's cash desk");}
     finally{setSaving(false);}
   }
   function closeCounter(event:FormEvent){
     event.preventDefault();if(!today||today.status!=="OPEN")return;
-    if(Math.abs(previewDifference)>.005){
-      setError("Cash cannot be closed until Counted and Expected match. Review the cash ledger for a missing or incorrect transaction.");return;
+    if(!canSubmitClose){
+      setError("Cash count differs from the ledger. Review missing transactions or ask the owner to approve a small denomination-rounding adjustment.");return;
     }
     if(pendingQuickCash.length){setPendingCloseConfirm(true);return;}
     void performCloseCounter();
@@ -1571,7 +1580,7 @@ export default function CashCounterWorkspace({
         </div>
         <aside className="border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--accent-soft)_36%,var(--surface))] p-4 sm:p-5 lg:border-l lg:border-t-0 lg:p-6">
           <p className="text-xs font-extrabold uppercase tracking-[.12em] text-[var(--text-muted)]">Opening total</p>
-          <strong className="money mt-2 block text-[2.25rem] font-black leading-none tracking-[-.055em] text-[var(--accent)] sm:text-[2.6rem]">{money(countedTotal)}</strong>
+          <strong className="money mt-2 block text-[2.25rem] font-black leading-none tracking-[-.055em] text-[var(--accent)] sm:text-[2.6rem]">{cashMoney(countedTotal)}</strong>
           <p className="mt-2 text-sm font-semibold text-[var(--text-muted)]">{cashDrawer?.accountName??"Cash drawer"} · new session</p>
           {canConfigure&&operators.length?<label className="mt-4 block"><span className="mb-1.5 block text-xs font-extrabold uppercase tracking-[.06em] text-[var(--text-muted)]">Responsible</span><SearchableSelect className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={responsibleUserId} onChange={(event)=>setResponsibleUserId(event.target.value)}>{operators.map((operator)=><option key={operator.id} value={operator.id}>{operator.fullName} · {words(operator.role.name)}</option>)}</SearchableSelect></label>:null}
           {otherCashAccounts.length?<label className="mt-3 block"><span className="mb-1.5 block text-xs font-extrabold uppercase tracking-[.06em] text-[var(--text-muted)]">Opening source</span><SearchableSelect className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={sourceCashAccountId} onChange={(event)=>setSourceCashAccountId(event.target.value)}><option value="">Counted cash already in drawer</option>{otherCashAccounts.map((account)=><option key={account.id} value={account.id}>Issue from {account.accountName}</option>)}</SearchableSelect><p className="mt-1.5 text-xs text-[var(--text-muted)]">If a reserve is selected, this opening amount is transferred from that reserve.</p></label>:null}
@@ -1904,20 +1913,20 @@ export default function CashCounterWorkspace({
         <Surface className="counter-surface overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-5">
             <div><h3 className="text-sm font-extrabold">{isClosed?"Session closed":"Close / hand over"}</h3><p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{isClosed?"Final cash reconciliation":"Count the drawer when this cash session ends"}</p></div>
-            {!isClosed?<span className="rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-sm font-extrabold text-[var(--accent)]">{money(expected)} expected</span>:null}
+            {!isClosed?<span className="rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-sm font-extrabold text-[var(--accent)]">{cashMoney(expected)} expected</span>:null}
           </div>
 
           {isClosed?<div className="grid gap-0 lg:grid-cols-[360px_minmax(0,1fr)]">
             <div className="border-b border-[var(--border)] p-4 sm:p-5 lg:border-b-0 lg:border-r">
               <div className={"rounded-2xl border p-5 "+(Math.abs(closedDifference)>.005?"border-amber-200 bg-amber-50":"border-emerald-200 bg-emerald-50")}>
-                <p className={"text-sm font-black "+(Math.abs(closedDifference)>.005?"text-amber-800":"text-emerald-700")}>{Math.abs(closedDifference)>.005?"LEGACY VARIANCE":"✓ CASH MATCHED"}</p>
+                <p className={"text-sm font-black "+(Math.abs(closedDifference)>.005?"text-amber-800":"text-emerald-700")}>{Math.abs(closedDifference)>.005?(today.adjustmentTransactionId?"✓ ROUNDING RECONCILED":"LEGACY VARIANCE"):"✓ CASH MATCHED"}</p>
                 <div className="mt-4 space-y-2.5 text-sm">
                   <div className="flex justify-between gap-3"><span>Opening</span><strong className="money">{money(today.openingTotal)}</strong></div>
                   <div className="flex justify-between gap-3 text-[var(--money-in)]"><span>Cash in</span><strong className="money">+{money(cashIn)}</strong></div>
                   <div className="flex justify-between gap-3 text-[var(--money-out)]"><span>Cash out</span><strong className="money">−{money(cashOut)}</strong></div>
-                  <div className="flex justify-between gap-3 border-t border-current/10 pt-2.5"><span>Expected</span><strong className="money">{money(expected)}</strong></div>
-                  <div className="flex justify-between gap-3"><span>Counted</span><strong className="money">{money(today.actualClosingTotal||0)}</strong></div>
-                  <div className="flex justify-between gap-3 text-base"><span className="font-bold">Difference</span><strong className="money">{money(closedDifference)}</strong></div>
+                  <div className="flex justify-between gap-3 border-t border-current/10 pt-2.5"><span>Expected</span><strong className="money">{cashMoney(expected)}</strong></div>
+                  <div className="flex justify-between gap-3"><span>Counted</span><strong className="money">{cashMoney(today.actualClosingTotal||0)}</strong></div>
+                  <div className="flex justify-between gap-3 text-base"><span className="font-bold">Difference</span><strong className="money">{cashMoney(closedDifference)}</strong></div>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-[var(--text-muted)]">
@@ -1932,7 +1941,7 @@ export default function CashCounterWorkspace({
           </div>:!closing?<div className="grid gap-0 lg:grid-cols-[300px_minmax(0,1fr)_240px]">
             <div className="border-b border-[var(--border)] p-4 sm:p-5 lg:border-b-0 lg:border-r">
               <p className="text-xs font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Expected cash</p>
-              <strong className="money mt-2 block text-[2.2rem] font-black tracking-[-.05em] text-[var(--accent)]">{money(expected)}</strong>
+              <strong className="money mt-2 block text-[2.2rem] font-black tracking-[-.05em] text-[var(--accent)]">{cashMoney(expected)}</strong>
               <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 text-[13px] font-semibold text-[var(--text-muted)]">
                 <span>{money(today.openingTotal)}</span><span>+</span><span className="text-[var(--money-in)]">{money(cashIn)}</span><span>−</span><span className="text-[var(--money-out)]">{money(cashOut)}</span>
               </div>
@@ -1955,20 +1964,30 @@ export default function CashCounterWorkspace({
             </div>
             <div className="p-4 sm:p-5">
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Expected</p><p className="money mt-1 text-sm font-black">{money(expected)}</p></div>
-                <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Counted</p><p className="money mt-1 text-sm font-black">{money(countedTotal)}</p></div>
-                <div className={"rounded-xl p-3 "+(Math.abs(previewDifference)>.005?"bg-rose-50":"bg-emerald-50")}><p className={"text-xs font-bold uppercase "+(Math.abs(previewDifference)>.005?"text-rose-600":"text-emerald-700")}>Difference</p><p className={"money mt-1 text-sm font-black "+(Math.abs(previewDifference)>.005?"text-rose-700":"text-emerald-700")}>{money(previewDifference)}</p></div>
+                <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Expected</p><p className="money mt-1 text-sm font-black">{cashMoney(expected)}</p></div>
+                <div className="rounded-xl bg-[var(--surface-soft)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Counted</p><p className="money mt-1 text-sm font-black">{cashMoney(countedTotal)}</p></div>
+                <div className={"rounded-xl p-3 "+(cashMismatch?"bg-rose-50":"bg-emerald-50")}><p className={"text-xs font-bold uppercase "+(cashMismatch?"text-rose-600":"text-emerald-700")}>Difference</p><p className={"money mt-1 text-sm font-black "+(cashMismatch?"text-rose-700":"text-emerald-700")}>{cashMoney(previewDifference)}</p></div>
               </div>
               {pendingQuickCash.length?<div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
                 <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black text-amber-900">{pendingQuickCash.length} transaction{pendingQuickCash.length===1?"":"s"} still need completion</p><p className="mt-0.5 text-[12px] font-semibold text-amber-800">You can close anyway, but these transactions will remain pending.</p></div><button type="button" onClick={showPendingList} className="min-h-9 shrink-0 rounded-lg bg-amber-500 px-3 text-[10px] font-black text-white">Review</button></div>
               </div>:null}
-              {Math.abs(previewDifference)>.005?<div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
-                <p className="text-sm font-black text-rose-700">NOT READY TO CLOSE</p>
-                <p className="mt-1 text-[13px] font-semibold text-rose-700">{previewDifference>0?"Over":"Short"} by {money(Math.abs(previewDifference))}. Check the ledger before closing.</p>
-              </div>:<div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-black text-emerald-700">✓ Cash matches. Ready to close.</div>}
+              {cashMismatch?(canSubmitClose?
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-black text-emerald-700">✓ Owner-approved rounding is ready to record at closing.</div>:
+                <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
+                  <p className="text-sm font-black text-rose-700">NOT READY TO CLOSE</p>
+                  <p className="mt-1 text-[13px] font-semibold text-rose-700">{previewDifference>0?"Over":"Short"} by {cashMoney(Math.abs(previewDifference))}. Check the ledger before closing.</p>
+                </div>):<div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-black text-emerald-700">✓ Cash matches. Ready to close.</div>}
+              {cashMismatch && Math.abs(previewDifference)<=0.50 && countedTotal===Math.round(expected) ? (
+                <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-950">
+                  <p className="font-black">Fractional cash balance: {cashMoney(expected)}</p>
+                  <p className="mt-1 font-medium">Physical notes count to whole rupees. An approved rounding adjustment of {cashMoney(Math.abs(previewDifference))} will be posted as a separate, balanced cash over/short entry. The original payout stays unchanged.</p>
+                  {canApproveCashRounding ? <label className="mt-2 flex cursor-pointer items-start gap-2 font-bold"><input type="checkbox" checked={roundingApproved} onChange={event=>setRoundingApproved(event.target.checked)} className="mt-1 size-4 shrink-0" />I approve this recorded cash denomination adjustment.</label> :
+                    <p className="mt-2 font-bold">Owner or admin approval is required. Staff cannot write off the difference.</p>}
+                </div>
+              ) : null}
               <label className="mt-3 block"><span className="mb-1.5 block text-sm font-semibold">After closing</span><SearchableSelect className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={handoverTarget} onChange={(event)=>setHandoverTarget(event.target.value)}><option value="">Close session only</option><optgroup label="Hand over same drawer">{operators.filter((operator)=>operator.id!==today.openedBy?.id).map((operator)=><option key={operator.id} value={"user:"+operator.id}>To {operator.fullName}</option>)}</optgroup>{otherCashAccounts.length?<optgroup label="Move all cash to">{otherCashAccounts.map((account)=><option key={account.id} value={"account:"+account.id}>{account.accountName}</option>)}</optgroup>:null}</SearchableSelect><p className="mt-1.5 text-xs text-[var(--text-muted)]">Person handover keeps cash in this drawer. Reserve/drawer handover moves the cash internally.</p></label>
               <label className="mt-3 block"><span className="mb-1.5 block text-sm font-semibold">Note <span className="font-normal text-[var(--text-muted)]">(optional)</span></span><textarea name="cashledger_closing_handover_note" autoComplete="on" className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-base sm:text-sm" placeholder="Closing / handover note" value={remarks} onChange={(event)=>setRemarks(event.target.value)}/></label>
-              <button disabled={saving||Math.abs(previewDifference)>.005} className="mt-4 min-h-12 w-full rounded-xl bg-[var(--text)] px-4 text-sm font-bold text-[var(--surface)] disabled:opacity-35">{saving?"Closing…":Math.abs(previewDifference)>.005?"Match cash to close":handoverTarget?"Close & hand over":"Close session"}</button>
+              <button disabled={saving||!canSubmitClose} className="mt-4 min-h-12 w-full rounded-xl bg-[var(--text)] px-4 text-sm font-bold text-[var(--surface)] disabled:opacity-35">{saving?"Closing…":!canSubmitClose?"Match cash to close":cashMismatch?"Approve rounding & close":handoverTarget?"Close & hand over":"Close session"}</button>
             </div>
           </form>}
         </Surface>
@@ -1976,8 +1995,8 @@ export default function CashCounterWorkspace({
     </>:null}
 
     {today&&!isClosed&&closing?<div className="fixed inset-x-3 bottom-[calc(4.85rem+env(safe-area-inset-bottom))] z-[44] flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_97%,transparent)] p-2.5 shadow-[0_14px_34px_rgba(15,23,42,.20)] backdrop-blur-xl lg:hidden">
-      <div className="grid min-w-0 flex-1 grid-cols-3 gap-1.5 text-center"><div><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Expected</span><strong className="money mt-0.5 block truncate text-[11px]">{money(expected)}</strong></div><div><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Counted</span><strong className="money mt-0.5 block truncate text-[11px]">{money(countedTotal)}</strong></div><div><span className={"block text-[8px] font-black uppercase "+(Math.abs(previewDifference)>.005?"text-rose-600":"text-emerald-700")}>Diff</span><strong className={"money mt-0.5 block truncate text-[11px] "+(Math.abs(previewDifference)>.005?"text-rose-700":"text-emerald-700")}>{money(previewDifference)}</strong></div></div>
-      <button form="cash-close-form" type="submit" disabled={saving||Math.abs(previewDifference)>.005} className="min-h-11 shrink-0 rounded-xl bg-[var(--text)] px-4 text-xs font-black text-[var(--surface)] disabled:opacity-35">{saving?"Closing…":Math.abs(previewDifference)>.005?"Match cash":"Close"}</button>
+      <div className="grid min-w-0 flex-1 grid-cols-3 gap-1.5 text-center"><div><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Expected</span><strong className="money mt-0.5 block truncate text-[11px]">{cashMoney(expected)}</strong></div><div><span className="block text-[8px] font-black uppercase text-[var(--text-muted)]">Counted</span><strong className="money mt-0.5 block truncate text-[11px]">{cashMoney(countedTotal)}</strong></div><div><span className={"block text-[8px] font-black uppercase "+(cashMismatch?"text-rose-600":"text-emerald-700")}>Diff</span><strong className={"money mt-0.5 block truncate text-[11px] "+(cashMismatch?"text-rose-700":"text-emerald-700")}>{cashMoney(previewDifference)}</strong></div></div>
+      <button form="cash-close-form" type="submit" disabled={saving||!canSubmitClose} className="min-h-11 shrink-0 rounded-xl bg-[var(--text)] px-4 text-xs font-black text-[var(--surface)] disabled:opacity-35">{saving?"Closing…":!canSubmitClose?"Match cash":cashMismatch?"Round & close":"Close"}</button>
     </div>:null}
 
     {portalReady&&pendingCloseConfirm?createPortal(<div className="fixed inset-0 z-[120] grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="pending-close-title">
@@ -2157,16 +2176,16 @@ export default function CashCounterWorkspace({
                 <p className="mt-0.5 truncate text-sm text-[var(--text-muted)]">{session.openedBy?.fullName?"Responsible: "+session.openedBy.fullName+" · ":""}{new Date(session.openedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}{session.closedAt?" → "+new Date(session.closedAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"}):""}</p>
               </div>
               <div className="text-right">
-                <p className="money text-sm font-black">{money(session.actualClosingTotal||0)}</p>
-                <p className={"text-[13px] font-semibold "+(Math.abs(variance)>.005?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{Math.abs(variance)>.005?"Legacy variance "+money(variance):"Matched"}</p>
+                <p className="money text-sm font-black">{cashMoney(session.actualClosingTotal||0)}</p>
+                <p className={"text-[13px] font-semibold "+(Math.abs(variance)>.005?"text-[var(--money-out)]":"text-[var(--money-in)]")}>{Math.abs(variance)>.005?(session.adjustmentTransactionId?"Audited rounding ":"Legacy variance ")+cashMoney(variance):"Matched"}</p>
               </div>
               <span className="text-lg text-[var(--text-muted)]">›</span>
             </summary>
             <div className="border-t border-[var(--border)] bg-[var(--surface-soft)] px-4 py-4 sm:px-5">
               <div className="grid grid-cols-3 gap-2">
                 <div className="rounded-xl bg-[var(--surface)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Opening</p><p className="money mt-1 text-sm font-black">{money(session.openingTotal)}</p></div>
-                <div className="rounded-xl bg-[var(--surface)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Expected</p><p className="money mt-1 text-sm font-black">{money(session.expectedClosingTotal||0)}</p></div>
-                <div className="rounded-xl bg-[var(--surface)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Counted</p><p className="money mt-1 text-sm font-black">{money(session.actualClosingTotal||0)}</p></div>
+                <div className="rounded-xl bg-[var(--surface)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Expected</p><p className="money mt-1 text-sm font-black">{cashMoney(session.expectedClosingTotal||0)}</p></div>
+                <div className="rounded-xl bg-[var(--surface)] p-3"><p className="text-xs font-bold uppercase text-[var(--text-muted)]">Counted</p><p className="money mt-1 text-sm font-black">{cashMoney(session.actualClosingTotal||0)}</p></div>
               </div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <div><p className="mb-2 text-sm font-bold">Opening denominations</p><CountBreakdown counts={session.denominationCounts} type="OPENING"/></div>

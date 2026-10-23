@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderSettlementStatus, RoleName, TransactionStatus, TransactionType } from '@prisma/client';
-import { FinancialValidationService } from '../finance/financial-validation.service.js';
+import { FinancialValidationService, requireWholeRupeeCashPayout } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
 import { LedgerService } from '../ledger/ledger.service.js';
@@ -624,6 +624,7 @@ export class PayablesService {
         throw new BadRequestException('Payout charge is allowed only for wallet payouts');
       }
       if (sourceAccount.accountType === AccountType.CASH) {
+        requireWholeRupeeCashPayout(sourceAccount.accountType, dto.amount);
         await this.validation.requireOpenCashDesk(
           tx,
           sourceAccount.id,
