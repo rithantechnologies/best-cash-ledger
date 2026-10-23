@@ -18,7 +18,7 @@ import { BankIfscPicker } from "@/components/bank-ifsc-picker";
 import { matchesSavedDetailSearch } from "@/lib/saved-detail-search";
 import { formatBankCopyText } from "@/lib/bank-copy-text";
 import { suggestedPayOutFundingSource, type PayInSource } from "@/lib/pay-out-source";
-import { defaultPayOutSelection, payOutAllocationsForChoice } from "@/lib/pay-out-allocation.mjs";
+import { allocatePayOutOldestFirst, defaultPayOutSelection, payOutAllocationsForChoice } from "@/lib/pay-out-allocation.mjs";
 import { defaultPaidToCustomerBank } from "@/lib/customer-bank-payout-default.mjs";
 
 const DEMO_TEST_NUMBERS = ["4242424242424242", "5555555555554444", "4000000000000002", "4111111111111111"];
@@ -273,10 +273,13 @@ function switchView(next:"details"|"activity"){
   const nextPayable=eligiblePayables[0];
   // Only a uniquely identified payable can be preselected. Never silently
   // assign money to an older or different swipe when several are outstanding.
-  const nextAmount=nextPayable?String(nextPayable.remainingAmount):"";
+  // With multiple open swipes, staff enters the one actual payout and chooses
+  // its allocations explicitly. Do not force it onto the first swipe/card.
+  const nextAmount=eligiblePayables.length===1?String(nextPayable.remainingAmount):"";
+  const nextCardId=ledgerCardId||(eligiblePayables.length===1?nextPayable?.cardId??"":"");
   const defaultMatch=defaultPayOutSelection(eligiblePayables,nextAmount);
   // Default Paid To to the unique customer bank independently of the matched swipe.
-  setLedgerPayoutDestination(direction==="PAY_OUT"?defaultPaidToCustomerBank(c?.bankAccounts):"");setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerCashConfirmed(false);setLedgerEntryDirection(direction);setLedgerEntryAmount(nextAmount);setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(nextPayable?.cardId??ledgerCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerPayOutMatchChoice(defaultMatch.choice);setLedgerUnallocatedConfirmed(false);setLedgerAllocations(direction==="PAY_OUT"?defaultMatch.allocations:direction==="PAY_IN"&&nextAmount?suggestedLedgerAllocations(nextAmount,direction,nextPayable?.cardId??ledgerCardId):{});setLedgerEntryError("");
+  setLedgerPayoutDestination(direction==="PAY_OUT"?defaultPaidToCustomerBank(c?.bankAccounts):"");setLedgerPayoutDetails("");setLedgerPaidFromManual(false);setLedgerCashConfirmed(false);setLedgerEntryDirection(direction);setLedgerEntryAmount(nextAmount);setLedgerEntryDate(localDateValue());setLedgerEntryAccountId("");setLedgerEntryCardId(nextCardId);setLedgerEntryRemarks("");setLedgerEntryReference("");setLedgerEntryNote("");setLedgerPayOutMatchChoice(defaultMatch.choice);setLedgerUnallocatedConfirmed(false);setLedgerAllocations(direction==="PAY_OUT"?defaultMatch.allocations:direction==="PAY_IN"&&nextAmount?suggestedLedgerAllocations(nextAmount,direction,nextPayable?.cardId??ledgerCardId):{});setLedgerEntryError("");
  }
  function matchingLedgerItems(direction=ledgerEntryDirection,cardId=ledgerEntryCardId){
   const items=direction==="PAY_IN"?(cardLedger?.openPayInItems??[]):(cardLedger?.openPayOutItems??[]);
@@ -782,15 +785,15 @@ function switchView(next:"details"|"activity"){
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
      <div className="flex items-start justify-between gap-3">
       <div><p className="text-xs font-black">Match pending dues {ledgerEntryDirection==="PAY_IN"?<span className="font-semibold text-[var(--text-muted)]">(optional)</span>:null}</p>
-       {ledgerEntryDirection==="PAY_OUT"?<p className="mt-1 text-[11px] text-[var(--text-muted)]">Choose the exact swipe being paid. Nothing is split automatically.</p>:null}
+       {ledgerEntryDirection==="PAY_OUT"?<p className="mt-1 text-[11px] text-[var(--text-muted)]">Choose the exact swipe or apply one payout to multiple swipes.</p>:null}
       </div>
-      {ledgerEntryDirection==="PAY_IN"?<button type="button" onClick={()=>{setLedgerAllocations(suggestedLedgerAllocations(ledgerEntryAmount));setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-[10px] font-black text-[var(--accent)]">Auto oldest first</button>:ledgerMatchItems.length>1?<button type="button" onClick={()=>{setLedgerPayOutMatchChoice("SPLIT");setLedgerAllocations({});setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-[10px] font-black text-[var(--accent)]">Split manually</button>:null}
+      {ledgerEntryDirection==="PAY_IN"?<button type="button" onClick={()=>{setLedgerAllocations(suggestedLedgerAllocations(ledgerEntryAmount));setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-[10px] font-black text-[var(--accent)]">Auto oldest first</button>:ledgerMatchItems.length>1?<div className="flex shrink-0 flex-wrap justify-end gap-3"><button type="button" onClick={()=>{setLedgerPayOutMatchChoice("SPLIT");setLedgerAllocations(allocatePayOutOldestFirst(ledgerMatchItems,ledgerEntryAmount));setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} className="text-[10px] font-black text-[var(--accent)]">Auto oldest first</button><button type="button" onClick={()=>{setLedgerPayOutMatchChoice("SPLIT");setLedgerAllocations({});setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} className="text-[10px] font-black text-[var(--accent)]">Split manually</button></div>:null}
      </div>
      {ledgerEntryDirection==="PAY_OUT"&&ledgerMatchItems.length?<Field label="Apply this Pay Out to *" className="mt-2">
       <SearchableSelect className={control+" bg-[var(--surface)]"} value={ledgerPayOutMatchChoice} onChange={e=>{const choice=e.target.value;setLedgerPayOutMatchChoice(choice);setLedgerAllocations(payOutAllocationsForChoice(ledgerMatchItems,ledgerEntryAmount,choice));setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}}>
        <option value="">Choose a Card Swipe / outstanding item…</option>
        {ledgerMatchItems.map(item=><option key={item.targetId} value={item.targetId}>{item.label+" · "+item.cardLabel+" · remaining "+money(item.remainingAmount)}</option>)}
-       <option value="SPLIT">Split manually across several items</option>
+       <option value="SPLIT">Apply one payout to multiple swipes</option>
        <option value="UNALLOCATED">Record unmatched advance / other payout</option>
       </SearchableSelect>
      </Field>:null}
@@ -799,7 +802,7 @@ function switchView(next:"details"|"activity"){
        <div className="min-w-0"><p className="truncate text-[11px] font-black">{item.label}</p><p className="truncate text-[9px] text-[var(--text-muted)]">{item.cardLabel} · remaining {money(item.remainingAmount)}</p></div>
        <input aria-label={"Amount matched to "+item.label} className="app-control h-9 px-2 text-right text-xs font-black" type="number" min="0" max={item.remainingAmount} step="0.01" inputMode="decimal" value={ledgerAllocations[item.targetId]??""} onChange={e=>{setLedgerAllocations(prev=>({...prev,[item.targetId]:e.target.value}));setLedgerUnallocatedConfirmed(false);setLedgerEntryError("");}} placeholder="0"/>
       </div>)}
-     </div>:ledgerEntryDirection==="PAY_OUT"?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]">{ledgerPayOutMatchChoice==="UNALLOCATED"?"This Pay Out will be recorded as an unmatched advance; no swipe outstanding is reduced.":"Select the swipe above, or choose Split manually to allocate across several swipes."}</p>:null
+     </div>:ledgerEntryDirection==="PAY_OUT"?<p className="mt-2 text-xs font-semibold text-[var(--text-muted)]">{ledgerPayOutMatchChoice==="UNALLOCATED"?"This Pay Out will be recorded as an unmatched advance; no swipe outstanding is reduced.":"Select a swipe, or apply one payout to multiple swipes above."}</p>:null
      :<p className="mt-2 text-[11px] font-semibold text-[var(--text-muted)]">{ledgerEntryDirection==="PAY_IN"?"No open Card Due principal for this selection.":"No open customer payable; this Pay Out is an unmatched advance."}</p>}
      <div className="mt-2 flex items-center justify-between border-t border-[var(--border)] pt-2 text-[10px] font-bold"><span>Matched {money(ledgerMatchedAmount)}</span><span className={ledgerUnallocatedAmount>.001?"text-amber-700":"text-emerald-700"}>Unallocated {money(ledgerUnallocatedAmount)}</span></div>
      {ledgerEntryDirection==="PAY_OUT"&&ledgerMatchItems.length&&ledgerUnallocatedAmount>.001&&ledgerPayOutMatchChoice!=="UNALLOCATED"?<label className="mt-2 flex items-start gap-2 text-xs font-semibold text-amber-800"><input type="checkbox" checked={ledgerUnallocatedConfirmed} onChange={e=>{setLedgerUnallocatedConfirmed(e.target.checked);setLedgerEntryError("");}}/><span>Record the remaining {money(ledgerUnallocatedAmount)} as an unmatched advance (not applied to another swipe).</span></label>:null}

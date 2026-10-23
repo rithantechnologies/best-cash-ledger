@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { defaultPayOutSelection, payOutAllocationsForChoice } from "../src/lib/pay-out-allocation.mjs";
+import { allocatePayOutOldestFirst, defaultPayOutSelection, payOutAllocationsForChoice } from "../src/lib/pay-out-allocation.mjs";
 
 const payables=[
  {targetId:"older-swipe",remainingAmount:9620},
@@ -41,6 +41,26 @@ test("manual split amounts survive amount changes without an unrequested rewrite
  assert.deepEqual(payOutAllocationsForChoice(payables,40000,"SPLIT",entered),entered);
 });
 
+test("one bank payout can explicitly allocate across three swipes, oldest first",()=>{
+ const swipes=[
+  {targetId:"swipe-1",remainingAmount:24424},
+  {targetId:"swipe-2",remainingAmount:24424},
+  {targetId:"swipe-3",remainingAmount:20519},
+ ];
+ assert.deepEqual(allocatePayOutOldestFirst(swipes,69367),{
+  "swipe-1":"24424","swipe-2":"24424","swipe-3":"20519",
+ });
+ assert.deepEqual(allocatePayOutOldestFirst(swipes,25000),{
+  "swipe-1":"24424","swipe-2":"576",
+ });
+ assert.deepEqual(allocatePayOutOldestFirst(swipes,70000),{
+  "swipe-1":"24424","swipe-2":"24424","swipe-3":"20519",
+ });
+ assert.deepEqual(allocatePayOutOldestFirst(swipes,0),{});
+ assert.deepEqual(allocatePayOutOldestFirst(swipes,"not a number"),{});
+ assert.deepEqual(allocatePayOutOldestFirst([{targetId:"a",remainingAmount:2.35},{targetId:"b",remainingAmount:1.10}],3.11),{a:"2.35",b:"0.76"});
+});
+
 test("customer form requires explicit matching, validates unallocated remainder, and leaves Pay In logic alone",()=>{
  const page=readFileSync(join(dirname(fileURLToPath(import.meta.url)),"../src/app/customers/[id]/page.tsx"),"utf8");
  assert.match(page,/defaultPayOutSelection\(eligiblePayables,nextAmount\)/);
@@ -52,5 +72,9 @@ test("customer form requires explicit matching, validates unallocated remainder,
  assert.doesNotMatch(page,/<option value="AUTO">/);
  assert.doesNotMatch(page,/setLedgerPayOutMatchChoice\("AUTO"\)/);
  assert.match(page,/>Split manually<\/button>/);
+ assert.match(page,/allocatePayOutOldestFirst\(ledgerMatchItems,ledgerEntryAmount\)/);
+ assert.match(page,/Apply one payout to multiple swipes/);
+ assert.match(page,/eligiblePayables.length===1\?String\(nextPayable.remainingAmount\):""/);
+ assert.match(page,/const nextCardId=ledgerCardId\|\|\(eligiblePayables.length===1/);
  assert.match(page,/Choose the exact swipe/);
 });
