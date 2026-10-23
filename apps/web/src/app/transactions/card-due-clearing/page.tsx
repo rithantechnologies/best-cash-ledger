@@ -19,6 +19,7 @@ type Recovery={
  provider:{name:string};gateway:{gatewayName:string};destinationAccount:Account;
  transaction:{id:string;transactionNumber:string;netAmount:string|null;charges:{amount:string}[]};
 };
+type FeeAssessment={id:string;amount:string;createdAt:string;transaction:{id:string;transactionNumber:string;status:string}};
 type FeeCollection={
  id:string;amount:string;paymentMode:string;collectedAt:string;referenceNumber:string|null;
  destinationAccount:Account;transaction:{id:string;transactionNumber:string};
@@ -29,7 +30,7 @@ type Clearing={
  principalRecovered:string;principalRemaining:string;commissionCollected:string;commissionRemaining:string;
  nextFollowUpAt:string|null;duePaymentReference:string|null;customerCard:Card;advanceSourceAccount:Account;
  transaction:{id:string;transactionNumber:string;transactionAt:string;status:string;customer:{id:string;fullName:string;mobile:string|null}|null;charges:{amount:string;chargeType:string}[]};
- recoveries:Recovery[];commissionCollections:FeeCollection[];manualLedgerAllocations:ManualDueAllocation[];
+ recoveries:Recovery[];commissionCollections:FeeCollection[];commissionAssessments:FeeAssessment[];manualLedgerAllocations:ManualDueAllocation[];
 };
 type DuePayable={
  id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;
@@ -65,6 +66,7 @@ export default function CardDueClearingPage(){
  const [rows,setRows]=useState<Clearing[]>([]),[payables,setPayables]=useState<DuePayable[]>([]),[selected,setSelected]=useState<Clearing|null>(null),[history,setHistory]=useState<SwipeHistory[]>([]);
  const [customerSearch,setCustomerSearch]=useState(""),[customerId,setCustomerId]=useState(""),[cardId,setCardId]=useState("");
  const [dueAmount,setDueAmount]=useState(""),[sourceAccountId,setSourceAccountId]=useState("");
+ const [commissionRate,setCommissionRate]=useState("3"),[assessAmount,setAssessAmount]=useState(""),[assessNote,setAssessNote]=useState(""),[role,setRole]=useState("");
  const [followUp,setFollowUp]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState("");
  const [addRecoveryAmount,setAddRecoveryAmount]=useState(""),[addProviderId,setAddProviderId]=useState(""),[addGatewayId,setAddGatewayId]=useState(""),[addRecoveryAccountId,setAddRecoveryAccountId]=useState(""),[addRecoveryRef,setAddRecoveryRef]=useState("");
  const [addFeeAmount,setAddFeeAmount]=useState(""),[addFeeAccountId,setAddFeeAccountId]=useState(""),[addFeeRef,setAddFeeRef]=useState("");
@@ -90,6 +92,7 @@ export default function CardDueClearingPage(){
  const loadSelected=(id:string)=>apiFetch<Clearing>("/transactions/card-due-clearings/"+id).then(row=>{setSelected(row);setDetailFollowUp(row.nextFollowUpAt?localValue(new Date(row.nextFollowUpAt)):"");setAddRecoveryAmount(String(Number(row.principalRemaining)));setAddFeeAmount(String(Number(row.commissionRemaining)));});
 
  useEffect(()=>{
+  try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}
   Promise.all([
    apiFetch<Customer[]>("/customers"),
    apiFetch<Provider[]>("/providers"),
@@ -157,7 +160,7 @@ export default function CardDueClearingPage(){
   finally{setAddCardBusy(false);}
  }
  function openCase(row:Clearing){
-  setSelected(row);setDetailFollowUp(row.nextFollowUpAt?localValue(new Date(row.nextFollowUpAt)):"");
+  setAssessAmount(String(Math.max(0,calcMoney(Number(row.dueAmount)*0.03-Number(row.commissionAmount)))));setSelected(row);setDetailFollowUp(row.nextFollowUpAt?localValue(new Date(row.nextFollowUpAt)):"");
   const customerDue=rows.filter(r=>r.transaction.customer?.id===row.transaction.customer?.id).reduce((sum,r)=>sum+Number(r.principalRemaining),0);
   setAddRecoveryAmount(String(calcMoney(customerDue)));setAddFeeAmount("");
   window.history.replaceState(null,"","?id="+row.transactionId);
@@ -174,7 +177,7 @@ export default function CardDueClearingPage(){
   const sourceAccount=accounts.find(a=>a.id===sourceAccountId);
   if(sourceAccount&&Number(sourceAccount.currentBalance)<due){setError("Insufficient balance in "+sourceAccount.accountName+". Available "+money(sourceAccount.currentBalance)+"; required "+money(due)+".");return;}
   const body:any={
-   customerId,customerCardId:cardId,sourceAccountId,dueAmount:due,commissionRate:0,
+   customerId,customerCardId:cardId,sourceAccountId,dueAmount:due,commissionRate:Number(commissionRate),
    nextFollowUpAt:followUp?new Date(followUp).toISOString():undefined,
    referenceNumber:reference||undefined,notes:notes||undefined,
   };
@@ -184,7 +187,7 @@ export default function CardDueClearingPage(){
    setSuccess(saved.transaction.status==="COMPLETED"?"Saved — everything settled.":"Saved — pending amounts will stay in follow-up.");
    setSelected(saved);setDetailFollowUp(saved.nextFollowUpAt?localValue(new Date(saved.nextFollowUpAt)):"");
    window.history.replaceState(null,"","?id="+saved.transactionId);
-   setDueAmount("");setReference("");setNotes("");setFollowUp("");
+   setDueAmount("");setCommissionRate("3");setReference("");setNotes("");setFollowUp("");
    await refreshSelected(saved.transactionId);
   }catch(err){setError(err instanceof Error?err.message:"Could not save card due clearing");}
   finally{setSaving(false);}
@@ -214,6 +217,20 @@ export default function CardDueClearingPage(){
    })});
    setSuccess("Commission collection added.");setAddFeeRef("");await refreshSelected();
   }catch(err){setError(err instanceof Error?err.message:"Could not collect commission");}finally{setSaving(false);}
+ }
+
+ async function assessCommission(e:FormEvent){
+  e.preventDefault();if(!selected)return;
+  const amount=num(assessAmount);
+  if(!Number.isFinite(amount)||amount<=0){setError("Enter a valid additional commission amount.");return;}
+  setSaving(true);setError("");setSuccess("");
+  try{
+   await apiFetch("/transactions/card-due-clearings/"+selected.transactionId+"/commission-assessments",{method:"POST",body:JSON.stringify({
+    amount,notes:assessNote||undefined,
+   })});
+   setAssessAmount("");setAssessNote("");setSuccess("Commission assessed. It is now a receivable; no cash has moved.");
+   await refreshSelected();
+  }catch(err){setError(err instanceof Error?err.message:"Could not assess commission");}finally{setSaving(false);}
  }
 
  async function saveFollowUp(){
@@ -299,6 +316,12 @@ export default function CardDueClearingPage(){
      <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Amount paid to card</span><input className="app-control money text-lg font-black" inputMode="decimal" value={formatAmount(dueAmount)} onChange={e=>{const next=amountInput(e.target.value);setDueAmount(next);const account=accounts.find(a=>a.id===sourceAccountId);const requiredAmount=num(next);if(account&&requiredAmount>0&&Number(account.currentBalance)<requiredAmount){setError("Insufficient balance in "+account.accountName+". Available "+money(account.currentBalance)+"; required "+money(requiredAmount)+".");}else if(error.startsWith("Insufficient balance in ")){setError("");}}} placeholder="50,000" required/></label>
      <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Paid from</span><SearchableSelect className="app-control" value={sourceAccountId} onChange={e=>{const id=e.target.value;setSourceAccountId(id);const account=accounts.find(a=>a.id===id);const requiredAmount=num(dueAmount);if(account&&requiredAmount>0&&Number(account.currentBalance)<requiredAmount){setError("Insufficient balance in "+account.accountName+". Available "+money(account.currentBalance)+"; required "+money(requiredAmount)+".");}else if(error.startsWith("Insufficient balance in ")){setError("");}}} required><option value="">Choose bank / wallet / cash</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType} · Balance {money(a.currentBalance)}</option>)}</SearchableSelect>{sourceAccountId&&num(dueAmount)>0&&Number(accounts.find(a=>a.id===sourceAccountId)?.currentBalance??0)<num(dueAmount)?<p className="mt-1 text-[11px] font-bold text-rose-600">Insufficient balance · available {money(accounts.find(a=>a.id===sourceAccountId)?.currentBalance??0)}</p>:null}</label>
     </div>
+    <div className="grid gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+     <label><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Customer commission % (editable)</span>
+      <input className="app-control money" type="number" min="0" max="100" step="0.01" value={commissionRate} onChange={e=>setCommissionRate(e.target.value)} required/>
+     </label>
+     <div><p className="mb-1.5 text-xs font-bold text-[var(--text-muted)]">Commission receivable when saved</p><p className="money text-lg font-black text-emerald-700">{money(calcMoney(num(dueAmount)*Number(commissionRate||0)/100))}</p><p className="text-[10px] text-[var(--text-muted)]">Assessed now, collect later. Set 0% explicitly if no commission applies.</p></div>
+    </div>
     <details className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)]">
      <summary className="cursor-pointer px-3 py-2.5 text-xs font-bold">More details (optional)</summary>
      <div className="grid gap-3 border-t border-[var(--border)] p-3 sm:grid-cols-3">
@@ -334,6 +357,7 @@ export default function CardDueClearingPage(){
      ["Recovered",selected.principalRecovered,"text-[var(--money-in)]"],
      ["To receive",selected.principalRemaining,Number(selected.principalRemaining)>0?"text-rose-600":"text-[var(--money-in)]"],
      ["Commission earned",commissionEarned,"text-[var(--money-in)]"],
+     ["Commission to collect",selectedCustomerRows.reduce((sum,r)=>sum+Number(r.commissionRemaining),0),"text-amber-700"],
      ["Provider / payout costs",selectedProviderCosts,selectedProviderCosts>0?"text-[var(--money-out)]":""],
      ["Net income",selectedProfit,selectedProfit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]"],
     ].map(([label,value,cls])=><div key={String(label)} className="bg-[var(--surface)] p-3"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</p><p className={"money mt-1 text-sm font-black "+cls}>{money(value)}</p></div>)}
@@ -354,7 +378,7 @@ export default function CardDueClearingPage(){
     </form>
 
     <form onSubmit={addFee} className="rounded-2xl border border-[var(--border)] p-3.5">
-     <h3 className="text-sm font-black">Add commission</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Commission can be collected later in any amount. No percentage is required up front.</p>
+     <h3 className="text-sm font-black">Collect commission</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Outstanding commission {money(selected.commissionRemaining)}. Record a full or partial collection; excess collected becomes extra earned income.</p>
      <div className="mt-3 space-y-2">
       <input className="app-control money" value={formatAmount(addFeeAmount)} onChange={e=>setAddFeeAmount(amountInput(e.target.value))} placeholder="Amount"/>
       <SearchableSelect className="app-control" value={addFeeAccountId} onChange={e=>setAddFeeAccountId(e.target.value)} required><option value="">Cash / UPI account</option>{commissionAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</SearchableSelect>
@@ -362,6 +386,14 @@ export default function CardDueClearingPage(){
       <button disabled={saving} className="app-primary-button min-h-10 w-full text-xs font-black disabled:opacity-50">Collect commission</button>
      </div>
     </form>
+
+    {(role==="OWNER"||role==="ADMIN")?<form onSubmit={assessCommission} className="rounded-2xl border border-[var(--border)] p-3.5">
+     <h3 className="text-sm font-black">Assess outstanding commission</h3>
+     <p className="mt-1 text-[11px] text-[var(--text-muted)]">For older or undercharged payments. This creates commission due, not a cash receipt. Suggested 3% total: {money(calcMoney(Number(selected.dueAmount)*0.03))}; already assessed {money(selected.commissionAmount)}.</p>
+     <input className="app-control money mt-3" value={formatAmount(assessAmount)} onChange={e=>setAssessAmount(amountInput(e.target.value))} placeholder="Additional commission amount" required/>
+     <input className="app-control mt-2" value={assessNote} onChange={e=>setAssessNote(e.target.value)} placeholder="Reason / notes (optional)"/>
+     <button disabled={saving||num(assessAmount)<=0} className="app-primary-button mt-2 min-h-10 w-full text-xs font-black disabled:opacity-50">Assess commission due</button>
+    </form>:null}
 
     <div className="rounded-2xl border border-[var(--border)] p-3.5">
      <h3 className="text-sm font-black">Reminder / follow-up</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Keep the case visible until all pending money is settled.</p>
@@ -373,6 +405,13 @@ export default function CardDueClearingPage(){
 
    <div className="grid gap-4 border-t border-[var(--border)] p-4 lg:grid-cols-2 sm:p-5">
     <div><h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-muted)]">Recovery / Pay In history</h3>{selected.recoveries.length||selected.manualLedgerAllocations.length?<div className="mt-2 space-y-2">{selected.recoveries.map(r=><div key={r.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs"><div className="flex justify-between gap-3"><b>{money(r.swipeAmount)} via {r.provider.name}</b><Link href={"/transactions/"+r.transaction.id} className="text-[var(--accent)]">{r.transaction.transactionNumber}</Link></div><p className="mt-1 text-[var(--text-muted)]">{r.gateway.gatewayName} · fee {money(r.providerChargeAmount)} · received into {r.destinationAccount.accountName} · {new Date(r.recoveredAt).toLocaleString("en-IN")}</p></div>)}{selected.manualLedgerAllocations.map(a=><div key={a.id} className="rounded-xl bg-emerald-50 p-3 text-xs"><div className="flex justify-between gap-3"><b>{money(a.amount)} · Pay In</b><Link href={"/transactions/"+a.customerLedgerEntry.transaction.id} className="text-[var(--accent)]">{a.customerLedgerEntry.transaction.transactionNumber}</Link></div><p className="mt-1 text-[var(--text-muted)]">{a.customerLedgerEntry.remarks} · received into {a.customerLedgerEntry.financialAccount.accountName} · {new Date(a.customerLedgerEntry.transaction.transactionAt).toLocaleString("en-IN")}</p></div>)}</div>:<p className="mt-2 text-xs text-[var(--text-muted)]">No recovery or direct Pay In recorded yet.</p>}</div>
+    <div>
+     <h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-muted)]">Commission assessment history</h3>
+     {selected.commissionAssessments.length?<div className="mt-2 space-y-2">{selected.commissionAssessments.map(a=><div key={a.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs">
+      <div className="flex justify-between gap-3"><b>{money(a.amount)} assessed {a.transaction.status==="REVERSED"?"· Reversed":""}</b><Link href={"/transactions/"+a.transaction.id} className="text-[var(--accent)]">{a.transaction.transactionNumber}</Link></div>
+      <p className="mt-1 text-[var(--text-muted)]">{new Date(a.createdAt).toLocaleString("en-IN")} · income accrued, not cash received</p>
+     </div>)}</div>:<p className="mt-2 text-xs text-[var(--text-muted)]">No additional assessments recorded.</p>}
+    </div>
     <div><h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-muted)]">Commission collection history</h3>{selected.commissionCollections.length?<div className="mt-2 space-y-2">{selected.commissionCollections.map(c=><div key={c.id} className="rounded-xl bg-[var(--surface-soft)] p-3 text-xs"><div className="flex justify-between gap-3"><b>{money(c.amount)} · {c.paymentMode}</b><Link href={"/transactions/"+c.transaction.id} className="text-[var(--accent)]">{c.transaction.transactionNumber}</Link></div><p className="mt-1 text-[var(--text-muted)]">{c.destinationAccount.accountName} · {new Date(c.collectedAt).toLocaleString("en-IN")}</p></div>)}</div>:<p className="mt-2 text-xs text-[var(--text-muted)]">No commission collected yet.</p>}</div>
    </div>
   </Surface>:null}

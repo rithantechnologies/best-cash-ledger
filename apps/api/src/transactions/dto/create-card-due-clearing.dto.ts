@@ -106,3 +106,14 @@ export class SetCardDueFollowUpDto {
   @IsDateString()
   nextFollowUpAt?: string | null;
 }
+
+export class AssessCardDueCommissionDto {
+  @IsNumber()
+  @Min(0.01)
+  amount!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+}

@@ -18,6 +18,7 @@ type PayoutBeneficiary={id:string;beneficiaryName:string;accounts:{id:string;ban
 type Payable={id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[];cards:PayoutCard[];beneficiaries:PayoutBeneficiary[]};sourceTransaction:{transactionNumber:string;transactionType:string;cardSwipe:{swipeAmount:string;commissionAmount:string;providerChargeAmount:string;customerCard:{id:string;bankName:string;lastFourDigits:string}|null}|null}};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number};
 type Paged={items:Payable[];pagination:{page:number;pageSize:number;total:number;totalPages:number}};
+type Reconciliation={inspected:number;issueCount:number;issues:{id:string;customer:string;transactionNumber:string;storedRemainingAmount:number;expectedRemainingAmount:number;reasons:string[]}[]};
 const money=(v:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(Number(v));
 const statusTone=(s:string)=>s==="PAID"?"emerald":s==="OVERDUE"?"rose":s==="PARTIALLY_PAID"?"indigo":s==="PENDING"?"amber":"slate";
 function payableDisplay(p:Payable){
@@ -35,6 +36,7 @@ export default function PayablesPage(){
  const [items,setItems]=useState<Payable[]>([]),[accounts,setAccounts]=useState<Account[]>([]);
  const [dueReport,setDueReport]=useState<NetBalanceReport|null>(null),[dueDate,setDueDate]=useState("");
  const [downloading,setDownloading]=useState(false);
+ const [reconciliation,setReconciliation]=useState<Reconciliation|null>(null);
  const [pagination,setPagination]=useState({page:1,pageSize:25,total:0,totalPages:1});
  const [q,setQ]=useState(""),[status,setStatus]=useState("OPEN"),[transactionType,setTransactionType]=useState(""),[sortBy,setSortBy]=useState("dueAt"),[sortDir,setSortDir]=useState<"asc"|"desc">("asc");
  const [selected,setSelected]=useState<Payable|null>(null),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[destinationDetails,setDestinationDetails]=useState(""),[reference,setReference]=useState(""),[paymentNotes,setPaymentNotes]=useState(""),[payoutError,setPayoutError]=useState("");
@@ -82,6 +84,7 @@ export default function PayablesPage(){
    .finally(()=>setLoading(false));
  }
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
+ useEffect(()=>{if(role==="OWNER"||role==="ADMIN")apiFetch<Reconciliation>("/payables/reconciliation").then(setReconciliation).catch(()=>{});},[role]);
  useEffect(()=>{const timer=setTimeout(()=>load(1).catch(()=>setError("Failed to load payables")),180);return()=>clearTimeout(timer);},[q,status,transactionType,dueDate,sortBy,sortDir,pagination.pageSize]);
 
  async function pay(e:FormEvent){
@@ -146,6 +149,16 @@ export default function PayablesPage(){
  const sh=(label:string,col:string)=><button onClick={()=>sort(col)} className="font-bold">{label}{sortBy===col?(sortDir==="asc"?" ↑":" ↓"):""}</button>;
  return <AppShell><PageFrame>
   <SectionHeading eyebrow="Payments" title="Payables"/>
+  {reconciliation?.issueCount?<Surface className="border border-amber-300 bg-amber-50 p-4">
+   <p className="text-sm font-bold text-amber-900">Payout reconciliation needs review · {reconciliation.issueCount} issue(s) across {reconciliation.inspected} payable records</p>
+   <p className="mt-1 text-xs text-amber-800">No balances have been automatically changed. Open each case and verify the original payout and financial movement before correcting it.</p>
+   <div className="mt-3 space-y-2">{reconciliation.issues.slice(0,20).map(issue=><Link key={issue.id} href={"/payables/"+issue.id} className="block rounded-lg border border-amber-200 bg-white p-2 text-xs">
+    <span className="font-bold">{issue.customer} · {issue.transactionNumber}</span>
+    <span className="ml-2">Stored due {money(issue.storedRemainingAmount)} · Calculated due {money(issue.expectedRemainingAmount)}</span>
+    <p className="mt-1 text-amber-800">{issue.reasons.join(" · ")}</p>
+   </Link>)}</div>
+  </Surface>:null}
+
   <div className="flex flex-wrap items-center justify-between gap-3">
    <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
     {dueReport?<><span className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">Overdue: {money(dueReport.totals.overdue)}</span>

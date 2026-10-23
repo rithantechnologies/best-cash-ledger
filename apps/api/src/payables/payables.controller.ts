@@ -64,6 +64,12 @@ export class PayablesController {
     });
   }
 
+  @Get('reconciliation')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  reconciliation() {
+    return this.payables.reconciliation();
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.payables.get(id);

@@ -6803,6 +6803,8 @@ export class TransactionsService {
           cardDueClearing: true,
           cardDueRecovery: true,
           cardDueCommissionCollection: true,
+          cardDueCommissionAssessment: true,
+          commissions: true,
           quickCashTransfer: true,
         },
       });
@@ -6877,6 +6879,13 @@ export class TransactionsService {
         notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED],
       };
       if (original.cardDueClearing) {
+        const activeAssessment = await tx.cardDueCommissionAssessment.findFirst({
+          where: { clearingId: original.cardDueClearing.id, transaction: { status: activeCardDueStatus } },
+          select: { id: true },
+        });
+        if (activeAssessment) throw new BadRequestException(
+          'Reverse separately assessed Card Due commissions before reversing the original card payment',
+        );
         const [activeRecovery, activeCommission, activeAllocation] = await Promise.all([
           tx.cardDueRecovery.findFirst({
             where: { clearingId: original.cardDueClearing.id, transaction: { status: activeCardDueStatus } },
@@ -6941,6 +6950,20 @@ export class TransactionsService {
             'Reverse later Card Due commission collections first',
           );
         }
+      }
+
+      if (original.cardDueCommissionAssessment) {
+        const laterCollection = await tx.cardDueCommissionCollection.findFirst({
+          where: {
+            clearingId: original.cardDueCommissionAssessment.clearingId,
+            createdAt: { gt: original.cardDueCommissionAssessment.createdAt },
+            transaction: { status: activeCardDueStatus },
+          },
+          select: { id: true },
+        });
+        if (laterCollection) throw new BadRequestException(
+          'Reverse later Card Due commission collections before reversing this assessment',
+        );
       }
 
       if (original.payable) {
@@ -7240,6 +7263,38 @@ export class TransactionsService {
         }
       }
 
+      if (original.cardDueCommissionAssessment) {
+        await tx.$queryRawUnsafe(
+          'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE',
+          original.cardDueCommissionAssessment.clearingId,
+        );
+        const clearing = await tx.cardDueClearingDetail.findUnique({
+          where: { id: original.cardDueCommissionAssessment.clearingId },
+        });
+        if (!clearing || Number(clearing.commissionRemaining) + 0.001 < Number(original.cardDueCommissionAssessment.amount)) {
+          throw new BadRequestException('Commission was already collected or adjusted; reverse later collections first');
+        }
+        const commissionAmount = this.money(Number(clearing.commissionAmount) - Number(original.cardDueCommissionAssessment.amount));
+        const commissionRemaining = this.money(Number(clearing.commissionRemaining) - Number(original.cardDueCommissionAssessment.amount));
+        await tx.cardDueClearingDetail.update({
+          where: { id: clearing.id },
+          data: {
+            commissionAmount: new Prisma.Decimal(commissionAmount),
+            commissionRemaining: new Prisma.Decimal(commissionRemaining),
+            commissionRate: new Prisma.Decimal(this.money(commissionAmount / Number(clearing.dueAmount) * 100)),
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            userId, entityType: 'CARD_DUE_CLEARING', entityId: clearing.id,
+            action: 'REVERSE_COMMISSION_ASSESSMENT',
+            oldValues: { commissionAmount: clearing.commissionAmount.toString(), commissionRemaining: clearing.commissionRemaining.toString() },
+            newValues: { commissionAmount, commissionRemaining, originalAssessmentId: original.id, reversalTransactionId: reversal.id },
+            reason: dto.reason,
+          },
+        });
+      }
+
       if (original.cardDueCommissionCollection) {
         await tx.$queryRawUnsafe(
           'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE',
@@ -7253,11 +7308,11 @@ export class TransactionsService {
           const commissionCollected = this.money(
             Math.max(0, Number(clearing.commissionCollected) - collectionAmount),
           );
-          const baseCommission = this.money(
-            Number(clearing.dueAmount) * Number(clearing.commissionRate) / 100,
-          );
-          const commissionAmount = this.money(Math.max(baseCommission, commissionCollected));
-          const commissionRemaining = this.money(Math.max(0, baseCommission - commissionCollected));
+          const extraIncomeReversed = original.commissions
+            .filter((c) => c.commissionType === 'CARD_DUE_CLEARING_EXTRA')
+            .reduce((total, c) => total + Number(c.amount), 0);
+          const commissionAmount = this.money(Number(clearing.commissionAmount) - extraIncomeReversed);
+          const commissionRemaining = this.money(Math.max(0, commissionAmount - commissionCollected));
           await tx.cardDueClearingDetail.update({
             where: { id: clearing.id },
             data: {

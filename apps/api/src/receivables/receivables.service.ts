@@ -155,6 +155,124 @@ export class ReceivablesService {
     };
   }
 
+  /**
+   * Read-only combined customer debt projection. Card Due principal and its
+   * assessed commission remain owned by CardDueClearingDetail; no duplicate
+   * CustomerReceivable records, cash postings or migrations are created here.
+   */
+  async unifiedList(options?: {
+    page?: number; pageSize?: number; q?: string; status?: ReceivableStatus;
+    kind?: 'CARD_PRINCIPAL' | 'CARD_COMMISSION' | 'OTHER';
+    sortBy?: string; sortDir?: 'asc' | 'desc';
+  }) {
+    const [manual, clearings] = await Promise.all([
+      this.list({ q: options?.q }),
+      this.prisma.cardDueClearingDetail.findMany({
+        where: {
+          transaction: {
+            status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED, TransactionStatus.FAILED] },
+            ...(options?.q?.trim() ? {
+              OR: [
+                { customer: { fullName: { contains: options.q.trim(), mode: 'insensitive' } } },
+                { customer: { mobile: { contains: options.q.trim() } } },
+                { transactionNumber: { contains: options.q.trim(), mode: 'insensitive' } },
+                { referenceNumber: { contains: options.q.trim(), mode: 'insensitive' } },
+              ],
+            } : {}),
+          },
+        },
+        include: {
+          transaction: { include: { customer: true } },
+          customerCard: true,
+          advanceSourceAccount: true,
+        },
+      }),
+    ]);
+    const now = this.indiaDayRange();
+    const statusFor = (remaining: number, received: number, dueAt: Date | null) => {
+      if (remaining <= 0.001) return ReceivableStatus.RECEIVED;
+      if (dueAt && dueAt < now.start) return ReceivableStatus.OVERDUE;
+      if (received > 0.001) return ReceivableStatus.PARTIALLY_RECEIVED;
+      return ReceivableStatus.PENDING;
+    };
+    const items = [
+      ...(Array.isArray(manual) ? manual : manual.items).map((r) => ({
+        ...r, kind: 'OTHER' as const, cardDueTransactionId: null as string | null,
+      })),
+      ...clearings.flatMap((c) => {
+        const dueAt = c.nextFollowUpAt;
+        const base = {
+          dueAt, createdAt: c.transaction.transactionAt,
+          customer: c.transaction.customer!,
+          sourceAccount: c.advanceSourceAccount,
+          sourceTransaction: c.transaction,
+          collections: [],
+          cardDueTransactionId: c.transactionId,
+          description: c.customerCard.bankName + ' ••••' + c.customerCard.lastFourDigits,
+        };
+        const principal = Number(c.principalRemaining);
+        const commission = Number(c.commissionRemaining);
+        return [
+          ...(Number(c.dueAmount) > 0 ? [{
+            ...base, id: 'card-principal:' + c.id, kind: 'CARD_PRINCIPAL' as const,
+            reason: 'Card principal · ' + c.transaction.transactionNumber,
+            reasonCategory: 'CARD_PRINCIPAL',
+            originalAmount: c.dueAmount, receivedAmount: c.principalRecovered,
+            remainingAmount: c.principalRemaining,
+            status: statusFor(principal, Number(c.principalRecovered), dueAt),
+          }] : []),
+          ...(Number(c.commissionAmount) > 0 ? [{
+            ...base, id: 'card-commission:' + c.id, kind: 'CARD_COMMISSION' as const,
+            reason: 'Card commission · ' + c.transaction.transactionNumber,
+            reasonCategory: 'CARD_COMMISSION',
+            originalAmount: c.commissionAmount, receivedAmount: c.commissionCollected,
+            remainingAmount: c.commissionRemaining,
+            status: statusFor(commission, Number(c.commissionCollected), dueAt),
+          }] : []),
+        ];
+      }),
+    ];
+    const kindItems = options?.kind ? items.filter((item) => item.kind === options.kind) : items;
+    const filtered = options?.status ? kindItems.filter((item) => item.status === options.status) : kindItems;
+    const allowedSort = new Set(['dueAt','createdAt','originalAmount','receivedAmount','remainingAmount','status']);
+    const sortBy = allowedSort.has(options?.sortBy ?? '') ? options!.sortBy! : 'dueAt';
+    const dir = options?.sortDir === 'desc' ? -1 : 1;
+    const sorted = filtered.sort((a, b) => {
+      const x = (a as any)[sortBy];
+      const y = (b as any)[sortBy];
+      if (x == null) return 1;
+      if (y == null) return -1;
+      const av = x instanceof Date ? x.getTime() : ['originalAmount','receivedAmount','remainingAmount'].includes(sortBy) ? Number(x) : String(x);
+      const bv = y instanceof Date ? y.getTime() : ['originalAmount','receivedAmount','remainingAmount'].includes(sortBy) ? Number(y) : String(y);
+      return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
+    });
+    const page = Math.max(1, options?.page ?? 1);
+    const pageSize = Math.min(100, Math.max(5, options?.pageSize ?? 25));
+    const summarize = (records: typeof items) => {
+      const open = records.filter((item) => Number(item.remainingAmount) > 0.001 &&
+        item.status !== ReceivableStatus.CANCELLED && item.status !== ReceivableStatus.REVERSED);
+      const sum = (rows: typeof items) => ({
+        amount: Math.round(rows.reduce((total, r) => total + Number(r.remainingAmount), 0) * 100) / 100,
+        count: rows.length,
+      });
+      return {
+        pending: sum(open.filter((r) => r.status === ReceivableStatus.PENDING)),
+        partial: sum(open.filter((r) => r.status === ReceivableStatus.PARTIALLY_RECEIVED)),
+        dueToday: sum(open.filter((r) => r.dueAt && r.dueAt >= now.start && r.dueAt < now.end)),
+        overdue: sum(open.filter((r) => r.status === ReceivableStatus.OVERDUE)),
+        principal: sum(open.filter((r) => r.kind === 'CARD_PRINCIPAL')),
+        commission: sum(open.filter((r) => r.kind === 'CARD_COMMISSION')),
+        other: sum(open.filter((r) => r.kind === 'OTHER')),
+        total: sum(open),
+      };
+    };
+    return {
+      items: sorted.slice((page - 1) * pageSize, page * pageSize),
+      pagination: { page, pageSize, total: sorted.length, totalPages: Math.max(1, Math.ceil(sorted.length / pageSize)) },
+      summary: summarize(kindItems),
+    };
+  }
+
   async get(id: string) {
     const receivable = await this.prisma.customerReceivable.findUnique({
       where: { id },

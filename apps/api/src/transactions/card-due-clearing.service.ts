@@ -7,6 +7,7 @@ import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   CardDueCommissionCollectionDto,
+  AssessCardDueCommissionDto,
   CardDueRecoveryDto,
   CreateCardDueClearingDto,
   SetCardDueFollowUpDto,
@@ -60,6 +61,10 @@ export class CardDueClearingService {
           destinationAccount: true,
         },
         orderBy: { recoveredAt: 'asc' as const },
+      },
+      commissionAssessments: {
+        include: { transaction: true },
+        orderBy: { createdAt: 'desc' as const },
       },
       commissionCollections: {
         where: {
@@ -494,6 +499,114 @@ export class CardDueClearingService {
       });
       if (!clearing) throw new NotFoundException('Card due clearing not found');
       await this.recordCommissionTx(tx, clearing.id, dto, userId, actorRole, idempotencyKey);
+    });
+    return this.get(masterTransactionId);
+  }
+
+  /**
+   * Assess commission on an existing card payment without moving any cash.
+   * This is a new auditable income accrual, not an edit to the old journal or
+   * an immediate collection. Existing zero-commission cases are supported.
+   */
+  async assessCommission(
+    masterTransactionId: string,
+    dto: AssessCardDueCommissionDto,
+    userId: string,
+    providedIdempotencyKey?: string,
+  ) {
+    const amount = this.money(dto.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || Math.abs(dto.amount - amount) > 0.00001) {
+      throw new BadRequestException('Enter a valid commission amount in rupees and paise');
+    }
+    const key = await this.idempotency.key(
+      TransactionType.CARD_DUE_COMMISSION_ASSESSMENT,
+      userId, { masterTransactionId, ...dto }, providedIdempotencyKey,
+    );
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT "id" FROM "CardDueClearingDetail" WHERE "transactionId" = $1 FOR UPDATE',
+        masterTransactionId,
+      );
+      const clearing = await tx.cardDueClearingDetail.findUnique({
+        where: { transactionId: masterTransactionId },
+        include: { transaction: true },
+      });
+      if (!clearing) throw new NotFoundException('Card due clearing not found');
+      if ((clearing.transaction.status === TransactionStatus.CANCELLED || clearing.transaction.status === TransactionStatus.REVERSED || clearing.transaction.status === TransactionStatus.FAILED)) {
+        throw new BadRequestException('Cannot assess commission on a cancelled or reversed card due');
+      }
+      const ledgers = await tx.ledgerAccount.findMany({
+        where: { ledgerCode: { in: ['SYS-CUST-RECEIVABLE', 'SYS-COMMISSION'] } },
+      });
+      const receivable = ledgers.find((l) => l.ledgerCode === 'SYS-CUST-RECEIVABLE');
+      const commission = ledgers.find((l) => l.ledgerCode === 'SYS-COMMISSION');
+      if (!receivable || !commission) throw new Error('Card due financial ledgers are not configured');
+      const transaction = await tx.transaction.create({
+        data: {
+          transactionNumber: 'CDA-' + Date.now().toString(36).toUpperCase(),
+          transactionType: TransactionType.CARD_DUE_COMMISSION_ASSESSMENT,
+          transactionAt: new Date(),
+          customerId: clearing.transaction.customerId,
+          grossAmount: new Prisma.Decimal(amount),
+          netAmount: new Prisma.Decimal(amount),
+          status: TransactionStatus.COMPLETED,
+          idempotencyKey: key,
+          notes: dto.notes || 'Additional card due commission assessed',
+          createdById: userId,
+        },
+      });
+      await tx.cardDueCommissionAssessment.create({
+        data: {
+          clearingId: clearing.id, transactionId: transaction.id,
+          amount: new Prisma.Decimal(amount), createdById: userId,
+        },
+      });
+      await tx.transactionCommission.create({
+        data: {
+          transactionId: transaction.id,
+          commissionType: 'CARD_DUE_CLEARING_ASSESSED',
+          calculationType: CalculationType.FIXED,
+          amount: new Prisma.Decimal(amount),
+          rate: new Prisma.Decimal(0),
+        },
+      });
+      await this.ledger.post(tx, transaction.id, userId, 'Card due commission assessed', [
+        {
+          ledgerAccountId: receivable.id, entryType: EntryType.DEBIT, amount,
+          customerId: clearing.transaction.customerId ?? undefined,
+          description: 'Additional accrued card due commission receivable',
+        },
+        {
+          ledgerAccountId: commission.id, entryType: EntryType.CREDIT, amount,
+          customerId: clearing.transaction.customerId ?? undefined,
+          description: 'Additional assessed commission income',
+        },
+      ]);
+      const commissionAmount = this.money(Number(clearing.commissionAmount) + amount);
+      const commissionRemaining = this.money(Number(clearing.commissionRemaining) + amount);
+      await tx.cardDueClearingDetail.update({
+        where: { id: clearing.id },
+        data: {
+          commissionAmount: new Prisma.Decimal(commissionAmount),
+          commissionRemaining: new Prisma.Decimal(commissionRemaining),
+          commissionRate: new Prisma.Decimal(
+            this.money(commissionAmount / Number(clearing.dueAmount) * 100),
+          ),
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId, entityType: 'CARD_DUE_CLEARING', entityId: clearing.id, action: 'ASSESS_COMMISSION',
+          oldValues: {
+            commissionAmount: clearing.commissionAmount.toString(),
+            commissionRemaining: clearing.commissionRemaining.toString(),
+          },
+          newValues: {
+            commissionAmount, commissionRemaining, addedAmount: amount,
+            assessmentTransactionId: transaction.id, notes: dto.notes ?? null,
+          },
+        },
+      });
     });
     return this.get(masterTransactionId);
   }

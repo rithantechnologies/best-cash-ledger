@@ -42,6 +42,23 @@ export class ReceivablesController {
     });
   }
 
+  @Get('unified')
+  unified(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+    @Query('status') status?: ReceivableStatus,
+    @Query('kind') kind?: 'CARD_PRINCIPAL' | 'CARD_COMMISSION' | 'OTHER',
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: 'asc' | 'desc',
+  ) {
+    return this.receivables.unifiedList({
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+      q, status, kind, sortBy, sortDir,
+    });
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.receivables.get(id);

@@ -56,6 +56,7 @@ enum TransactionType {
   CARD_DUE_CLEARING
   CARD_DUE_RECOVERY
   CARD_DUE_COMMISSION_COLLECTION
+  CARD_DUE_COMMISSION_ASSESSMENT
   CASH_ADJUSTMENT
   ACCOUNT_ENTRY
   CUSTOMER_LEDGER_ENTRY
@@ -568,6 +569,7 @@ model Transaction {
   cardDueClearing             CardDueClearingDetail?
   cardDueRecovery             CardDueRecovery?
   cardDueCommissionCollection CardDueCommissionCollection?
+  cardDueCommissionAssessment CardDueCommissionAssessment?
   payable                     CustomerPayable?
   payablePayment              PayablePayment?
   advanceOffset               CustomerAdvanceOffset?
@@ -667,6 +669,7 @@ model CardDueClearingDetail {
   duePaymentReference    String?
   recoveries             CardDueRecovery[]
   commissionCollections  CardDueCommissionCollection[]
+  commissionAssessments CardDueCommissionAssessment[]
   manualLedgerAllocations CustomerLedgerAllocation[]
   createdAt              DateTime                      @default(now())
   updatedAt              DateTime                      @updatedAt
@@ -719,6 +722,19 @@ model CardDueCommissionCollection {
 
   @@index([clearingId, collectedAt])
   @@index([destinationAccountId])
+}
+
+model CardDueCommissionAssessment {
+  id            String                @id @default(uuid())
+  clearingId    String
+  clearing      CardDueClearingDetail @relation(fields: [clearingId], references: [id])
+  transactionId String                @unique
+  transaction   Transaction           @relation(fields: [transactionId], references: [id])
+  amount        Decimal               @db.Decimal(18, 2)
+  createdById   String
+  createdAt     DateTime              @default(now())
+
+  @@index([clearingId, createdAt])
 }
 
 model CustomerPayable {

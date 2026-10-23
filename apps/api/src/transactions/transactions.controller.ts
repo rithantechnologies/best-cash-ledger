@@ -11,6 +11,7 @@ import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
 import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
 import {
   CardDueCommissionCollectionDto,
+  AssessCardDueCommissionDto,
   CardDueRecoveryDto,
   CreateCardDueClearingDto,
   SetCardDueFollowUpDto,
@@ -143,6 +144,17 @@ export class TransactionsController {
     @Headers('idempotency-key') key?: string,
   ) {
     return this.cardDueClearings.addCommissionCollection(id, dto, req.user.userId, req.user.role, key);
+  }
+
+  @Post('card-due-clearings/:id/commission-assessments')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  assessCardDueCommission(
+    @Param('id') id: string,
+    @Body() dto: AssessCardDueCommissionDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.cardDueClearings.assessCommission(id, dto, req.user.userId, key);
   }
 
   @Post('card-due-clearings/:id/follow-up')

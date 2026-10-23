@@ -90,6 +90,69 @@ export class PayablesService {
     });
   }
 
+  /**
+   * Owner-facing reconciliation. A payout must never be marked paid merely
+   * because a user zeroed its balance. Compare its persisted totals with
+   * active financial payments, prior advance offsets and manual allocations.
+   * This report does not mutate customer balances.
+   */
+  async reconciliation() {
+    const payables = await this.prisma.customerPayable.findMany({
+      where: { status: { notIn: [PayableStatus.CANCELLED, PayableStatus.REVERSED] } },
+      include: {
+        customer: { select: { fullName: true, mobile: true } },
+        sourceTransaction: { select: { id: true, transactionNumber: true, status: true } },
+        payments: { include: { transaction: { select: { status: true } } } },
+        advanceOffsets: { include: { transaction: { select: { status: true } } } },
+        manualLedgerAllocations: {
+          include: {
+            customerLedgerEntry: {
+              include: { transaction: { select: { status: true } } },
+            },
+          },
+        },
+      },
+    });
+    const cents = (value: number) => Math.round(value * 100);
+    const active = (status: TransactionStatus) =>
+      status !== TransactionStatus.CANCELLED && status !== TransactionStatus.REVERSED && status !== TransactionStatus.FAILED;
+    const problems = payables.flatMap((p) => {
+      const sum = (rows: { amount: Prisma.Decimal }[]) =>
+        rows.reduce((total, row) => total + cents(Number(row.amount)), 0);
+      const paid = sum([
+        ...p.payments.filter((x) => x.status === PaymentStatus.COMPLETED && active(x.transaction.status)),
+        ...p.manualLedgerAllocations.filter((x) => active(x.customerLedgerEntry.transaction.status)),
+      ]);
+      const offset = sum(p.advanceOffsets.filter((x) =>
+        !x.reversedAt && active(x.transaction.status)));
+      const original = cents(Number(p.originalAmount));
+      const remaining = Math.max(0, original - paid - offset);
+      const reasons: string[] = [];
+      if (cents(Number(p.paidAmount)) !== paid) reasons.push('Paid total differs from active payouts/allocations');
+      if (cents(Number(p.offsetAmount)) !== offset) reasons.push('Advance offset total differs from active offsets');
+      if (cents(Number(p.remainingAmount)) !== remaining) reasons.push('Remaining amount differs from original minus settlements');
+      if (remaining === 0 && p.status !== PayableStatus.PAID) reasons.push('Fully settled payable still marked unpaid');
+      if (remaining > 0 && p.status === PayableStatus.PAID) reasons.push('Payable marked paid despite outstanding balance');
+      if (!active(p.sourceTransaction.status)) reasons.push('Source transaction inactive, but payable is active');
+      return reasons.length ? [{
+        id: p.id,
+        customer: p.customer.fullName,
+        mobile: p.customer.mobile,
+        transactionNumber: p.sourceTransaction.transactionNumber,
+        originalAmount: Number(p.originalAmount),
+        storedPaidAmount: Number(p.paidAmount),
+        postedPaidAmount: paid / 100,
+        storedOffsetAmount: Number(p.offsetAmount),
+        postedOffsetAmount: offset / 100,
+        storedRemainingAmount: Number(p.remainingAmount),
+        expectedRemainingAmount: remaining / 100,
+        status: p.status,
+        reasons,
+      }] : [];
+    });
+    return { inspected: payables.length, issueCount: problems.length, issues: problems };
+  }
+
   async list(options?: {
     page?: number;
     pageSize?: number;
