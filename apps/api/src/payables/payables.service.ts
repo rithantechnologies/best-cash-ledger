@@ -101,8 +101,8 @@ export class PayablesService {
       where: { status: { notIn: [PayableStatus.CANCELLED, PayableStatus.REVERSED] } },
       include: {
         customer: { select: { fullName: true, mobile: true } },
-        sourceTransaction: { select: { id: true, transactionNumber: true, status: true,
-          cardSwipe: { select: { customerPayableAmount: true } },
+        sourceTransaction: { select: { id: true, transactionNumber: true, transactionAt: true, status: true,
+          cardSwipe: { select: { customerPayableAmount: true, customerCardId: true } },
         } },
         payments: { include: { transaction: { select: { status: true } } } },
         advanceOffsets: { include: { transaction: { select: { status: true } } } },
@@ -115,6 +115,28 @@ export class PayablesService {
         },
       },
     });
+    // An older customer Pay Out may already have moved the money. Surface
+    // eligible unmatched advances before anyone attempts a second payout.
+    // This is a read-only suggestion, not an automatic matching/transfer.
+    const openSwipes = payables.filter((p) => p.sourceTransaction.cardSwipe &&
+      Number(p.remainingAmount) > 0.001 && p.status !== PayableStatus.PAID);
+    const candidates = openSwipes.length ? await this.prisma.customerLedgerEntryDetail.findMany({
+      where: {
+        direction: 'PAY_OUT',
+        receivableAmount: { gt: 0 },
+        transaction: {
+          status: TransactionStatus.COMPLETED,
+          customerId: { in: [...new Set(openSwipes.map((p) => p.customerId))] },
+        },
+      },
+      select: {
+        id: true, amount: true, receivableAmount: true, payableAmount: true,
+        advanceAppliedAmount: true, customerCardId: true,
+        transaction: {
+          select: { customerId: true, transactionAt: true, transactionNumber: true },
+        },
+      },
+    }) : [];
     const cents = (value: number) => Math.round(value * 100);
     const active = (status: TransactionStatus) =>
       status !== TransactionStatus.CANCELLED && status !== TransactionStatus.REVERSED && status !== TransactionStatus.FAILED;
@@ -135,6 +157,30 @@ export class PayablesService {
         reasons.push('Original payable differs from recorded card-swipe customer amount; investigate possible manual zeroing');
       }
 
+      if (remaining > 0 && p.sourceTransaction.cardSwipe) {
+        const earlier = candidates.filter((a) =>
+          a.transaction.customerId === p.customerId &&
+          a.transaction.transactionAt < p.sourceTransaction.transactionAt &&
+          (!a.customerCardId || a.customerCardId === p.sourceTransaction.cardSwipe!.customerCardId) &&
+          cents(Number(a.receivableAmount)) > cents(Number(a.advanceAppliedAmount))
+        );
+        if (earlier.length) {
+          const available = earlier.reduce((total, a) =>
+            total + Math.max(0, cents(Number(a.receivableAmount)) - cents(Number(a.advanceAppliedAmount))), 0);
+          reasons.push('Earlier Pay Out exists (' + earlier.map((a) => a.transaction.transactionNumber).join(', ') +
+            '); up to ₹' + (Math.min(remaining, available) / 100).toFixed(2) +
+            ' may be matched without sending money again. Use Apply earlier Pay Out.');
+          for (const advance of earlier) {
+            const difference = cents(Number(advance.amount)) -
+              cents(Number(advance.receivableAmount)) - cents(Number(advance.payableAmount));
+            if (difference !== 0) {
+              reasons.push('Earlier Pay Out ' + advance.transaction.transactionNumber +
+                ' has ₹' + (Math.abs(difference) / 100).toFixed(2) +
+                ' not consistently classified; verify the original wallet/bank statement before correcting it');
+            }
+          }
+        }
+      }
       if (cents(Number(p.paidAmount)) !== paid) reasons.push('Paid total differs from active payouts/allocations');
       if (cents(Number(p.offsetAmount)) !== offset) reasons.push('Advance offset total differs from active offsets');
       if (cents(Number(p.remainingAmount)) !== remaining) reasons.push('Remaining amount differs from original minus settlements');
