@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { Modal, Field } from "@/components/ui";
 import { SearchableSelect } from "@/components/searchable-select";
+import { customerLedgerSplit } from "@/lib/customer-ledger-split";
 
 type Account={id:string;accountName:string;accountType?:string;isActive?:boolean};
 type Card={id:string;bankName:string;lastFourDigits:string;isActive:boolean};
@@ -20,7 +21,6 @@ export type EditableCustomerTransaction={
   customer:Customer|null;customerLedgerEntry:EditableCustomerLedger|null;
 };
 
-const asMoney=(n:number)=>Math.round(n*100)/100;
 const localDate=(value:string)=>{
   const date=new Date(value);
   return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);
@@ -76,31 +76,21 @@ export function CustomerLedgerEditor({open,onClose,onSaved,transaction}:{
    setCustomerId(customer.id);setCustomerSearch(customer.fullName);setMatches([]);setCardId("");
    apiFetch<Customer>("/customers/"+customer.id).then(c=>setCards(c.cards||[])).catch(()=>setCards([]));
  }
- function changeAmount(next:string){
-   setAmount(next);
-   const value=Number(next);
-   if(!Number.isFinite(value)||value<0)return;
-   const oldAmount=Number(detail.amount);
-   const previousReceivable=Number(detail.receivableAmount);
-   const newReceivable=oldAmount>0?asMoney(value*previousReceivable/oldAmount):0;
-   setReceivable(String(newReceivable));
-   setPayable(String(asMoney(value-newReceivable)));
- }
- function changeReceivable(next:string){
-   setReceivable(next);
-   if(Number.isFinite(Number(next)))setPayable(String(asMoney(Number(amount||0)-Number(next))));
- }
- function changePayable(next:string){
-   setPayable(next);
-   if(Number.isFinite(Number(next)))setReceivable(String(asMoney(Number(amount||0)-Number(next))));
- }
+ // Classification fields are independent. Never silently reclassify customer money:
+ // show a discrepancy and require the operator to reconcile the actual amount.
+ function changeAmount(next:string){setAmount(next);}
+ function changeReceivable(next:string){setReceivable(next);}
+ function changePayable(next:string){setPayable(next);}
+ const split=customerLedgerSplit(amount,receivable,payable);
+ const splitValid=split.valid;
+ const splitAmount=(split.classifiedPaise??0)/100;
+ const splitDifference=split.differencePaise===null?null:split.differencePaise/100;
+ const formatMoney=(value:number)=>"₹"+Math.abs(value).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
  async function save(event:FormEvent){
    event.preventDefault();setError("");
    if(!customerId){setError("Choose a customer from the search results");return;}
-   if(!Number.isFinite(Number(amount))||Number(amount)<=0||
-      Number(receivable)<0||Number(payable)<0||
-      Math.abs(asMoney(Number(receivable)+Number(payable))-Number(amount))>.001){
-      setError("Receivable and payable portions must add up to the full amount");return;
+   if(!splitValid){
+      setError("Customer due and credit amounts must equal the recorded payment. Check the real wallet/bank payment before correcting Amount.");return;
    }
    if(locked&&(Number(amount)!==Number(detail.amount)||direction!==detail.direction||
      customerId!==transaction.customer?.id||cardId!==(detail.customerCard?.id||"")||
@@ -130,7 +120,7 @@ export function CustomerLedgerEditor({open,onClose,onSaved,transaction}:{
   description={"Changes to "+transaction.transactionNumber+" update its account and customer ledgers together. The original creation timestamp and before/after audit remain saved."}
   onClose={()=>{if(!loading)onClose()}}
   footer={<div className="grid grid-cols-2 gap-2"><button type="button" disabled={loading} className="app-secondary-button min-h-11" onClick={onClose}>Cancel</button>
-   <button type="submit" form="customer-ledger-full-edit" disabled={loading||reason.trim().length<3} className="app-primary-button min-h-11 disabled:opacity-40">{loading?"Saving…":"Save all changes"}</button></div>}>
+   <button type="submit" form="customer-ledger-full-edit" disabled={loading||!splitValid||reason.trim().length<3} className="app-primary-button min-h-11 disabled:opacity-40">{loading?"Saving…":"Save all changes"}</button></div>}>
   <form id="customer-ledger-full-edit" className="space-y-4" onSubmit={save}>
    {locked?<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
     This payment has ₹{allocated.toLocaleString("en-IN")} matched to dues. You can correct descriptions, reference, recipient and date, but must reverse the matched entries before changing financial amounts or the card/customer.
@@ -139,7 +129,7 @@ export function CustomerLedgerEditor({open,onClose,onSaved,transaction}:{
    <div className="grid gap-3 sm:grid-cols-2">
     <Field label="Transaction type"><SearchableSelect className={control} value={direction} disabled={locked} onChange={e=>setDirection(e.target.value as "PAY_IN"|"PAY_OUT")}>
      <option value="PAY_IN">PAY IN — RECEIVED</option><option value="PAY_OUT">PAY OUT — PAID</option></SearchableSelect></Field>
-    <Field label="Amount (₹)"><input className={control} inputMode="decimal" type="number" min=".01" step=".01" value={amount} disabled={locked} onChange={e=>changeAmount(e.target.value)} required/></Field>
+    <Field label="Amount (₹)"><input className={control} inputMode="decimal" type="number" min=".01" step=".01" value={amount} disabled={locked} onChange={e=>changeAmount(e.target.value)} required/>{direction==="PAY_OUT"&&Number(amount)!==Number(detail.amount)?<p className="mt-1 text-xs text-amber-800">Changing this amount also corrects the posted wallet/bank movement and its audit. Verify the actual transfer first.</p>:null}</Field>
     <Field label={direction==="PAY_IN"?"Received in account":"Paid from account"}>
      <SearchableSelect className={control} value={accountId} disabled={locked} onChange={e=>{setAccountId(e.target.value);setConfirmedCash(false)}}>
        <option value="">Choose account</option>
@@ -160,6 +150,7 @@ export function CustomerLedgerEditor({open,onClose,onSaved,transaction}:{
    </SearchableSelect></Field>
    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
     <p className="mb-2 text-xs font-black">Customer ledger classification</p>
+    <p className="mb-3 text-xs text-[var(--text-muted)]">Recorded {direction==="PAY_OUT"?"Pay Out":"Pay In"}: <strong>{formatMoney(Number(amount||0))}</strong>. Classify the whole payment below. Neither value changes the other automatically.</p>
     <div className="grid grid-cols-2 gap-3">
      <Field label={direction==="PAY_IN"?"Reduces customer due":"Creates customer due"}>
       <input type="number" min="0" step=".01" className={control} value={receivable} disabled={locked} onChange={e=>changeReceivable(e.target.value)}/></Field>
@@ -167,6 +158,22 @@ export function CustomerLedgerEditor({open,onClose,onSaved,transaction}:{
       <input type="number" min="0" step=".01" className={control} value={payable} disabled={locked} onChange={e=>changePayable(e.target.value)}/></Field>
     </div>
     <p className="mt-2 text-[11px] text-[var(--text-muted)]">Both portions must total the payment amount. Changing an existing allocation requires reversing that allocation first.</p>
+    {!splitValid?
+      <div role="alert" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+       {splitDifference===null?
+        <p className="font-bold">Enter valid rupee amounts with at most two decimal places in all three fields.</p>:
+        <>
+         <p className="font-bold">{splitDifference>0
+          ?formatMoney(splitDifference)+" of this payment is not classified."
+          :formatMoney(splitDifference)+" is classified beyond the payment amount."}</p>
+         <p className="mt-1">Recorded payment: {formatMoney(Number(amount))}. Classified: {formatMoney(splitAmount)}. Do not assign the difference to customer credit just to balance it.</p>
+         <p className="mt-1">If the actual {direction==="PAY_OUT"?"wallet/bank payout":"receipt"} was {formatMoney(splitAmount)}, change <strong>Amount</strong> above to that total after verifying the statement. Otherwise classify the full recorded payment correctly.</p>
+        </>}
+      </div>:null}
+    {direction==="PAY_OUT"&&!locked?<button type="button" onClick={()=>{setReceivable(amount);setPayable("0")}}
+      className="mt-3 min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
+      Classify full Pay Out as customer advance (creates due)
+     </button>:null}
    </div>
    {direction==="PAY_OUT"?<Field label="Paid-to recipient / destination (optional override)">
     <input className={control} value={recipient} maxLength={160} onChange={e=>setRecipient(e.target.value)}
