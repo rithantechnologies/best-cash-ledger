@@ -101,7 +101,9 @@ export class PayablesService {
       where: { status: { notIn: [PayableStatus.CANCELLED, PayableStatus.REVERSED] } },
       include: {
         customer: { select: { fullName: true, mobile: true } },
-        sourceTransaction: { select: { id: true, transactionNumber: true, status: true } },
+        sourceTransaction: { select: { id: true, transactionNumber: true, status: true,
+          cardSwipe: { select: { customerPayableAmount: true } },
+        } },
         payments: { include: { transaction: { select: { status: true } } } },
         advanceOffsets: { include: { transaction: { select: { status: true } } } },
         manualLedgerAllocations: {
@@ -128,6 +130,11 @@ export class PayablesService {
       const original = cents(Number(p.originalAmount));
       const remaining = Math.max(0, original - paid - offset);
       const reasons: string[] = [];
+      if (p.sourceTransaction.cardSwipe &&
+          cents(Number(p.sourceTransaction.cardSwipe.customerPayableAmount)) !== original) {
+        reasons.push('Original payable differs from recorded card-swipe customer amount; investigate possible manual zeroing');
+      }
+
       if (cents(Number(p.paidAmount)) !== paid) reasons.push('Paid total differs from active payouts/allocations');
       if (cents(Number(p.offsetAmount)) !== offset) reasons.push('Advance offset total differs from active offsets');
       if (cents(Number(p.remainingAmount)) !== remaining) reasons.push('Remaining amount differs from original minus settlements');

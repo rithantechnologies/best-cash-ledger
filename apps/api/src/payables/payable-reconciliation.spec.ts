@@ -6,7 +6,7 @@ const dec = (amount: number) => new Prisma.Decimal(amount);
 function payable(storedRemaining: number, status: PayableStatus) {
   return {
     id: 'payable-1', customer: {fullName:'Manikandan',mobile:null},
-    sourceTransaction: {transactionNumber:'CCS-1',status:TransactionStatus.COMPLETED},
+    sourceTransaction: {transactionNumber:'CCS-1',status:TransactionStatus.COMPLETED,cardSwipe:{customerPayableAmount:dec(29000)}},
     originalAmount: dec(29000), paidAmount: dec(29000), offsetAmount: dec(0),
     remainingAmount: dec(storedRemaining), status,
     payments: [{amount:dec(29000),status:PaymentStatus.COMPLETED,transaction:{status:TransactionStatus.COMPLETED}}],
@@ -21,6 +21,14 @@ describe('payout status vs actual payments', () => {
     expect(report.issueCount).toBe(1);
     expect(report.issues[0]).toMatchObject({customer:'Manikandan',expectedRemainingAmount:0,storedRemainingAmount:29000});
     expect(report.issues[0].reasons).toContain('Remaining amount differs from original minus settlements');
+  });
+  it('flags a zeroed payable when the original card swipe still shows money owed', async () => {
+    const p=payable(0,PayableStatus.PAID);
+    p.originalAmount=dec(0);p.paidAmount=dec(0);p.payments=[];
+    const service=new PayablesService({customerPayable:{findMany:vi.fn().mockResolvedValue([p])}} as never,{} as never,{} as never,{} as never,{} as never);
+    const report=await service.reconciliation();
+    expect(report.issueCount).toBe(1);
+    expect(report.issues[0].reasons.join(' ')).toContain('manual zeroing');
   });
   it('reports no discrepancy when the payable and active payments reconcile', async () => {
     const findMany=vi.fn().mockResolvedValue([payable(0,PayableStatus.PAID)]);
