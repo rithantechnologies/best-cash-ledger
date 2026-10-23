@@ -6,7 +6,7 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 export type NetBalanceRow={
  id:string;dueDate:string;swipeDate:string;customerId:string;customer:string;mobile:string;
  card:string;provider:string;gateway:string;transactionNumber:string;service:string;term:string;
- termDays:number|null;grossSwipe:number;customerCharges:number;customerRate:number|null;
+ termDays:number|null;termLabel?:string;grossSwipe:number;customerCharges:number;customerRate:number|null;
  gatewayCharge:number;netPayable:number;paid:number;advance:number;remaining:number;status:string;
 };
 export type NetBalanceDay={
@@ -27,11 +27,11 @@ type View="net"|"dates"|"details"|"cards"|"customer";
 const MONEY=new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"});
 const cash=(value:number)=>MONEY.format(value);
 const day=(value:string)=>new Date(value+"T12:00:00").toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
-const term=(row:NetBalanceRow)=>row.termDays===null?row.term:row.termDays+" DAYS";
+const term=(row:NetBalanceRow)=>row.termLabel??(row.termDays===null?row.term:row.termDays+" DAYS");
 const source=(row:NetBalanceRow)=>[row.provider,row.gateway].filter(Boolean).join(" / ")||"—";
 const priority=(value:string)=>value==="OVERDUE"?"text-rose-700":value==="TODAY"||value==="DUE TODAY"?"text-amber-700":"text-emerald-700";
 
-const headers=["SWIPE DATE","GATEWAY / SOURCE","PAYABLE","AMOUNT","DUE DATE","DAYS",
+const headers=["SWIPE DATE","GATEWAY / SOURCE","PAYABLE","AMOUNT","DUE DATE","TERM",
  "GROSS SWIPE","SERVICE CHARGE","NET PAYABLE","ALREADY PAID","ADVANCE","REFERENCE"];
 
 function HeaderCell({children,accent=false}:{children:ReactNode;accent?:boolean}){

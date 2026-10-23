@@ -82,10 +82,10 @@ function summaryFooter(sh:Sheet,rowNo:number,total:number,label:string) {
   note.font={name:'Aptos',size:9,italic:true,color:{argb:WHITE}};
   note.alignment={indent:1,vertical:'middle'};
 }
-const topCols=['SWIPE DATE','GATEWAY / SOURCE','PAYABLE','AMOUNT','DUE DATE','DAYS','GROSS SWIPE','SERVICE CHARGE','NET PAYABLE','ALREADY PAID','ADVANCE','REFERENCE'];
+const topCols=['SWIPE DATE','GATEWAY / SOURCE','PAYABLE','AMOUNT','DUE DATE','TERM','GROSS SWIPE','SERVICE CHARGE','NET PAYABLE','ALREADY PAID','ADVANCE','REFERENCE'];
 const topWidths=[16,25,48,19,17,15,20,19,20,19,18,22];
 function source(r:Item){return text([r.provider,r.gateway].filter(Boolean).join(' / ')||'—');}
-function term(r:Item){return r.termDays!==null&&Number.isFinite(r.termDays)?String(r.termDays)+' DAYS':text(r.term).toUpperCase();}
+function term(r:Item){return text(r.termLabel).toUpperCase();}
 function dueColor(status:string){return status==='OVERDUE'?'FFB42338':status==='DUE TODAY'||status==='TODAY'?'FF9A6210':GREEN;}
 function addTopRow(sh:Sheet,rowNo:number,p:Item,customerSheet=false) {
   sh.getRow(rowNo).values=[,xdate(p.swipeDate),source(p),

@@ -61,10 +61,13 @@ export function buildDueReport(
         transactionNumber: p.sourceTransaction.transactionNumber,
         service: p.sourceTransaction.transactionType,
         term: p.paymentTerm?.name ?? 'Custom',
-        termDays: p.paymentTerm
-          ? p.paymentTerm.durationUnit === 'DAYS' ? p.paymentTerm.durationValue
-            : p.paymentTerm.durationUnit === 'HOURS' ? p.paymentTerm.durationValue / 24 : null
-          : null,
+        // A one-hour payment term is not 0.041666... days. Keep its exact unit.
+        termLabel: p.paymentTerm && ['DAYS', 'HOURS'].includes(p.paymentTerm.durationUnit)
+          ? `${p.paymentTerm.durationValue} ${p.paymentTerm.durationUnit === 'DAYS'
+            ? p.paymentTerm.durationValue === 1 ? 'DAY' : 'DAYS'
+            : p.paymentTerm.durationValue === 1 ? 'HOUR' : 'HOURS'}`
+          : p.paymentTerm?.name ?? 'Custom',
+        termDays: p.paymentTerm?.durationUnit === 'DAYS' ? p.paymentTerm.durationValue : null,
         grossSwipe: swipe ? money(swipe.swipeAmount) : 0,
         customerCharges: swipe ? money(swipe.commissionAmount) : 0,
         customerRate: swipe ? Number(swipe.commissionRate) : null,

@@ -65,6 +65,27 @@ describe('date-wise pending payouts in INR',()=>{
     expect(report.rows[0].gatewayCharge).toBe(950);
     expect(report.totals.outstanding).toBe(36860);
   });
+  it('preserves hour terms as hours, not fractional days, without changing due dates or money',()=>{
+    const oneHour=card({id:'one-hour',due:'2026-10-23',customer:'c1',swipe:40000,commission:360});
+    oneHour.paymentTerm={name:'Instant',durationValue:1,durationUnit:'HOURS'};
+    const threeHours=card({id:'three-hours',due:'2026-10-23',customer:'c1',swipe:29600,commission:592});
+    threeHours.paymentTerm={name:'INSTANT',durationValue:3,durationUnit:'HOURS'};
+    const twentyFourHours=card({id:'twenty-four-hours',due:'2026-10-24',customer:'c1',swipe:1000,commission:10});
+    twentyFourHours.paymentTerm={name:'24 Hours',durationValue:24,durationUnit:'HOURS'};
+    const fourDays=card({id:'four-days',due:'2026-10-27',customer:'c1',swipe:1000,commission:10});
+    fourDays.paymentTerm={name:'4DAYS',durationValue:4,durationUnit:'DAYS'};
+    const custom=card({id:'custom',due:'2026-10-28',customer:'c1',swipe:1000,commission:10});
+    custom.paymentTerm=null;
+    const report=buildDueReport([oneHour,threeHours,twentyFourHours,fourDays,custom],new Date('2026-10-23T11:00:00+05:30'));
+    const terms=new Map(report.rows.map(r=>[r.id,r]));
+    expect(terms.get('one-hour')).toMatchObject({term:'Instant',termLabel:'1 HOUR',termDays:null,dueDate:'2026-10-23',remaining:39640});
+    expect(terms.get('three-hours')).toMatchObject({termLabel:'3 HOURS',termDays:null,remaining:29008});
+    expect(terms.get('twenty-four-hours')).toMatchObject({termLabel:'24 HOURS',termDays:null});
+    expect(terms.get('four-days')).toMatchObject({termLabel:'4 DAYS',termDays:4});
+    expect(terms.get('custom')).toMatchObject({termLabel:'Custom',termDays:null});
+    expect(report.totals.outstanding).toBe(71618);
+    expect(report.totals.itemCount).toBe(5);
+  });
   it('uses Asia/Kolkata day even when UTC date is the previous day',()=>{
     const report=buildDueReport([
       card({id:'midnight',due:'2026-10-21',customer:'c1',swipe:1000,commission:30}),

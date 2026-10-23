@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { PayablesController } from './payables.controller.js';
 import { buildDueReport } from './due-report.js';
+import { makeClientPayableWorkbook } from './due-report-excel.js';
 
 describe('Excel pending payable worklist', () => {
   it('exports three matching sheets with correct net customer payment', async () => {
@@ -50,5 +51,12 @@ describe('Excel pending payable worklist', () => {
     expect(book.getWorksheet('PENDING DETAILS')?.getCell('P10').value).toBe(950);
     expect(book.getWorksheet('CARD TOTALS')?.getCell('K10').value).toBe(26360);
     expect(book.getWorksheet('RAMESH')?.getCell('D10').value).toBe(26360);
+
+    const hourlyReport={...report,rows:report.rows.map(r=>({...r,term:'Instant',termLabel:'1 HOUR',termDays:null}))};
+    const hourlyBook=await makeClientPayableWorkbook(hourlyReport);
+    expect(hourlyBook.getWorksheet('NET BALANCE')?.getCell('F9').value).toBe('TERM');
+    expect(hourlyBook.getWorksheet('NET BALANCE')?.getCell('F11').value).toBe('1 HOUR');
+    expect(hourlyBook.getWorksheet('PENDING DETAILS')?.getCell('H10').value).toBe('1 HOUR');
+    expect(hourlyBook.getWorksheet('RAMESH')?.getCell('F10').value).toBe('1 HOUR');
   });
 });
