@@ -435,7 +435,6 @@ export class PayablesService {
               customerId: payable.customerId,
               transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
               status: TransactionStatus.COMPLETED,
-              transactionAt: { lte: payable.sourceTransaction.transactionAt },
             },
           },
           include: {
@@ -446,6 +445,38 @@ export class PayablesService {
           orderBy: { transaction: { transactionAt: 'asc' } },
         })
       : [];
+    const unallocatedPayOutCandidates = payable.sourceTransaction.transactionType === TransactionType.CARD_SWIPE
+      ? await this.prisma.customerLedgerEntryDetail.findMany({
+          where: {
+            direction: 'PAY_OUT',
+            payableAmount: { gt: 0 },
+            transaction: {
+              customerId: payable.customerId,
+              transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+              status: TransactionStatus.COMPLETED,
+            },
+          },
+          include: {
+            allocations: { select: { amount: true, targetType: true } },
+            financialAccount: { select: { id: true, accountName: true, accountType: true } },
+            customerCard: { select: { id: true, bankName: true, lastFourDigits: true } },
+            transaction: { select: { id: true, transactionNumber: true, transactionAt: true } },
+          },
+          orderBy: { transaction: { transactionAt: 'asc' } },
+        })
+      : [];
+    const availableUnallocatedPayOuts = unallocatedPayOutCandidates
+      .filter(entry => !entry.customerCardId ||
+        entry.customerCardId === payable.sourceTransaction.cardSwipe?.customerCardId)
+      .map(entry => ({
+        ...entry,
+        remainingUnallocated: Math.round((
+          Number(entry.payableAmount) -
+          entry.allocations.filter(a => a.targetType === 'PAYABLE')
+            .reduce((total, a) => total + Number(a.amount), 0)
+        ) * 100) / 100,
+      }))
+      .filter(entry => entry.remainingUnallocated > 0.001);
     const availableAdvances = candidateAdvances
       .filter(advance => !advance.customerCardId ||
         advance.customerCardId === payable.sourceTransaction.cardSwipe?.customerCardId)
@@ -460,6 +491,7 @@ export class PayablesService {
     return {
       ...payable,
       availableAdvances,
+      availableUnallocatedPayOuts,
       createdBy:
         byId.get(payable.sourceTransaction.createdById) ?? null,
       payments: payable.payments.map((payment) => ({
@@ -499,6 +531,39 @@ export class PayablesService {
         throw new BadRequestException('Payable is not open for payment');
       }
 
+      // Never pay the same swipe again while a customer-level Pay Out has
+      // already debited the payable ledger but remains unmatched.
+      const swipe = await tx.cardSwipeDetail.findUnique({
+        where: { transactionId: payable.sourceTransactionId },
+        select: { customerCardId: true },
+      });
+      if (swipe) {
+        const priorEntries = await tx.customerLedgerEntryDetail.findMany({
+          where: {
+            direction: 'PAY_OUT',
+            AND: [
+              { OR: [{ payableAmount: { gt: 0 } }, { receivableAmount: { gt: 0 } }] },
+              { OR: [{ customerCardId: null }, { customerCardId: swipe.customerCardId }] },
+            ],
+            transaction: { customerId: payable.customerId,
+              transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+              status: TransactionStatus.COMPLETED },
+          },
+          select: { id: true, payableAmount: true, receivableAmount: true, advanceAppliedAmount: true,
+            allocations: { select: { targetType: true, amount: true } },
+            transaction: { select: { transactionNumber: true } } },
+        });
+        const unmatched = priorEntries.find(entry =>
+          Math.round(Number(entry.payableAmount) * 100) >
+          entry.allocations.filter(a => a.targetType === 'PAYABLE')
+            .reduce((n, a) => n + Math.round(Number(a.amount) * 100), 0) ||
+          Math.round(Number(entry.receivableAmount) * 100) >
+            Math.round(Number(entry.advanceAppliedAmount) * 100));
+        if (unmatched) throw new BadRequestException(
+          'A previous Pay Out (' + unmatched.transaction.transactionNumber +
+          ') is recorded but not matched to this customer’s swipes. Match the recorded Pay Out first to avoid paying twice.'
+        );
+      }
       const remaining = Number(payable.remainingAmount);
       if (dto.amount > remaining + 0.001) {
         throw new BadRequestException('Payment exceeds remaining payable');
@@ -777,6 +842,158 @@ export class PayablesService {
     });
   }
 
+  /**
+   * Link a previously posted Pay Out's *payable-classified* portion to a swipe.
+   * The source journal already debited the customer payable and credited the
+   * wallet/cash account. Matching is administrative only: NO second journal
+   * entry, wallet debit, transfer, or provider charge.
+   *
+   * Unlike an advance offset, this also handles Pay Outs recorded after swipes.
+   */
+  async matchExistingPayOut(payableId: string, dto: CreateAdvanceOffsetDto, userId: string) {
+    const amount = dto.amount;
+    if (!Number.isFinite(amount) || amount <= 0 ||
+        Math.abs(Math.round(amount * 100) - amount * 100) > 0.000001) {
+      throw new BadRequestException('Enter a valid amount in rupees and paise');
+    }
+    return this.prisma.$transaction(async tx => {
+      const source = await tx.customerLedgerEntryDetail.findUnique({
+        where: { id: dto.advanceEntryId },
+        select: { transactionId: true },
+      });
+      if (!source) throw new NotFoundException('Recorded Pay Out not found');
+      // Same serialization order as the existing advance-application workflow.
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', source.transactionId);
+      await tx.$queryRawUnsafe('SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE', payableId);
+      await tx.$queryRawUnsafe('SELECT "id" FROM "CustomerLedgerEntryDetail" WHERE "id" = $1 FOR UPDATE', dto.advanceEntryId);
+      const payable = await tx.customerPayable.findUnique({
+        where: { id: payableId },
+        include: { sourceTransaction: { include: { cardSwipe: true } } },
+      });
+      if (!payable || payable.sourceTransaction.transactionType !== TransactionType.CARD_SWIPE ||
+          !payable.sourceTransaction.cardSwipe ||
+          payable.sourceTransaction.status !== TransactionStatus.COMPLETED ||
+          (payable.status === PayableStatus.CANCELLED || payable.status === PayableStatus.REVERSED || payable.status === PayableStatus.PAID) ||
+          Number(payable.remainingAmount) + 0.001 < amount) {
+        throw new BadRequestException('Choose an open card swipe with enough payable remaining');
+      }
+      const payout = await tx.customerLedgerEntryDetail.findUnique({
+        where: { id: dto.advanceEntryId },
+        include: { transaction: true, allocations: true },
+      });
+      if (!payout || payout.direction !== 'PAY_OUT' ||
+          payout.transaction.transactionType !== TransactionType.CUSTOMER_LEDGER_ENTRY ||
+          payout.transaction.status !== TransactionStatus.COMPLETED ||
+          payout.transaction.customerId !== payable.customerId ||
+          (payout.customerCardId &&
+            payout.customerCardId !== payable.sourceTransaction.cardSwipe.customerCardId)) {
+        throw new BadRequestException('Recorded Pay Out must belong to this customer and card');
+      }
+      const allocatedCents = payout.allocations
+        .filter(a => a.targetType === 'PAYABLE')
+        .reduce((sum, a) => sum + Math.round(Number(a.amount) * 100), 0);
+      const availableCents = Math.round(Number(payout.payableAmount) * 100) - allocatedCents;
+      if (availableCents < Math.round(amount * 100)) {
+        throw new BadRequestException('Recorded Pay Out has insufficient unallocated payable balance');
+      }
+      const amountCents = Math.round(amount * 100);
+      const remainingCents = Math.round(Number(payable.remainingAmount) * 100) - amountCents;
+      const { start: todayStart } = this.indiaDayRange();
+      const allocation = await tx.customerLedgerAllocation.create({
+        data: {
+          customerLedgerEntryId: payout.id,
+          targetType: 'PAYABLE',
+          payableId,
+          amount: new Prisma.Decimal(amountCents).div(100),
+        },
+      });
+      const updated = await tx.customerPayable.update({
+        where: { id: payableId },
+        data: {
+          paidAmount: { increment: new Prisma.Decimal(amountCents).div(100) },
+          remainingAmount: new Prisma.Decimal(remainingCents).div(100),
+          status: remainingCents === 0 ? PayableStatus.PAID
+            : payable.dueAt < todayStart ? PayableStatus.OVERDUE : PayableStatus.PARTIALLY_PAID,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId, entityType: 'CUSTOMER_PAYABLE', entityId: payableId,
+          action: 'MATCH_EXISTING_PAYOUT',
+          oldValues: {
+            paidAmount: payable.paidAmount.toString(),
+            remainingAmount: payable.remainingAmount.toString(),
+            status: payable.status,
+          },
+          newValues: {
+            paidAmount: updated.paidAmount.toString(),
+            remainingAmount: updated.remainingAmount.toString(),
+            status: updated.status,
+            allocationId: allocation.id, sourcePayOutId: payout.id,
+            sourceTransactionId: payout.transactionId,
+            amount, noNewMoneyMovement: true,
+          },
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId, entityType: 'CUSTOMER_LEDGER_ENTRY', entityId: payout.id,
+          action: 'ALLOCATE_EXISTING_PAY_OUT',
+          newValues: { allocationId: allocation.id, payableId, amount, noNewMoneyMovement: true },
+        },
+      });
+      return { payable: updated, allocation, sourceTransactionId: payout.transactionId };
+    });
+  }
+
+  async reverseExistingPayOutMatch(payableId: string, allocationId: string, reason: string, userId: string) {
+    if (!reason?.trim() || reason.trim().length < 3)
+      throw new BadRequestException('Give a reversal reason');
+    return this.prisma.$transaction(async tx => {
+      const ref = await tx.customerLedgerAllocation.findFirst({
+        where: { id: allocationId, payableId, targetType: 'PAYABLE' },
+        include: { customerLedgerEntry: { select: { transactionId: true } } },
+      });
+      if (!ref) throw new NotFoundException('Pay Out allocation not found');
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', ref.customerLedgerEntry.transactionId);
+      await tx.$queryRawUnsafe('SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE', payableId);
+      await tx.$queryRawUnsafe('SELECT "id" FROM "CustomerLedgerEntryDetail" WHERE "id" = $1 FOR UPDATE', ref.customerLedgerEntryId);
+      const payable = await tx.customerPayable.findUnique({ where: { id: payableId } });
+      const allocation = await tx.customerLedgerAllocation.findUnique({ where: { id: allocationId } });
+      if (!payable || !allocation ||
+          allocation.customerLedgerEntryId !== ref.customerLedgerEntryId ||
+          allocation.payableId !== payableId) throw new NotFoundException('Pay Out allocation not found');
+      const cents = Math.round(Number(allocation.amount) * 100);
+      if (Math.round(Number(payable.paidAmount) * 100) < cents ||
+          (payable.status === PayableStatus.CANCELLED || payable.status === PayableStatus.REVERSED))
+        throw new BadRequestException('Cannot reverse an inconsistent or cancelled payable');
+      const { start: todayStart } = this.indiaDayRange();
+      const remaining = Math.round(Number(payable.remainingAmount) * 100) + cents;
+      const updated = await tx.customerPayable.update({
+        where: { id: payableId },
+        data: {
+          paidAmount: { decrement: new Prisma.Decimal(cents).div(100) },
+          remainingAmount: new Prisma.Decimal(remaining).div(100),
+          status: payable.dueAt < todayStart ? PayableStatus.OVERDUE : PayableStatus.PARTIALLY_PAID,
+        },
+      });
+      await tx.customerLedgerAllocation.delete({ where: { id: allocationId } });
+      await tx.auditLog.create({
+        data: {
+          userId, entityType: 'CUSTOMER_PAYABLE', entityId: payableId,
+          action: 'REVERSE_MATCHED_PAY_OUT', reason: reason.trim(),
+          oldValues: { allocationId, amount: allocation.amount.toString(), paidAmount: payable.paidAmount.toString(),
+            remainingAmount: payable.remainingAmount.toString(), status: payable.status,
+            sourcePayOutId: allocation.customerLedgerEntryId },
+          newValues: { paidAmount: updated.paidAmount.toString(),
+            remainingAmount: updated.remainingAmount.toString(), status: updated.status,
+            noNewMoneyMovement: true },
+        },
+      });
+      return { payable: updated };
+    });
+  }
+
   // Earlier Pay Out already moved money. Only move receivable to payable now.
   async applyAdvance(payableId: string, dto: CreateAdvanceOffsetDto, userId: string, providedIdempotencyKey?: string) {
     const amount = dto.amount;
@@ -813,9 +1030,8 @@ export class PayablesService {
           advance.direction !== 'PAY_OUT' ||
           advance.transaction.transactionType !== TransactionType.CUSTOMER_LEDGER_ENTRY ||
           advance.transaction.status !== TransactionStatus.COMPLETED ||
-          advance.transaction.transactionAt > payable.sourceTransaction.transactionAt ||
           (advance.customerCardId && advance.customerCardId !== payable.sourceTransaction.cardSwipe.customerCardId)) {
-        throw new BadRequestException('Select an earlier Pay Out advance for this customer and card');
+        throw new BadRequestException('Select an unapplied Pay Out credit for this customer and card');
       }
       const available = Math.round((Number(advance.receivableAmount) - Number(advance.advanceAppliedAmount)) * 100) / 100;
       if (available + 0.001 < amount) throw new BadRequestException('Advance already used or has insufficient balance');

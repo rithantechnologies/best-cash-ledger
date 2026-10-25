@@ -85,6 +85,18 @@ export class PayablesController {
     return this.payables.pay(id, dto, req.user.userId, req.user.role, key);
   }
 
+  @Post(':id/existing-payout-matches')
+  matchExistingPayOut(@Param('id') id: string, @Body() dto: CreateAdvanceOffsetDto, @Req() req: any) {
+    return this.payables.matchExistingPayOut(id, dto, req.user.userId);
+  }
+
+  @Post(':id/existing-payout-matches/:allocationId/reverse')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  reverseExistingPayOutMatch(@Param('id') id: string,
+    @Param('allocationId') allocationId: string, @Body() dto: { reason: string }, @Req() req: any) {
+    return this.payables.reverseExistingPayOutMatch(id, allocationId, dto.reason, req.user.userId);
+  }
+
   @Post(':id/advance-offsets')
   applyAdvance(@Param('id') id: string, @Body() dto: CreateAdvanceOffsetDto,
     @Req() req: any, @Headers('idempotency-key') key?: string) {

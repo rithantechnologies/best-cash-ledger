@@ -1818,6 +1818,19 @@ export class CustomersService {
       b.transactionId.localeCompare(a.transactionId),
     );
 
+    const availableUnallocatedPayOuts = manualEntries
+      .filter(entry => entry.direction === 'PAY_OUT' &&
+        entry.transaction.status === TransactionStatus.COMPLETED &&
+        (!cardId || !entry.customerCardId || entry.customerCardId === cardId))
+      .map(entry => ({
+        id: entry.id,
+        remaining: money(Number(entry.payableAmount) -
+          entry.allocations.filter(a => a.targetType === 'PAYABLE')
+            .reduce((sum, a) => sum + Number(a.amount), 0)),
+        transactionId: entry.transactionId,
+        transactionNumber: entry.transaction.transactionNumber,
+      }))
+      .filter(entry => entry.remaining > 0.001);
     const availableAdvances = manualEntries
       .filter(entry =>
         entry.direction === 'PAY_OUT' &&
@@ -1844,6 +1857,7 @@ export class CustomersService {
         mobile: customer.mobile,
       },
       availableAdvances,
+      availableUnallocatedPayOuts,
       swipeSummary,
       payInSources,
       payOutSources,

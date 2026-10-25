@@ -24,6 +24,12 @@ type Advance={
  financialAccount:{accountName:string;accountType:string};
  transaction:{id:string;transactionNumber:string;transactionAt:string};
 };
+type UnallocatedPayOut={
+ id:string;remainingUnallocated:number;remarks:string;
+ financialAccount:{accountName:string;accountType:string};
+ customerCard:{bankName:string;lastFourDigits:string}|null;
+ transaction:{id:string;transactionNumber:string;transactionAt:string};
+};
 type AdvanceOffset={
  id:string;amount:string;notes:string|null;createdAt:string;reversedAt:string|null;
  advanceEntry:{id:string;remarks:string;financialAccount:{accountName:string};transaction:{id:string;transactionNumber:string;transactionAt:string}};
@@ -33,7 +39,7 @@ type Payable={
  id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;createdAt:string;
  customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[];cards:PayoutCard[];beneficiaries:PayoutBeneficiary[]};paymentTerm:{name:string}|null;
  sourceTransaction:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;referenceNumber:string|null;notes:string|null;status:string;cardSwipe:{customerCard:{id:string;bankName:string;lastFourDigits:string}|null}|null;providerSettlementSource:{status?:string}|null;charges:{amount:string}[];commissions:{amount:string}[]};
- payments:Payment[];advanceOffsets:AdvanceOffset[];availableAdvances:Advance[];manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{amount:string;remarks:string;financialAccount:{accountName:string;accountType:string};transaction:{id:string;transactionNumber:string;transactionAt:string;referenceNumber:string|null;charges:{amount:string}[]}}}[];createdBy:{id:string;fullName:string}|null;
+ payments:Payment[];advanceOffsets:AdvanceOffset[];availableAdvances:Advance[];availableUnallocatedPayOuts:UnallocatedPayOut[];manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{amount:string;remarks:string;financialAccount:{accountName:string;accountType:string};transaction:{id:string;transactionNumber:string;transactionAt:string;referenceNumber:string|null;charges:{amount:string}[]}}}[];createdBy:{id:string;fullName:string}|null;
 };
 type Audit={id:string;action:string;reason:string|null;createdAt:string;oldValues:unknown;newValues:unknown;user:{fullName:string}|null};
 type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null};
@@ -53,6 +59,7 @@ export default function PayableDetailPage(){
  const [item,setItem]=useState<Payable|null>(null),[audit,setAudit]=useState<Audit[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[providers,setProviders]=useState<Provider[]>([]),[error,setError]=useState("");
  const [payOpen,setPayOpen]=useState(false),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[destinationDetails,setDestinationDetails]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState(""),[busy,setBusy]=useState(false);
  const [advanceOpen,setAdvanceOpen]=useState(false),[advanceId,setAdvanceId]=useState(""),[advanceAmount,setAdvanceAmount]=useState(""),[advanceNotes,setAdvanceNotes]=useState(""),[role,setRole]=useState("");
+ const [recordedOpen,setRecordedOpen]=useState(false),[recordedId,setRecordedId]=useState(""),[recordedAmount,setRecordedAmount]=useState("");
  const control="app-control";
  function load(){return apiFetch<Payable>("/payables/"+id).then(x=>{setItem(x);return Promise.all([apiFetch<Audit[]>("/audit?entityType=CUSTOMER_PAYABLE&entityId="+id).then(setAudit).catch(()=>{}),apiFetch<Account[]>("/dashboard/accounts").then(setAccounts),apiFetch<Provider[]>("/providers").then(setProviders)]);});}
  useEffect(()=>{
@@ -79,6 +86,36 @@ export default function PayableDetailPage(){
  const autoPayoutCharge=configuredPayoutCharge(providers,sourceAccount,payoutAmount);
  const payoutCharge=walletSource?(autoPayoutCharge===null?Number(charge||0):autoPayoutCharge):0;
  const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
+ const chosenRecorded=(item.availableUnallocatedPayOuts||[]).find(a=>a.id===recordedId);
+ const recordedMax=Math.min(Number(item.remainingAmount),chosenRecorded?.remainingUnallocated||0);
+ const canMatchRecorded=!!chosenRecorded&&Number(recordedAmount)>0&&
+   Math.abs(Math.round(Number(recordedAmount)*100)-Number(recordedAmount)*100)<.000001&&
+   Number(recordedAmount)<=recordedMax+.001;
+ function openRecorded(){
+  const first=item?.availableUnallocatedPayOuts?.[0];setRecordedId(first?.id||"");
+  setRecordedAmount(first?Math.min(first.remainingUnallocated,Number(item.remainingAmount)).toFixed(2):"");
+  setRecordedOpen(true);
+ }
+ async function matchRecorded(e:FormEvent){
+  e.preventDefault();if(!item||!canMatchRecorded||busy)return;
+  setBusy(true);setError("");
+  try{
+   await apiFetch("/payables/"+item.id+"/existing-payout-matches",{method:"POST",body:JSON.stringify({advanceEntryId:recordedId,amount:Number(recordedAmount)})});
+   setRecordedOpen(false);await load();
+  }catch(err){setError(err instanceof Error?err.message:"Could not match recorded Pay Out");}
+  finally{setBusy(false);}
+ }
+ async function reverseRecorded(allocationId:string,amount:string){
+  if(!item||busy)return;
+  const reason=window.prompt("Reason to reverse the "+money(amount)+" recorded payout match?");
+  if(!reason||reason.trim().length<3)return;
+  setBusy(true);setError("");
+  try{
+   await apiFetch("/payables/"+item.id+"/existing-payout-matches/"+allocationId+"/reverse",{method:"POST",body:JSON.stringify({reason:reason.trim()})});
+   await load();
+  }catch(err){setError(err instanceof Error?err.message:"Could not reverse payout match");}
+  finally{setBusy(false);}
+ }
  const chosenAdvance=item.availableAdvances?.find(a=>a.id===advanceId);
  const requestedAdvance=Number(advanceAmount||0);
  const maxAdvance=Math.min(Number(item.remainingAmount),chosenAdvance?.remainingAdvance||0);
@@ -116,15 +153,16 @@ export default function PayableDetailPage(){
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href={backHref} className="text-xs font-bold text-indigo-600">← {backLabel}</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{item.customer.customerCode}</p><h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{item.customer.fullName}</h2><p className="mt-1 text-sm text-slate-500">{serviceLabel(item.sourceTransaction.transactionType)} · {item.sourceTransaction.transactionNumber} · Due {new Date(item.dueAt).toLocaleString("en-IN")}</p></div>
-   <div className="flex flex-wrap items-center gap-2">{canPay&&item.sourceTransaction.transactionType==="CARD_SWIPE"&&item.availableAdvances?.length?<button type="button" onClick={openAdvance} className="min-h-10 rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-xs font-bold text-indigo-700">Apply earlier Pay Out</button>:null}{canPay?<button type="button" onClick={openPayment} className="app-primary-button min-h-10 px-4 text-xs font-bold">Pay now</button>:null}<StatusBadge tone={statusTone(item.status) as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{item.status.replaceAll("_"," ")}</StatusBadge></div>
+   <div className="flex flex-wrap items-center gap-2">{canPay&&item.availableUnallocatedPayOuts?.length?<button type="button" onClick={openRecorded} className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-800">Match recorded Pay Out</button>:null}{canPay&&item.sourceTransaction.transactionType==="CARD_SWIPE"&&item.availableAdvances?.length?<button type="button" onClick={openAdvance} className="min-h-10 rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-xs font-bold text-indigo-700">Apply Pay Out credit</button>:null}{canPay?<button type="button" onClick={openPayment} className="app-primary-button min-h-10 px-4 text-xs font-bold">Pay now</button>:null}<StatusBadge tone={statusTone(item.status) as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{item.status.replaceAll("_"," ")}</StatusBadge></div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
    <DetailStat label="Customer gets" value={money(item.originalAmount)}/>
    <DetailStat label="Actually paid out" value={money(item.paidAmount)} tone="emerald"/>
-   <DetailStat label="Earlier advance applied" value={money(item.offsetAmount||0)} tone="indigo"/>
+   <DetailStat label="Payout credit applied" value={money(item.offsetAmount||0)} tone="indigo"/>
    <DetailStat label="Still to send" value={money(item.remainingAmount)} tone="amber"/>
   </div>
+  {canPay&&item.availableUnallocatedPayOuts?.length?<div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>Possible duplicate payout:</strong> {money(item.availableUnallocatedPayOuts.reduce((sum,a)=>sum+a.remainingUnallocated,0))} was already recorded for this customer but not linked to swipe obligations. Match the existing Pay Out before recording a new transfer. No wallet debit or bank transfer is made by matching.</div>:null}
   {item.sourceTransaction.transactionType==="CARD_SWIPE"&&Number(item.remainingAmount)>0?<p className="text-xs text-[var(--text-muted)]">Send now, send later, split payments, or apply a prior Pay Out. No second payment is made when an earlier advance is applied.</p>:null}
 
   <Surface className="p-4 sm:p-5">
@@ -142,7 +180,18 @@ export default function PayableDetailPage(){
    </div>)}</div>
    <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-5 py-3">Date</th><th>Transaction</th><th>Paid to</th><th>Paid from</th><th>Amount</th><th>Charge</th><th>Reference</th><th>Operator</th><th>Status</th></tr></thead><tbody>{item.payments.map(p=><tr key={p.id} className="border-t border-slate-100"><td className="px-5 py-3 text-xs">{new Date(p.paymentDate).toLocaleString("en-IN")}</td><td>{p.transaction.transactionNumber}</td><td><p className="font-semibold">{p.destinationLabel||"Not recorded"}</p>{p.destinationReference?<p className="mt-0.5 text-[10px] text-slate-400">{p.destinationReference}</p>:null}</td><td>{p.sourceAccount.accountName}</td><td className="font-bold">{money(p.amount)}</td><td className="text-rose-600">{money(p.transaction.charges.reduce((sum,x)=>sum+Number(x.amount),0))}</td><td>{p.referenceNumber||"—"}</td><td>{p.createdBy?.fullName||"Unknown"}</td><td>{p.status}</td></tr>)}</tbody></table></div></>:<div className="p-4"><EmptyState title="No payouts recorded yet"/></div>}
   </Surface>
-  {item.manualLedgerAllocations.length?<Surface className="overflow-hidden"><PanelHeader title="Matched Pay Out entries" description="Payments entered from the customer Card Ledger and allocated to this payable."/><div className="divide-y divide-slate-100">{item.manualLedgerAllocations.map(a=><Link key={a.id} href={"/transactions/"+a.customerLedgerEntry.transaction.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"><div><p className="text-sm font-bold">{a.customerLedgerEntry.remarks||"Pay Out"}</p><p className="mt-0.5 text-[11px] text-slate-400">{new Date(a.customerLedgerEntry.transaction.transactionAt).toLocaleString("en-IN")} · {a.customerLedgerEntry.financialAccount.accountName} · {a.customerLedgerEntry.transaction.transactionNumber}</p></div><strong className="money text-sm text-rose-600">{money(a.amount)}</strong></Link>)}</div></Surface>:null}
+  <Modal open={recordedOpen} title="Match recorded Pay Out" description="Link money already sent to this swipe. No new bank/wallet movement." onClose={()=>setRecordedOpen(false)}
+   footer={<button form="match-recorded-form" disabled={busy||!canMatchRecorded} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Matching…":"Match existing payment — no new transfer"}</button>}>
+   <form id="match-recorded-form" onSubmit={matchRecorded} className="space-y-3">
+    <Field label="Payment already sent"><SearchableSelect className={control} value={recordedId} required onChange={e=>{setRecordedId(e.target.value);const a=item.availableUnallocatedPayOuts.find(v=>v.id===e.target.value);setRecordedAmount(a?Math.min(a.remainingUnallocated,Number(item.remainingAmount)).toFixed(2):"");}}>
+     <option value="">Select recorded Pay Out</option>
+     {item.availableUnallocatedPayOuts.map(a=><option key={a.id} value={a.id}>{a.transaction.transactionNumber} · {money(a.remainingUnallocated)} unmatched · {a.financialAccount.accountName}</option>)}
+    </SearchableSelect></Field>
+    <Field label="Amount to match"><input className={control} type="number" step="0.01" min="0.01" max={recordedMax.toFixed(2)} value={recordedAmount} required onChange={e=>setRecordedAmount(e.target.value)}/></Field>
+    <p className="text-xs text-[var(--text-muted)]">Confirm against the original payout record before applying. This updates settlement allocations only and preserves the original wallet debit, recipient and transaction date.</p>
+   </form>
+  </Modal>
+  {item.manualLedgerAllocations.length?<Surface className="overflow-hidden"><PanelHeader title="Matched Pay Out entries" description="Payments entered from the customer Card Ledger and allocated to this payable."/><div className="divide-y divide-slate-100">{item.manualLedgerAllocations.map(a=><div key={a.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 sm:px-5"><Link href={"/transactions/"+a.customerLedgerEntry.transaction.id} className="min-w-0 flex-1"><p className="text-sm font-bold">{a.customerLedgerEntry.remarks||"Pay Out"}</p><p className="mt-0.5 text-[11px] text-slate-400">{new Date(a.customerLedgerEntry.transaction.transactionAt).toLocaleString("en-IN")} · {a.customerLedgerEntry.financialAccount.accountName} · {a.customerLedgerEntry.transaction.transactionNumber}</p></Link><div className="flex shrink-0 items-center gap-2"><strong className="money text-sm text-rose-600">{money(a.amount)}</strong>{(role==="OWNER"||role==="ADMIN")?<button type="button" disabled={busy} className="rounded-lg border border-rose-200 px-2 py-1 text-xs text-rose-700" onClick={()=>void reverseRecorded(a.id,a.amount)}>Reverse match</button>:null}</div></div>)}</div></Surface>:null}
   {item.sourceTransaction.transactionType==="CARD_SWIPE"?<Surface className="overflow-hidden">
    <PanelHeader title="Earlier Pay Out adjustments" description="Advances previously sent to the customer, adjusted here without moving money again."/>
    {item.advanceOffsets?.length?<div className="divide-y divide-[var(--border)]">{item.advanceOffsets.map(o=><div key={o.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -155,10 +204,10 @@ export default function PayableDetailPage(){
    <details className="text-xs"><summary className="cursor-pointer font-bold text-indigo-600">View change</summary><pre className="mt-2 max-w-lg overflow-auto rounded-xl bg-slate-950 p-3 text-[10px] text-slate-200">{JSON.stringify({before:a.oldValues,after:a.newValues},null,2)}</pre></details>
   </div>)}</div></Surface>:null}
 
-  <Modal open={advanceOpen} title={"Apply earlier Pay Out · "+item.customer.fullName} description={"Still to send "+money(item.remainingAmount)+" · No new cash or bank transfer"} onClose={()=>setAdvanceOpen(false)}
+  <Modal open={advanceOpen} title={"Apply Pay Out credit · "+item.customer.fullName} description={"Still to send "+money(item.remainingAmount)+" · No new cash or bank transfer"} onClose={()=>setAdvanceOpen(false)}
    footer={<button form="apply-advance-form" disabled={busy||!canApplyAdvance} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-40">{busy?"Applying…":"Apply prior Pay Out"}</button>}>
    <form id="apply-advance-form" onSubmit={applyAdvance} className="space-y-3">
-    <Field label="Earlier payment already sent">
+    <Field label="Recorded payout credit">
      <SearchableSelect className={control} value={advanceId} required onChange={e=>{setAdvanceId(e.target.value);const a=item.availableAdvances?.find(v=>v.id===e.target.value);setAdvanceAmount(a?Math.min(a.remainingAdvance,Number(item.remainingAmount)).toFixed(2):"");}}>
       <option value="">Select earlier Pay Out</option>
       {(item.availableAdvances||[]).map(a=><option key={a.id} value={a.id}>{a.transaction.transactionNumber} · {money(a.remainingAdvance)} available · {a.financialAccount.accountName}{a.customerCard?" · "+a.customerCard.bankName+" •••• "+a.customerCard.lastFourDigits:""}</option>)}
