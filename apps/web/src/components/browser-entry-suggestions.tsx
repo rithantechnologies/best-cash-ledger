@@ -68,8 +68,8 @@ export function BrowserEntrySuggestions() {
       const above = r.top - viewTop - 8;
       const placement = below < 190 && above > below ? "above" : "below";
       const space = placement === "above" ? above : below;
-      const maxHeight = Math.max(72, Math.min(255, space - 8));
-      const needed = Math.min(maxHeight, values.length * 44 + 90); // rows + label + clear control
+      const maxHeight = Math.max(72, Math.min(185, space - 8));
+      const needed = Math.min(maxHeight, values.length * 42 + 66); // compact rows + label + clear control
       const top = placement === "above" ? Math.max(viewTop + 4, r.top - needed - 6) : r.bottom + 6;
       const left = Math.max(8, Math.min(r.left, window.innerWidth - 190));
       const width = Math.max(185, Math.min(Math.max(185, r.width), window.innerWidth - left - 8));
@@ -88,7 +88,9 @@ export function BrowserEntrySuggestions() {
       if (!key) return close();
       current.current = input;
       lastKey.current = key;
-      render(input, key, input.value);
+      // Focusing a field, including a prefilled field, must not obscure the form.
+      // Suggestions appear only after the user edits the field.
+      close();
     }
     function type(event: Event) {
       if (!isInput(event.target) || event.target !== current.current) return;

@@ -160,7 +160,7 @@ export default function CustomersPage(){
   </div>
 
   <Toolbar>
-   <input inputMode="search" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Phone, first name, card last 4, bank, UPI or AEPS PR…" value={q} onChange={e=>{invalidateSearch();setLoading(true);setQ(e.target.value);}}/>
+   <input inputMode="search" autoComplete="off" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Phone, first name, card last 4, bank, UPI or AEPS PR…" value={q} onChange={e=>{invalidateSearch();setLoading(true);setQ(e.target.value);}}/>
    <button type="button" onClick={()=>setShowMobileFilters(v=>!v)} aria-expanded={showMobileFilters} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-muted)] sm:hidden">{showMobileFilters?"Hide options":"Sort & page size"}</button>
    <div className={(showMobileFilters?"grid":"hidden")+" grid-cols-2 gap-2 sm:contents"}>
     <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="createdAt">Created date</option><option value="fullName">Name</option><option value="customerCode">Customer code</option><option value="customerType">Type</option><option value="mobile">Mobile</option></SearchableSelect>
@@ -190,10 +190,10 @@ export default function CustomersPage(){
      <div><h3 id="create-customer-title" className="text-xl font-black tracking-tight">New customer</h3></div>
      <button type="button" disabled={busy} aria-label="Close" onClick={()=>setCreating(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[var(--border)] text-xl text-[var(--text-muted)]">×</button>
     </div>
-    <form id="create-customer" autoComplete="on" onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+    <form id="create-customer" autoComplete="off" onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-3 sm:px-6">
-      <Field label="Customer name *"><input className={control+" min-h-12 text-base"} type="text" name="customer_name" autoComplete="name" autoFocus defaultValue={newCustomerName} maxLength={150} placeholder="Enter name" required onChange={()=>{if(createError)setCreateError("");}}/></Field>
-      <Field label="Mobile (optional)"><input className={control+" min-h-12 text-base"} type="tel" inputMode="tel" name="customer_mobile" autoComplete="tel" defaultValue={newCustomerMobile} maxLength={20} placeholder="Mobile number"/></Field>
+      <Field label="Customer name *"><input className={control+" min-h-12 text-base"} type="text" name="customer_name" autoComplete="off" autoFocus defaultValue={newCustomerName} maxLength={150} placeholder="Enter name" required onChange={()=>{if(createError)setCreateError("");}}/></Field>
+      <Field label="Mobile (optional)"><input className={control+" min-h-12 text-base"} type="tel" inputMode="tel" name="customer_mobile" autoComplete="off" defaultValue={newCustomerMobile} maxLength={20} placeholder="Mobile number"/></Field>
       <Field label="EB number (optional)"><input className={control+" min-h-12 text-base"} type="text" name="customer_eb_reference" autoComplete="off" defaultValue={newCustomerEb} maxLength={50} placeholder="Electricity consumer number"/></Field>
       {demoEnabled?<div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3"><p className="text-xs font-bold">Card (optional)</p><Field label="Card bank"><input className={control+" min-h-11"} value={newDemoBank} onChange={e=>setNewDemoBank(e.target.value)} maxLength={100} placeholder="Bank name (optional)" autoComplete="off"/></Field><Field label="Card number (16 digits)"><input className={control+" min-h-11 font-mono"} type="text" name="new_demo_number" value={newDemoNumber} onChange={e=>setNewDemoNumber(e.target.value.replace(/\D/g,"").slice(0,16))} inputMode="numeric" maxLength={16} autoComplete="off" spellCheck={false} placeholder="16 digits"/></Field></div>:null}
       <Field label="Customer type"><SearchableSelect className={control+" min-h-11"} value={customerTypeId} onChange={e=>setCustomerTypeId(e.target.value)} required><option value="">Select type</option>{activeTypes.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</SearchableSelect></Field>

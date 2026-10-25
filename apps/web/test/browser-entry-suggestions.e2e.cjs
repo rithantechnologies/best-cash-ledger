@@ -40,6 +40,8 @@ async function setControlled(page,selector,value){await page.$eval(selector,(el,
   await page.goto(base+"/customers",{waitUntil:"networkidle2",timeout:30000});
   await page.waitForSelector('input[placeholder="Search customers"]',{timeout:20000}).catch(()=>{});
   await openCreate(page);
+  // Empty autofocus must not open a menu over the new-customer form.
+  assert.equal(await page.$('[data-entry-suggestions]'),null);
   await page.type('input[name="customer_name"]',"State Bank of India");
   await page.click('input[name="customer_mobile"]');
   await sleep(130);
@@ -48,7 +50,9 @@ async function setControlled(page,selector,value){await page.$eval(selector,(el,
   await closeCreate(page);
   await page.reload({waitUntil:"networkidle2"});
   await openCreate(page);
+  assert.equal(await page.$('[data-entry-suggestions]'),null,"No overlay on empty new-customer autofocus");
   await page.type('input[name="customer_name"]',"State");
+  assert.ok((await page.$eval('[data-entry-suggestions]',el=>el.getBoundingClientRect().height))<=185,"Suggestion overlay is capped");
   await page.waitForSelector('[data-entry-suggestions] [role="option"]',{visible:true});
   assert.ok((await menuValues(page)).includes("State Bank of India"));
   const anchors=await page.evaluate(()=>{

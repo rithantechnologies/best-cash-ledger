@@ -60,6 +60,7 @@ test("passwords, OTP/PIN, full card numbers and dedicated searches are excluded"
  }
  assert.equal(suggestionFieldKey(new FakeInput({type:"password",name:"cashledger_name"})),null);
  assert.equal(suggestionFieldKey(new FakeInput({type:"search",name:"name_search"})),null);
+ assert.equal(suggestionFieldKey(new FakeInput({inputMode:"search",placeholder:"Phone, first name, card last 4, bank, UPI or AEPS PR…"})),null);
 });
 test("per staff browser storage persists, deduplicates and matches partial entries",()=>{
  const storage=new MemoryStorage();
@@ -71,6 +72,12 @@ test("per staff browser storage persists, deduplicates and matches partial entri
  assert.deepEqual(getRemembered(storage,"staff-one-1").bank_name,["STATE BANK OF INDIA","Canara Bank"]);
  assert.deepEqual(matchesRemembered(getRemembered(storage,"staff-one-1").bank_name,"sta"),["STATE BANK OF INDIA"]);
  assert.equal(getRemembered(storage,"staff-two").bank_name,undefined);
+});
+test("suggestions only appear for typed prefixes and remain compact",()=>{
+ const values=["PRABU", "PRIYA", "PRITHVI", "PRASAD", "PREM"];
+ assert.deepEqual(matchesRemembered(values,""),[]);
+ assert.deepEqual(matchesRemembered(values,"p"),[]);
+ assert.deepEqual(matchesRemembered(values,"pr"),values.slice(0,3));
 });
 test("mobile numeric suggestions match without network",()=>{
  const storage=new MemoryStorage();

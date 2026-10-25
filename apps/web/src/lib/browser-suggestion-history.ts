@@ -71,7 +71,7 @@ export function suggestionFieldKey(input: HTMLInputElement | HTMLTextAreaElement
   if (input instanceof HTMLInputElement) {
     // Existing customer searches, native date pickers and selection controls
     // already have dedicated matching UI. Do not display duplicate menus.
-    if (!["text", "tel", "email", "url", "number"].includes(input.type)) return null;
+    if (!["text", "tel", "email", "url", "number"].includes(input.type) || input.inputMode === "search") return null;
     if (input.type === "number" && (input.step === "0.01" || input.step === "0.001") && !input.name) {
       const label = normalize(labelFor(input));
       if (MONEY_PATTERN.test(label)) return null;
@@ -123,13 +123,14 @@ export function saveRemembered(storage: Pick<Storage, "getItem" | "setItem">, st
 
 export function matchesRemembered(items: string[], search: string): string[] {
   const query = search.trim().toLocaleLowerCase();
-  if (query.length === 1) return [];
-  const matching = items.filter(s => !query || s.toLocaleLowerCase().includes(query));
+  // Empty/focused fields should never open a large history dropdown.
+  if (query.length < 2) return [];
+  const matching = items.filter(s => s.toLocaleLowerCase().includes(query));
   return matching.sort((a, b) => {
     const aStart = a.toLocaleLowerCase().startsWith(query) ? 0 : 1;
     const bStart = b.toLocaleLowerCase().startsWith(query) ? 0 : 1;
     return aStart - bStart;
-  }).slice(0, 6);
+  }).slice(0, 3);
 }
 
 export function clearRememberedField(storage: Pick<Storage, "getItem" | "setItem">, staff: string, field: string) {
