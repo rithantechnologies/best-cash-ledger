@@ -51,6 +51,10 @@ async function setControlled(page,selector,value){await page.$eval(selector,(el,
   await page.reload({waitUntil:"networkidle2"});
   await openCreate(page);
   assert.equal(await page.$('[data-entry-suggestions]'),null,"No overlay on empty new-customer autofocus");
+  await page.click('input[name="customer_name"]');
+  await page.waitForSelector('[data-entry-suggestions] [role="option"]',{visible:true});
+  assert.deepEqual(await menuValues(page),["State Bank of India"],"Clicking an empty focused field shows recently saved entries");
+  assert.ok(await page.$eval('[data-entry-suggestions]',el=>getComputedStyle(el).backdropFilter.includes("blur")),"Dropdown uses translucent blurred glass");
   await page.type('input[name="customer_name"]',"State");
   assert.ok((await page.$eval('[data-entry-suggestions]',el=>el.getBoundingClientRect().height))<=185,"Suggestion overlay is capped");
   await page.waitForSelector('[data-entry-suggestions] [role="option"]',{visible:true});

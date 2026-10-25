@@ -73,11 +73,13 @@ test("per staff browser storage persists, deduplicates and matches partial entri
  assert.deepEqual(matchesRemembered(getRemembered(storage,"staff-one-1").bank_name,"sta"),["STATE BANK OF INDIA"]);
  assert.equal(getRemembered(storage,"staff-two").bank_name,undefined);
 });
-test("suggestions only appear for typed prefixes and remain compact",()=>{
+test("blank fields show three recent entries and typing filters immediately",()=>{
  const values=["PRABU", "PRIYA", "PRITHVI", "PRASAD", "PREM"];
- assert.deepEqual(matchesRemembered(values,""),[]);
- assert.deepEqual(matchesRemembered(values,"p"),[]);
+ assert.deepEqual(matchesRemembered(values,""),values.slice(0,3));
+ assert.deepEqual(matchesRemembered(values,"p"),values.slice(0,3));
  assert.deepEqual(matchesRemembered(values,"pr"),values.slice(0,3));
+ assert.deepEqual(matchesRemembered(values,"iya"),["PRIYA"]);
+ assert.deepEqual(matchesRemembered(values,"nomatch"),[]);
 });
 test("mobile numeric suggestions match without network",()=>{
  const storage=new MemoryStorage();

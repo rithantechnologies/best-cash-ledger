@@ -123,9 +123,9 @@ export function saveRemembered(storage: Pick<Storage, "getItem" | "setItem">, st
 
 export function matchesRemembered(items: string[], search: string): string[] {
   const query = search.trim().toLocaleLowerCase();
-  // Empty/focused fields should never open a large history dropdown.
-  if (query.length < 2) return [];
-  const matching = items.filter(s => s.toLocaleLowerCase().includes(query));
+  // A blank field shows the three most recently saved entries. As soon as
+  // staff types, filter immediately, including single-character searches.
+  const matching = query ? items.filter(s => s.toLocaleLowerCase().includes(query)) : items;
   return matching.sort((a, b) => {
     const aStart = a.toLocaleLowerCase().startsWith(query) ? 0 : 1;
     const bStart = b.toLocaleLowerCase().startsWith(query) ? 0 : 1;

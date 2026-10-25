@@ -34,6 +34,7 @@ export function BrowserEntrySuggestions() {
   const menuRef = useRef<Menu | null>(null);
   const lastKey = useRef<string | null>(null);
   const ignoreNextBlur = useRef<string | null>(null);
+  const pointerFocus = useRef<Input | null>(null);
   const menuId = "cashledger-entry-suggestions";
 
   useEffect(() => { menuRef.current = menu; }, [menu]);
@@ -88,9 +89,11 @@ export function BrowserEntrySuggestions() {
       if (!key) return close();
       current.current = input;
       lastKey.current = key;
-      // Focusing a field, including a prefilled field, must not obscure the form.
-      // Suggestions appear only after the user edits the field.
-      close();
+      // A real click into an empty field offers three recent entries. Do not
+      // show a popup for modal autofocus or prefilled fields.
+      if (pointerFocus.current === input && !input.value.trim()) render(input, key, "");
+      else close();
+      pointerFocus.current = null;
     }
     function type(event: Event) {
       if (!isInput(event.target) || event.target !== current.current) return;
@@ -157,6 +160,14 @@ export function BrowserEntrySuggestions() {
       if (input && key && menuRef.current) render(input, key, input.value);
     }
     function outside(event: PointerEvent) {
+      pointerFocus.current = isInput(event.target) ? event.target : null;
+      // Focusing a modal's first field is automatic, not an explicit request
+      // for suggestions; clicking that already-focused empty field is.
+      if (isInput(event.target) && event.target === current.current &&
+          document.activeElement === event.target && !event.target.value.trim()) {
+        const key = lastKey.current;
+        if (key) render(event.target, key, "");
+      }
       if (!menuRef.current || !isInput(event.target) || event.target !== current.current) {
         if (!(event.target instanceof Element && event.target.closest("[data-entry-suggestions]"))) close();
       }
@@ -203,9 +214,11 @@ export function BrowserEntrySuggestions() {
         position: "fixed", left: menu.left, top: menu.top,
         width: menu.width, maxHeight: menu.maxHeight, zIndex: 2147483000,
         overflow: "auto", overscrollBehavior: "contain",
-        background: "var(--surface, #fff)", color: "var(--text, #111827)",
+        background: "color-mix(in srgb, var(--surface, #fff) 93%, transparent)",
+        backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+        color: "var(--text, #111827)",
         border: "1px solid var(--border, #e2e8f0)", borderRadius: 12,
-        boxShadow: "0 14px 32px rgba(15,23,42,0.21)",
+        boxShadow: "0 10px 24px rgba(15,23,42,0.14)",
       }}
     >
       <div style={{ padding: "7px 12px", fontSize: 11, fontWeight: 600, color: "var(--text-muted,#64748b)" }}>
@@ -223,7 +236,7 @@ export function BrowserEntrySuggestions() {
           style={{
             display: "block", width: "100%", minHeight: 42, textAlign: "left",
             padding: "9px 12px", fontSize: 14,
-            background: index === menu.selected ? "var(--accent-soft,#eff6ff)" : "transparent",
+            background: index === menu.selected ? "color-mix(in srgb, var(--accent-soft,#eff6ff) 78%, transparent)" : "transparent",
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}
         >
