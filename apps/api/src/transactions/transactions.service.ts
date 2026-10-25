@@ -2164,6 +2164,35 @@ export class TransactionsService {
         sourceAccounts.set(accountId, account);
       }
       const sourceAccount = sourceAccounts.get(sourceAccountIds[0]);
+      const isMicroAtm = detail.direction === 'OUT' && detail.cashOutType === 'MICRO_ATM';
+      if (!isMicroAtm && dto.providerCommissionAmount !== undefined) {
+        throw new BadRequestException('Provider commission override is only for Micro ATM');
+      }
+      const providerCommissionRule = isMicroAtm && sourceAccount.providerId
+        ? await tx.microAtmProviderCommissionRule.findFirst({
+            where: {
+              providerId: sourceAccount.providerId,
+              effectiveFrom: { lte: new Date() },
+              OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }],
+              minAmount: { lte: amount },
+              AND: [{ OR: [{ maxAmount: null }, { maxAmount: { gte: amount } }] }],
+            },
+            orderBy: [{ effectiveFrom: 'desc' }, { minAmount: 'desc' }],
+          })
+        : null;
+      const providerCommissionManualOverride = dto.providerCommissionAmount !== undefined;
+      const providerCommissionAmount = isMicroAtm
+        ? this.money(providerCommissionManualOverride
+            ? dto.providerCommissionAmount!
+            : providerCommissionRule
+              ? providerCommissionRule.calculationType === CalculationType.PERCENTAGE
+                ? amount * Number(providerCommissionRule.value) / 100
+                : Number(providerCommissionRule.value)
+              : 0)
+        : 0;
+      if (!Number.isFinite(providerCommissionAmount) || providerCommissionAmount < 0) {
+        throw new BadRequestException('Provider commission must be non-negative');
+      }
       const commissionAmount = Number(detail.commissionAmount);
       const commissionMode = detail.commissionMode ?? 'CASH';
       const commissionCashAmount =
@@ -2269,7 +2298,7 @@ export class TransactionsService {
 
       const ledgerCode =
         detail.direction === 'IN' ? 'SYS-CUST-PAYABLE' : 'SYS-CUST-RECEIVABLE';
-      const [pendingLedger, payoutChargeLedger] = await Promise.all([
+      const [pendingLedger, payoutChargeLedger, providerCommissionLedger] = await Promise.all([
         tx.ledgerAccount.findUnique({
           where: { ledgerCode },
         }),
@@ -2278,9 +2307,15 @@ export class TransactionsService {
               where: { ledgerCode: 'SYS-PROVIDER-CHARGE' },
             })
           : Promise.resolve(null),
+        providerCommissionAmount > 0
+          ? tx.ledgerAccount.findUnique({ where: { ledgerCode: 'SYS-COMMISSION' } })
+          : Promise.resolve(null),
       ]);
       if (!pendingLedger) {
         throw new NotFoundException('Pending transfer ledger is missing');
+      }
+      if (providerCommissionAmount > 0 && !providerCommissionLedger) {
+        throw new NotFoundException('Provider commission income ledger is missing');
       }
       if (payoutChargeTotal > 0 && !payoutChargeLedger) {
         throw new NotFoundException('Provider payout charge ledger is missing');
@@ -2347,8 +2382,10 @@ export class TransactionsService {
               {
                 ledgerAccountId: sourceAccount.ledgerAccount.id,
                 entryType: EntryType.DEBIT,
-                amount: settlementAmount,
-                description: 'Incoming customer transfer',
+                amount: this.money(settlementAmount + providerCommissionAmount),
+                description: providerCommissionAmount > 0
+                  ? 'Micro ATM principal and provider commission credited'
+                  : 'Incoming customer transfer',
               },
               {
                 ledgerAccountId: pendingLedger.id,
@@ -2356,6 +2393,14 @@ export class TransactionsService {
                 amount: settlementAmount,
                 description: 'Clear pending incoming transfer',
               },
+              ...(providerCommissionAmount > 0 && providerCommissionLedger
+                ? [{
+                    ledgerAccountId: providerCommissionLedger.id,
+                    entryType: EntryType.CREDIT,
+                    amount: providerCommissionAmount,
+                    description: 'Micro ATM provider commission income',
+                  }]
+                : []),
             ];
       for (const row of payoutChargeRows) {
         if (row.amount <= 0 || !payoutChargeLedger) continue;
@@ -2387,6 +2432,23 @@ export class TransactionsService {
             description: 'Clear pending bank / UPI commission allocation',
           },
         );
+      }
+      if (providerCommissionAmount > 0) {
+        // Attribute income to the ORIGINAL quick cash transaction. Reporting
+        // intentionally excludes QCC completion rows to avoid duplicate income.
+        await tx.transactionCommission.create({
+          data: {
+            transactionId: detail.transactionId,
+            commissionType: 'MICRO_ATM_PROVIDER',
+            calculationType: providerCommissionManualOverride
+              ? CalculationType.FIXED
+              : providerCommissionRule?.calculationType ?? CalculationType.FIXED,
+            rate: new Prisma.Decimal(providerCommissionManualOverride
+              ? providerCommissionAmount
+              : Number(providerCommissionRule?.value ?? providerCommissionAmount)),
+            amount: new Prisma.Decimal(providerCommissionAmount),
+          },
+        });
       }
       for (const row of payoutChargeRows) {
         if (row.amount <= 0) continue;
@@ -2499,6 +2561,11 @@ export class TransactionsService {
                 : detail.beneficiaryDetails,
             completionTransactionId: completion.id,
             payoutChargeAmount: payoutChargeTotal,
+            providerCommissionAmount,
+            providerCommissionSourceAccountId: isMicroAtm ? sourceAccount.id : null,
+            providerCommissionProviderId: isMicroAtm ? sourceAccount.providerId : null,
+            providerCommissionRuleId: providerCommissionManualOverride ? null : providerCommissionRule?.id ?? null,
+            providerCommissionManualOverride,
             payoutChargeSources: payoutChargeRows.map((row) => ({
               sourceAccountId: row.sourceAccountId,
               amount: row.amount,
@@ -6225,6 +6292,7 @@ export class TransactionsService {
           }>;
           referenceNumber: string | null;
           notes: string | null;
+          providerCommissionAmount?: number;
         }
       | null = null;
 
@@ -6342,6 +6410,11 @@ export class TransactionsService {
           })),
           referenceNumber: completion.referenceNumber,
           notes: completion.notes,
+          providerCommissionAmount: d.cashOutType === 'MICRO_ATM'
+            ? this.money(original.commissions
+                .filter((commission) => commission.commissionType === 'MICRO_ATM_PROVIDER')
+                .reduce((sum, commission) => sum + Number(commission.amount), 0))
+            : undefined,
         };
       }
       const commissionAmount = Number(d.commissionAmount);
@@ -6597,6 +6670,7 @@ export class TransactionsService {
             : undefined,
           commissionAccountId:
             quickCompletion.commissionAccountId ?? undefined,
+          providerCommissionAmount: quickCompletion.providerCommissionAmount,
           customerName: original.quickCashTransfer.customerName ?? undefined,
           mobileNumber: original.quickCashTransfer.mobileNumber ?? undefined,
           referenceNumber: quickCompletion.referenceNumber ?? undefined,
@@ -6828,6 +6902,18 @@ export class TransactionsService {
           throw new BadRequestException(
             'Reverse linked commission entry ' + supplementalCommission.transactionNumber +
             ' before reversing this AEPS withdrawal',
+          );
+        }
+      }
+      if (original.quickCashTransfer?.completionTransactionId) {
+        const linkedCompletion = await tx.transaction.findUnique({
+          where: { id: original.quickCashTransfer.completionTransactionId },
+          select: { status: true, transactionNumber: true },
+        });
+        if (linkedCompletion?.status === TransactionStatus.COMPLETED) {
+          throw new BadRequestException(
+            'Reverse linked completion ' + linkedCompletion.transactionNumber +
+            ' before reversing the original cash transaction',
           );
         }
       }
@@ -7098,6 +7184,49 @@ export class TransactionsService {
           description: 'Reversal: ' + (entry.description ?? original.transactionNumber),
         })),
       );
+
+      // The provider earning was attributed to the original quick-cash transaction
+      // (QCC completion rows are intentionally excluded from income reports).
+      // A reversal of the completed settlement must therefore also post a
+      // compensating income record on that parent, preserving the original.
+      if (original.transactionNumber.startsWith('QCC-')) {
+        const quickParent = await tx.quickCashTransferDetail.findFirst({
+          where: { completionTransactionId: original.id, cashOutType: 'MICRO_ATM' },
+          select: { transactionId: true },
+        });
+        if (quickParent) {
+          const earned = await tx.transactionCommission.findMany({
+            where: { transactionId: quickParent.transactionId, commissionType: 'MICRO_ATM_PROVIDER' },
+            select: { amount: true },
+          });
+          const providerIncomeToReverse = this.money(
+            earned.reduce((sum, commission) => sum + Number(commission.amount), 0),
+          );
+          if (providerIncomeToReverse > 0) {
+            await tx.transactionCommission.create({
+              data: {
+                transactionId: quickParent.transactionId,
+                commissionType: 'MICRO_ATM_PROVIDER',
+                calculationType: CalculationType.FIXED,
+                rate: new Prisma.Decimal(0),
+                amount: new Prisma.Decimal(-providerIncomeToReverse),
+              },
+            });
+            await tx.auditLog.create({
+              data: {
+                userId,
+                entityType: 'TRANSACTION',
+                entityId: quickParent.transactionId,
+                action: 'REVERSE_MICRO_ATM_PROVIDER_COMMISSION',
+                oldValues: { providerCommissionAmount: providerIncomeToReverse },
+                newValues: { providerCommissionAdjustment: -providerIncomeToReverse,
+                  completionTransactionId: original.id, reversalTransactionId: reversal.id },
+                reason: dto.reason,
+              },
+            });
+          }
+        }
+      }
 
       if (original.customerLedgerEntry) {
         const indiaOffset = 330 * 60 * 1000;

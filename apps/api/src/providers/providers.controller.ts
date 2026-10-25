@@ -9,6 +9,7 @@ import { SetProviderActiveDto } from './dto/set-provider-active.dto.js';
 import { UpdateGatewayDto } from './dto/update-gateway.dto.js';
 import { UpdateProviderDto } from './dto/update-provider.dto.js';
 import { SetAepsProviderCommissionRulesDto } from './dto/set-aeps-provider-commission-rules.dto.js';
+import { SetMicroAtmProviderCommissionRulesDto } from './dto/set-micro-atm-provider-commission-rules.dto.js';
 import { SetProviderPayoutChargeRulesDto } from './dto/set-provider-payout-charge-rules.dto.js';
 import { ProvidersService } from './providers.service.js';
 
@@ -48,6 +49,16 @@ export class ProvidersController {
     @Req() req: any,
   ) {
     return this.providers.setAepsProviderCommissionRules(id, dto, req.user.userId);
+  }
+
+  @Patch(':id/micro-atm-provider-commission-rules')
+  @Roles(RoleName.OWNER, RoleName.ADMIN)
+  setMicroAtmProviderCommissionRules(
+    @Param('id') id: string,
+    @Body() dto: SetMicroAtmProviderCommissionRulesDto,
+    @Req() req: any,
+  ) {
+    return this.providers.setMicroAtmProviderCommissionRules(id, dto, req.user.userId);
   }
 
   @Patch(':id/payout-charge-rules')

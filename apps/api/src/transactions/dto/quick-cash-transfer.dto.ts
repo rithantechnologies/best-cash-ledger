@@ -186,6 +186,13 @@ export class CompleteQuickCashTransferDto {
   @Type(() => QuickCashSourceAllocationDto)
   sourceAllocations?: QuickCashSourceAllocationDto[];
 
+  // Micro ATM provider earning, independent of customer commission.
+  // Omitted = configured provider slab; 0 = explicit no-commission override.
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  providerCommissionAmount?: number;
+
   // Used for the single-source UPI beneficiary payout.
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })

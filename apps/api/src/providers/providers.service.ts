@@ -6,6 +6,7 @@ import { CreateProviderDto } from './dto/create-provider.dto.js';
 import { UpdateGatewayDto } from './dto/update-gateway.dto.js';
 import { UpdateProviderDto } from './dto/update-provider.dto.js';
 import { SetAepsProviderCommissionRulesDto } from './dto/set-aeps-provider-commission-rules.dto.js';
+import { SetMicroAtmProviderCommissionRulesDto } from './dto/set-micro-atm-provider-commission-rules.dto.js';
 import { SetProviderPayoutChargeRulesDto } from './dto/set-provider-payout-charge-rules.dto.js';
 
 @Injectable()
@@ -18,6 +19,10 @@ export class ProvidersService {
       include: {
         gateways: includeInactive ? true : { where: { isActive: true } },
         accounts: true,
+        microAtmProviderCommissionRules: {
+          where: { effectiveTo: null },
+          orderBy: { minAmount: 'asc' },
+        },
         aepsProviderCommissionRules: {
           where: { effectiveTo: null },
           orderBy: { minAmount: 'asc' },
@@ -240,6 +245,84 @@ export class ProvidersService {
         },
       });
       return tx.aepsProviderCommissionRule.findMany({
+        where: { providerId, effectiveTo: null },
+        orderBy: { minAmount: 'asc' },
+      });
+    });
+  }
+
+  async setMicroAtmProviderCommissionRules(
+    providerId: string,
+    dto: SetMicroAtmProviderCommissionRulesDto,
+    actorId: string,
+  ) {
+    const normalized = [...dto.rules]
+      .map((rule) => ({
+        minAmount: Number(rule.minAmount),
+        maxAmount: rule.maxAmount === undefined ? null : Number(rule.maxAmount),
+        calculationType: rule.calculationType,
+        value: Number(rule.value),
+      }))
+      .sort((a, b) => a.minAmount - b.minAmount);
+
+    for (let index = 0; index < normalized.length; index += 1) {
+      const rule = normalized[index];
+      if (rule.maxAmount !== null && rule.maxAmount < rule.minAmount) {
+        throw new Error('Micro ATM provider commission slab maximum must be at least the minimum');
+      }
+      const previous = normalized[index - 1];
+      if (
+        previous &&
+        (previous.maxAmount === null || previous.maxAmount >= rule.minAmount)
+      ) {
+        throw new Error('Micro ATM provider commission slabs cannot overlap');
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const provider = await tx.provider.findUnique({ where: { id: providerId } });
+      if (!provider) throw new Error('Provider not found');
+
+      const current = await tx.microAtmProviderCommissionRule.findMany({
+        where: { providerId, effectiveTo: null },
+        orderBy: { minAmount: 'asc' },
+      });
+      const effectiveAt = new Date();
+      if (current.length) {
+        await tx.microAtmProviderCommissionRule.updateMany({
+          where: { providerId, effectiveTo: null },
+          data: { effectiveTo: effectiveAt },
+        });
+      }
+      if (normalized.length) {
+        await tx.microAtmProviderCommissionRule.createMany({
+          data: normalized.map((rule) => ({
+            providerId,
+            minAmount: rule.minAmount,
+            maxAmount: rule.maxAmount,
+            calculationType: rule.calculationType,
+            value: rule.value,
+            effectiveFrom: effectiveAt,
+            createdById: actorId,
+          })),
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          userId: actorId,
+          entityType: 'MICRO_ATM_PROVIDER_COMMISSION_RULES',
+          entityId: providerId,
+          action: 'UPDATE',
+          oldValues: current.map((rule) => ({
+            minAmount: rule.minAmount.toString(),
+            maxAmount: rule.maxAmount?.toString() ?? null,
+            calculationType: rule.calculationType,
+            value: rule.value.toString(),
+          })),
+          newValues: normalized,
+        },
+      });
+      return tx.microAtmProviderCommissionRule.findMany({
         where: { providerId, effectiveTo: null },
         orderBy: { minAmount: 'asc' },
       });

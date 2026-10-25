@@ -14,7 +14,7 @@ import { useRememberedValues } from "@/lib/remembered-values";
 
 type Account={id:string;accountName:string;accountType:string;providerId?:string|null;isActive?:boolean;currentBalance?:string|number};
 type PayoutChargeRule={minAmount:string;maxAmount:string|null;calculationType:"PERCENTAGE"|"FIXED";value:string};
-type Provider={id:string;name:string;payoutChargeRules:PayoutChargeRule[]};
+type Provider={id:string;name:string;payoutChargeRules:PayoutChargeRule[];microAtmProviderCommissionRules?:PayoutChargeRule[]};
 type Count={countType:string;denomination:string;quantity:number;totalAmount:string};
 type Movement={
   id:string;activityId?:string;transactionId?:string;direction:"IN"|"OUT";amount:number;runningBalance:number;
@@ -24,7 +24,7 @@ type Movement={
 type Activity={
   id:string;transactionId:string;transactionNumber:string;serviceType:string;transactionAt:string;
   particular:string;transactionAmount:number;netAmount:number;cashIn:number;cashOut:number;
-  commissionAmount:number;serviceIncomeAmount?:number;incomeAmount?:number;providerFeeAmount?:number;payoutChargeAmount?:number;profitAmount?:number;
+  commissionAmount:number;customerCommissionAmount?:number;providerCommissionAmount?:number;serviceIncomeAmount?:number;incomeAmount?:number;providerFeeAmount?:number;payoutChargeAmount?:number;profitAmount?:number;
   quickCashDirection?:"IN"|"OUT"|null;quickCashPurpose?:string|null;
   commissionMode?:"CASH"|"UPI"|"SPLIT"|null;commissionCashAmount?:number;commissionDigitalAmount?:number;commissionAccountType?:string|null;commissionAccountName?:string|null;
   servicePaymentMode?:"CASH"|"UPI"|null;servicePaymentAccountType?:string|null;servicePaymentAccountName?:string|null;
@@ -113,6 +113,14 @@ const configuredPayoutCharge=(providers:Provider[],account:Account|undefined,amo
   const value=Number(rule.value||0);
   return Math.round((rule.calculationType==="PERCENTAGE"?amount*value/100:value)*100)/100;
 };
+const configuredMicroAtmProviderCommission=(providers:Provider[],account:Account|undefined,amount:number)=>{
+  if(!account||!account.providerId||amount<=0)return {amount:0,hasRule:false};
+  const rules=providers.find((provider)=>provider.id===account.providerId)?.microAtmProviderCommissionRules??[];
+  const rule=rules.find((item)=>amount+0.001>=Number(item.minAmount)&&(item.maxAmount===null||amount<=Number(item.maxAmount)+0.001));
+  if(!rule)return {amount:0,hasRule:false};
+  const value=Number(rule.value||0);
+  return {amount:Math.round((rule.calculationType==="PERCENTAGE"?amount*value/100:value)*100)/100,hasRule:true};
+};
 const words=(value:string)=>value.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,(letter)=>letter.toUpperCase());
 const commissionCashPart=(total:number,mode?:string|null,cash?:number|string|null)=>{
   if(cash!==null&&cash!==undefined)return Number(cash||0);
@@ -123,6 +131,7 @@ const commissionDigitalPart=(total:number,mode?:string|null,cash?:number|string|
 const commissionDigitalLabel=(accountType?:string|null)=>{
   if(accountType==="BANK")return "Bank";
   if(accountType==="UPI")return "UPI";
+  if(accountType==="PROVIDER_WALLET")return "Wallet";
   return "Bank/UPI";
 };
 const mirrorsCompletionCommissionAccount=(item?:QuickCashPending|null,beneficiaryMode?:"UPI"|"BANK")=>Boolean(
@@ -370,6 +379,7 @@ export default function CashCounterWorkspace({
   const [completeSourceAccountId,setCompleteSourceAccountId]=useState("");
   const [completeSourceAllocations,setCompleteSourceAllocations]=useState<CompleteSourceAllocation[]>([]);
   const [completePayoutChargeOverride,setCompletePayoutChargeOverride]=useState("");
+  const [completeProviderCommissionOverride,setCompleteProviderCommissionOverride]=useState("");
   const [completeCommissionAccountId,setCompleteCommissionAccountId]=useState("");
   const [completeCommissionAccountOverridden,setCompleteCommissionAccountOverridden]=useState(false);
   const [completeBeneficiaryMode,setCompleteBeneficiaryMode]=useState<"UPI"|"BANK">("UPI");
@@ -436,6 +446,11 @@ export default function CashCounterWorkspace({
   const completeCustomerCommission=Number(completingQuickCash?.commissionAmount||0);
   const completeNetEarningAfterPayout=Math.round((completeCustomerCommission-completePayoutChargeTotal)*100)/100;
   const completeSelectedSourceAccount=completionAccounts.find((account)=>account.id===completeSourceAccountId);
+  const isCompletingMicroAtm=completingQuickCash?.direction==="OUT"&&completingQuickCash.cashOutType==="MICRO_ATM";
+  const configuredMicroAtmCommission=configuredMicroAtmProviderCommission(providers,completeSelectedSourceAccount,Number(completingQuickCash?.amount||0));
+  const completeProviderCommission=isCompletingMicroAtm
+    ?completeProviderCommissionOverride.trim()!==""?Number(completeProviderCommissionOverride):configuredMicroAtmCommission.amount
+    :0;
   const completeSelectedSourceBalance=Number(completeSelectedSourceAccount?.currentBalance??0);
   const completeAfterPayoutBalance=completeSelectedSourceAccount&&completingQuickCash?.direction==="IN"&&!bankTransferSplitCompletion
     ?Math.round((completeSelectedSourceBalance-Number(completingQuickCash?.amount||0)-completePayoutChargeTotal)*100)/100
@@ -1167,6 +1182,7 @@ export default function CashCounterWorkspace({
       if(completeSourceAllocations.some((row)=>row.payoutChargeAmount.trim()!==""&&(!Number.isFinite(Number(row.payoutChargeAmount))||Number(row.payoutChargeAmount)<0))){setCompleteError("Enter a valid non-negative provider charge.");return;}
     }else if(!completeSourceAccountId){setCompleteError(completingQuickCash?.direction==="OUT"?(completingQuickCash.cashOutType==="AEPS"||completingQuickCash.cashOutType==="MICRO_ATM"?"Select the provider / settlement account.":"Select the bank / UPI account that received the customer payment."):"Select the bank / UPI / wallet account sending the beneficiary transfer.");return;}
     if(completePayoutChargeOverride.trim()!==""&&(!Number.isFinite(Number(completePayoutChargeOverride))||Number(completePayoutChargeOverride)<0)){setCompleteError("Enter a valid non-negative provider charge.");return;}
+    if(isCompletingMicroAtm&&(!Number.isFinite(completeProviderCommission)||completeProviderCommission<0)){setCompleteError("Enter a valid provider commission of zero or more.");return;}
     if(commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0&&!completeCommissionAccountId){setCompleteError("Select the account that received the bank / UPI commission.");return;}
     setQuickSaving(true);setCompleteError("");setError("");
     try{
@@ -1177,6 +1193,7 @@ export default function CashCounterWorkspace({
         sourceAccountId:bankTransferSplitCompletion?undefined:completeSourceAccountId,
         sourceAllocations:bankTransferSplitCompletion?completeSourceAllocations.map((row)=>({sourceAccountId:row.sourceAccountId,amount:Number(row.amount),referenceNumber:row.referenceNumber.trim()||undefined,payoutChargeAmount:row.payoutChargeAmount.trim()!==""?Number(row.payoutChargeAmount):undefined})):undefined,
         payoutChargeAmount:completingQuickCash?.direction==="IN"&&!bankTransferSplitCompletion&&completePayoutChargeOverride.trim()!==""?Number(completePayoutChargeOverride):undefined,
+        providerCommissionAmount:isCompletingMicroAtm&&completeProviderCommissionOverride.trim()!==""?Number(completeProviderCommissionOverride):undefined,
         commissionAccountId:commissionDigitalPart(Number(completingQuickCash?.commissionAmount||0),completingQuickCash?.commissionMode,completingQuickCash?.commissionCashAmount)>0?completeCommissionAccountId||undefined:undefined,
         beneficiaryMode:completingQuickCash?.direction==="IN"&&beneficiaryDetails?completeBeneficiaryMode:undefined,
         beneficiaryDetails:completingQuickCash?.direction==="IN"?beneficiaryDetails||undefined:undefined,
@@ -1187,7 +1204,7 @@ export default function CashCounterWorkspace({
       })});
       rememberCustomerName(completeCustomerName);
       setCompletedQuickCashIds((current)=>current.includes(completePendingId)?current:[...current,completePendingId]);
-      setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteSourceAllocations([]);setCompletePayoutChargeOverride("");setCompleteCommissionAccountId("");setCompleteCommissionAccountOverridden(false);setCompleteBeneficiaryMode("UPI");setCompleteBeneficiaryUpi("");setCompleteBankAccountHolder("");setCompleteBankAccountNumber("");setCompleteBankIfsc("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
+      setCompletePendingId(null);setCompleteSourceAccountId("");setCompleteSourceAllocations([]);setCompletePayoutChargeOverride("");setCompleteProviderCommissionOverride("");setCompleteCommissionAccountId("");setCompleteCommissionAccountOverridden(false);setCompleteBeneficiaryMode("UPI");setCompleteBeneficiaryUpi("");setCompleteBankAccountHolder("");setCompleteBankAccountNumber("");setCompleteBankIfsc("");setCompleteCustomerName("");setCompleteMobile("");setCompleteReference("");setCompleteNotes("");setCompleteError("");
       await load(cashAccountId);
     }catch(err){setCompleteError(err instanceof Error?err.message:"Failed to complete pending cash entry");}
     finally{setQuickSaving(false);}
@@ -1208,7 +1225,7 @@ export default function CashCounterWorkspace({
       :item.direction==="IN"&&mode==="BANK"&&defaultAllocations.length===1
         ?defaultAllocations[0].sourceAccountId
         :"";
-    setCompletePendingId(item.id);setCompleteSourceAccountId(defaultSourceAccountId);setCompleteSourceAllocations(defaultAllocations);setCompletePayoutChargeOverride("");setCompleteCommissionAccountId(defaultCommissionAccountId);setCompleteCommissionAccountOverridden(false);
+    setCompletePendingId(item.id);setCompleteSourceAccountId(defaultSourceAccountId);setCompleteSourceAllocations(defaultAllocations);setCompletePayoutChargeOverride("");setCompleteProviderCommissionOverride("");setCompleteCommissionAccountId(defaultCommissionAccountId);setCompleteCommissionAccountOverridden(false);
     setCompleteBeneficiaryMode(mode);
     setCompleteBeneficiaryUpi(mode==="UPI"?(item.beneficiaryDetails||""):"");
     setCompleteBankAccountHolder(bank.accountHolder);setCompleteBankAccountNumber(bank.accountNumber);setCompleteBankIfsc(bank.ifsc);
@@ -1782,7 +1799,7 @@ export default function CashCounterWorkspace({
                   <div className="min-w-0">
                     <p className="truncate text-[15px] font-bold">{activity.particular}</p>
                     <p className="mt-0.5 truncate text-[13px] text-[var(--text-muted)]">{friendlyService(activity.serviceType)} · {new Date(activity.transactionAt).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})}</p>
-                    <p className="mt-1 text-xs text-[var(--text-muted)]">Txn {money(activity.transactionAmount)}{Number(activity.incomeAmount??activity.commissionAmount??0)>0?" · Income "+money(Number(activity.incomeAmount??activity.commissionAmount??0)):""}{activity.providerFeeAmount?" · Provider −"+money(activity.providerFeeAmount):""}{activity.payoutChargeAmount?" · Payout cost −"+money(activity.payoutChargeAmount):""}{activity.profitAmount!==undefined?" · Net earning "+money(activity.profitAmount):""}</p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">Txn {money(activity.transactionAmount)}{Number(activity.incomeAmount??activity.commissionAmount??0)>0?" · Income "+money(Number(activity.incomeAmount??activity.commissionAmount??0)):""}{Number(activity.providerCommissionAmount||0)>0?" · Provider earned +"+cashMoney(activity.providerCommissionAmount||0):""}{activity.providerFeeAmount?" · Provider −"+money(activity.providerFeeAmount):""}{activity.payoutChargeAmount?" · Payout cost −"+money(activity.payoutChargeAmount):""}{activity.profitAmount!==undefined?" · Net earning "+money(activity.profitAmount):""}</p>
                   </div>
                   <div className="text-right">
                     {activity.cashIn?<strong className="money block text-[15px] text-[var(--money-in)]">+{money(activity.cashIn)}</strong>:null}
@@ -2086,6 +2103,14 @@ export default function CashCounterWorkspace({
                   <option value="">Select Bank / UPI / Wallet</option>
                   {completionSourceAccounts.map((account)=><option key={account.id} value={account.id}>{account.accountName} · {money(account.currentBalance??0)}</option>)}
                 </SearchableSelect>
+                {isCompletingMicroAtm?<div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-black text-sky-900">Provider commission earned</span><strong className="money text-sm font-black text-emerald-700">+{cashMoney(completeProviderCommission)}</strong></div>
+                  <p className="mt-1 text-[11px] text-sky-800">Separate from customer fee and ₹{Number(completingQuickCash?.amount||0).toLocaleString("en-IN")} withdrawal principal. Credited to the selected settlement account.</p>
+                  <label className="mt-2 block max-w-[250px]"><span className="text-[10px] font-bold uppercase text-sky-900">Provider commission override (₹)</span>
+                    <input aria-label="Micro ATM provider commission override" inputMode="decimal" className="mt-1 min-h-11 w-full rounded-lg border border-sky-200 bg-[var(--surface)] px-3 text-sm font-black outline-none" value={completeProviderCommissionOverride} onChange={event=>{setCompleteProviderCommissionOverride(event.target.value.replace(/[^0-9.]/g,""));setCompleteError("");}} placeholder={configuredMicroAtmCommission.hasRule?String(configuredMicroAtmCommission.amount):"0.00"}/>
+                  </label>
+                  <span className="mt-1 block text-[10px] text-sky-800">{completeProviderCommissionOverride.trim()!==""?"Manual override · clear to use provider rules":configuredMicroAtmCommission.hasRule?"Auto from configured provider slabs":"No verified provider slab configured · enter confirmed commission manually or leave zero"}</span>
+                </div>:null}
                 {completingQuickCash?.direction==="IN"?<label className="mt-3 block max-w-[250px]">
                   <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Provider charge (₹)</span>
                   <input aria-label="Provider charge for single payout" inputMode="decimal" className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black outline-none" value={completePayoutChargeOverride} onChange={(event)=>{setCompletePayoutChargeOverride(event.target.value.replace(/[^0-9.]/g,""));setCompleteError("");}} placeholder={String(configuredPayoutCharge(providers,completeSelectedSourceAccount,Number(completingQuickCash?.amount||0)))} />
@@ -2098,6 +2123,11 @@ export default function CashCounterWorkspace({
               </>}
             </div>
 
+            {isCompletingMicroAtm?<div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-sky-200 bg-sky-50/40 text-center">
+              <div className="px-2 py-2.5"><span className="block text-[9px] font-bold uppercase text-sky-800">Customer fee</span><strong className="money block text-sm font-black">{money(completeCustomerCommission)}</strong></div>
+              <div className="border-x border-sky-200 px-2 py-2.5"><span className="block text-[9px] font-bold uppercase text-sky-800">Provider income</span><strong className="money block text-sm font-black text-emerald-700">+{cashMoney(completeProviderCommission)}</strong></div>
+              <div className="px-2 py-2.5"><span className="block text-[9px] font-bold uppercase text-sky-800">Total income</span><strong className="money block text-sm font-black">{cashMoney(completeCustomerCommission+completeProviderCommission)}</strong></div>
+            </div>:null}
             {completingQuickCash?.direction==="IN"?<div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] text-center">
               <div className="px-2 py-2.5"><span className="block text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Provider charge</span><strong className="money mt-0.5 block text-sm font-black text-rose-600">−{money(completePayoutChargeTotal)}</strong></div>
               <div className="border-x border-[var(--border)] px-2 py-2.5"><span className="block text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Commission</span><strong className="money mt-0.5 block text-sm font-black text-[var(--money-in)]">+{money(completeCustomerCommission)}</strong></div>

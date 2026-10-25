@@ -314,7 +314,7 @@ export class CashCounterService {
                 netAmount: true,
                 notes: true,
                 customer: { select: { id: true, fullName: true } },
-                commissions: { select: { amount: true } },
+                commissions: { select: { amount: true, commissionType: true } },
                 charges: { select: { amount: true, chargeType: true } },
               },
             },
@@ -345,7 +345,7 @@ export class CashCounterService {
                     netAmount: true,
                     notes: true,
                     customer: { select: { id: true, fullName: true } },
-                    commissions: { select: { amount: true } },
+                    commissions: { select: { amount: true, commissionType: true } },
                 charges: { select: { amount: true, chargeType: true } },
                   },
                 },
@@ -397,6 +397,9 @@ export class CashCounterService {
         commissionMode: true,
         commissionCashAmount: true,
         commissionAccount: {
+          select: { accountName: true, accountType: true },
+        },
+        sourceAccount: {
           select: { accountName: true, accountType: true },
         },
         servicePaymentMode: true,
@@ -455,6 +458,10 @@ export class CashCounterService {
         (sum, commission) => sum + Number(commission.amount),
         0,
       );
+      const providerCommissionAmount = origin.commissions
+        .filter((commission) => commission.commissionType?.endsWith('_PROVIDER'))
+        .reduce((sum, commission) => sum + Number(commission.amount), 0);
+      const customerCommissionAmount = commissionAmount - providerCommissionAmount;
       const providerFeeAmount = (origin.charges ?? [])
         .filter((charge) => !charge.chargeType.startsWith('PAYOUT'))
         .reduce((sum, charge) => sum + Number(charge.amount), 0);
@@ -568,6 +575,8 @@ export class CashCounterService {
         cashIn: 0,
         cashOut: 0,
         commissionAmount,
+        customerCommissionAmount,
+        providerCommissionAmount,
         serviceIncomeAmount,
         incomeAmount,
         providerFeeAmount,
@@ -578,8 +587,10 @@ export class CashCounterService {
         commissionMode: quickCashDetail?.commissionMode ?? null,
         commissionCashAmount,
         commissionDigitalAmount,
-        commissionAccountType: quickCashDetail?.commissionAccount?.accountType ?? null,
-        commissionAccountName: quickCashDetail?.commissionAccount?.accountName ?? null,
+        commissionAccountType: quickCashDetail?.commissionAccount?.accountType
+          ?? (providerCommissionAmount > 0 ? quickCashDetail?.sourceAccount?.accountType : null) ?? null,
+        commissionAccountName: quickCashDetail?.commissionAccount?.accountName
+          ?? (providerCommissionAmount > 0 ? quickCashDetail?.sourceAccount?.accountName : null) ?? null,
         servicePaymentMode: quickCashDetail?.servicePaymentMode ?? null,
         servicePaymentAccountType: quickCashDetail?.servicePaymentAccount?.accountType ?? null,
         servicePaymentAccountName: quickCashDetail?.servicePaymentAccount?.accountName ?? null,
