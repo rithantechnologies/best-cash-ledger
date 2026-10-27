@@ -2,10 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  clearRememberedField, currentStaffId, getRemembered,
-  matchesRemembered, saveRemembered, suggestionFieldKey,
-} from "@/lib/browser-suggestion-history";
+import { currentStaffId, matchesRemembered, suggestionFieldKey } from "@/lib/browser-suggestion-history";
+import { clearFieldValues, readFieldValues, rememberFieldValue } from "@/lib/browser-suggestion-store";
 
 type Input = HTMLInputElement | HTMLTextAreaElement;
 type Menu = {
@@ -35,23 +33,36 @@ export function BrowserEntrySuggestions() {
   const lastKey = useRef<string | null>(null);
   const ignoreNextBlur = useRef<string | null>(null);
   const pointerFocus = useRef<Input | null>(null);
+  const searchVersion = useRef(0);
+  const pendingSave = useRef<ReturnType<typeof setTimeout> | null>(null);
   const menuId = "cashledger-entry-suggestions";
 
   useEffect(() => { menuRef.current = menu; }, [menu]);
 
   useEffect(() => {
     function close() {
+      searchVersion.current++;
+      const input = current.current;
+      const original = input?.getAttribute("data-entry-original-autocomplete");
+      if (original !== null && original !== undefined) {
+        if (original === "__absent__") input?.removeAttribute("autocomplete");
+        else input?.setAttribute("autocomplete", original);
+        input?.removeAttribute("data-entry-original-autocomplete");
+      }
       current.current?.removeAttribute("aria-activedescendant");
       current.current?.removeAttribute("aria-expanded");
       current.current?.removeAttribute("aria-controls");
       menuRef.current = null;
       setMenu(null);
     }
-    function render(input: Input, key: string, query: string) {
+    async function render(input: Input, key: string, query: string) {
+      const version = ++searchVersion.current;
       if (current.current !== input || !input.isConnected) return close();
       const staff = currentStaffId(localStorage);
       if (!staff) return close();
-      const entries = getRemembered(localStorage, staff)[key] || [];
+      const entries = await readFieldValues(staff, key);
+      if (version !== searchVersion.current || current.current !== input || !input.isConnected ||
+          lastKey.current !== key || currentStaffId(localStorage) !== staff) return;
       const values = matchesRemembered(entries, query);
       if (!values.length) return close();
       // When local matches exist, avoid two competing native/app suggestion menus.
@@ -69,8 +80,9 @@ export function BrowserEntrySuggestions() {
       const above = r.top - viewTop - 8;
       const placement = below < 190 && above > below ? "above" : "below";
       const space = placement === "above" ? above : below;
-      const maxHeight = Math.max(72, Math.min(185, space - 8));
-      const needed = Math.min(maxHeight, values.length * 42 + 66); // compact rows + label + clear control
+      const desiredHeight = Math.min(560, Math.round((visual?.height ?? window.innerHeight) * 0.65));
+      const maxHeight = Math.max(72, Math.min(desiredHeight, space - 8));
+      const needed = Math.min(maxHeight, values.length * 44 + 80); // Every match remains available by scrolling
       const top = placement === "above" ? Math.max(viewTop + 4, r.top - needed - 6) : r.bottom + 6;
       const left = Math.max(8, Math.min(r.left, window.innerWidth - 190));
       const width = Math.max(185, Math.min(Math.max(185, r.width), window.innerWidth - left - 8));
@@ -89,7 +101,7 @@ export function BrowserEntrySuggestions() {
       if (!key) return close();
       current.current = input;
       lastKey.current = key;
-      // A real click into an empty field offers three recent entries. Do not
+      // A real click into an empty field offers all saved entries. Do not
       // show a popup for modal autofocus or prefilled fields.
       if (pointerFocus.current === input && !input.value.trim()) render(input, key, "");
       else close();
@@ -98,14 +110,25 @@ export function BrowserEntrySuggestions() {
     function type(event: Event) {
       if (!isInput(event.target) || event.target !== current.current) return;
       const key = lastKey.current;
-      if (key) render(event.target, key, event.target.value);
+      if (key) {
+        ignoreNextBlur.current = null;
+        void render(event.target, key, event.target.value);
+        if (pendingSave.current) clearTimeout(pendingSave.current);
+        const input = event.target, staff = currentStaffId(localStorage);
+        if (staff) pendingSave.current = setTimeout(() => {
+          if (current.current === input && lastKey.current === key)
+            void rememberFieldValue(staff, key, input.value);
+        }, 1300);
+      }
     }
     function blur(event: FocusEvent) {
       if (!isInput(event.target) || event.target !== current.current) return;
       const input = event.target;
       const key = lastKey.current;
       const staff = currentStaffId(localStorage);
-      if (key && staff && ignoreNextBlur.current !== key) saveRemembered(localStorage, staff, key, input.value);
+      if (pendingSave.current) clearTimeout(pendingSave.current);
+      pendingSave.current = null;
+      if (key && staff && ignoreNextBlur.current !== key) void rememberFieldValue(staff, key, input.value);
       ignoreNextBlur.current = null;
       const original = input.getAttribute("data-entry-original-autocomplete");
       if (original !== null) {
@@ -130,12 +153,13 @@ export function BrowserEntrySuggestions() {
         const delta = event.key === "ArrowDown" ? 1 : -1;
         const selected = (active.selected + delta + active.values.length) % active.values.length;
         const next = { ...active, selected };
+        document.getElementById(menuId + "-" + selected)?.scrollIntoView({ block: "nearest" });
         menuRef.current = next;
         setMenu(next);
         current.current.setAttribute("aria-activedescendant", menuId + "-" + selected);
         return;
       }
-      if (event.key === "Enter" && active.values.length) {
+      if (event.key === "Enter" && active.values.length && !event.isComposing) {
         event.preventDefault();
         selectValue(active.values[active.selected]);
       }
@@ -150,7 +174,9 @@ export function BrowserEntrySuggestions() {
       input.dispatchEvent(new Event("input", { bubbles: true }));
       const staff = currentStaffId(localStorage);
       const key = lastKey.current;
-      if (key && staff) saveRemembered(localStorage, staff, key, value);
+      if (pendingSave.current) clearTimeout(pendingSave.current);
+      pendingSave.current = null;
+      if (key && staff) void rememberFieldValue(staff, key, value);
       close();
       input.focus({ preventScroll: true });
       try { input.setSelectionRange(value.length, value.length); } catch {}
@@ -172,6 +198,16 @@ export function BrowserEntrySuggestions() {
         if (!(event.target instanceof Element && event.target.closest("[data-entry-suggestions]"))) close();
       }
     }
+    function submit(event: Event) {
+      if (!(event.target instanceof HTMLFormElement)) return;
+      const staff = currentStaffId(localStorage);
+      if (!staff) return;
+      for (const input of event.target.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input,textarea")) {
+        const key = suggestionFieldKey(input);
+        if (key) void rememberFieldValue(staff, key, input.value);
+      }
+    }
+    document.addEventListener("submit", submit, true);
     document.addEventListener("focusin", focus);
     document.addEventListener("input", type);
     document.addEventListener("focusout", blur);
@@ -189,6 +225,8 @@ export function BrowserEntrySuggestions() {
     }
     document.addEventListener("cashledger:choose-suggestion", choose);
     return () => {
+      if (pendingSave.current) clearTimeout(pendingSave.current);
+      document.removeEventListener("submit", submit, true);
       document.removeEventListener("focusin", focus);
       document.removeEventListener("input", type);
       document.removeEventListener("focusout", blur);
@@ -222,7 +260,7 @@ export function BrowserEntrySuggestions() {
       }}
     >
       <div style={{ padding: "7px 12px", fontSize: 11, fontWeight: 600, color: "var(--text-muted,#64748b)" }}>
-        Saved on this browser
+        Saved on this browser · {menu.values.length} {menu.values.length === 1 ? "match" : "matches"}
       </div>
       {menu.values.map((value, index) => (
         <button
@@ -248,8 +286,18 @@ export function BrowserEntrySuggestions() {
         onPointerDown={e => e.preventDefault()}
         onClick={() => {
           const staff = currentStaffId(localStorage);
-          if (staff) clearRememberedField(localStorage, staff, menu.field);
+          if (staff) void clearFieldValues(staff, menu.field);
           ignoreNextBlur.current = menu.field;
+          const input = current.current;
+          const previous = input?.getAttribute("data-entry-original-autocomplete");
+          if (previous !== null && previous !== undefined) {
+            if (previous === "__absent__") input?.removeAttribute("autocomplete");
+            else input?.setAttribute("autocomplete", previous);
+            input?.removeAttribute("data-entry-original-autocomplete");
+          }
+          input?.removeAttribute("aria-expanded");
+          input?.removeAttribute("aria-activedescendant");
+          input?.removeAttribute("aria-controls");
           setMenu(null);
           menuRef.current = null;
         }}

@@ -29,6 +29,9 @@ jobs:
           npm ci --prefix apps/api
           npm ci --workspaces=false --prefix apps/web
 
+      - name: Test browser field-history retention
+        run: node apps/web/tests/browser-suggestion-history.test.cjs
+
       - name: Generate Prisma client
         working-directory: apps/api
         run: npx prisma generate --schema=prisma/schema.prisma
