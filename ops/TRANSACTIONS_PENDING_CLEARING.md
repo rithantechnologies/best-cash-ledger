@@ -21,3 +21,15 @@ transactions retain their specialized workflows.
 Client VPS: build with NEXT_PUBLIC_BASE_PATH='', commit and push main,
 deploy through the authorized managed client worker with backup and health checks,
 then advance prod to the deployed commit. Never modify unrelated running workloads.
+
+## Pending expense completion
+
+Pending BUSINESS_EXPENSE and PERSONAL_EXPENSE rows now display
+"Complete expense" in the Transactions Status column (desktop and mobile).
+This is a navigation action, never an automatic status change. It opens the
+existing audited expense completion form and requires a payment account before
+posting. Closed cash sessions, insufficient funds, and access checks remain
+enforced by the API. The expense's original transaction date is preserved;
+completion and ledger posting are recorded against the existing transaction,
+not by creating a duplicate. If an older pending expense has an existing
+journal, its full expense correction form is used instead.

@@ -20,3 +20,12 @@ export function pendingClearingHref(row: PendingRow): string | null {
   });
   return "/cash-counter?" + params.toString();
 }
+
+
+/** Pending expenses use the existing audited expense completion form.
+ * Selecting the payment account is required before any money is posted.
+ */
+export function pendingExpenseHref(row: {id: string; transactionType: string; status: string}): string | null {
+  if (row.status !== "PENDING" || !["BUSINESS_EXPENSE", "PERSONAL_EXPENSE"].includes(row.transactionType) || !row.id) return null;
+  return "/transactions/" + encodeURIComponent(row.id) + "?completeExpense=1";
+}

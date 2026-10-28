@@ -230,6 +230,15 @@ export default function TransactionDetailPage(){
 
  const load=()=>apiFetch<Tx>("/transactions/"+id).then(setTx);
  useEffect(()=>{setReturnTo(transactionReturnPath());try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}load().catch(e=>setError(e instanceof Error?e.message:"Failed to load transaction"));},[id]);
+ // The Transactions list's Complete expense action opens this same audited form.
+ useEffect(()=>{
+   if(tx?.id===id&&tx.expense&&tx.status==="PENDING"&&
+      new URLSearchParams(window.location.search).get("completeExpense")==="1"){
+     // Previously posted/reversed expenses must use the full audited edit flow.
+     if(tx.journal) router.replace("/expenses/"+encodeURIComponent(id)+"/edit");
+     else void openExpenseSource();
+   }
+ },[id,tx?.id,tx?.status]);
  function openDetailsEditor(){
    if(!tx)return;
    setEditReference(tx.referenceNumber||"");
