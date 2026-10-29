@@ -80,9 +80,10 @@ export function BrowserEntrySuggestions() {
       const above = r.top - viewTop - 8;
       const placement = below < 190 && above > below ? "above" : "below";
       const space = placement === "above" ? above : below;
-      const desiredHeight = Math.min(560, Math.round((visual?.height ?? window.innerHeight) * 0.65));
-      const maxHeight = Math.max(72, Math.min(desiredHeight, space - 8));
-      const needed = Math.min(maxHeight, values.length * 44 + 80); // Every match remains available by scrolling
+      // Restore the original, less intrusive solid dropdown dimensions.
+      // No result truncation: additional matches remain scrollable.
+      const maxHeight = Math.max(72, Math.min(255, space - 8));
+      const needed = Math.min(maxHeight, values.length * 44 + 90);
       const top = placement === "above" ? Math.max(viewTop + 4, r.top - needed - 6) : r.bottom + 6;
       const left = Math.max(8, Math.min(r.left, window.innerWidth - 190));
       const width = Math.max(185, Math.min(Math.max(185, r.width), window.innerWidth - left - 8));
@@ -101,10 +102,10 @@ export function BrowserEntrySuggestions() {
       if (!key) return close();
       current.current = input;
       lastKey.current = key;
-      // A real click into an empty field offers all saved entries. Do not
-      // show a popup for modal autofocus or prefilled fields.
-      if (pointerFocus.current === input && !input.value.trim()) render(input, key, "");
-      else close();
+      // Classic Cash Ledger behavior (before October 20): offer saved
+      // application history immediately whenever an eligible field focuses.
+      // The scrollable list still includes every saved match.
+      void render(input, key, input.value);
       pointerFocus.current = null;
     }
     function type(event: Event) {
@@ -252,11 +253,9 @@ export function BrowserEntrySuggestions() {
         position: "fixed", left: menu.left, top: menu.top,
         width: menu.width, maxHeight: menu.maxHeight, zIndex: 2147483000,
         overflow: "auto", overscrollBehavior: "contain",
-        background: "color-mix(in srgb, var(--surface, #fff) 93%, transparent)",
-        backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-        color: "var(--text, #111827)",
+        background: "var(--surface, #fff)", color: "var(--text, #111827)",
         border: "1px solid var(--border, #e2e8f0)", borderRadius: 12,
-        boxShadow: "0 10px 24px rgba(15,23,42,0.14)",
+        boxShadow: "0 14px 32px rgba(15,23,42,0.21)",
       }}
     >
       <div style={{ padding: "7px 12px", fontSize: 11, fontWeight: 600, color: "var(--text-muted,#64748b)" }}>
