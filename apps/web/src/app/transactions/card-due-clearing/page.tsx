@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect, react-hooks/immutability, @typescript-eslint/no-explicit-any */
 
 import { SearchableSelect } from "@/components/searchable-select";
+import { sortCustomerMatches } from "@/lib/customer-search-rank";
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
@@ -80,7 +81,7 @@ export default function CardDueClearingPage(){
  const customer=customers.find(x=>x.id===customerId),addProvider=providers.find(x=>x.id===addProviderId);
  const addGateway=addProvider?.gateways.find(x=>x.id===addGatewayId);
  const liquidAccounts=accounts.filter(liquid),commissionAccounts=liquidAccounts.filter(a=>a.accountType==="CASH"||a.accountType==="UPI");
- const customerMatches=customerSearch.trim().length<2?[]:customers.filter(c=>(c.fullName+" "+(c.mobile??"")).toLowerCase().includes(customerSearch.trim().toLowerCase()));
+ const customerMatches=customerSearch.trim().length<2?[]:sortCustomerMatches(customers.filter(c=>(c.fullName+" "+(c.mobile??"")).toLowerCase().includes(customerSearch.trim().toLowerCase())),customerSearch);
 
  const loadRows=async()=>{
   const [dueRows,duePayables]=await Promise.all([

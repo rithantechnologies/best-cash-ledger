@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { findCustomerIdsForSearch } from '../customers/customer-search-filter.js';
+import { sortCustomerMatches } from './customer-search-rank.js';
 
 @Injectable()
 export class SearchService {
@@ -38,14 +39,7 @@ export class SearchService {
     });
 
     const normalizedName = query.toLowerCase();
-    const rankedCustomers = [...customers].sort((a, b) => {
-      const mobileScore = (customer: typeof customers[number]) => digits.length >= 3 && (customer.mobile ?? "").replace(/\D/g, "") === digits ? 0 : 1;
-      const nameScore = (customer: typeof customers[number]) => {
-        const name = customer.fullName.toLowerCase();
-        return name === normalizedName ? 0 : name.startsWith(normalizedName) ? 1 : 2;
-      };
-      return mobileScore(a) - mobileScore(b) || nameScore(a) - nameScore(b);
-    });
+    const rankedCustomers = sortCustomerMatches(customers, query);
 
     const history = digits.length === 4 && rankedCustomers.length
       ? await this.prisma.transaction.findMany({
@@ -114,8 +108,15 @@ export class SearchService {
     if (!query) return { customers: [], transactions: [], accounts: [], providers: [] };
 
     const matchingIds = await findCustomerIdsForSearch(this.prisma, query, true);
-    const customers = await this.prisma.customer.findMany({
+    // Pick the top names BEFORE limiting to ten detailed results. Otherwise,
+    // ten recently edited internal-substring matches can hide "MU..." names.
+    const identities = await this.prisma.customer.findMany({
       where: { id: { in: matchingIds } },
+      select: { id: true, fullName: true, mobile: true },
+    });
+    const priorityIds = sortCustomerMatches(identities, query).slice(0, 10).map(c => c.id);
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: priorityIds } },
       select: {
         id: true,
         customerCode: true,
@@ -140,12 +141,12 @@ export class SearchService {
         },
       },
       orderBy: { updatedAt: 'desc' },
-      take: 10,
     });
 
-    const matchedCustomerIds = customers.map((customer) => customer.id);
+    const rankedGlobalCustomers = sortCustomerMatches(customers, query);
+    const matchedCustomerIds = rankedGlobalCustomers.map((customer) => customer.id);
     // Keep complete saved account numbers on the customer detail endpoint only.
-    const safeCustomers = customers.map(({ bankAccounts, upiAccounts, beneficiaries, ...customer }) => {
+    const safeCustomers = rankedGlobalCustomers.map(({ bankAccounts, upiAccounts, beneficiaries, ...customer }) => {
       const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
       const digits = query.replace(/\D/g, '');
       const bank = bankAccounts.find(item =>

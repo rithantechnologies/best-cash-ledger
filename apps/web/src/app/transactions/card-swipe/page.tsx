@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { SearchableSelect } from "@/components/searchable-select";
+import { sortCustomerMatches } from "@/lib/customer-search-rank";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
@@ -326,7 +327,7 @@ export default function CardSwipePage(){
   const [error,setError]=useState("");
   const [saving,setSaving]=useState(false);
   const [loading,setLoading]=useState(true);
-  const {values:rememberedCustomerNames,remember:rememberCustomerName}=useRememberedValues("cashledger_recent_customer_names",8);
+  const {remember:rememberCustomerName}=useRememberedValues("cashledger_recent_customer_names",8);
 
   useEffect(()=>{
     document.body.classList.add("cashledger-modern-task");
@@ -405,7 +406,7 @@ export default function CardSwipePage(){
   const customerNeedle=customerSearch.trim().toLowerCase();
   const customerDigits=customerSearch.replace(/\D/g,"");
   const customerTerms=customerNeedle.split(/\s+/).filter(Boolean);
-  const customerMatches=customerTerms.length?customers.filter(c=>customerTerms.every(term=>{
+  const customerMatches=customerTerms.length?sortCustomerMatches(customers.filter(c=>customerTerms.every(term=>{
     const digits=term.replace(/\D/g,"");
     return c.fullName.toLowerCase().includes(term)||
       (digits.length>=3&&(c.mobile??"").includes(digits))||
@@ -413,7 +414,7 @@ export default function CardSwipePage(){
       (c.bankAccounts??[]).some(account=>account.isActive&&(account.bankName.toLowerCase().includes(term)||(digits.length>=3&&account.accountReference.includes(digits))))||
       (c.upiAccounts??[]).some(account=>account.isActive&&((account.upiId??"").toLowerCase().includes(term)||(account.accountName.toLowerCase().includes(term))||(digits.length>=3&&(account.mobileNumber??"").includes(digits))))||
       (c.beneficiaries??[]).some(recipient=>recipient.isActive&&(recipient.beneficiaryName.toLowerCase().includes(term)||recipient.accounts.some(account=>account.isActive&&((account.upiId??"").toLowerCase().includes(term)||(digits.length>=3&&(account.accountReference??"").includes(digits))))));
-  })):[];
+  })),customerSearch):[];
   const selectedCard=customer?.cards.find(card=>card.id===cardId);
   const readyCardHistory=historyLoadedFor===customerId?customerHistory:[];
   const validCardHistory=readyCardHistory.filter(row=>row.status==="COMPLETED"&&!!row.cardSwipe)
@@ -1019,8 +1020,7 @@ export default function CardSwipePage(){
                 <button type="button" onClick={openAddCard} className="flex min-w-[110px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] px-3 text-xs font-semibold text-[var(--accent)]">+ Add card</button>
               </div>
               {cardId?<div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,180px)_minmax(0,220px)_1fr]"><Field label="Card type"><div className={control+" flex items-center bg-[var(--surface-soft)] font-bold text-[var(--text)]"}>CREDIT</div></Field><Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field><div className="self-end pb-1">{historyLoading||historyLoadedFor!==customerId?<p className="text-[10px] font-semibold text-[var(--text-muted)]">Loading this card setup…</p>:historyError?<p className="text-[10px] font-semibold text-amber-700">Previous card setup unavailable. Enter this swipe manually.</p>:selectedCardSetup?<p className="rounded-lg bg-[var(--accent-soft)] px-2.5 py-2 text-[10px] font-bold text-[var(--accent)]">Last card setup suggested · editable: {selectedCardHistoryProvider?.name||"Provider"} · {selectedCardHistoryGateway?.gatewayName||"Gateway"} · {selectedCardHistoryTerm?.name||(selectedCardSetup.paymentTermId?"Term":"Custom date")} · gateway {rateText(Number(selectedCardSetup.providerChargeRate))}% · commission {rateText(Number(selectedCardSetup.commissionRate))}%</p>:<p className="text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Choose the setup once and it will be reused next time.</p>}</div></div>:null}
-            </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" name="cashledger_customer_search" data-no-suggestions="true" autoComplete="off" list="cashledger-card-swipe-remembered-names" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, bank/card last 4 or UPI ID" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];const matchBank=customerDigits?match.bankAccounts?.find(bank=>bank.isActive&&bank.accountReference.includes(customerDigits)):undefined;return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):matchBank?" · Bank ••••"+matchBank.accountReference.slice(-4):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
-            <datalist id="cashledger-card-swipe-remembered-names">{rememberedCustomerNames.map(name=><option key={name} value={name}/>)}</datalist>
+            </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" name="cashledger_customer_search" data-no-suggestions="true" autoComplete="off" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, bank/card last 4 or UPI ID" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];const matchBank=customerDigits?match.bankAccounts?.find(bank=>bank.isActive&&bank.accountReference.includes(customerDigits)):undefined;return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):matchBank?" · Bank ••••"+matchBank.accountReference.slice(-4):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
             {customer?<CustomerCardSwipeHistory rows={customerHistory} loading={historyLoading}/>:null}
           </section>
 

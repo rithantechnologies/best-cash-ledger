@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { SearchableSelect } from "@/components/searchable-select";
+import { sortCustomerMatches } from "@/lib/customer-search-rank";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -62,7 +63,7 @@ export default function MicroAtmPage(){
  const provider=providers.find(p=>p.id===providerId);
  const providerWallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId);
  const withdrawal=Number(amount||0);
- const filteredCustomers=customerSearch.trim()?customers.filter(c=>(c.fullName+" "+c.mobile).toLowerCase().includes(customerSearch.trim().toLowerCase())):customers;
+ const filteredCustomers=customerSearch.trim()?sortCustomerMatches(customers.filter(c=>(c.fullName+" "+c.mobile).toLowerCase().includes(customerSearch.trim().toLowerCase())),customerSearch):customers;
  const newCustomerReady=newCustomerName.trim().length>=2&&(!newCustomerMobile.trim()||/^[6-9]\d{9}$/.test(newCustomerMobile.trim()));
  const providerCommission=Math.round(withdrawal*Number(commissionRate||0))/100;
  const settlement=Math.round((withdrawal+providerCommission)*100)/100;

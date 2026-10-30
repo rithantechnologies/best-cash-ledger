@@ -33,6 +33,7 @@ jobs:
         run: |
           node apps/web/tests/browser-suggestion-history.test.cjs
           node --test apps/web/test/browser-entry-suggestions.test.cjs
+          node apps/web/tests/customer-search-ranking.test.cjs
 
       - name: Generate Prisma client
         working-directory: apps/api

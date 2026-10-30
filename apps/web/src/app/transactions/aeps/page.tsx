@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { SearchableSelect } from "@/components/searchable-select";
+import { sortCustomerMatches } from "@/lib/customer-search-rank";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -249,10 +250,10 @@ export default function AepsPage(){
 
   const searchNeedle=customerSearch.trim().toLowerCase();
   const searchDigits=mobileDigits(customerSearch);
-  const customerMatches=searchNeedle?customers.filter(c=>
+  const customerMatches=searchNeedle?sortCustomerMatches(customers.filter(c=>
     c.fullName.toLowerCase().includes(searchNeedle)||
     (!!searchDigits&&mobileDigits(c.mobile).includes(searchDigits))
-  ).slice(0,8):[];
+  ),customerSearch):[];
 
   const possibleExisting=useMemo(()=>{
     const name=newName.trim().toLowerCase();

@@ -1,5 +1,6 @@
 "use client";
 import { SearchableSelect } from "@/components/searchable-select";
+import { sortCustomerMatches } from "@/lib/customer-search-rank";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -170,10 +171,10 @@ export default function CashTransferPage(){
   const customer=customers.find(c=>c.id===customerId);
   const searchNeedle=customerSearch.trim().toLowerCase();
   const searchDigits=mobileDigits(customerSearch);
-  const customerMatches=searchNeedle?customers.filter(c=>
+  const customerMatches=searchNeedle?sortCustomerMatches(customers.filter(c=>
     c.fullName.toLowerCase().includes(searchNeedle)||
     (!!searchDigits&&(c.mobile??"").includes(searchDigits))
-  ).slice(0,8):[];
+  ),customerSearch):[];
 
   const possibleExisting=useMemo(()=>{
     const name=newName.trim().toLowerCase();
