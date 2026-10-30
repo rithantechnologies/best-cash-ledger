@@ -36,12 +36,25 @@ export default function CustomersPage(){
  const [editing,setEditing]=useState<Customer|null>(null),[editName,setEditName]=useState(""),[editMobile,setEditMobile]=useState(""),[editEbNumber,setEditEbNumber]=useState(""),[editTypeId,setEditTypeId]=useState(""),[editNotes,setEditNotes]=useState("");
  const [toggleTarget,setToggleTarget]=useState<Customer|null>(null),[error,setError]=useState(""),[message,setMessage]=useState(""),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
  const [resultsKey,setResultsKey]=useState("");
+ const [searchSuggestionsOpen,setSearchSuggestionsOpen]=useState(false);
+ const [searchSuggestionIndex,setSearchSuggestionIndex]=useState(0);
+ const customerSearchInput=useRef<HTMLInputElement|null>(null);
  const currentRequest=useRef(0);
  const currentAbort=useRef<AbortController|null>(null);
  const control="app-control";
  const admin=role==="OWNER"||role==="ADMIN";
  const filterKey=[q.trim(),sortBy,sortDir,pagination.pageSize,admin].join("|");
  const listReady=!loading&&resultsKey===filterKey;
+ const customerSearchMatches=listReady&&q.trim().length>=2?items:[];
+ const customerSearchMenuVisible=searchSuggestionsOpen&&q.trim().length>=2;
+ function chooseCustomerSearchSuggestion(customer:Customer){
+  // Suggestions are real database customers, not remembered browser searches.
+  invalidateSearch();
+  setLoading(true);
+  setQ(customer.fullName);
+  setSearchSuggestionsOpen(false);
+  customerSearchInput.current?.blur();
+ }
  function invalidateSearch(){
   currentRequest.current+=1;
   currentAbort.current?.abort();
@@ -160,7 +173,33 @@ export default function CustomersPage(){
   </div>
 
   <Toolbar>
-   <input inputMode="search" autoComplete="off" className={control+" bg-slate-50 lg:col-span-2"} placeholder="Phone, first name, card last 4, bank, UPI or AEPS PR…" value={q} onChange={e=>{invalidateSearch();setLoading(true);setQ(e.target.value);}}/>
+   <div className="relative min-w-0 lg:col-span-2">
+    <input ref={customerSearchInput} type="text" inputMode="search" name="cashledger_customer_search" autoComplete="off" data-no-suggestions="true" role="combobox" aria-label="Search customers" aria-autocomplete="list" aria-expanded={customerSearchMenuVisible} aria-controls="cashledger-customer-search-matches" className={control+" w-full bg-slate-50"} placeholder="Phone, first name, card last 4, bank, UPI or AEPS PR…" value={q}
+     onFocus={()=>setSearchSuggestionsOpen(true)}
+     onBlur={()=>setSearchSuggestionsOpen(false)}
+     onChange={e=>{invalidateSearch();setLoading(true);setQ(e.target.value);setSearchSuggestionIndex(0);}}
+     onKeyDown={e=>{
+      if(e.key==="Escape"){setSearchSuggestionsOpen(false);return;}
+      if(!customerSearchMenuVisible||!listReady||!customerSearchMatches.length)return;
+      if(e.key==="ArrowDown"){e.preventDefault();setSearchSuggestionIndex(i=>Math.min(i+1,customerSearchMatches.length-1));}
+      if(e.key==="ArrowUp"){e.preventDefault();setSearchSuggestionIndex(i=>Math.max(i-1,0));}
+      if(e.key==="Enter"&&!e.nativeEvent.isComposing){e.preventDefault();chooseCustomerSearchSuggestion(customerSearchMatches[Math.min(searchSuggestionIndex,customerSearchMatches.length-1)]);}
+     }}/>
+    {customerSearchMenuVisible?<div id="cashledger-customer-search-matches" role="listbox" aria-label="Matching customers" data-customer-search-suggestions="true"
+     className="absolute bottom-[calc(100%+0.35rem)] left-0 right-0 z-[120] max-h-[min(52dvh,250px)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_16px_38px_rgba(15,23,42,.24)] sm:bottom-auto sm:top-[calc(100%+0.35rem)] sm:max-h-[min(55dvh,380px)]">
+     <p className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--text-muted)]">{listReady?"Matching customers · "+pagination.total:"Searching customers…"}</p>
+     {listReady?customerSearchMatches.length?customerSearchMatches.map((customer,index)=>
+      <div key={customer.id} className={"flex items-center gap-2 border-b border-[var(--border)] px-2 py-1 last:border-b-0 "+(searchSuggestionIndex===index?"bg-[var(--accent-soft)]":"")}>
+       <button type="button" role="option" aria-selected={searchSuggestionIndex===index} className="min-h-11 min-w-0 flex-1 rounded-lg px-2 py-1 text-left" onPointerDown={e=>e.preventDefault()} onClick={()=>chooseCustomerSearchSuggestion(customer)}>
+        <span className="block break-words text-sm font-bold text-[var(--text)]">{customer.fullName}</span>
+        <span className="block text-xs text-[var(--text-muted)]">{customer.mobile||"No mobile"} · {customer.customerCode}</span>
+       </button>
+       <Link href={"/customers/"+customer.id} onPointerDown={e=>e.preventDefault()} onClick={()=>setSearchSuggestionsOpen(false)} className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--accent)]">Open</Link>
+      </div>
+     ):<p className="px-3 py-4 text-sm text-[var(--text-muted)]">No matching customers</p>:null}
+     {listReady&&pagination.total>customerSearchMatches.length?<p className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--text-muted)]">Showing {customerSearchMatches.length} of {pagination.total}. More results are in the customer list below.</p>:null}
+    </div>:null}
+   </div>
    <button type="button" onClick={()=>setShowMobileFilters(v=>!v)} aria-expanded={showMobileFilters} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-muted)] sm:hidden">{showMobileFilters?"Hide options":"Sort & page size"}</button>
    <div className={(showMobileFilters?"grid":"hidden")+" grid-cols-2 gap-2 sm:contents"}>
     <SearchableSelect className={control} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="createdAt">Created date</option><option value="fullName">Name</option><option value="customerCode">Customer code</option><option value="customerType">Type</option><option value="mobile">Mobile</option></SearchableSelect>
