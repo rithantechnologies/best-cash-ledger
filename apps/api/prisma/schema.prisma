@@ -39,6 +39,7 @@ enum UsageType {
 
 enum TransactionType {
   CARD_SWIPE
+  CARD_SWIPE_COMMISSION_RECEIPT
   CASH_TRANSFER
   SERVICE_INCOME
   AEPS_WITHDRAWAL
@@ -639,6 +640,10 @@ model CardSwipeDetail {
   commissionRate        Decimal          @db.Decimal(10, 4)
   commissionAmount      Decimal          @db.Decimal(18, 2)
   customerPayableAmount Decimal          @db.Decimal(18, 2)
+  commissionSettlementMode String         @default("DEDUCT")
+  commissionReceiptAccountId String?
+  commissionReceiptTransactionId String?  @unique
+  commissionReceiptAt    DateTime?
   paymentTermId         String?
   paymentTerm           PaymentTerm?     @relation(fields: [paymentTermId], references: [id])
   dueAt                 DateTime

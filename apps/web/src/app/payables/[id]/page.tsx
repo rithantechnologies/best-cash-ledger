@@ -38,7 +38,7 @@ type AdvanceOffset={
 type Payable={
  id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;createdAt:string;
  customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[];cards:PayoutCard[];beneficiaries:PayoutBeneficiary[]};paymentTerm:{name:string}|null;
- sourceTransaction:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;referenceNumber:string|null;notes:string|null;status:string;cardSwipe:{customerCard:{id:string;bankName:string;lastFourDigits:string}|null}|null;providerSettlementSource:{status?:string}|null;charges:{amount:string}[];commissions:{amount:string}[]};
+ sourceTransaction:{id:string;transactionNumber:string;transactionType:string;transactionAt:string;referenceNumber:string|null;notes:string|null;status:string;cardSwipe:{customerCard:{id:string;bankName:string;lastFourDigits:string}|null;commissionAmount:string;commissionSettlementMode:string;commissionReceiptAccountId:string|null;commissionReceiptTransactionId:string|null;commissionReceiptAt:string|null}|null;providerSettlementSource:{status?:string}|null;charges:{amount:string}[];commissions:{amount:string}[]};
  payments:Payment[];advanceOffsets:AdvanceOffset[];availableAdvances:Advance[];availableUnallocatedPayOuts:UnallocatedPayOut[];manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{amount:string;remarks:string;financialAccount:{accountName:string;accountType:string};transaction:{id:string;transactionNumber:string;transactionAt:string;referenceNumber:string|null;charges:{amount:string}[]}}}[];createdBy:{id:string;fullName:string}|null;
 };
 type Audit={id:string;action:string;reason:string|null;createdAt:string;oldValues:unknown;newValues:unknown;user:{fullName:string}|null};
@@ -60,6 +60,7 @@ export default function PayableDetailPage(){
  const [payOpen,setPayOpen]=useState(false),[amount,setAmount]=useState(""),[charge,setCharge]=useState(""),[source,setSource]=useState(""),[destination,setDestination]=useState(""),[destinationDetails,setDestinationDetails]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState(""),[busy,setBusy]=useState(false);
  const [advanceOpen,setAdvanceOpen]=useState(false),[advanceId,setAdvanceId]=useState(""),[advanceAmount,setAdvanceAmount]=useState(""),[advanceNotes,setAdvanceNotes]=useState(""),[role,setRole]=useState("");
  const [recordedOpen,setRecordedOpen]=useState(false),[recordedId,setRecordedId]=useState(""),[recordedAmount,setRecordedAmount]=useState("");
+ const [feeOpen,setFeeOpen]=useState(false),[feeAccount,setFeeAccount]=useState(""),[feeReference,setFeeReference]=useState("");
  const control="app-control";
  function load(){return apiFetch<Payable>("/payables/"+id).then(x=>{setItem(x);return Promise.all([apiFetch<Audit[]>("/audit?entityType=CUSTOMER_PAYABLE&entityId="+id).then(setAudit).catch(()=>{}),apiFetch<Account[]>("/dashboard/accounts").then(setAccounts),apiFetch<Provider[]>("/providers").then(setProviders)]);});}
  useEffect(()=>{
@@ -74,6 +75,12 @@ export default function PayableDetailPage(){
  const payoutCharges=item.payments.filter(p=>p.status==="COMPLETED").reduce((sum,p)=>sum+p.transaction.charges.reduce((chargeSum,x)=>chargeSum+Number(x.amount),0),0)+item.manualLedgerAllocations.reduce((sum,a)=>sum+allocatedCharge(a.amount,a.customerLedgerEntry.amount,a.customerLedgerEntry.transaction.charges),0);
  const profit=commission-providerCharge-payoutCharges;
  const sourceAccount=accounts.find(a=>a.id===source);
+ const swipeDetail=item.sourceTransaction.cardSwipe;
+ const canRecordSeparateFee=item.sourceTransaction.transactionType==="CARD_SWIPE" &&
+   item.sourceTransaction.status==="COMPLETED" && Number(swipeDetail?.commissionAmount||0)>0 &&
+   (swipeDetail?.commissionSettlementMode||"DEDUCT")==="DEDUCT";
+ const feeReceiptAccounts=accounts.filter(a=>["CASH","BANK","UPI"].includes(a.accountType) &&
+   !(role==="STAFF"&&a.accountName==="Main Cash Reserve"));
  const destinationType=destination==="CASH"?"CASH":destination.startsWith("CARD:")?"CUSTOMER_CARD":destination==="OTHER_CARD"?"OTHER_CARD":destination.startsWith("BANK:")?"CUSTOMER_BANK":destination.startsWith("UPI:")?"CUSTOMER_UPI":destination.startsWith("BENEFICIARY_ACCOUNT:")?"BENEFICIARY_ACCOUNT":destination==="OTHER"?"OTHER":"";
  const destinationId=destination.includes(":")?destination.split(":").slice(1).join(":"):undefined;
  const selectedBank=destinationType==="CUSTOMER_BANK"?item.customer.bankAccounts.find(a=>a.id===destinationId):undefined;
@@ -146,6 +153,17 @@ export default function PayableDetailPage(){
   }catch(err){setError(err instanceof Error?err.message:"Could not reverse advance adjustment");}
   finally{setBusy(false);}
  }
+ async function recordSeparateFee(e:FormEvent){
+  e.preventDefault();if(!item||!canRecordSeparateFee||!feeAccount||busy)return;
+  setBusy(true);setError("");
+  try{
+   await apiFetch("/transactions/card-swipe/"+item.sourceTransaction.id+"/commission-receipt",{
+    method:"POST",body:JSON.stringify({receiptAccountId:feeAccount,referenceNumber:feeReference||undefined}),
+   });
+   setFeeOpen(false);setFeeAccount("");setFeeReference("");await load();
+  }catch(err){setError(err instanceof Error?err.message:"Failed to record customer fee");}
+  finally{setBusy(false);}
+ }
  const canPay=Number(item.remainingAmount)>0&&!["PAID","CANCELLED","REVERSED"].includes(item.status);
  async function submitPayment(e:FormEvent){e.preventDefault();if(!item||!canPay||!source||!destinationType||invalidPayoutDetails)return;setBusy(true);setError("");try{await apiFetch("/payables/"+item.id+"/payments",{method:"POST",body:JSON.stringify({amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,destinationType,destinationId,destinationDetails:payoutDetailsRequired?destinationDetails.trim():undefined,referenceNumber:reference||undefined,notes:notes||undefined})});setPayOpen(false);setAmount("");setCharge("");setSource("");setDestination("");setDestinationDetails("");setReference("");setNotes("");await load();}catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}}
  function openPayment(){if(!item)return;setAmount(item.remainingAmount);setCharge("");setSource("");setDestination(defaultPaidToCustomerBank(item.customer.bankAccounts));setDestinationDetails("");setReference("");setNotes("");setPayOpen(true);}
@@ -153,7 +171,7 @@ export default function PayableDetailPage(){
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
    <div><Link href={backHref} className="text-xs font-bold text-indigo-600">← {backLabel}</Link><p className="mt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{item.customer.customerCode}</p><h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{item.customer.fullName}</h2><p className="mt-1 text-sm text-slate-500">{serviceLabel(item.sourceTransaction.transactionType)} · {item.sourceTransaction.transactionNumber} · Due {new Date(item.dueAt).toLocaleString("en-IN")}</p></div>
-   <div className="flex flex-wrap items-center gap-2">{canPay&&item.availableUnallocatedPayOuts?.length?<button type="button" onClick={openRecorded} className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-800">Match recorded Pay Out</button>:null}{canPay&&item.sourceTransaction.transactionType==="CARD_SWIPE"&&item.availableAdvances?.length?<button type="button" onClick={openAdvance} className="min-h-10 rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-xs font-bold text-indigo-700">Apply Pay Out credit</button>:null}{canPay?<button type="button" onClick={openPayment} className="app-primary-button min-h-10 px-4 text-xs font-bold">Pay now</button>:null}<StatusBadge tone={statusTone(item.status) as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{item.status.replaceAll("_"," ")}</StatusBadge></div>
+   <div className="flex flex-wrap items-center gap-2">{canPay&&item.availableUnallocatedPayOuts?.length?<button type="button" onClick={openRecorded} className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-800">Match recorded Pay Out</button>:null}{canPay&&item.sourceTransaction.transactionType==="CARD_SWIPE"&&item.availableAdvances?.length?<button type="button" onClick={openAdvance} className="min-h-10 rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-xs font-bold text-indigo-700">Apply Pay Out credit</button>:null}{canRecordSeparateFee?<button type="button" onClick={()=>setFeeOpen(true)} className="min-h-10 rounded-xl border border-indigo-300 px-3 text-xs font-bold text-indigo-700">Fee paid separately</button>:null}{canPay?<button type="button" onClick={openPayment} className="app-primary-button min-h-10 px-4 text-xs font-bold">Pay now</button>:null}<StatusBadge tone={statusTone(item.status) as "slate"|"emerald"|"indigo"|"amber"|"rose"}>{item.status.replaceAll("_"," ")}</StatusBadge></div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
@@ -165,6 +183,10 @@ export default function PayableDetailPage(){
   {canPay&&item.availableUnallocatedPayOuts?.length?<div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>Possible duplicate payout:</strong> {money(item.availableUnallocatedPayOuts.reduce((sum,a)=>sum+a.remainingUnallocated,0))} was already recorded for this customer but not linked to swipe obligations. Match the existing Pay Out before recording a new transfer. No wallet debit or bank transfer is made by matching.</div>:null}
   {item.sourceTransaction.transactionType==="CARD_SWIPE"&&Number(item.remainingAmount)>0?<p className="text-xs text-[var(--text-muted)]">Send now, send later, split payments, or apply a prior Pay Out. No second payment is made when an earlier advance is applied.</p>:null}
 
+  {item.sourceTransaction.transactionType==="CARD_SWIPE"&&swipeDetail?.commissionSettlementMode==="SEPARATE"?
+   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800">
+    Customer fee {money(swipeDetail.commissionAmount)} received separately. The full swipe amount can be paid out. Commission income is counted once.
+   </div>:null}
   <Surface className="p-4 sm:p-5">
    <div className="flex items-center justify-between text-xs"><strong>Payout progress</strong><span className="font-bold text-slate-500">{progress.toFixed(0)}%</span></div>
    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{width:progress+"%"}}/></div>
@@ -216,6 +238,20 @@ export default function PayableDetailPage(){
     <Field label="Apply amount"><input className={control} type="number" step="0.01" min="0.01" max={maxAdvance.toFixed(2)} value={advanceAmount} required onChange={e=>setAdvanceAmount(e.target.value)}/></Field>
     <p className="text-xs text-[var(--text-muted)]">The selected earlier Pay Out was already paid from its cash drawer/bank/wallet. Applying it reduces this swipe’s pending payout and the unapplied advance only. Money does not leave again.</p>
     <Field label="Notes (optional)"><input name="cashledger_notes_optional" autoComplete="on" className={control} maxLength={500} value={advanceNotes} onChange={e=>setAdvanceNotes(e.target.value)}/></Field>
+   </form>
+  </Modal>
+  <Modal open={feeOpen} title="Customer fee received separately" description={"Full payout for "+item.sourceTransaction.transactionNumber} onClose={()=>setFeeOpen(false)}
+   footer={<button form="record-separate-fee" disabled={busy||!feeAccount} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording…":"Record fee already received"}</button>}>
+   <form id="record-separate-fee" onSubmit={recordSeparateFee} className="space-y-3">
+    <p className="text-sm">Confirm the customer has <strong>already paid {money(swipeDetail?.commissionAmount||0)}</strong> separately. This adds the fee to the selected account and restores that amount to the customer payout without recording income twice.</p>
+    <Field label="Received in">
+     <SearchableSelect className={control} value={feeAccount} onChange={e=>setFeeAccount(e.target.value)} required>
+      <option value="">Choose cash drawer, bank or UPI account</option>
+      {feeReceiptAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}
+     </SearchableSelect>
+    </Field>
+    <Field label="Reference / receipt (optional)"><input className={control} value={feeReference} onChange={e=>setFeeReference(e.target.value)} placeholder="Cash acknowledgement / UTR"/></Field>
+    <p className="text-xs text-[var(--text-muted)]">Cash requires an open drawer session. This action is auditable and cannot be posted twice.</p>
    </form>
   </Modal>
   <Modal open={payOpen} title={"Pay "+item.customer.fullName} description={serviceLabel(item.sourceTransaction.transactionType)+" · Remaining "+money(item.remainingAmount)} onClose={()=>setPayOpen(false)} footer={<button form="detail-pay-form" disabled={busy||sourceShort||payoutAmount<=0||!source||!destinationType} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>

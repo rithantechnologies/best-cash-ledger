@@ -12,6 +12,7 @@ import { CreateAepsDto } from './dto/create-aeps.dto.js';
 import { AddMissingAepsCommissionDto } from './dto/add-missing-aeps-commission.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
+import { RecordCardSwipeCommissionReceiptDto } from './dto/record-card-swipe-commission-receipt.dto.js';
 import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
 import { CreateCashTransferDto } from './dto/create-cash-transfer.dto.js';
 import { CreateCreditCardPaymentDto } from './dto/create-credit-card-payment.dto.js';
@@ -595,8 +596,15 @@ export class TransactionsService {
     const settlementAmount = this.money(
       dto.swipeAmount - providerChargeAmount,
     );
+    const separateFee = dto.commissionSettlementMode === 'SEPARATE';
+    if (separateFee && (commissionAmount <= 0 || !dto.commissionReceiptAccountId)) {
+      throw new BadRequestException('Select the account receiving the separately collected customer fee');
+    }
+    if (!separateFee && dto.commissionReceiptAccountId) {
+      throw new BadRequestException('A fee receipt account is valid only in separate-fee mode');
+    }
     const customerPayableAmount = this.money(
-      dto.swipeAmount - commissionAmount,
+      dto.swipeAmount - (separateFee ? 0 : commissionAmount),
     );
     const customerPayments = (dto.customerPayments ?? []).map((payment) => ({
       sourceAccountId: payment.sourceAccountId,
@@ -838,6 +846,23 @@ export class TransactionsService {
         }
       }
 
+      let feeReceiptAccount: Awaited<ReturnType<FinancialValidationService['customerReceiptAccount']>> | null = null;
+      if (separateFee) {
+        await this.validation.lockAccount(tx, dto.commissionReceiptAccountId!);
+        feeReceiptAccount = await this.validation.customerReceiptAccount(
+          tx, dto.commissionReceiptAccountId!,
+        );
+        if (feeReceiptAccount.accountType === AccountType.CASH) {
+          if (actorRole === RoleName.STAFF && feeReceiptAccount.accountName === 'Main Cash Reserve') {
+            throw new BadRequestException('Main Cash Reserve is owner-only');
+          }
+          await this.validation.requireOpenCashDesk(
+            tx, feeReceiptAccount.id, 'Cash customer-fee receipt',
+            actorRole === RoleName.STAFF ? userId : undefined,
+          );
+        }
+      }
+
       const systemLedgers = await tx.ledgerAccount.findMany({
         where: {
           ledgerCode: {
@@ -891,6 +916,9 @@ export class TransactionsService {
           commissionRate: new Prisma.Decimal(dto.commissionRate),
           commissionAmount: new Prisma.Decimal(commissionAmount),
           customerPayableAmount: new Prisma.Decimal(customerPayableAmount),
+          commissionSettlementMode: separateFee ? 'SEPARATE' : 'DEDUCT',
+          commissionReceiptAccountId: feeReceiptAccount?.id ?? null,
+          commissionReceiptAt: feeReceiptAccount ? new Date() : null,
           paymentTermId: dto.paymentTermId ?? null,
           dueAt: new Date(dto.dueAt),
           settlementAccountId: settlementAccount.id,
@@ -965,6 +993,13 @@ export class TransactionsService {
           customerId: customerId,
           providerSettlementId: providerSettlement.id,
           description: 'Gateway processing charge',
+        }] : []),
+        ...(feeReceiptAccount ? [{
+          ledgerAccountId: feeReceiptAccount.ledgerAccount!.id,
+          entryType: EntryType.DEBIT,
+          amount: commissionAmount,
+          customerId,
+          description: 'Customer commission received separately',
         }] : []),
         {
           ledgerAccountId: payableLedger.id,
@@ -1152,6 +1187,22 @@ export class TransactionsService {
       }
 
       await this.auditCreated(tx, transaction, userId);
+      if (feeReceiptAccount) {
+        await tx.auditLog.create({
+          data: {
+            userId,
+            entityType: 'CARD_SWIPE',
+            entityId: transaction.id,
+            action: 'COMMISSION_RECEIVED_SEPARATELY',
+            newValues: {
+              receiptAccountId: feeReceiptAccount.id,
+              receivedAmount: commissionAmount,
+              payoutAmount: customerPayableAmount,
+              commissionIncomeCount: 1,
+            },
+          },
+        });
+      }
       return {
         transaction,
         payable: updatedPayable,
@@ -1164,6 +1215,149 @@ export class TransactionsService {
     return transactionClient
       ? createWithinTransaction(transactionClient)
       : this.prisma.$transaction(createWithinTransaction);
+  }
+
+  /**
+   * Record a previously paid customer fee against an existing swipe.
+   * Original commission income was already recognized when the swipe was saved.
+   * This receipt increases a real asset and the customer payable; it is NOT income.
+   */
+  async recordCardSwipeCommissionReceipt(
+    sourceId: string,
+    dto: RecordCardSwipeCommissionReceiptDto,
+    userId: string,
+    actorRole: RoleName,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Transaction" WHERE "id" = $1 FOR UPDATE', sourceId);
+      const source = await tx.transaction.findUnique({
+        where: { id: sourceId },
+        include: { cardSwipe: true, payable: true },
+      });
+      if (!source?.cardSwipe || !source.payable ||
+          source.transactionType !== TransactionType.CARD_SWIPE ||
+          source.status !== TransactionStatus.COMPLETED) {
+        throw new BadRequestException('An active card swipe with a linked payable is required');
+      }
+      if (source.cardSwipe.commissionSettlementMode !== 'DEDUCT' ||
+          source.cardSwipe.commissionReceiptAccountId) {
+        throw new BadRequestException('This customer fee has already been received separately');
+      }
+      const fee = this.money(Number(source.cardSwipe.commissionAmount));
+      if (fee <= 0) throw new BadRequestException('No customer commission is due for this swipe');
+
+      await tx.$queryRawUnsafe('SELECT "id" FROM "CustomerPayable" WHERE "id" = $1 FOR UPDATE', source.payable.id);
+      await this.validation.lockAccount(tx, dto.receiptAccountId);
+      const account = await this.validation.customerReceiptAccount(tx, dto.receiptAccountId);
+      if (account.accountType === AccountType.CASH) {
+        if (actorRole === RoleName.STAFF && account.accountName === 'Main Cash Reserve') {
+          throw new BadRequestException('Main Cash Reserve is owner-only');
+        }
+        await this.validation.requireOpenCashDesk(
+          tx, account.id, 'Cash customer-fee receipt',
+          actorRole === RoleName.STAFF ? userId : undefined,
+        );
+      }
+      const payableLedger = await tx.ledgerAccount.findUnique({ where: { ledgerCode: 'SYS-CUST-PAYABLE' } });
+      if (!payableLedger) throw new BadRequestException('Customer payable ledger is missing');
+
+      const originalAmount = this.money(Number(source.payable.originalAmount) + fee);
+      const remainingAmount = this.money(Number(source.payable.remainingAmount) + fee);
+      const allocated = this.money(Number(source.payable.paidAmount) + Number(source.payable.offsetAmount));
+      if (Math.abs(this.money(originalAmount - allocated) - remainingAmount) > 0.01) {
+        throw new BadRequestException('Customer payable balances do not reconcile');
+      }
+      const status = remainingAmount <= 0.001 ? PayableStatus.PAID :
+        allocated > 0.001 ? PayableStatus.PARTIALLY_PAID :
+        source.payable.dueAt < new Date() ? PayableStatus.OVERDUE : PayableStatus.PENDING;
+
+      const receivedAt = new Date();
+      const receipt = await tx.transaction.create({
+        data: {
+          transactionNumber: 'CFR-' + Date.now().toString(36).toUpperCase() + '-' + randomUUID().slice(0, 6).toUpperCase(),
+          transactionType: TransactionType.CARD_SWIPE_COMMISSION_RECEIPT,
+          transactionAt: receivedAt,
+          customerId: source.customerId,
+          grossAmount: new Prisma.Decimal(fee),
+          netAmount: new Prisma.Decimal(fee),
+          status: TransactionStatus.COMPLETED,
+          idempotencyKey: 'CARD-SWIPE-COMMISSION-RECEIPT:' + sourceId,
+          correctionSourceTransactionId: sourceId,
+          referenceNumber: dto.referenceNumber,
+          notes: dto.notes ?? ('Customer commission already paid for ' + source.transactionNumber),
+          createdById: userId,
+        },
+      });
+      await this.ledger.post(tx, receipt.id, userId, 'Card swipe commission receipt', [
+        {
+          ledgerAccountId: account.ledgerAccount!.id,
+          entryType: EntryType.DEBIT,
+          amount: fee,
+          customerId: source.customerId ?? undefined,
+          payableId: source.payable.id,
+          description: 'Customer fee separately received (not additional income)',
+        },
+        {
+          ledgerAccountId: payableLedger.id,
+          entryType: EntryType.CREDIT,
+          amount: fee,
+          customerId: source.customerId ?? undefined,
+          payableId: source.payable.id,
+          description: 'Restore swipe payout for separately paid commission',
+        },
+      ], receivedAt);
+      const payable = await tx.customerPayable.update({
+        where: { id: source.payable.id },
+        data: {
+          originalAmount: new Prisma.Decimal(originalAmount),
+          remainingAmount: new Prisma.Decimal(remainingAmount),
+          status,
+        },
+      });
+      await tx.cardSwipeDetail.update({
+        where: { transactionId: sourceId },
+        data: {
+          customerPayableAmount: new Prisma.Decimal(originalAmount),
+          commissionSettlementMode: 'SEPARATE',
+          commissionReceiptAccountId: account.id,
+          commissionReceiptTransactionId: receipt.id,
+          commissionReceiptAt: receivedAt,
+        },
+      });
+      await tx.transaction.update({
+        where: { id: sourceId },
+        data: { netAmount: new Prisma.Decimal(originalAmount), updatedById: userId },
+      });
+      await this.auditCreated(tx, receipt, userId);
+      await tx.auditLog.createMany({
+        data: [
+          {
+            userId, entityType: 'CARD_SWIPE', entityId: sourceId,
+            action: 'COMMISSION_RECEIVED_SEPARATELY',
+            oldValues: { mode: 'DEDUCT', payableAmount: source.payable.originalAmount.toString() },
+            newValues: {
+              mode: 'SEPARATE', receivedAmount: fee,
+              receiptAccountId: account.id, receiptTransactionId: receipt.id,
+              payableAmount: originalAmount,
+            },
+          },
+          {
+            userId, entityType: 'CUSTOMER_PAYABLE', entityId: source.payable.id,
+            action: 'COMMISSION_RECEIPT_ADJUSTMENT',
+            oldValues: {
+              originalAmount: source.payable.originalAmount.toString(),
+              remainingAmount: source.payable.remainingAmount.toString(),
+              status: source.payable.status,
+            },
+            newValues: {
+              originalAmount, remainingAmount, status,
+              receiptTransactionId: receipt.id,
+            },
+          },
+        ],
+      });
+      return { receiptTransactionId: receipt.id, receiptAmount: fee, payable };
+    }, { maxWait: 10000, timeout: 30000 });
   }
 
   async listPendingQuickCash(
@@ -5895,6 +6089,9 @@ export class TransactionsService {
           original.status !== TransactionStatus.COMPLETED) {
         throw new BadRequestException('Only an active card swipe can be amount-corrected');
       }
+      if (original.cardSwipe.commissionSettlementMode === 'SEPARATE') {
+        throw new BadRequestException('Reconcile the separately collected customer fee before amount correction');
+      }
       const previousCorrection = await tx.transaction.findFirst({
         where: {
           correctionSourceTransactionId: id,
@@ -6222,6 +6419,12 @@ export class TransactionsService {
       });
     }
 
+    if (original.cardSwipe?.commissionSettlementMode === 'SEPARATE' ||
+        original.transactionType === TransactionType.CARD_SWIPE_COMMISSION_RECEIPT) {
+      throw new BadRequestException(
+        'Reconcile the separately received customer commission before changing this amount',
+      );
+    }
     if (original.payable && (Number(original.payable.paidAmount) > 0 || Number(original.payable.offsetAmount) > 0)) {
       throw new BadRequestException(
         'Reverse the linked customer payout first, then correct this transaction',
@@ -6766,6 +6969,9 @@ export class TransactionsService {
       if (!original?.cardSwipe || original.status !== TransactionStatus.COMPLETED) {
         throw new BadRequestException('Only an active card swipe can be deleted through this workflow');
       }
+      if (original.cardSwipe.commissionSettlementMode === 'SEPARATE') {
+        throw new BadRequestException('Reconcile the separately received fee before deleting this swipe');
+      }
       if (!original.payable ||
           Number(original.payable.paidAmount) > 0.001 ||
           Number(original.payable.offsetAmount) > 0.001) {
@@ -6888,6 +7094,18 @@ export class TransactionsService {
       });
 
       if (!original) throw new NotFoundException('Transaction not found');
+      if (original.transactionType === TransactionType.CARD_SWIPE_COMMISSION_RECEIPT) {
+        throw new BadRequestException('A linked fee receipt cannot be reversed alone. Contact the owner for a reconciled correction');
+      }
+      if (original.transactionType === TransactionType.CARD_SWIPE) {
+        const receipt = await tx.cardSwipeDetail.findUnique({
+          where: { transactionId: original.id },
+          select: { commissionSettlementMode: true },
+        });
+        if (receipt?.commissionSettlementMode === 'SEPARATE') {
+          throw new BadRequestException('Reconcile the separately collected fee before reversing this swipe');
+        }
+      }
       if (original.quickCashTransfer?.direction === 'OUT' &&
           original.quickCashTransfer.cashOutType === 'AEPS') {
         const supplementalCommission = await tx.transaction.findFirst({

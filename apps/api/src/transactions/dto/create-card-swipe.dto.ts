@@ -9,6 +9,7 @@ import {
   IsString,
   Length,
   Matches,
+  IsIn,
   Max,
   MaxLength,
   Min,
@@ -48,6 +49,9 @@ export class CreateCardSwipeDto {
   @IsString() gatewayId!: string;
   @IsNumber() @Min(0) @Max(100) providerChargeRate!: number;
   @IsNumber() @Min(0) @Max(100) commissionRate!: number;
+  @IsOptional() @IsIn(['DEDUCT', 'SEPARATE'])
+  commissionSettlementMode?: 'DEDUCT' | 'SEPARATE';
+  @IsOptional() @IsString() commissionReceiptAccountId?: string;
   @IsOptional() @IsString() paymentTermId?: string;
   @IsDateString() dueAt!: string;
   // Optional business date; original creation and audit times are always real.

@@ -294,6 +294,8 @@ export default function CardSwipePage(){
   const [gatewayId,setGatewayId]=useState("");
   const [providerRate,setProviderRate]=useState("0");
   const [commissionRate,setCommissionRate]=useState("0");
+  const [commissionSettlementMode,setCommissionSettlementMode]=useState<"DEDUCT"|"SEPARATE">("DEDUCT");
+  const [commissionReceiptAccountId,setCommissionReceiptAccountId]=useState("");
   // Refocus refreshes payment terms. It must never re-apply an old card setup
   // over a gateway or commission that staff explicitly chose for this swipe.
   const hydratedCardSetupRef=useRef("");
@@ -442,7 +444,11 @@ export default function CardSwipePage(){
   const providerCharge=Math.round(swipe*pRate)/100;
   const commission=Math.round(swipe*cRate)/100;
   const settlement=Math.round((swipe-providerCharge)*100)/100;
-  const rawPayable=Math.round((swipe-commission)*100)/100;
+  const rawPayable=Math.round((swipe-(commissionSettlementMode==="SEPARATE"?0:commission))*100)/100;
+  const feeReceiptAccounts=accounts.filter(a=>["CASH","BANK","UPI"].includes(a.accountType) &&
+    (a.accountType!=="CASH"||openCashAccountIds.includes(a.id)));
+  const separateFeeValid=commissionSettlementMode==="DEDUCT" ||
+    (commission>0&&feeReceiptAccounts.some(a=>a.id===commissionReceiptAccountId));
   const payable=Math.max(0,rawPayable);
   const liquidAccounts=accounts.filter(a=>["CASH","BANK","UPI","PROVIDER_WALLET"].includes(a.accountType));
   const paymentTotal=Math.round(paymentLegs.reduce((sum,leg)=>sum+Number(leg.amount||0),0)*100)/100;
@@ -460,7 +466,8 @@ export default function CardSwipePage(){
   },new Map<string,number>());
   const payoutBalanceShort=[...payoutRequiredByAccount.entries()].some(([id,required])=>{
     const account=liquidAccounts.find(a=>a.id===id);
-    const incoming=settledNow&&providerWallet?.id===id?settlement:0;
+    const incoming=(settledNow&&providerWallet?.id===id?settlement:0)+
+      (commissionSettlementMode==="SEPARATE"&&commissionReceiptAccountId===id?commission:0);
     const openCashSession=account?.accountType==="CASH"?openCashSessions[id]:undefined;
     const available=account?.accountType==="CASH"&&openCashSession
       ? Number(openCashSession.liveExpectedClosingTotal??openCashSession.openingTotal??0)
@@ -668,6 +675,8 @@ export default function CardSwipePage(){
     setGatewayId("");
     setProviderRate("0");
     setCommissionRate(rateText(Number(instant?.defaultCommissionRate||0)));
+    setCommissionSettlementMode("DEDUCT");
+    setCommissionReceiptAccountId("");
     setSuggestedCommission(Number(instant?.defaultCommissionRate||0));
     setTermId(instant?.id??"");
     setCustomPaymentDate("");
@@ -858,7 +867,10 @@ export default function CardSwipePage(){
         }:{customerId,customerCardId:cardId}),
         swipeAmount:swipe,providerId,gatewayId,
         ...(swipeDate?{transactionAt:selectedSwipeBusinessTime(swipeDate).toISOString()}:{}),
-        providerChargeRate:pRate,commissionRate:cRate,paymentTermId:customPayment?undefined:termId,
+        providerChargeRate:pRate,commissionRate:cRate,
+         commissionSettlementMode,
+         commissionReceiptAccountId:commissionSettlementMode==="SEPARATE"?commissionReceiptAccountId:undefined,
+         paymentTermId:customPayment?undefined:termId,
         dueAt:new Date(effectiveDueAt).toISOString(),
         settledNow,
         customerPayments:recordCustomerPayment?paymentLegs.map(leg=>({
@@ -900,6 +912,8 @@ export default function CardSwipePage(){
     setRecordCustomerPayment(false);
     setPayoutTouched(false);
     setPaymentLegs([{sourceAccountId:"",amount:"",chargeAmount:""}]);
+    setCommissionSettlementMode("DEDUCT");
+    setCommissionReceiptAccountId("");
     setSettlementDueAt("");
     setReference("");
     setNotes("");
@@ -963,7 +977,7 @@ export default function CardSwipePage(){
   const calculationReady=swipe>0&&routingReady;
   const paymentDateReady=customPayment?!!customPaymentDate&&customPaymentDate>=(swipeDate||minCustomPaymentDate):!!termId;
   const swipeDateReady=!swipeDate||swipeDate<=dateInputValue(new Date());
-  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&paymentDateReady&&swipeDateReady&&!!providerId&&!!gatewayId&&!!providerWallet&&payoutValid;
+  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&paymentDateReady&&swipeDateReady&&!!providerId&&!!gatewayId&&!!providerWallet&&payoutValid&&separateFeeValid;
   const displayCustomerName=customer?.fullName??(customerMode==="new"?quickName.trim():"");
   const normalSaveLabel=swipe<=0?"Save card swipe":recordCustomerPayment
     ? (remainingAmount<=.001?"Save & pay "+money(payable):"Save & record "+money(paidAmount))
@@ -1070,12 +1084,25 @@ export default function CardSwipePage(){
           <section className="entry-section entry-section-commission">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><h2 className="entry-title">Customer fee / commission</h2><div className="min-w-0 max-w-full text-right"><p className="money section-money font-extrabold text-[var(--money-in)]">{money(commission)}</p></div></div>
             <div className="mt-2"><RateControl value={cRate} onChange={updateCommission} recent={recentRates} suggested={suggestedCommission}/></div>
+             <div className="mt-3 space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
+               <p className="text-xs font-bold">Customer fee collection</p>
+               <label className="flex items-center gap-2 text-xs"><input type="radio" name="swipe-fee-settlement" checked={commissionSettlementMode==="DEDUCT"} onChange={()=>{setCommissionSettlementMode("DEDUCT");setCommissionReceiptAccountId("");}}/>Deduct {money(commission)} from customer payout</label>
+               <label className="flex items-center gap-2 text-xs"><input type="radio" name="swipe-fee-settlement" checked={commissionSettlementMode==="SEPARATE"} onChange={()=>setCommissionSettlementMode("SEPARATE")}/>Customer already paid {money(commission)} separately</label>
+               {commissionSettlementMode==="SEPARATE"?<Field label="Fee received in" hint="Enter the real cash drawer, bank or UPI. Commission income is not counted twice.">
+                 <SearchableSelect className={control} value={commissionReceiptAccountId} onChange={e=>setCommissionReceiptAccountId(e.target.value)} required>
+                   <option value="">Choose receiving cash drawer / bank / UPI</option>
+                   {feeReceiptAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}
+                 </SearchableSelect>
+               </Field>:null}
+               {commissionSettlementMode==="SEPARATE"&&!separateFeeValid?<p className="text-xs font-semibold text-amber-700">Choose a receiving account. Cash needs an open drawer.</p>:null}
+             </div>
           </section>
 
           <section className="entry-section entry-section-payout">
             <div className="flex items-center justify-between gap-3"><h2 className="entry-title">Customer payout</h2><div>{payoutReady&&recordCustomerPayment&&remainingAmount<=.001?<span className="status-chip status-chip-green">Settled</span>:payoutReady&&instantTerm?<span className="status-chip status-chip-blue">Due now</span>:null}</div></div>
             <div className={"mt-2 grid grid-cols-2 gap-1 rounded-lg bg-[var(--surface-soft)] p-1 "+(!payoutReady?"opacity-45":"")}><button type="button" disabled={!payoutReady} onClick={deferCustomerPayment} className={"min-h-10 rounded-md text-[13px] font-bold "+(!recordCustomerPayment&&payoutReady?"bg-[var(--surface)] shadow-sm":"text-[var(--text-muted)]")}>Not paid yet</button><button type="button" disabled={!payoutReady} onClick={startCustomerPayment} className={"min-h-10 rounded-md text-[13px] font-bold "+(recordCustomerPayment&&payoutReady?"bg-[var(--surface)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>Pay now / already paid</button></div>
-            {!payoutReady?<p className="mt-2 text-xs text-[var(--text-muted)]">Choose wallet / platform and gateway first.</p>:!recordCustomerPayment?<div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><span className="text-[13px] font-semibold text-[var(--text-muted)]">Remaining payable</span><strong className="money section-money max-w-full font-extrabold text-amber-600">{money(payable)}</strong></div>:<div className="mt-2 space-y-2">{paymentLegs.map((leg,index)=>{const source=liquidAccounts.find(a=>a.id===leg.sourceAccountId);const autoCharge=configuredPayoutCharge(providers,source,Number(leg.amount||0));const displayCharge=autoCharge===null?leg.chargeAmount:String(autoCharge);const sourceIncoming=settledNow&&providerWallet?.id===source?.id?settlement:0;const sourceCashSession=source?.accountType==="CASH"?openCashSessions[source.id]:undefined;const sourceAvailable=source?.accountType==="CASH"&&sourceCashSession?Number(sourceCashSession.liveExpectedClosingTotal??sourceCashSession.openingTotal??0):(source?.currentBalance??0)+sourceIncoming;return <div key={index} className="grid grid-cols-[minmax(0,1fr)_88px_82px_24px] items-start gap-1.5"><div><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Paid from</p><SearchableSelect className={control+" text-xs font-semibold"} value={leg.sourceAccountId} onChange={e=>updatePaymentLeg(index,{sourceAccountId:e.target.value})}><option value="">Select source</option>{liquidAccounts.map(a=>{const usedElsewhere=paymentLegs.some((other,i)=>i!==index&&other.sourceAccountId===a.id);const cashClosed=a.accountType==="CASH"&&!openCashAccountIds.includes(a.id);const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const incoming=settledNow&&providerWallet?.id===a.id?settlement:0;const available=a.accountType==="CASH"&&session?Number(session.liveExpectedClosingTotal??session.openingTotal??0):(a.currentBalance??0)+incoming;return <option key={a.id} value={a.id} disabled={usedElsewhere||cashClosed}>{a.accountName}{cashClosed?" · Cash closed":" · "+money(available)+" available"}</option>;})}</SearchableSelect>{source?<p className="mt-0.5 px-1 text-[10px] text-[var(--text-muted)]">Available {money(sourceAvailable)}</p>:null}</div><div><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payout</p><div className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">₹</span><input className={control+" pl-5 pr-1 text-right text-xs font-bold"} type="text" inputMode="decimal" value={formatAmountInput(leg.amount)} onChange={e=>updatePaymentLeg(index,{amount:cleanAmountInput(e.target.value)})}/></div></div><div>{source?.accountType==="PROVIDER_WALLET"?<><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Charge</p><div className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">₹</span><input className={control+" pl-5 pr-1 text-right text-xs font-bold"} type="text" inputMode="decimal" value={formatAmountInput(displayCharge)} readOnly={autoCharge!==null} onChange={e=>updatePaymentLeg(index,{chargeAmount:cleanAmountInput(e.target.value)})} placeholder="0"/></div></>:<><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Charge</p><div className={control+" flex items-center justify-end text-xs text-[var(--text-muted)]"}>—</div></>}</div><button type="button" disabled={paymentLegs.length===1} onClick={()=>removePaymentSource(index)} className="mt-5 h-10 text-base text-[var(--text-muted)] disabled:opacity-20">×</button></div>;})}<div className="flex items-center justify-between"><button type="button" onClick={addPaymentSource} className="text-xs font-semibold text-[var(--accent)]">+ Another account</button><span className="text-xs text-[var(--text-muted)]">Remaining <strong className={remainingAmount>.001?"text-amber-600":"text-[var(--money-in)]"}>{money(remainingAmount)}</strong></span></div>{payoutBalanceShort?<p className="text-xs font-semibold text-rose-600">Selected account balance is not enough.</p>:null}{payoutCashClosed?<p className="text-xs font-semibold text-amber-700">Open the Staff Cash Drawer in Cash before using it for payout.</p>:null}</div>}
+            {!payoutReady?<p className="mt-2 text-xs text-[var(--text-muted)]">Choose wallet / platform and gateway first.</p>:!recordCustomerPayment?<div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1"><span className="text-[13px] font-semibold text-[var(--text-muted)]">Remaining payable</span><strong className="money section-money max-w-full font-extrabold text-amber-600">{money(payable)}</strong></div>:<div className="mt-2 space-y-2">{paymentLegs.map((leg,index)=>{const source=liquidAccounts.find(a=>a.id===leg.sourceAccountId);const autoCharge=configuredPayoutCharge(providers,source,Number(leg.amount||0));const displayCharge=autoCharge===null?leg.chargeAmount:String(autoCharge);const sourceIncoming=settledNow&&providerWallet?.id===source?.id?settlement:0;const sourceCashSession=source?.accountType==="CASH"?openCashSessions[source.id]:undefined;const sourceAvailable=source?.accountType==="CASH"&&sourceCashSession?Number(sourceCashSession.liveExpectedClosingTotal??sourceCashSession.openingTotal??0):(source?.currentBalance??0)+sourceIncoming;return <div key={index} className="grid grid-cols-[minmax(0,1fr)_88px_82px_24px] items-start gap-1.5"><div><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Paid from</p><SearchableSelect className={control+" text-xs font-semibold"} value={leg.sourceAccountId} onChange={e=>updatePaymentLeg(index,{sourceAccountId:e.target.value})}><option value="">Select source</option>{liquidAccounts.map(a=>{const usedElsewhere=paymentLegs.some((other,i)=>i!==index&&other.sourceAccountId===a.id);const cashClosed=a.accountType==="CASH"&&!openCashAccountIds.includes(a.id);const session=a.accountType==="CASH"?openCashSessions[a.id]:undefined;const incoming=(settledNow&&providerWallet?.id===a.id?settlement:0)+
+    (commissionSettlementMode==="SEPARATE"&&commissionReceiptAccountId===a.id?commission:0);const available=a.accountType==="CASH"&&session?Number(session.liveExpectedClosingTotal??session.openingTotal??0):(a.currentBalance??0)+incoming;return <option key={a.id} value={a.id} disabled={usedElsewhere||cashClosed}>{a.accountName}{cashClosed?" · Cash closed":" · "+money(available)+" available"}</option>;})}</SearchableSelect>{source?<p className="mt-0.5 px-1 text-[10px] text-[var(--text-muted)]">Available {money(sourceAvailable)}</p>:null}</div><div><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payout</p><div className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">₹</span><input className={control+" pl-5 pr-1 text-right text-xs font-bold"} type="text" inputMode="decimal" value={formatAmountInput(leg.amount)} onChange={e=>updatePaymentLeg(index,{amount:cleanAmountInput(e.target.value)})}/></div></div><div>{source?.accountType==="PROVIDER_WALLET"?<><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Charge</p><div className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">₹</span><input className={control+" pl-5 pr-1 text-right text-xs font-bold"} type="text" inputMode="decimal" value={formatAmountInput(displayCharge)} readOnly={autoCharge!==null} onChange={e=>updatePaymentLeg(index,{chargeAmount:cleanAmountInput(e.target.value)})} placeholder="0"/></div></>:<><p className="mb-1 px-1 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Charge</p><div className={control+" flex items-center justify-end text-xs text-[var(--text-muted)]"}>—</div></>}</div><button type="button" disabled={paymentLegs.length===1} onClick={()=>removePaymentSource(index)} className="mt-5 h-10 text-base text-[var(--text-muted)] disabled:opacity-20">×</button></div>;})}<div className="flex items-center justify-between"><button type="button" onClick={addPaymentSource} className="text-xs font-semibold text-[var(--accent)]">+ Another account</button><span className="text-xs text-[var(--text-muted)]">Remaining <strong className={remainingAmount>.001?"text-amber-600":"text-[var(--money-in)]"}>{money(remainingAmount)}</strong></span></div>{payoutBalanceShort?<p className="text-xs font-semibold text-rose-600">Selected account balance is not enough.</p>:null}{payoutCashClosed?<p className="text-xs font-semibold text-amber-700">Open the Staff Cash Drawer in Cash before using it for payout.</p>:null}</div>}
           </section>
 
           <section className="entry-section lg:hidden"><ReceiptSummary customerName={displayCustomerName} swipe={swipe} providerCharge={providerCharge} commission={commission} payoutCharges={payoutCharges} payable={payable} paid={paidAmount} remaining={remainingAmount} showPaid={recordCustomerPayment} ready={calculationReady}/></section>

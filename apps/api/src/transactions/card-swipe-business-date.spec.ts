@@ -46,6 +46,11 @@ function setup() {
       accountName:'Provider wallet',ledgerAccount:{id:'ledger-wallet'},
     }),
     ensureSufficientFunds:vi.fn().mockResolvedValue({}),
+    customerReceiptAccount:vi.fn().mockResolvedValue({
+      id:'drawer-1',accountType:'CASH',accountName:'Staff Cash Drawer',
+      ledgerAccount:{id:'ledger-drawer-1'},
+    }),
+    requireOpenCashDesk:vi.fn().mockResolvedValue({}),
   };
   const settlements:any={
     createForSource:vi.fn().mockResolvedValue({id:'settlement-1'}),
@@ -102,5 +107,41 @@ describe('backdated Card Swipe',()=>{
     const timestamp=tx.transaction.create.mock.calls[0][0].data.transactionAt as Date;
     expect(timestamp.getTime()).toBeGreaterThanOrEqual(before);
     expect(timestamp.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+});
+
+describe('Card Swipe customer fee settlement',()=>{
+  it('retains deducted-fee mode for all existing callers',async()=>{
+    const {service,tx,input}=setup();
+    delete input.customerPayments;
+    const result=await service.createCardSwipe(input,'owner-1',RoleName.OWNER);
+    expect(Number(result.payable.originalAmount)).toBe(38800);
+    expect(tx.cardSwipeDetail.create.mock.calls[0][0].data.commissionSettlementMode).toBe('DEDUCT');
+  });
+  it('allows a full payout when the fee is received separately in cash',async()=>{
+    const {service,tx,ledger,input}=setup();
+    input.swipeAmount=30000;
+    input.commissionRate=2.2;
+    input.commissionSettlementMode='SEPARATE';
+    input.commissionReceiptAccountId='drawer-1';
+    input.customerPayments=[{sourceAccountId:'wallet-1',amount:30000}];
+    const result=await service.createCardSwipe(input,'owner-1',RoleName.OWNER);
+    expect(Number(tx.customerPayable.create.mock.calls[0][0].data.originalAmount)).toBe(30000);
+    expect(Number(result.payable.paidAmount)).toBe(30000);
+    expect(Number(result.payable.remainingAmount)).toBe(0);
+    expect(tx.cardSwipeDetail.create.mock.calls[0][0].data.commissionSettlementMode).toBe('SEPARATE');
+    expect(tx.cardSwipeDetail.create.mock.calls[0][0].data.commissionReceiptAccountId).toBe('drawer-1');
+    expect(tx.transactionCommission.create).toHaveBeenCalledTimes(1);
+    const swipeEntries=ledger.post.mock.calls[0][4];
+    const debit=swipeEntries.filter((x:any)=>x.entryType==='DEBIT').reduce((t:number,x:any)=>t+x.amount,0);
+    const credit=swipeEntries.filter((x:any)=>x.entryType==='CREDIT').reduce((t:number,x:any)=>t+x.amount,0);
+    expect(debit).toBeCloseTo(credit);
+    expect(swipeEntries.find((x:any)=>x.ledgerAccountId==='ledger-drawer-1')).toMatchObject({
+      entryType:'DEBIT',amount:660,
+    });
+    expect(swipeEntries.find((x:any)=>x.ledgerAccountId==='SYS-CUST-PAYABLE')).toMatchObject({
+      entryType:'CREDIT',amount:30000,
+    });
+    expect(swipeEntries.filter((x:any)=>x.ledgerAccountId==='SYS-COMMISSION')).toHaveLength(1);
   });
 });

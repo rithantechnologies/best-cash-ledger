@@ -8,6 +8,7 @@ import { CreateAepsDto } from './dto/create-aeps.dto.js';
 import { AddMissingAepsCommissionDto } from './dto/add-missing-aeps-commission.dto.js';
 import { CreateAtmWithdrawalDto } from './dto/create-atm-withdrawal.dto.js';
 import { CreateCardSwipeDto } from './dto/create-card-swipe.dto.js';
+import { RecordCardSwipeCommissionReceiptDto } from './dto/record-card-swipe-commission-receipt.dto.js';
 import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
 import {
   CardDueCommissionCollectionDto,
@@ -233,6 +234,15 @@ export class TransactionsController {
   @Get(':id')
   get(@Param('id') id: string) {
     return this.transactions.get(id);
+  }
+
+  @Post('card-swipe/:id/commission-receipt')
+  recordCardSwipeCommissionReceipt(
+    @Param('id') id: string,
+    @Body() dto: RecordCardSwipeCommissionReceiptDto,
+    @Req() req: any,
+  ) {
+    return this.transactions.recordCardSwipeCommissionReceipt(id, dto, req.user.userId, req.user.role);
   }
 
   @Post('card-swipe')
