@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { apiFetch } from "@/lib/api";
 import { currentStaffId, matchesRemembered, suggestionFieldKey } from "@/lib/browser-suggestion-history";
 import { clearFieldValues, readFieldValues, rememberFieldValue } from "@/lib/browser-suggestion-store";
 
@@ -9,6 +10,7 @@ type Input = HTMLInputElement | HTMLTextAreaElement;
 type Menu = {
   field: string;
   values: string[];
+  includesLiveCustomers: boolean;
   selected: number;
   left: number;
   top: number;
@@ -63,7 +65,26 @@ export function BrowserEntrySuggestions() {
       const entries = await readFieldValues(staff, key);
       if (version !== searchVersion.current || current.current !== input || !input.isConnected ||
           lastKey.current !== key || currentStaffId(localStorage) !== staff) return;
-      const values = matchesRemembered(entries, query);
+      const saved = matchesRemembered(entries, query);
+      let liveCustomers: string[] = [];
+      const customerSearch = key.startsWith("search_") &&
+        /customer|mobile|phone|name/i.test([input.name, input.getAttribute("placeholder"), input.getAttribute("aria-label")].filter(Boolean).join(" "));
+      if (customerSearch && query.trim().length >= 2) {
+        // One live database search after a short debounce. Stale keystrokes
+        // are discarded, and offline/errors still leave browser history usable.
+        await new Promise(resolve => setTimeout(resolve, 190));
+        if (version !== searchVersion.current || current.current !== input) return;
+        try {
+          const customers = await apiFetch<{ fullName: string; mobile?: string | null }[]>(
+            "/search/customers?q=" + encodeURIComponent(query.trim()),
+          );
+          liveCustomers = customers.flatMap(customer => customer.mobile
+            ? [customer.fullName, customer.mobile] : [customer.fullName]);
+        } catch { /* Keep saved suggestions if the customer lookup is unavailable. */ }
+      }
+      if (version !== searchVersion.current || current.current !== input || !input.isConnected ||
+          lastKey.current !== key || currentStaffId(localStorage) !== staff) return;
+      const values = [...new Map([...liveCustomers, ...saved].map(value => [value.toLocaleLowerCase(), value])).values()];
       if (!values.length) return close();
       // When local matches exist, avoid two competing native/app suggestion menus.
       if (!input.hasAttribute("data-entry-original-autocomplete"))
@@ -90,7 +111,7 @@ export function BrowserEntrySuggestions() {
       const previous = menuRef.current;
       const selected = previous?.field === key && previous.values.join("|") === values.join("|")
         ? Math.min(previous.selected, values.length - 1) : 0;
-      const next: Menu = { field: key, values, selected, left, top, width, maxHeight, placement };
+      const next: Menu = { field: key, values, includesLiveCustomers: liveCustomers.length > 0, selected, left, top, width, maxHeight, placement };
       menuRef.current = next;
       setMenu(next);
       input.setAttribute("aria-activedescendant", menuId + "-" + selected);
@@ -259,7 +280,7 @@ export function BrowserEntrySuggestions() {
       }}
     >
       <div style={{ padding: "7px 12px", fontSize: 11, fontWeight: 600, color: "var(--text-muted,#64748b)" }}>
-        Saved on this browser · {menu.values.length} {menu.values.length === 1 ? "match" : "matches"}
+        {menu.includesLiveCustomers ? "Matching customers and saved searches" : "Saved on this browser"} · {menu.values.length} {menu.values.length === 1 ? "match" : "matches"}
       </div>
       {menu.values.map((value, index) => (
         <button
@@ -302,7 +323,7 @@ export function BrowserEntrySuggestions() {
         }}
         style={{ display: "block", width: "100%", padding: "8px 12px", fontSize: 11, textAlign: "right", color: "var(--text-muted,#64748b)", borderTop: "1px solid var(--border,#e2e8f0)" }}
       >
-        Clear suggestions for this field
+        Clear saved history for this field
       </button>
     </div>,
     document.body,

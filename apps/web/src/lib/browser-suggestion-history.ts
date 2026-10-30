@@ -7,7 +7,8 @@ export const HISTORY_PREFIX = "cashledger_field_suggestions_v1:";
 
 const MONEY_PATTERN = /(?:^|_)(?:amount|balance|outstanding|cash_received|cash_given|cash_paid|cash_collected|customer_gets|payout|payable|receivable|price|cost|charge|fee|commission_amount|opening_balance|closing_balance|payment_amount|credit_limit|profit|earning|income|revenue|subtotal|denomination)(?:_|$)/;
 const SECRET_PATTERN = /password|passwd|secret|token|otp|one_time_code|(?:^|_)pin(?:_|$)|cvv|cvc|security_code|(?:^|_)card_number(?:_|$)|demo_card_number|(?:^|_)aadhaar_number(?:_|$)|(?:^|_)aadhar_number(?:_|$)/;
-const EXISTING_SEARCH = /(?:^|_)(search|filter|query)(?:_|$)/;
+// Search inputs receive browser-local recent-query suggestions unless the
+// screen already owns a live result picker (data-no-suggestions or combobox).
 const GENERIC_LABEL = /^(optional|enter|type|name|value|details|reference|number|other|description|select|search|your_details)$/;
 
 export type Remembered = Record<string, string[]>;
@@ -40,6 +41,12 @@ export function privateValue(value: string, key: string): boolean {
 export function safeRememberedValue(key: string, raw: string): string | null {
   const value = raw.trim().replace(/\s+/g, " ");
   if (MONEY_PATTERN.test(key) || SECRET_PATTERN.test(key) || value.length < 2 || value.length > 250) return null;
+  // Search phrases can be names, mobile numbers or references. Do not apply
+  // the stricter phone-field validation merely because its label says mobile.
+  if (key.startsWith("search_")) {
+    if (/^(?:\+91)?[6-9]\d{9}$/.test(value)) return value;
+    return privateValue(value, key) ? null : value;
+  }
   if (key === "customer_mobile" || /(?:^|_)(?:mobile|phone|tel)(?:_|$)/.test(key)) {
     // Don't pollute the history with half-typed mobile numbers. Explicit +91
     // phone numbers are distinct from bare 12-digit Aadhaar numbers.
@@ -52,8 +59,8 @@ export function safeRememberedValue(key: string, raw: string): string | null {
 
 export function normalizeFieldKey(raw: string): string {
   const key = normalize(raw);
-  if (/^(?:cashledger_)?(?:new_|quick_)?customer_(?:full_)?name$/.test(key) || /^cashledger_name$/.test(key) || /^customer_full_name$/.test(key)) return "customer_name";
-  if (/^(?:cashledger_)?(?:new_|quick_)?customer_(?:mobile|phone|phone_number|mobile_number)$/.test(key) || /^(?:cashledger_)?(?:mobile|phone|phone_number)$/.test(key)) return "customer_mobile";
+  if (/^(?:cashledger_)?(?:new_|quick_)?customer_(?:full_)?name$/.test(key) || /^cashledger_name$/.test(key) || /^customer_full_name$/.test(key) || /^cashledger_quick_card_new_customer_name$/.test(key)) return "customer_name";
+  if (/^(?:cashledger_)?(?:new_|quick_)?customer_(?:mobile|phone|phone_number|mobile_number)$/.test(key) || /^(?:cashledger_)?(?:mobile|phone|phone_number)$/.test(key) || /^mobile_(?:number|no)(?:_optional)?$/.test(key)) return "customer_mobile";
   if (/^(?:cashledger_)?(?:bank|bank_name|card_bank_name)$/.test(key)) return "bank_name";
   if (/^(?:cashledger_)?(?:beneficiary|recipient)_(?:name|full_name)$/.test(key)) return "beneficiary_name";
   return key;
@@ -73,23 +80,30 @@ function labelFor(input: HTMLInputElement | HTMLTextAreaElement): string {
 export function suggestionFieldKey(input: HTMLInputElement | HTMLTextAreaElement): string | null {
   if (input.disabled || input.readOnly || input.closest("[data-no-suggestions]") || input.getAttribute("role") === "combobox") return null;
   if (input instanceof HTMLInputElement) {
-    if (!["text", "tel", "email", "url", "number"].includes(input.type) || input.inputMode === "search") return null;
+    if (!["text", "tel", "email", "url", "number", "search"].includes(input.type)) return null;
     if (input.type === "number" && ["0.01", "0.001"].includes(input.step) && !input.name && MONEY_PATTERN.test(normalize(labelFor(input)))) return null;
   }
   if (["one-time-code", "new-password", "current-password"].includes(input.autocomplete)) return null;
   const label = normalize(labelFor(input));
   const name = normalize(input.name.trim());
   const id = normalize(input.id.trim());
+  const isSearch = input instanceof HTMLInputElement && (input.type === "search" || input.inputMode === "search") ||
+    /(?:^|_)(?:search|find|lookup|filter|query)(?:_|$)/.test(name) ||
+    /^(?:search|find|lookup)\b/i.test(labelFor(input));
   let raw = name || (id && !/^react_/.test(id) ? id : label);
-  if (GENERIC_LABEL.test(raw) || (!name && !id && GENERIC_LABEL.test(label))) {
+  if (isSearch) {
+    // Recent searches are kept separate by page and field, not mixed with
+    // actual customer/mobile entry history or another report's search box.
+    const page = normalize(input.ownerDocument?.location?.pathname || "entry");
+    raw = ["search",page,raw || "query"].join("_").slice(0,95);
+  } else if (GENERIC_LABEL.test(raw) || (!name && !id && GENERIC_LABEL.test(label))) {
     const page = normalize(input.ownerDocument?.location?.pathname || "entry").slice(-55);
     const form = normalize(input.closest("form")?.id || "form").slice(0, 28);
     raw = [page, form, raw].filter(Boolean).join("_");
   }
   if (raw.length < 3 || raw.length > 95 || SECRET_PATTERN.test(raw) || SECRET_PATTERN.test(label) ||
       MONEY_PATTERN.test(raw) || MONEY_PATTERN.test(label) ||
-      (/(?:^|_)total(?:_|$)/.test(raw) && !/(copies|count|quantity|items)/.test(raw)) ||
-      EXISTING_SEARCH.test(raw) || EXISTING_SEARCH.test(label)) return null;
+      (/(?:^|_)total(?:_|$)/.test(raw) && !/(copies|count|quantity|items)/.test(raw))) return null;
   return normalizeFieldKey(raw);
 }
 

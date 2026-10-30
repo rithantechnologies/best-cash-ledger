@@ -300,7 +300,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,profileCustom
     if(query.length<2)return;
     customerSearchTimers.current[row.key]=window.setTimeout(()=>{
       apiFetch<CustomerSuggestion[]>("/search/customers?q="+encodeURIComponent(query))
-        .then((results)=>setRows((current)=>current.map((item)=>item.key===row.key&&!item.customerId&&item.customerLookup.trim()===query?{...item,customerSuggestions:results.slice(0,6),customerSuggestionIndex:results.length?0:-1,customerSearchLoading:false}:item)))
+        .then((results)=>setRows((current)=>current.map((item)=>item.key===row.key&&!item.customerId&&item.customerLookup.trim()===query?{...item,customerSuggestions:results,customerSuggestionIndex:results.length?0:-1,customerSearchLoading:false}:item)))
         .catch(()=>setRows((current)=>current.map((item)=>item.key===row.key?{...item,customerSuggestions:[],customerSuggestionIndex:-1,customerSearchLoading:false}:item)));
     },180);
   }
@@ -568,7 +568,7 @@ export function QuickCashRushEntryV2({cashAccountId,disabled=false,profileCustom
                         <div className="mt-0.5 flex items-baseline justify-between gap-2"><span className={"text-[11px] font-black uppercase tracking-[.06em] "+(row.direction==="OUT"?"text-rose-600":"text-emerald-600")}>{dueWord}</span><strong className={"money text-[13px] font-black "+(row.direction==="OUT"?"text-rose-700":"text-emerald-700")}>{money(primaryDue)}</strong></div>
                       </div>
                       <div className="rush-cell-customer relative">
-                        <input name="cashledger_search_name_mobile" autoComplete="on" ref={(element)=>{customerRefs.current[row.key]=element;}} value={customerValue} tabIndex={isActive?0:-1} disabled={row.status==="SAVED"||row.status==="SAVING"||isIdleEditable} onFocus={()=>setActiveRowKey(row.key)} onChange={(event)=>searchCustomer(row,event.target.value)}
+                        <input name="cashledger_search_name_mobile" data-no-suggestions="true" autoComplete="on" ref={(element)=>{customerRefs.current[row.key]=element;}} value={customerValue} tabIndex={isActive?0:-1} disabled={row.status==="SAVED"||row.status==="SAVING"||isIdleEditable} onFocus={()=>setActiveRowKey(row.key)} onChange={(event)=>searchCustomer(row,event.target.value)}
                           onKeyDown={(event)=>handleCustomerKeyDown(row,event)}
                           className="rush-control h-11 w-full rounded-xl border border-transparent bg-slate-50 px-3 font-bold text-slate-800 outline-none placeholder:text-slate-400 focus:border-violet-300 focus:bg-white focus:ring-4 focus:ring-violet-100 disabled:opacity-60" placeholder={isEbTransfer?"Search name / mobile / EB":"Search name / mobile"}/>
                         {!row.newCustomerOpen&&!row.customerId&&row.customerLookup.trim().length>=2?<div className="absolute inset-x-0 top-[calc(100%+4px)] z-40 max-h-44 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">

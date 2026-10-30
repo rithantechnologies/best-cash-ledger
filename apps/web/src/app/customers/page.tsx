@@ -38,6 +38,7 @@ export default function CustomersPage(){
  const [resultsKey,setResultsKey]=useState("");
  const [searchSuggestionsOpen,setSearchSuggestionsOpen]=useState(false);
  const [searchSuggestionIndex,setSearchSuggestionIndex]=useState(0);
+ const [liveCustomerResults,setLiveCustomerResults]=useState<{query:string;matches:Pick<Customer,"id"|"fullName"|"mobile"|"customerCode">[]}>({query:"",matches:[]});
  const customerSearchInput=useRef<HTMLInputElement|null>(null);
  const currentRequest=useRef(0);
  const currentAbort=useRef<AbortController|null>(null);
@@ -45,9 +46,10 @@ export default function CustomersPage(){
  const admin=role==="OWNER"||role==="ADMIN";
  const filterKey=[q.trim(),sortBy,sortDir,pagination.pageSize,admin].join("|");
  const listReady=!loading&&resultsKey===filterKey;
- const customerSearchMatches=listReady&&q.trim().length>=2?items:[];
+ const customerSearchMatches=liveCustomerResults.query===q.trim()?liveCustomerResults.matches:[];
+ const customerSearchLoading=q.trim().length>=2&&liveCustomerResults.query!==q.trim();
  const customerSearchMenuVisible=searchSuggestionsOpen&&q.trim().length>=2;
- function chooseCustomerSearchSuggestion(customer:Customer){
+ function chooseCustomerSearchSuggestion(customer:Pick<Customer,"id"|"fullName"|"mobile"|"customerCode">){
   // Suggestions are real database customers, not remembered browser searches.
   invalidateSearch();
   setLoading(true);
@@ -76,6 +78,19 @@ export default function CustomersPage(){
  }
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
  useEffect(()=>{apiFetch<{enabled:boolean}>("/customers/demo-card-availability").then(r=>setDemoEnabled(r.enabled)).catch(()=>setDemoEnabled(false));},[]);
+ useEffect(()=>{
+  const query=q.trim();
+  if(query.length<2){setLiveCustomerResults({query,matches:[]});return;}
+  let cancelled=false;
+  const timer=setTimeout(()=>{
+   // Database-backed suggestions are independent of the paginated list below.
+   // This includes all matching names and full mobile numbers, not page 1 only.
+   apiFetch<Pick<Customer,"id"|"fullName"|"mobile"|"customerCode">[]>("/search/customers?q="+encodeURIComponent(query))
+    .then(matches=>{if(!cancelled)setLiveCustomerResults({query,matches});})
+    .catch(()=>{if(!cancelled)setLiveCustomerResults({query,matches:[]});});
+  },220);
+  return()=>{cancelled=true;clearTimeout(timer);};
+ },[q]);
  useEffect(()=>{
   if(!role)return;
   invalidateSearch();
@@ -180,15 +195,15 @@ export default function CustomersPage(){
      onChange={e=>{invalidateSearch();setLoading(true);setQ(e.target.value);setSearchSuggestionIndex(0);}}
      onKeyDown={e=>{
       if(e.key==="Escape"){setSearchSuggestionsOpen(false);return;}
-      if(!customerSearchMenuVisible||!listReady||!customerSearchMatches.length)return;
+      if(!customerSearchMenuVisible||customerSearchLoading||!customerSearchMatches.length)return;
       if(e.key==="ArrowDown"){e.preventDefault();setSearchSuggestionIndex(i=>Math.min(i+1,customerSearchMatches.length-1));}
       if(e.key==="ArrowUp"){e.preventDefault();setSearchSuggestionIndex(i=>Math.max(i-1,0));}
       if(e.key==="Enter"&&!e.nativeEvent.isComposing){e.preventDefault();chooseCustomerSearchSuggestion(customerSearchMatches[Math.min(searchSuggestionIndex,customerSearchMatches.length-1)]);}
      }}/>
     {customerSearchMenuVisible?<div id="cashledger-customer-search-matches" role="listbox" aria-label="Matching customers" data-customer-search-suggestions="true"
      className="absolute bottom-[calc(100%+0.35rem)] left-0 right-0 z-[120] max-h-[min(52dvh,250px)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_16px_38px_rgba(15,23,42,.24)] sm:bottom-auto sm:top-[calc(100%+0.35rem)] sm:max-h-[min(55dvh,380px)]">
-     <p className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--text-muted)]">{listReady?"Matching customers · "+pagination.total:"Searching customers…"}</p>
-     {listReady?customerSearchMatches.length?customerSearchMatches.map((customer,index)=>
+     <p className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--text-muted)]">{customerSearchLoading?"Searching customers…":"Matching customers · "+customerSearchMatches.length}</p>
+     {customerSearchLoading?<p className="px-3 py-3 text-xs text-[var(--text-muted)]">Searching saved customers…</p>:customerSearchMatches.length?customerSearchMatches.map((customer,index)=>
       <div key={customer.id} className={"flex items-center gap-2 border-b border-[var(--border)] px-2 py-1 last:border-b-0 "+(searchSuggestionIndex===index?"bg-[var(--accent-soft)]":"")}>
        <button type="button" role="option" aria-selected={searchSuggestionIndex===index} className="min-h-11 min-w-0 flex-1 rounded-lg px-2 py-1 text-left" onPointerDown={e=>e.preventDefault()} onClick={()=>chooseCustomerSearchSuggestion(customer)}>
         <span className="block break-words text-sm font-bold text-[var(--text)]">{customer.fullName}</span>
@@ -196,8 +211,7 @@ export default function CustomersPage(){
        </button>
        <Link href={"/customers/"+customer.id} onPointerDown={e=>e.preventDefault()} onClick={()=>setSearchSuggestionsOpen(false)} className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--accent)]">Open</Link>
       </div>
-     ):<p className="px-3 py-4 text-sm text-[var(--text-muted)]">No matching customers</p>:null}
-     {listReady&&pagination.total>customerSearchMatches.length?<p className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--text-muted)]">Showing {customerSearchMatches.length} of {pagination.total}. More results are in the customer list below.</p>:null}
+     ):<p className="px-3 py-4 text-sm text-[var(--text-muted)]">No matching customers</p>}
     </div>:null}
    </div>
    <button type="button" onClick={()=>setShowMobileFilters(v=>!v)} aria-expanded={showMobileFilters} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-muted)] sm:hidden">{showMobileFilters?"Hide options":"Sort & page size"}</button>

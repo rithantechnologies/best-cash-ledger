@@ -13,7 +13,7 @@ mod.filename=file;mod.paths=module.paths;mod._compile(compiled,file);
 const {currentStaffId,suggestionFieldKey,getRemembered,saveRemembered,matchesRemembered,clearRememberedField}=mod.exports;
 class FakeInput {
  constructor({name="",placeholder="",label="",type="text",step="",autocomplete="on",inputMode="",disabled=false,readOnly=false}={}){
-  Object.assign(this,{name,placeholder,label,type,step,autocomplete,inputMode,disabled,readOnly});
+  Object.assign(this,{name,placeholder,label,type,step,autocomplete,inputMode,disabled,readOnly,id:""});
   this.ownerDocument={location:{pathname:"/cashledger/customers"}};
  }
  closest(selector) {
@@ -54,13 +54,13 @@ test("amount and amount-like financial fields are strictly excluded",()=>{
  assert.equal(suggestionFieldKey(new FakeInput({label:"Customer gets",type:"number",step:"0.01"})),null);
  assert.equal(suggestionFieldKey(new FakeInput({label:"Default commission %",type:"number",step:"0.01"})),"default_commission");
 });
-test("passwords, OTP/PIN, full card numbers and dedicated searches are excluded",()=>{
- for (const name of ["cashledger_password","cashledger_pin","cashledger_otp","cashledger_card_number","demo_card_number","cashledger_security_code","cashledger_search"]) {
+test("passwords and sensitive fields are excluded while search fields are eligible",()=>{
+ for (const name of ["cashledger_password","cashledger_pin","cashledger_otp","cashledger_card_number","demo_card_number","cashledger_security_code"]) {
   assert.equal(suggestionFieldKey(new FakeInput({name})),null,name);
  }
  assert.equal(suggestionFieldKey(new FakeInput({type:"password",name:"cashledger_name"})),null);
- assert.equal(suggestionFieldKey(new FakeInput({type:"search",name:"name_search"})),null);
- assert.equal(suggestionFieldKey(new FakeInput({inputMode:"search",placeholder:"Phone, first name, card last 4, bank, UPI or AEPS PR…"})),null);
+ assert.ok(suggestionFieldKey(new FakeInput({type:"search",name:"name_search"})).startsWith("search_"));
+ assert.ok(suggestionFieldKey(new FakeInput({inputMode:"search",placeholder:"Phone, first name, card last 4, bank, UPI or AEPS PR…"})).startsWith("search_"));
 });
 test("per staff browser storage persists, deduplicates and matches partial entries",()=>{
  const storage=new MemoryStorage();
@@ -73,11 +73,11 @@ test("per staff browser storage persists, deduplicates and matches partial entri
  assert.deepEqual(matchesRemembered(getRemembered(storage,"staff-one-1").bank_name,"sta"),["STATE BANK OF INDIA"]);
  assert.equal(getRemembered(storage,"staff-two").bank_name,undefined);
 });
-test("blank fields show three recent entries and typing filters immediately",()=>{
+test("blank fields show every saved entry and typing filters immediately",()=>{
  const values=["PRABU", "PRIYA", "PRITHVI", "PRASAD", "PREM"];
- assert.deepEqual(matchesRemembered(values,""),values.slice(0,3));
- assert.deepEqual(matchesRemembered(values,"p"),values.slice(0,3));
- assert.deepEqual(matchesRemembered(values,"pr"),values.slice(0,3));
+ assert.deepEqual(matchesRemembered(values,""),values);
+ assert.deepEqual(matchesRemembered(values,"p"),values);
+ assert.deepEqual(matchesRemembered(values,"pr"),values);
  assert.deepEqual(matchesRemembered(values,"iya"),["PRIYA"]);
  assert.deepEqual(matchesRemembered(values,"nomatch"),[]);
 });

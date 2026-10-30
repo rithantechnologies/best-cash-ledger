@@ -9,7 +9,6 @@ import { customerLedgerSplit } from "@/lib/customer-ledger-split";
 type Account={id:string;accountName:string;accountType?:string;isActive?:boolean};
 type Card={id:string;bankName:string;lastFourDigits:string;isActive:boolean};
 type Customer={id:string;fullName:string;mobile:string|null;cards?:Card[]};
-type Paged={items:Customer[]};
 export type EditableCustomerLedger={
   direction:"PAY_IN"|"PAY_OUT";amount:string;receivableAmount:string;payableAmount:string;
   remarks:string;financialAccount:Account;customerCard:{id:string;bankName:string;lastFourDigits:string}|null;
@@ -66,8 +65,8 @@ export function CustomerLedgerEditor({open,onClose,onSaved,transaction}:{
    if(!open||customerSearch.trim().length<2||customerSearch.trim()===transaction.customer?.fullName)return;
    let active=true;
    const timer=setTimeout(()=>{
-    apiFetch<Paged>("/customers?q="+encodeURIComponent(customerSearch.trim())+"&pageSize=12")
-      .then(r=>{if(active)setMatches(r.items||[])})
+    apiFetch<Customer[]>("/search/customers?q="+encodeURIComponent(customerSearch.trim()))
+      .then(rows=>{if(active)setMatches(rows||[])})
       .catch(()=>{if(active)setMatches([])});
    },200);
    return ()=>{active=false;clearTimeout(timer)};
@@ -138,7 +137,7 @@ export function CustomerLedgerEditor({open,onClose,onSaved,transaction}:{
     </Field>
     <Field label="Transaction date & time"><input type="datetime-local" className={control} value={at} onChange={e=>setAt(e.target.value)} required/></Field>
    </div>
-   <Field label="Customer (search name/mobile)"><input className={control} value={customerSearch}
+   <Field label="Customer (search name/mobile)"><input className={control} data-no-suggestions="true" value={customerSearch}
     disabled={locked} onChange={e=>{setCustomerSearch(e.target.value);setCustomerId("");setMatches([])}} placeholder="Find saved customer" required/>
     {matches.length?<div className="mt-1 max-h-44 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
      {matches.map(c=><button key={c.id} type="button" onClick={()=>chooseCustomer(c)} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--surface-soft)]">

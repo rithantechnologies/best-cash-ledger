@@ -39,4 +39,35 @@ assert.doesNotMatch(focusSection, /if \(pointerFocus\.current === input/, "No cl
 assert.match(component, /Math\.min\(255, space - 8\)/, "Classic dropdown sizing restored");
 assert.match(component, /background: "var\(--surface, #fff\)"/, "Solid classic suggestion background");
 assert.match(component, /readFieldValues\(staff, key\)/, "Existing IndexedDB history still accessible");
-console.log("PASS: 45 saved entries, all matches, two-character matching, safe fields, classic immediate-on-focus menu");
+// Every ordinary search box gets a page-scoped history key. An app-owned
+// customer picker keeps its real results rather than displaying a second menu.
+class FakeInput {
+  constructor({name="", type="text", inputMode="", path="/payables", placeholder="", owned=false, role=null}={}) {
+    Object.assign(this,{name,type,inputMode,placeholder,disabled:false,readOnly:false,
+      step:"",autocomplete:"on",id:"",ownerDocument:{location:{pathname:path}},owned,role});
+  }
+  getAttribute(name){return name==="placeholder"?this.placeholder:name==="role"?this.role:null;}
+  closest(selector){return selector==="[data-no-suggestions]"&&this.owned?this:null;}
+}
+global.HTMLInputElement=FakeInput;
+global.HTMLTextAreaElement=class FakeTextarea {};
+const { suggestionFieldKey }=loaded.exports;
+const payableQuery=suggestionFieldKey(new FakeInput({name:"cashledger_q",placeholder:"Search customer"}));
+const auditQuery=suggestionFieldKey(new FakeInput({name:"cashledger_q",path:"/audit",placeholder:"Search activity"}));
+const phoneQuery=suggestionFieldKey(new FakeInput({name:"cashledger_daily_customer_search",path:"/daily-cash",inputMode:"search",placeholder:"Search name or mobile"}));
+assert.equal(payableQuery,"search_payables_cashledger_q");
+assert.equal(auditQuery,"search_audit_cashledger_q");
+assert.equal(phoneQuery,"search_daily_cash_cashledger_daily_customer_search");
+assert.notEqual(payableQuery,auditQuery,"Different screens retain independent searches");
+assert.equal(suggestionFieldKey(new FakeInput({name:"cashledger_customer_search",owned:true,inputMode:"search"})),null);
+assert.equal(suggestionFieldKey(new FakeInput({name:"search",role:"combobox"})),null);
+assert.equal(suggestionFieldKey(new FakeInput({name:"amount",type:"number"})),null);
+assert.equal(safeRememberedValue(payableQuery,"9876543210"),"9876543210","Full mobile lookup can be saved");
+assert.equal(safeRememberedValue(payableQuery,"NIK"),"NIK","Customer names are valid search history");
+assert.equal(safeRememberedValue(phoneQuery,"123456789012"),null,"Never store full Aadhaar as a search");
+assert.equal(safeRememberedValue(phoneQuery,"1234567890123456"),null,"Never store full card");
+saveRemembered(storage,staff,payableQuery,"9876543210");
+saveRemembered(storage,staff,payableQuery,"NIK");
+assert.deepEqual(matchesRemembered(getRemembered(storage,staff)[payableQuery],"98"),["9876543210"]);
+assert.match(component,/Matching customers and saved searches/,"Global search shows live and recent matches");
+console.log("PASS: all-entry history, universal search, independent pages, mobile/name matching, secure exclusions");

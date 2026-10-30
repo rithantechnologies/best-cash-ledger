@@ -80,7 +80,7 @@ export default function CardDueClearingPage(){
  const customer=customers.find(x=>x.id===customerId),addProvider=providers.find(x=>x.id===addProviderId);
  const addGateway=addProvider?.gateways.find(x=>x.id===addGatewayId);
  const liquidAccounts=accounts.filter(liquid),commissionAccounts=liquidAccounts.filter(a=>a.accountType==="CASH"||a.accountType==="UPI");
- const customerMatches=customerSearch.trim().length<2?[]:customers.filter(c=>(c.fullName+" "+(c.mobile??"")).toLowerCase().includes(customerSearch.trim().toLowerCase())).slice(0,6);
+ const customerMatches=customerSearch.trim().length<2?[]:customers.filter(c=>(c.fullName+" "+(c.mobile??"")).toLowerCase().includes(customerSearch.trim().toLowerCase()));
 
  const loadRows=async()=>{
   const [dueRows,duePayables]=await Promise.all([
@@ -304,7 +304,7 @@ export default function CardDueClearingPage(){
     <div className="grid gap-3 lg:grid-cols-2">
      <div className="relative">
       <label className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Customer</label>
-      <input name="cashledger_search_name_or_mobile" autoComplete="on" className="app-control" value={customerSearch} onChange={e=>{setCustomerSearch(e.target.value);setCustomerId("");setCardId("");}} placeholder="Search name or mobile" required/>
+      <input name="cashledger_search_name_or_mobile" data-no-suggestions="true" autoComplete="on" className="app-control" value={customerSearch} onChange={e=>{setCustomerSearch(e.target.value);setCustomerId("");setCardId("");}} placeholder="Search name or mobile" required/>
       {!customerId&&customerSearch.trim().length>=2?<div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">{customerMatches.map(c=><button type="button" key={c.id} onClick={()=>chooseCustomer(c)} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--surface-soft)]"><span className="font-semibold">{c.fullName}</span><span className="text-xs text-[var(--text-muted)]">{c.mobile??""}</span></button>)}<button type="button" onClick={openNewCustomer} className="mt-1 w-full rounded-lg border-t border-[var(--border)] px-3 py-3 text-left text-xs font-bold text-[var(--accent)]">+ Add customer + card</button></div>:null}
      </div>
      <div><div className="mb-1.5 flex items-center justify-between gap-2"><span className="text-xs font-bold text-[var(--text-muted)]">Customer card</span>{customerId?<button type="button" onClick={openAddCard} className="text-[11px] font-bold text-[var(--accent)]">+ Add card</button>:null}</div><SearchableSelect className="app-control" value={cardId} onChange={e=>setCardId(e.target.value)} disabled={!customerId} required><option value="">{customerId?"Choose card":"Choose customer first"}</option>{customer?.cards.filter(c=>c.isActive).map(c=><option key={c.id} value={c.id}>{c.bankName} · •••• {c.lastFourDigits}{c.nickname?" · "+c.nickname:""}</option>)}</SearchableSelect>{customerId&&!customer?.cards.some(c=>c.isActive)?<button type="button" onClick={openAddCard} className="mt-2 text-xs font-bold text-[var(--accent)]">Add card</button>:null}</div>

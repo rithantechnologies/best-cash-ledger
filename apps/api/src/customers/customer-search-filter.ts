@@ -8,7 +8,7 @@ export function customerSearchFilter(input: string): Prisma.CustomerWhereInput {
   return {
     AND: terms.map((term): Prisma.CustomerWhereInput => {
       const digits = term.replace(/\D/g, '');
-      const numeric = digits.length >= 3;
+      const numeric = digits.length >= 2;
       const text = (value: string): Prisma.StringFilter => ({ contains: value, mode: 'insensitive' });
       const filters: Prisma.CustomerWhereInput[] = [
         { fullName: text(term) },

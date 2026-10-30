@@ -9,8 +9,7 @@ export class SearchService {
   async customerSuggestions(q: string) {
     const query = q.trim();
     const digits = query.replace(/\D/g, '');
-    const hasLetters = /[a-z]/i.test(query);
-    if ((hasLetters && query.length < 2) || (!hasLetters && digits.length < 3)) return [];
+    if (query.length < 2) return [];
 
     const matchingIds = await findCustomerIdsForSearch(this.prisma, query);
     const customers = await this.prisma.customer.findMany({
@@ -36,7 +35,6 @@ export class SearchService {
         transactions: { orderBy: { transactionAt: 'desc' }, take: 1, select: { transactionAt: true } },
       },
       orderBy: { updatedAt: 'desc' },
-      take: 8,
     });
 
     const normalizedName = query.toLowerCase();

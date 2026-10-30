@@ -62,7 +62,7 @@ export default function MicroAtmPage(){
  const provider=providers.find(p=>p.id===providerId);
  const providerWallet=accounts.find(a=>a.accountType==="PROVIDER_WALLET"&&a.providerId===providerId);
  const withdrawal=Number(amount||0);
- const filteredCustomers=customerSearch.trim()?customers.filter(c=>(c.fullName+" "+c.mobile).toLowerCase().includes(customerSearch.trim().toLowerCase())).slice(0,20):customers.slice(0,20);
+ const filteredCustomers=customerSearch.trim()?customers.filter(c=>(c.fullName+" "+c.mobile).toLowerCase().includes(customerSearch.trim().toLowerCase())):customers;
  const newCustomerReady=newCustomerName.trim().length>=2&&(!newCustomerMobile.trim()||/^[6-9]\d{9}$/.test(newCustomerMobile.trim()));
  const providerCommission=Math.round(withdrawal*Number(commissionRate||0))/100;
  const settlement=Math.round((withdrawal+providerCommission)*100)/100;
@@ -133,7 +133,12 @@ export default function MicroAtmPage(){
      <button type="button" onClick={()=>setCustomerMode("new")} className={"min-h-10 rounded-lg text-sm font-bold "+(customerMode==="new"?"bg-[var(--surface)] text-[var(--text)] shadow-sm":"text-[var(--text-muted)]")}>New</button>
     </div>
     {customerMode==="existing"?<div className="grid gap-3 sm:grid-cols-2">
-     <Field label="Find customer"><input name="cashledger_find_customer" autoComplete="on" className={control} value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name or mobile"/></Field>
+     <Field label="Find customer"><div className="relative">
+      <input name="cashledger_find_customer" data-no-suggestions="true" autoComplete="off" className={control} value={customerSearch} onChange={e=>{setCustomerSearch(e.target.value);setCustomerId("");}} placeholder="Search name or mobile"/>
+      {customerSearch.trim().length>=2&&!customerId?<div role="listbox" aria-label="Matching customers" className="absolute inset-x-0 top-[calc(100%+.3rem)] z-40 max-h-64 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
+       {filteredCustomers.length?filteredCustomers.map(c=><button role="option" type="button" key={c.id} onClick={()=>{setCustomerId(c.id);setCustomerSearch(c.fullName);}} className="block min-h-11 w-full rounded-lg px-3 py-2 text-left hover:bg-[var(--surface-soft)]"><span className="block text-sm font-bold">{c.fullName}</span><span className="text-xs text-[var(--text-muted)]">{c.mobile||"No mobile"}</span></button>):<p className="px-3 py-3 text-sm text-[var(--text-muted)]">No matching customers</p>}
+      </div>:null}
+     </div></Field>
      <Field label="Customer"><SearchableSelect className={control} value={customerId} onChange={e=>setCustomerId(e.target.value)} required><option value="">Select customer</option>{filteredCustomers.map(c=><option key={c.id} value={c.id}>{c.fullName}{c.mobile?" · "+c.mobile:""}</option>)}</SearchableSelect></Field>
     </div>:<div className="grid gap-3 sm:grid-cols-2">
      <Field label="Customer name"><input name="cashledger_customer_name" autoComplete="on" className={control} value={newCustomerName} onChange={e=>setNewCustomerName(e.target.value.toUpperCase())} placeholder="Enter customer name" required/></Field>
