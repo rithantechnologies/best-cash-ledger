@@ -3,36 +3,138 @@ import autoTable from "jspdf-autotable";
 import { indianDate } from "./indian-date";
 
 type ReportRow = {
- transactionAt:string; customerName:string; mobile:string; cardType:string; cardLastFour:string;
- swipeAmount:number; gatewayFee:number; customerFee:number; payoutFee:number;
- netProfit:number; payableAmount:number; payoutSources:string[]; payInAccount:string;
+  transactionAt: string;
+  customerName: string;
+  mobile: string;
+  cardType: string;
+  cardLastFour: string;
+  swipeAmount: number;
+  gatewayFee: number;
+  customerFee: number;
+  payoutFee: number;
+  netProfit: number;
+  payableAmount: number;
+  payoutSources: string[];
+  payInAccount: string;
 };
-type Summary = Pick<ReportRow,"swipeAmount"|"gatewayFee"|"customerFee"|"payoutFee"|"netProfit"|"payableAmount">;
+type Summary = Pick<ReportRow, "swipeAmount" | "gatewayFee" | "customerFee" | "payoutFee" | "netProfit" | "payableAmount">;
 
-const istDate=(timestamp:string)=>new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",day:"2-digit",month:"2-digit",year:"numeric"}).format(new Date(timestamp)).replaceAll("/","-");
-const amount = (value:number) => new Intl.NumberFormat("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}).format(value);
+const number = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const amount = (value: number) => number.format(value);
+const dateIST = (timestamp: string) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric" })
+    .format(new Date(timestamp)).replaceAll("/", "-");
+const timestampIST = () => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (key: string) => parts.find((part) => part.type === key)?.value ?? "";
+  return `${get("day")}-${get("month")}-${get("year")} ${get("hour")}:${get("minute")} IST`;
+};
 
-/** PDF uses the same filtered transaction rows and summary as the on-screen register. */
-export function downloadCardSwipePdf(from:string,to:string,rows:ReportRow[],summary:Summary){
- const pdf=new jsPDF({orientation:"landscape",unit:"mm",format:"a3"});
- const multiDay=from!==to;
- const headers=["S.NO",...(multiDay?["DATE"]:[]),"CUSTOMER / PAY IN","CELL NUMBER","CARD TYPE","CARD NUMBER","AMOUNT","COM. FEE","CUS. FEE","PAYOUT FEE","NET PROFIT","PAYABLE","PAYOUT","PAYIN"];
- const body=rows.map((r,i)=>[String(i+1),...(multiDay?[istDate(r.transactionAt)]:[]),r.customerName,r.mobile||"-",r.cardType,"**** "+r.cardLastFour,
-  amount(r.swipeAmount),amount(r.gatewayFee),amount(r.customerFee),amount(r.payoutFee),amount(r.netProfit),amount(r.payableAmount),
-  r.payoutSources.join(" / ")||"Pending",r.payInAccount||"-"]);
- body.push(["TOTAL",...(multiDay?[""]:[]),"","","","",amount(summary.swipeAmount),amount(summary.gatewayFee),amount(summary.customerFee),amount(summary.payoutFee),amount(summary.netProfit),amount(summary.payableAmount),"",""]);
- pdf.setFont("helvetica","bold");pdf.setFontSize(17);pdf.text("CREDIT CARD REPORT",14,16);
- pdf.setFont("helvetica","normal");pdf.setFontSize(10);
- pdf.text("Business date: "+indianDate(from)+(from===to?"":" to "+indianDate(to))+"  |  Transactions: "+rows.length,14,23);
- pdf.text("Amounts in INR. Card numbers masked. Net profit includes payout charges.",14,29);
- autoTable(pdf,{startY:34,head:[headers],body,theme:"grid",margin:{left:10,right:10,top:18,bottom:16},
-  styles:{font:"helvetica",fontSize:7,cellPadding:2,overflow:"linebreak",valign:"middle"},
-  headStyles:{fillColor:[246,210,91],textColor:[20,20,20],fontStyle:"bold"},
-  columnStyles:multiDay?
-   {0:{cellWidth:12},1:{cellWidth:23},2:{cellWidth:36},3:{cellWidth:24},4:{cellWidth:29},5:{cellWidth:20},6:{halign:"right"},7:{halign:"right"},8:{halign:"right"},9:{halign:"right"},10:{halign:"right"},11:{halign:"right"},12:{cellWidth:31},13:{cellWidth:27}}:
-   {0:{cellWidth:12},1:{cellWidth:40},2:{cellWidth:25},3:{cellWidth:33},4:{cellWidth:21},5:{halign:"right"},6:{halign:"right"},7:{halign:"right"},8:{halign:"right"},9:{halign:"right"},10:{halign:"right"},11:{cellWidth:34},12:{cellWidth:30}},
-  didParseCell:(data)=>{if(data.section==="body"&&data.row.index===body.length-1){data.cell.styles.fillColor=[45,185,105];data.cell.styles.textColor=[0,0,0];data.cell.styles.fontStyle="bold";}},
-  didDrawPage:()=>{const page=pdf.getCurrentPageInfo().pageNumber;pdf.setFontSize(8);pdf.setTextColor(95);pdf.text("Cash Ledger  |  Page "+page,14,pdf.internal.pageSize.getHeight()-7);}
- });
- pdf.save("Credit_Card_Report_"+indianDate(from)+"_to_"+indianDate(to)+".pdf");
+// A3 landscape has 420 mm width. All columns total exactly 396 mm,
+// leaving 12 mm side margins; autoTable must never split the table horizontally.
+const singleDayWidths = [11, 45, 25, 31, 22, 39, 28, 28, 28, 32, 38, 37, 32];
+const multiDayWidths = [11, 21, 40, 24, 28, 20, 36, 26, 26, 26, 30, 34, 39, 35];
+const rgb = {
+  navy: [23, 37, 57] as [number, number, number],
+  gold: [250, 213, 88] as [number, number, number],
+  green: [220, 245, 228] as [number, number, number],
+  line: [223, 229, 234] as [number, number, number],
+  muted: [93, 105, 120] as [number, number, number],
+};
+
+/** Generate a printable, single-width register from exactly the filtered rows on screen. */
+export function downloadCardSwipePdf(from: string, to: string, rows: ReportRow[], summary: Summary) {
+  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3", compress: true });
+  const multiDay = from !== to;
+  const widths = multiDay ? multiDayWidths : singleDayWidths;
+  const headers = [
+    "S.NO", ...(multiDay ? ["DATE"] : []), "CUSTOMER / PAY IN", "CELL NUMBER", "CARD TYPE",
+    "CARD NUMBER", "AMOUNT", "COM. FEE", "CUS. FEE", "PAYOUT FEE", "NET PROFIT",
+    "PAYABLE", "PAYOUT", "PAYIN",
+  ];
+  const numbersStart = multiDay ? 6 : 5;
+  const numericColumns = new Set(Array.from({ length: 6 }, (_, index) => numbersStart + index));
+  const columns: Record<number, { cellWidth: number; halign?: "left" | "right" | "center" }> = {};
+  widths.forEach((width, index) => {
+    columns[index] = { cellWidth: width, halign: numericColumns.has(index) ? "right" : index === 0 || (multiDay && index === 1) ? "center" : "left" };
+  });
+  const body: string[][] = rows.map((row, index) => [
+    String(index + 1), ...(multiDay ? [dateIST(row.transactionAt)] : []),
+    row.customerName || "-", row.mobile || "-", row.cardType || "-", `**** ${row.cardLastFour || "----"}`,
+    amount(row.swipeAmount), amount(row.gatewayFee), amount(row.customerFee), amount(row.payoutFee),
+    amount(row.netProfit), amount(row.payableAmount), row.payoutSources.join(" / ") || "Pending",
+    row.payInAccount || "-",
+  ]);
+  const totals: string[] = [
+    "TOTAL", ...(multiDay ? [""] : []), "", "", "", "",
+    amount(summary.swipeAmount), amount(summary.gatewayFee), amount(summary.customerFee),
+    amount(summary.payoutFee), amount(summary.netProfit), amount(summary.payableAmount), "", "",
+  ];
+  const displayedDate = indianDate(from) + (multiDay ? ` to ${indianDate(to)}` : "");
+  const generated = timestampIST();
+  const pagesToken = "{total_pages_count_string}";
+
+  autoTable(pdf, {
+    head: [headers],
+    body: [...body, totals],
+    startY: 43,
+    margin: { top: 43, bottom: 17, left: 12, right: 12 },
+    tableWidth: 396,
+    theme: "grid",
+    showHead: "everyPage",
+    rowPageBreak: "avoid",
+    pageBreak: "auto",
+    horizontalPageBreak: false,
+    styles: {
+      font: "helvetica", fontSize: 7.8, textColor: rgb.navy, lineColor: rgb.line,
+      lineWidth: 0.12, cellPadding: { top: 3.1, bottom: 3.1, left: 2.1, right: 2.1 },
+      minCellHeight: 10.5, valign: "middle", overflow: "linebreak",
+    },
+    headStyles: {
+      fillColor: rgb.gold, textColor: rgb.navy, fontStyle: "bold", fontSize: 7.5,
+      minCellHeight: 12.5, valign: "middle", lineColor: [219, 186, 79], lineWidth: 0.1,
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: columns,
+    didParseCell: (cell) => {
+      if (cell.section === "body" && cell.row.index === body.length) {
+        cell.cell.styles.fillColor = rgb.green;
+        cell.cell.styles.fontStyle = "bold";
+        cell.cell.styles.textColor = [16, 91, 54];
+        cell.cell.styles.minCellHeight = 12;
+      } else if (cell.section === "body" && cell.column.index === numbersStart + 4) {
+        cell.cell.styles.fontStyle = "bold";
+      }
+    },
+    didDrawPage: () => {
+      const page = pdf.getCurrentPageInfo().pageNumber;
+      const width = pdf.internal.pageSize.getWidth();
+      const height = pdf.internal.pageSize.getHeight();
+      pdf.setFillColor(...rgb.navy);
+      pdf.rect(0, 0, width, 11, "F");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(15);
+      pdf.setTextColor(...rgb.navy);
+      pdf.text("CREDIT CARD SWIPE REPORT", 12, 20);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.setTextColor(...rgb.muted);
+      pdf.text(`Business date: ${displayedDate}  |  ${rows.length} transaction${rows.length === 1 ? "" : "s"}`, 12, 27);
+      pdf.text(`Generated: ${generated}`, width - 12, 27, { align: "right" });
+      pdf.text("All amounts in INR  |  Card numbers masked  |  Net profit includes recorded payout fees", 12, 34);
+      pdf.setDrawColor(...rgb.line);
+      pdf.setLineWidth(0.25);
+      pdf.line(12, 37, width - 12, 37);
+      pdf.line(12, height - 13, width - 12, height - 13);
+      pdf.setFontSize(8);
+      pdf.text("Cash Ledger  |  Confidential business report", 12, height - 8);
+      pdf.text(`Page ${page} of ${pagesToken}`, width - 12, height - 8, { align: "right" });
+    },
+  });
+  if (typeof pdf.putTotalPages === "function") pdf.putTotalPages(pagesToken);
+  pdf.save(`Credit_Card_Report_${indianDate(from)}_to_${indianDate(to)}.pdf`);
+  return pdf;
 }
