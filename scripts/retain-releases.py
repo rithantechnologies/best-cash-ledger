@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scan-root", action="append", type=Path, help="Additional paths to scan for references")
     parser.add_argument("--health-url", action="append", default=[], help="Local health endpoints required before and after apply")
     parser.add_argument("--apply", action="store_true", help="Actually delete approved candidates")
-    parser.add_argument("--allow-recent-retained", action="store_true", help="Permit cleanup while a recent release exists only if each recent release is pinned, running and in the newest rollback set")
+    parser.add_argument("--allow-recent-retained", action="store_true", help="Explicitly allow cleanup only when every recently modified release is pinned or in the newest protected rollback set")
     parser.add_argument("--confirm-root", help="Required with --apply; must match --root exactly")
     args = parser.parse_args(argv)
     root = args.root.resolve(strict=True)
@@ -216,8 +216,12 @@ def main(argv: list[str] | None = None) -> int:
     cutoff = time.time() - args.min_age_days * 86400
     recently_modified = [p for p in all_releases if p.stat().st_mtime > time.time() - 3600]
     recent_activity = bool(recently_modified)
+    # Recently staged releases can exist while old releases age out. For an
+    # explicit maintenance operation, permit removal only if EVERY recently
+    # modified release is protected by a pin or by keep-latest. A recent
+    # unprotected stage still blocks cleanup, even with the opt-in flag.
     safe_recent_activity = args.allow_recent_retained and all(
-        p.name in pins and p.name in active and p.name in retained
+        p.name in pins or p.name in retained
         for p in recently_modified
     )
     env_ref = args.env_reference
@@ -252,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
         os.close(lock_fd)
         return 0
     if recent_activity and not safe_recent_activity:
-        print("ABORT: a release has been modified in the last 60 minutes and is not a pinned, active newest release", file=sys.stderr)
+        print("ABORT: recent release activity is not fully protected by pins/keep-latest or explicit opt-in is missing", file=sys.stderr)
         os.close(lock_fd)
         return 4
     health(args.health_url)

@@ -86,5 +86,49 @@ class ReleaseRetentionTests(unittest.TestCase):
                 self.assertTrue((root / "cashledger-test0-runtime").exists())
 
 
+    def test_recent_stage_cleanup_requires_explicit_protected_rollback_opt_in(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "releases"
+            root.mkdir()
+            pins = root.parent / ".cashledger-release-pins"
+            pins.write_text("# No pins for this isolated test\n")
+            for idx, age_days in enumerate([20, 15, 10, 0.001]):
+                release = root / f"cashledger-recenttest{idx}-runtime"
+                (release / "web").mkdir(parents=True)
+                (release / "web" / "server.js").write_text("test")
+                stamp = time.time() - age_days * 86400
+                os.utime(release, (stamp, stamp))
+            common = ["--root", str(root), "--keep-latest", "2", "--min-age-days", "7",
+                      "--apply", "--confirm-root", str(root), "--max-delete", "1"]
+            with patch.object(mod, "DEFAULT_SCAN", ()), patch.object(mod, "process_references", return_value=set()):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(mod.main(common), 4)
+                self.assertTrue((root / "cashledger-recenttest0-runtime").exists())
+                with redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(mod.main(common + ["--allow-recent-retained"]), 0)
+                self.assertIn("deleted 1", output.getvalue())
+                self.assertFalse((root / "cashledger-recenttest0-runtime").exists())
+                self.assertTrue((root / "cashledger-recenttest3-runtime").exists())
+
+    def test_unprotected_recent_stage_blocks_even_opted_in_cleanup(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "releases"
+            root.mkdir()
+            (root.parent / ".cashledger-release-pins").write_text("# test\n")
+            for idx, age_days in enumerate([20, 0.003, 0.002, 0.001]):
+                release = root / f"cashledger-recenttest{idx}-runtime"
+                (release / "web").mkdir(parents=True)
+                (release / "web" / "server.js").write_text("test")
+                stamp = time.time() - age_days * 86400
+                os.utime(release, (stamp, stamp))
+            with patch.object(mod, "DEFAULT_SCAN", ()), patch.object(mod, "process_references", return_value=set()):
+                with redirect_stdout(io.StringIO()):
+                    status = mod.main(["--root", str(root), "--keep-latest", "2",
+                                       "--min-age-days", "7", "--apply", "--confirm-root", str(root),
+                                       "--allow-recent-retained"])
+                self.assertEqual(status, 4)
+                self.assertTrue((root / "cashledger-recenttest0-runtime").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
