@@ -479,16 +479,21 @@ function switchView(next:"details"|"activity"){
  const ledgerMatchItems=matchingLedgerItems();
  const matchedPayOutItems=ledgerEntryDirection==="PAY_OUT"?ledgerMatchItems.filter(item=>Number(ledgerAllocations[item.targetId]||0)>0):[];
  const linkedSwipe=matchedPayOutItems.length===1&&matchedPayOutItems[0].sourceKind==="CARD_SWIPE"?matchedPayOutItems[0]:undefined;
- // Swipe settlement provider wallets are not proof of the account that paid the customer.
- const providerWalletSuggestion=undefined;
+ // Suggest a provider wallet only when every matched swipe identifies the
+ // same active wallet. Never infer a payout source from mixed providers.
+ const matchedWalletIds=matchedPayOutItems.map(item=>item.sourceKind==="CARD_SWIPE"?item.providerWalletAccountId:null);
+ const commonProviderWalletId=matchedWalletIds.length&&matchedWalletIds[0]&&matchedWalletIds.every(walletId=>walletId===matchedWalletIds[0])
+   ?matchedWalletIds[0]:null;
+ const providerWalletSuggestion=commonProviderWalletId
+   ?ledgerAccounts.find(account=>account.id===commonProviderWalletId&&account.isActive&&account.accountType==="PROVIDER_WALLET")
+   :undefined;
  const fundingSuggestion=suggestedPayOutFundingSource(cardLedger?.payInSources??[],cardLedger?.payOutSources??[],ledgerEntryCardId,ledgerEntryDate);
- // The linked card swipe's configured provider wallet is the first suggestion.
- // Prior actual payouts/Pay In only provide a fallback when none is configured.
+ // Prior actual payouts/Pay In are only fallback suggestions when no swipe is matched.
  const payOutSuggestion=fundingSuggestion?.source??null;
  const historicPayOutAccount=payOutSuggestion?ledgerAccounts.find(account=>account.id===payOutSuggestion.financialAccountId):null;
  // With a linked swipe, do not quietly use another funding source when its
  // provider wallet is missing/inaccessible. Require an explicit staff choice.
- const validPayOutSource=matchedPayOutItems.length>1||linkedSwipe?null:historicPayOutAccount;
+ const validPayOutSource=matchedPayOutItems.length?providerWalletSuggestion??null:historicPayOutAccount;
  const effectiveLedgerEntryAccountId=ledgerEntryDirection==="PAY_OUT"&&!ledgerPaidFromManual
    ?(validPayOutSource?.id??"")
    :ledgerEntryAccountId;
@@ -758,7 +763,7 @@ function switchView(next:"details"|"activity"){
      :<div className="space-y-1">
        <Field label={ledgerEntryDirection==="PAY_IN"?"Received in (our account)":"Paid from (our account) *"}><SearchableSelect className={control} value={ledgerEntryAccountId} onChange={e=>{setLedgerEntryAccountId(e.target.value);setLedgerCashConfirmed(false);if(ledgerEntryDirection==="PAY_OUT")setLedgerPaidFromManual(true);setLedgerEntryError("");}}><option value="">Choose account…</option>{ledgerAccounts.map(account=><option key={account.id} value={account.id}>{account.accountName+" · "+account.accountType.replaceAll("_"," ")}</option>)}</SearchableSelect></Field>
        {ledgerEntryDirection==="PAY_OUT"?<div className="flex items-center justify-between gap-2">
-         <p className="text-[11px] font-semibold text-amber-700">{selectedManualPayOutAccount?"Manually selected: "+selectedManualPayOutAccount.accountName+". This account will be debited.":matchedPayOutItems.length>1?"Multiple swipes matched. Choose the account actually paying the customer.":linkedSwipe?"Swipe provider is not a confirmed payout source for "+(linkedSwipe.providerName??"this swipe")+". Choose the actual paying account.":payOutSuggestion?"Previous source account is inactive or unavailable. Choose the actual paying account.":"No eligible Pay In or previous payout found. Choose the actual paying account."}</p>
+         <p className="text-[11px] font-semibold text-amber-700">{selectedManualPayOutAccount?"Manually selected: "+selectedManualPayOutAccount.accountName+". This account will be debited.":matchedPayOutItems.length>1?"Multiple swipes have no single linked provider wallet. Choose the account actually paying the customer.":linkedSwipe?"No uniquely linked active provider wallet for "+(linkedSwipe.providerName??"this swipe")+". Choose the actual paying account.":payOutSuggestion?"Previous source account is inactive or unavailable. Choose the actual paying account.":"No eligible Pay In or previous payout found. Choose the actual paying account."}</p>
          {ledgerPaidFromManual&&validPayOutSource?<button type="button" onClick={()=>{setLedgerPaidFromManual(false);setLedgerEntryAccountId("");setLedgerCashConfirmed(false);setLedgerEntryError("");}} className="shrink-0 text-xs font-black text-[var(--accent)]">Use suggested source</button>:null}
         </div>:null}
       </div>}
