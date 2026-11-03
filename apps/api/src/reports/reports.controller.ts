@@ -6,16 +6,22 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { ReportsService } from './reports.service.js';
+import { CardSwipeReportService } from './card-swipe-report.service.js';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('reports')
 export class ReportsController {
-  constructor(private readonly reports: ReportsService, private readonly excelExport: ExcelExportService) {}
+  constructor(private readonly reports: ReportsService, private readonly excelExport: ExcelExportService, private readonly cardSwipeReport: CardSwipeReportService) {}
 
   @Get('export/excel')
   @Roles(RoleName.OWNER, RoleName.ADMIN)
   downloadExcel(@Res() response: Response, @Req() req: any, @Query('from') from: string, @Query('to') to: string, @Query('scope') scope?: string) {
     return this.excelExport.write(response, from, to, scope ?? 'all', req.user.userId);
+  }
+
+  @Get('card-swipes')
+  cardSwipes(@Query('from') from: string, @Query('to') to: string, @Query('customerId') customerId?: string, @Query('providerId') providerId?: string) {
+    return this.cardSwipeReport.get(from, to, customerId, providerId);
   }
 
   @Get('transactions')

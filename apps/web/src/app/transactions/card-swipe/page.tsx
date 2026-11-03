@@ -235,7 +235,7 @@ function ReceiptSummary({
 function CustomerCardSwipeHistory({rows,loading}:{rows:CustomerSwipeHistory[];loading:boolean}){
   return <div className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
     <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-3 py-2.5">
-      <div><p className="text-xs font-extrabold">Card swipe history</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">Swipe, fees, payout source and business profit.</p></div>
+      <div><p className="text-xs font-extrabold">Card swipe history</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">Swipe, fees, payout source and business profit. <Link href="/reports/card-swipes" className="font-bold text-[var(--accent)]">Open daily report →</Link></p></div>
       {!loading?<span className="rounded-full bg-[var(--surface-soft)] px-2 py-1 text-[10px] font-bold text-[var(--text-muted)]">{rows.length} txn{rows.length===1?"":"s"}</span>:null}
     </div>
     {loading?<p className="px-3 py-4 text-xs text-[var(--text-muted)]">Loading customer transactions…</p>:rows.length?<div className="max-h-72 overflow-auto"><table className="w-full min-w-[980px] text-xs">
