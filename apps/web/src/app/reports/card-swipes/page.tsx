@@ -49,12 +49,20 @@ export default function CardSwipeReportPage(){
   const blob=new Blob(["\uFEFF"+values.map(v=>v.map(csvCell).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"});
   const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="Credit_Card_Report_"+from+"_to_"+to+".csv";document.body.appendChild(a);a.click();a.remove();window.setTimeout(()=>URL.revokeObjectURL(url),30000);
  }
+ const [pdfBusy,setPdfBusy]=useState(false);
+ async function pdfExport(){
+  if(!report||pdfBusy)return;
+  setPdfBusy(true);
+  try{const {downloadCardSwipePdf}=await import("./export-pdf");downloadCardSwipePdf(from,to,report.rows,report.summary);}
+  catch(e){setError(e instanceof Error?e.message:"Unable to generate PDF.");}
+  finally{setPdfBusy(false);}
+ }
  const s=report?.summary;
  return <AppShell><PageFrame>
   <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
    <div><p className="text-xs text-[var(--text-muted)]"><Link href="/reports" className="text-[var(--accent)]">Reports</Link> / Credit Cards</p>
     <h1 className="mt-1 text-2xl font-black">Credit Card Swipe Report</h1><p className="text-xs text-[var(--text-muted)]">Business dates: India Standard Time. Click a swipe to inspect its ledger history.</p></div>
-   <div className="flex flex-wrap gap-2"><button type="button" onClick={csv} disabled={loading||!report} className="rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Download CSV</button><Link href="/reports/export" className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-bold">Full Excel Export</Link></div>
+   <div className="flex flex-wrap gap-2"><button type="button" onClick={pdfExport} disabled={loading||!report||pdfBusy} className="rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{pdfBusy?"Preparing PDF…":"Download PDF"}</button><button type="button" onClick={csv} disabled={loading||!report} className="rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Download CSV</button><Link href="/reports/export" className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-bold">Full Excel Export</Link></div>
   </div>
   <Surface className="mb-4 p-4">
    <div className="flex flex-wrap gap-2">{[["today","Today"],["week","Last 7 Days"],["month","This Month"]].map(([key,label])=><button type="button" key={key} onClick={()=>range(key)} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">{label}</button>)}</div>
