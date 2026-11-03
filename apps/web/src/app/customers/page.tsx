@@ -46,9 +46,11 @@ export default function CustomersPage(){
  const admin=role==="OWNER"||role==="ADMIN";
  const filterKey=[q.trim(),sortBy,sortDir,pagination.pageSize,admin].join("|");
  const listReady=!loading&&resultsKey===filterKey;
- const customerSearchMatches=liveCustomerResults.query===q.trim()?liveCustomerResults.matches:[];
+ const customerSearchMatches=q.trim().length>=2
+  ? (liveCustomerResults.query===q.trim()?liveCustomerResults.matches:[])
+  : q.trim()?[]:items.slice(0,25);
  const customerSearchLoading=q.trim().length>=2&&liveCustomerResults.query!==q.trim();
- const customerSearchMenuVisible=searchSuggestionsOpen&&q.trim().length>=2;
+ const customerSearchMenuVisible=searchSuggestionsOpen&&(!q.trim()||q.trim().length>=2);
  function chooseCustomerSearchSuggestion(customer:Pick<Customer,"id"|"fullName"|"mobile"|"customerCode">){
   // Suggestions are real database customers, not remembered browser searches.
   invalidateSearch();
@@ -202,7 +204,7 @@ export default function CustomersPage(){
      }}/>
     {customerSearchMenuVisible?<div id="cashledger-customer-search-matches" role="listbox" aria-label="Matching customers" data-customer-search-suggestions="true"
      className="absolute bottom-[calc(100%+0.35rem)] left-0 right-0 z-[120] max-h-[min(52dvh,250px)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_16px_38px_rgba(15,23,42,.24)] sm:bottom-auto sm:top-[calc(100%+0.35rem)] sm:max-h-[min(55dvh,380px)]">
-     <p className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--text-muted)]">{customerSearchLoading?"Searching customers…":"Matching customers · "+customerSearchMatches.length}</p>
+     <p className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--text-muted)]">{customerSearchLoading?"Searching customers…":(q.trim()?"Matching customers · ":"Recent customers · ")+customerSearchMatches.length}</p>
      {customerSearchLoading?<p className="px-3 py-3 text-xs text-[var(--text-muted)]">Searching saved customers…</p>:customerSearchMatches.length?customerSearchMatches.map((customer,index)=>
       <div key={customer.id} className={"flex items-center gap-2 border-b border-[var(--border)] px-2 py-1 last:border-b-0 "+(searchSuggestionIndex===index?"bg-[var(--accent-soft)]":"")}>
        <button type="button" role="option" aria-selected={searchSuggestionIndex===index} className="min-h-11 min-w-0 flex-1 rounded-lg px-2 py-1 text-left" onPointerDown={e=>e.preventDefault()} onClick={()=>chooseCustomerSearchSuggestion(customer)}>
