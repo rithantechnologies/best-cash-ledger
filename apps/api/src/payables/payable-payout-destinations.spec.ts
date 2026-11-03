@@ -10,6 +10,8 @@ function fixture() {
  const tx:any={
   $queryRawUnsafe:vi.fn().mockResolvedValue([]),
   customerPayable:{findUnique:vi.fn().mockResolvedValue(payable),update:vi.fn().mockResolvedValue({})},
+  cardSwipeDetail:{findUnique:vi.fn().mockResolvedValue(null)},
+  customerLedgerEntryDetail:{findMany:vi.fn().mockResolvedValue([])},
   customerCard:{findFirst:vi.fn().mockResolvedValue({
     id:'card1',customerId:'customer1',bankName:'KOTAK VISA',lastFourDigits:'0428',nickname:null,isActive:true,
   })},

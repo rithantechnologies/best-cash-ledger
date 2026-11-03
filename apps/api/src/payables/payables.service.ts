@@ -10,6 +10,14 @@ import { CreateAdvanceOffsetDto } from './dto/create-advance-offset.dto.js';
 import { CancelPayableDto } from './dto/cancel-payable.dto.js';
 import { buildDueReport } from './due-report.js';
 
+/** Final physical-cash settlement; never round digital transfers or partial payouts. */
+export function cashPayoutRounding(remaining: number, cashPaid: number, isCash: boolean) {
+  if (!isCash || !Number.isFinite(remaining) || !Number.isFinite(cashPaid) ||
+      !Number.isInteger(cashPaid) || cashPaid <= 0 ||
+      Math.round(remaining) !== cashPaid || Math.abs(remaining - cashPaid) > 0.50) return 0;
+  return Math.round((remaining - cashPaid) * 100) / 100;
+}
+
 @Injectable()
 export class PayablesService {
   constructor(
@@ -565,7 +573,12 @@ export class PayablesService {
         );
       }
       const remaining = Number(payable.remainingAmount);
-      if (dto.amount > remaining + 0.001) {
+      // The final cash handover may differ from the payable by at most 50 paise.
+      // Only the actual currency notes debit the drawer; the signed difference
+      // is posted to the rounding variance ledger in the same journal.
+      const cashRounding = cashPayoutRounding(remaining, dto.amount, dto.destinationType === 'CASH');
+      const settledAmount = Math.round((dto.amount + cashRounding) * 100) / 100;
+      if (settledAmount > remaining + 0.001) {
         throw new BadRequestException('Payment exceeds remaining payable');
       }
 
@@ -736,11 +749,11 @@ export class PayablesService {
           transactionId: transaction.id,
           paymentDate: new Date(),
           sourceAccountId: dto.sourceAccountId,
-          amount: new Prisma.Decimal(dto.amount),
+          amount: new Prisma.Decimal(settledAmount),
           destinationType: dto.destinationType,
           destinationLabel,
           destinationReference,
-          destinationDetails,
+          destinationDetails: cashRounding !== 0 ? { ...(destinationDetails as Record<string, unknown>), actualCashPaid: dto.amount, roundingAdjustment: cashRounding } as Prisma.InputJsonValue : destinationDetails,
           referenceNumber: dto.referenceNumber,
           notes: dto.notes,
           status: PaymentStatus.COMPLETED,
@@ -767,8 +780,8 @@ export class PayablesService {
         });
       }
 
-      const paidAmount = Number(payable.paidAmount) + dto.amount;
-      const remainingAmount = Math.max(0, remaining - dto.amount);
+      const paidAmount = Number(payable.paidAmount) + settledAmount;
+      const remainingAmount = Math.max(0, Math.round((remaining - settledAmount) * 100) / 100);
       const { start: todayStart } = this.indiaDayRange();
       const status = remainingAmount <= 0.001
         ? PayableStatus.PAID
@@ -785,14 +798,26 @@ export class PayablesService {
         },
       });
 
+      const roundingLedger = cashRounding !== 0
+        ? await tx.ledgerAccount.findUnique({ where: { ledgerCode: 'SYS-CASH-OVER-SHORT' } })
+        : null;
+      if (cashRounding !== 0 && !roundingLedger) throw new Error('Cash rounding ledger missing');
       const payoutEntries = [
         {
           ledgerAccountId: payableLedger.id,
           entryType: EntryType.DEBIT,
-          amount: dto.amount,
+          amount: settledAmount,
           customerId: payable.customerId,
           payableId: payable.id,
         },
+        ...(cashRounding !== 0 && roundingLedger ? [{
+          ledgerAccountId: roundingLedger.id,
+          entryType: cashRounding > 0 ? EntryType.CREDIT : EntryType.DEBIT,
+          amount: Math.abs(cashRounding),
+          customerId: payable.customerId,
+          payableId: payable.id,
+          description: 'Cash payout denomination rounding (non-cash)',
+        }] : []),
         ...(chargeAmount > 0 && chargeLedger ? [{
           ledgerAccountId: chargeLedger.id,
           entryType: EntryType.DEBIT,
@@ -834,6 +859,8 @@ export class PayablesService {
             status,
             transactionId: transaction.id,
             chargeAmount: chargeAmount.toString(),
+            actualCashPaid: dto.destinationType === 'CASH' ? dto.amount : null,
+            cashRoundingAdjustment: cashRounding,
           },
         },
       });
