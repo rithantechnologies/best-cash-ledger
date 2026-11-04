@@ -7258,7 +7258,16 @@ export class TransactionsService {
           },
           select: { id: true },
         });
-        if (laterCommission) {
+        const laterCombinedCollection = await tx.customerLedgerAllocation.findFirst({
+          where: {
+            cardDueClearingId: original.cardDueCommissionCollection.clearingId,
+            targetType: 'CARD_DUE_COMMISSION',
+            createdAt: { gt: original.cardDueCommissionCollection.createdAt },
+            customerLedgerEntry: { transaction: { status: activeCardDueStatus } },
+          },
+          select: { id: true },
+        });
+        if (laterCommission || laterCombinedCollection) {
           throw new BadRequestException(
             'Reverse later Card Due commission collections first',
           );
@@ -7274,7 +7283,16 @@ export class TransactionsService {
           },
           select: { id: true },
         });
-        if (laterCollection) throw new BadRequestException(
+        const laterCombinedCollection = await tx.customerLedgerAllocation.findFirst({
+          where: {
+            cardDueClearingId: original.cardDueCommissionAssessment.clearingId,
+            targetType: 'CARD_DUE_COMMISSION',
+            createdAt: { gt: original.cardDueCommissionAssessment.createdAt },
+            customerLedgerEntry: { transaction: { status: activeCardDueStatus } },
+          },
+          select: { id: true },
+        });
+        if (laterCollection || laterCombinedCollection) throw new BadRequestException(
           'Reverse later Card Due commission collections before reversing this assessment',
         );
       }
@@ -7315,7 +7333,7 @@ export class TransactionsService {
           notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED],
         };
         for (const allocation of original.customerLedgerEntry.allocations) {
-          if (allocation.targetType !== 'CARD_DUE' || !allocation.cardDueClearingId) continue;
+          if (!['CARD_DUE', 'CARD_DUE_COMMISSION'].includes(allocation.targetType) || !allocation.cardDueClearingId) continue;
           const [laterRecovery, laterAllocation] = await Promise.all([
             tx.cardDueRecovery.findFirst({
               where: {
@@ -7329,13 +7347,24 @@ export class TransactionsService {
               where: {
                 cardDueClearingId: allocation.cardDueClearingId,
                 id: { not: allocation.id },
+                customerLedgerEntryId: { not: original.customerLedgerEntry.id },
                 createdAt: { gt: allocation.createdAt },
                 customerLedgerEntry: { transaction: { status: activeStatus } },
               },
               select: { id: true },
             }),
           ]);
-          if (laterRecovery || laterAllocation) {
+          const laterCommission = allocation.targetType === 'CARD_DUE_COMMISSION'
+            ? await tx.cardDueCommissionCollection.findFirst({
+                where: {
+                  clearingId: allocation.cardDueClearingId,
+                  createdAt: { gt: allocation.createdAt },
+                  transaction: { status: activeStatus },
+                },
+                select: { id: true },
+              })
+            : null;
+          if (laterRecovery || laterAllocation || laterCommission) {
             throw new BadRequestException(
               'Reverse later Card Due receipts first before reversing this Pay In',
             );
@@ -7552,6 +7581,46 @@ export class TransactionsService {
                     principalRemaining,
                     allocationId: allocation.id,
                     reversalTransactionId: reversal.id,
+                  },
+                  reason: dto.reason,
+                },
+              });
+            }
+          }
+          if (allocation.targetType === 'CARD_DUE_COMMISSION' && allocation.cardDueClearingId) {
+            await tx.$queryRawUnsafe(
+              'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE',
+              allocation.cardDueClearingId,
+            );
+            const clearing = await tx.cardDueClearingDetail.findUnique({
+              where: { id: allocation.cardDueClearingId },
+            });
+            if (clearing) {
+              const commissionCollected = this.money(Number(clearing.commissionCollected) - amount);
+              if (commissionCollected < -0.001) {
+                throw new BadRequestException('Commission reversal exceeds amount collected');
+              }
+              const commissionRemaining = this.money(
+                Number(clearing.commissionAmount) - Math.max(0, commissionCollected),
+              );
+              await tx.cardDueClearingDetail.update({
+                where: { id: clearing.id },
+                data: {
+                  commissionCollected: new Prisma.Decimal(Math.max(0, commissionCollected)),
+                  commissionRemaining: new Prisma.Decimal(commissionRemaining),
+                },
+              });
+              await tx.auditLog.create({
+                data: {
+                  userId, entityType: 'CARD_DUE_CLEARING', entityId: clearing.id,
+                  action: 'REVERSE_COMBINED_COMMISSION_ALLOCATION',
+                  oldValues: {
+                    commissionCollected: clearing.commissionCollected.toString(),
+                    commissionRemaining: clearing.commissionRemaining.toString(),
+                  },
+                  newValues: {
+                    commissionCollected: Math.max(0, commissionCollected), commissionRemaining,
+                    allocationId: allocation.id, reversalTransactionId: reversal.id,
                   },
                   reason: dto.reason,
                 },

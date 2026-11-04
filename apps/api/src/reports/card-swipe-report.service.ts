@@ -251,7 +251,12 @@ export class CardSwipeReportService {
           ? rupees(paise(tx.cardDueClearing?.principalRemaining)) : null,
         remainingCommission: type === TransactionType.CARD_DUE_CLEARING
           ? rupees(paise(tx.cardDueClearing?.commissionRemaining)) : null,
-        commissionCollected: rupees(paise(tx.cardDueCommissionCollection?.amount)),
+        commissionCollected: rupees(
+          paise(tx.cardDueCommissionCollection?.amount) +
+          (combinedReceipt ? (tx.customerLedgerEntry?.allocations ?? [])
+            .filter(a => a.targetType === 'CARD_DUE_COMMISSION')
+            .reduce((sum,a) => sum + paise(a.amount), 0) : 0),
+        ),
         earnedCommission: rupees(earned), providerCost: rupees(providerCost),
         payoutCost: rupees(payoutCost), netProfit: rupees(earned - providerCost - payoutCost),
       };

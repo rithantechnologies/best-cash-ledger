@@ -482,14 +482,10 @@ export class CardDueClearingService {
   }
 
   /**
-   * Take exactly one customer receipt and allocate it between outstanding Card
-   * Due principal and already-assessed commission. The financial account is
-   * debited exactly once; both components credit the existing customer
-   * receivable. No new income is recognized on collection.
-   *
-   * The linked CustomerLedgerEntry + CardDueCommissionCollection records share
-   * one transaction ID so existing Card Due and customer ledger reports and
-   * reversal handlers can trace the original receipt without double posting.
+   * One actual receipt across every open Card Due for the selected customer.
+   * Allocate outstanding principal oldest-first, then accrued commission.
+   * One bank debit, one posted journal, individually auditable allocations.
+   * Pre-assessed commission is never recognized as income twice.
    */
   async addCombinedReceipt(
     masterTransactionId: string,
@@ -510,37 +506,59 @@ export class CardDueClearingService {
       providedIdempotencyKey,
     );
     const outcome = await this.prisma.$transaction(async (tx) => {
-      // Serialize receipts against changes to this case's outstanding amounts.
-      await tx.$queryRawUnsafe(
-        'SELECT "id" FROM "CardDueClearingDetail" WHERE "transactionId" = $1 FOR UPDATE',
-        masterTransactionId,
-      );
-      const clearing = await tx.cardDueClearingDetail.findUnique({
+      const anchor = await tx.cardDueClearingDetail.findUnique({
         where: { transactionId: masterTransactionId },
         include: { transaction: true },
       });
-      if (!clearing || !clearing.transaction.customerId) {
+      if (!anchor?.transaction.customerId) {
         throw new NotFoundException('Card Due customer/case not found');
       }
-      if (clearing.transaction.status === TransactionStatus.CANCELLED ||
-          clearing.transaction.status === TransactionStatus.REVERSED ||
-          clearing.transaction.status === TransactionStatus.FAILED) {
-        throw new BadRequestException('Cannot receive payment for a reversed or cancelled Card Due');
+      if ([TransactionStatus.CANCELLED, TransactionStatus.REVERSED, TransactionStatus.FAILED]
+          .some(status => anchor.transaction.status === status)) {
+        throw new BadRequestException('Cannot receive payment for reversed or cancelled Card Due');
       }
-      const principalRemaining = this.money(Number(clearing.principalRemaining));
-      const commissionRemaining = this.money(Number(clearing.commissionRemaining));
-      const outstanding = this.money(principalRemaining + commissionRemaining);
-      if (amount > outstanding + 0.001) {
-        throw new BadRequestException(
-          'Payment exceeds this Card Due outstanding of ₹' + outstanding.toFixed(2) +
-          '. Select the other Card Due case to settle its remaining balance.',
+      const customerId = anchor.transaction.customerId;
+      const where = {
+        transaction: {
+          customerId,
+          status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED, TransactionStatus.FAILED] },
+        },
+      };
+      const caseIds = await tx.cardDueClearingDetail.findMany({ where, select: { id: true } });
+      // Deterministic row locks prevent concurrent partial or double settlement.
+      for (const item of [...caseIds].sort((a,b) => a.id.localeCompare(b.id))) {
+        await tx.$queryRawUnsafe(
+          'SELECT "id" FROM "CardDueClearingDetail" WHERE "id" = $1 FOR UPDATE', item.id,
         );
       }
-      const principalApplied = this.money(Math.min(amount, principalRemaining));
-      const commissionApplied = this.money(amount - principalApplied);
-      if (commissionApplied > commissionRemaining + 0.001) {
-        throw new BadRequestException('Commission payment exceeds the assessed balance');
+      const openCases = await tx.cardDueClearingDetail.findMany({
+        where, include: { transaction: true },
+        orderBy: [{ transaction: { transactionAt: 'asc' } }, { id: 'asc' }],
+      });
+      const allocations = openCases.map(clearing => ({ clearing, principal: 0, commission: 0 }));
+      let left = amount;
+      for (const allocation of allocations) {
+        if (left <= 0) break;
+        allocation.principal = this.money(Math.min(left, Number(allocation.clearing.principalRemaining)));
+        left = this.money(left - allocation.principal);
       }
+      for (const allocation of allocations) {
+        if (left <= 0) break;
+        allocation.commission = this.money(Math.min(left, Number(allocation.clearing.commissionRemaining)));
+        left = this.money(left - allocation.commission);
+      }
+      if (left > 0.001) {
+        throw new BadRequestException(
+          'Payment exceeds this customer\'s total open Card Due balance of ₹' +
+          this.money(amount - left).toFixed(2),
+        );
+      }
+      const applied = allocations.filter(a => a.principal > 0 || a.commission > 0);
+      if (!applied.length) {
+        throw new BadRequestException('No outstanding principal or assessed commission for this customer');
+      }
+      const principalApplied = this.money(applied.reduce((sum,a) => sum + a.principal, 0));
+      const commissionApplied = this.money(applied.reduce((sum,a) => sum + a.commission, 0));
       const account = await this.validation.liquidAsset(
         tx, dto.destinationAccountId, 'Combined Card Due receipt account',
       );
@@ -571,7 +589,7 @@ export class CardDueClearingService {
             '-' + idempotencyKey.slice(-6).toUpperCase(),
           transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
           transactionAt,
-          customerId: clearing.transaction.customerId,
+          customerId: customerId,
           grossAmount: new Prisma.Decimal(amount),
           netAmount: new Prisma.Decimal(amount),
           status: TransactionStatus.COMPLETED,
@@ -584,40 +602,31 @@ export class CardDueClearingService {
       const detail = await tx.customerLedgerEntryDetail.create({
         data: {
           transactionId: transaction.id,
-          customerCardId: clearing.customerCardId,
+          customerCardId: applied.length === 1 ? applied[0].clearing.customerCardId : null,
           financialAccountId: account.id,
           direction: 'PAY_IN',
           amount: new Prisma.Decimal(amount),
           remarks: 'Combined Card Due payment: principal ' + principalApplied.toFixed(2) +
-            ', commission ' + commissionApplied.toFixed(2),
+            ', commission ' + commissionApplied.toFixed(2) + ', cases ' + applied.length,
           receivableAmount: new Prisma.Decimal(amount),
           payableAmount: new Prisma.Decimal(0),
         },
       });
-      if (principalApplied > 0) {
-        await tx.customerLedgerAllocation.create({
-          data: {
-            customerLedgerEntryId: detail.id,
-            targetType: 'CARD_DUE',
-            cardDueClearingId: clearing.id,
-            amount: new Prisma.Decimal(principalApplied),
-          },
-        });
-      }
-      if (commissionApplied > 0) {
-        await tx.cardDueCommissionCollection.create({
-          data: {
-            clearingId: clearing.id,
-            transactionId: transaction.id,
-            amount: new Prisma.Decimal(commissionApplied),
-            paymentMode: account.accountType,
-            destinationAccountId: account.id,
-            referenceNumber: dto.referenceNumber?.trim() || null,
-            notes: dto.notes?.trim() || 'Part of combined Card Due payment',
-            collectedAt: transactionAt,
-            createdById: userId,
-          },
-        });
+      for (const allocation of applied) {
+        for (const component of [
+          { targetType: 'CARD_DUE', amount: allocation.principal },
+          { targetType: 'CARD_DUE_COMMISSION', amount: allocation.commission },
+        ]) {
+          if (component.amount <= 0) continue;
+          await tx.customerLedgerAllocation.create({
+            data: {
+              customerLedgerEntryId: detail.id,
+              targetType: component.targetType,
+              cardDueClearingId: allocation.clearing.id,
+              amount: new Prisma.Decimal(component.amount),
+            },
+          });
+        }
       }
       await this.ledger.post(
         tx, transaction.id, userId, 'Combined Card Due principal and commission receipt',
@@ -626,48 +635,59 @@ export class CardDueClearingService {
             ledgerAccountId: account.ledgerAccount.id,
             entryType: EntryType.DEBIT,
             amount,
-            customerId: clearing.transaction.customerId,
+            customerId: customerId,
             description: 'Single customer receipt for Card Due principal and commission',
           },
           {
             ledgerAccountId: receivableLedger.id,
             entryType: EntryType.CREDIT,
             amount,
-            customerId: clearing.transaction.customerId,
+            customerId: customerId,
             description: 'Principal ' + principalApplied.toFixed(2) +
               ' + assessed commission ' + commissionApplied.toFixed(2),
           },
         ],
       );
-      await tx.cardDueClearingDetail.update({
-        where: { id: clearing.id },
-        data: {
-          principalRecovered: new Prisma.Decimal(
-            this.money(Number(clearing.principalRecovered) + principalApplied)),
-          principalRemaining: new Prisma.Decimal(
-            this.money(principalRemaining - principalApplied)),
-          commissionCollected: new Prisma.Decimal(
-            this.money(Number(clearing.commissionCollected) + commissionApplied)),
-          commissionRemaining: new Prisma.Decimal(
-            this.money(commissionRemaining - commissionApplied)),
-        },
-      });
-      await this.refreshMasterStatus(tx, clearing.id, clearing.transactionId);
-      await tx.auditLog.create({
-        data: {
-          userId,
-          entityType: 'CARD_DUE_CLEARING',
-          entityId: clearing.id,
-          action: 'COMBINED_CUSTOMER_RECEIPT',
-          oldValues: { principalRemaining, commissionRemaining },
-          newValues: {
-            receiptTransactionId: transaction.id, amount, principalApplied,
-            commissionApplied, destinationAccountId: account.id,
-            referenceNumber: dto.referenceNumber?.trim() || null,
+      for (const allocation of applied) {
+        const clearing = allocation.clearing;
+        const principalRemaining = this.money(Number(clearing.principalRemaining));
+        const commissionRemaining = this.money(Number(clearing.commissionRemaining));
+        await tx.cardDueClearingDetail.update({
+          where: { id: clearing.id },
+          data: {
+            principalRecovered: new Prisma.Decimal(
+              this.money(Number(clearing.principalRecovered) + allocation.principal)),
+            principalRemaining: new Prisma.Decimal(this.money(principalRemaining - allocation.principal)),
+            commissionCollected: new Prisma.Decimal(
+              this.money(Number(clearing.commissionCollected) + allocation.commission)),
+            commissionRemaining: new Prisma.Decimal(this.money(commissionRemaining - allocation.commission)),
           },
-        },
-      });
-      return { transactionId: transaction.id, amount, principalApplied, commissionApplied };
+        });
+        await this.refreshMasterStatus(tx, clearing.id, clearing.transactionId);
+        await tx.auditLog.create({
+          data: {
+            userId,
+            entityType: 'CARD_DUE_CLEARING',
+            entityId: clearing.id,
+            action: 'COMBINED_CUSTOMER_RECEIPT',
+            oldValues: { principalRemaining, commissionRemaining },
+            newValues: {
+              receiptTransactionId: transaction.id, totalReceived: amount,
+              principalApplied: allocation.principal,
+              commissionApplied: allocation.commission,
+              destinationAccountId: account.id,
+              referenceNumber: dto.referenceNumber?.trim() || null,
+            },
+          },
+        });
+      }
+      return {
+        transactionId: transaction.id, amount, principalApplied, commissionApplied,
+        allocations: applied.map(a => ({
+          transactionNumber: a.clearing.transaction.transactionNumber,
+          principalApplied: a.principal, commissionApplied: a.commission,
+        })),
+      };
     });
     return { ...outcome, clearing: await this.get(masterTransactionId) };
   }

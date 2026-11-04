@@ -51,11 +51,11 @@ describe('credit card swipe report', () => {
       transactionAt:new Date('2026-11-04T10:30:00Z'),customer:{fullName:'Test Customer'},
       grossAmount:'3600',referenceNumber:'UPI-TEST',status:'COMPLETED',
       commissions:[],charges:[],cardDueClearing:null,cardDueRecovery:null,
-      cardDueCommissionCollection:{amount:'2400'},
+      cardDueCommissionCollection:null,
       cardDueCommissionAssessment:null,
       customerLedgerEntry:{
         financialAccount:{accountName:'SOUTH INDIAN UPI'},
-        allocations:[{targetType:'CARD_DUE',amount:'1200'}],
+        allocations:[{targetType:'CARD_DUE',amount:'1200'},{targetType:'CARD_DUE_COMMISSION',amount:'2400'}],
       },
     };
     const findMany = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([combined]);
