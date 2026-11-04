@@ -174,6 +174,7 @@ function amountInWords(value:number){
 function RateControl({
   value,onChange,recent,suggested,
 }:{value:number;onChange:(value:number)=>void;recent:number[];suggested:number|null}){
+  const [editing,setEditing]=useState<string|null>(null);
   const set=(next:number)=>onChange(Math.min(100,Math.max(0,Math.round(next*10000)/10000)));
   const shortcuts=[suggested,...recent]
     .filter((rate):rate is number=>rate!==null&&Number.isFinite(rate)&&rate>=0&&rate<=100)
@@ -188,7 +189,10 @@ function RateControl({
         <input
           className="commission-rate-input h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] pl-3 pr-8 text-right text-xl font-extrabold outline-none focus:border-[var(--accent)]"
           type="number" inputMode="decimal" min="0" max="100" step="0.0001"
-          value={rateText(value)} onChange={e=>set(Number(e.target.value||0))}
+          value={editing??rateText(value)}
+          onFocus={()=>setEditing(rateText(value))}
+          onChange={e=>{const raw=e.target.value;setEditing(raw);if(raw!==""&&Number.isFinite(Number(raw)))set(Number(raw));}}
+          onBlur={()=>setEditing(null)}
           aria-label="Business commission percentage"
         />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">%</span>
