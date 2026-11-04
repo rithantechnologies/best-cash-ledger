@@ -39,6 +39,15 @@ export default function CustomersPage(){
  const [searchSuggestionsOpen,setSearchSuggestionsOpen]=useState(false);
  const [searchSuggestionIndex,setSearchSuggestionIndex]=useState(0);
  const [liveCustomerResults,setLiveCustomerResults]=useState<{query:string;matches:Pick<Customer,"id"|"fullName"|"mobile"|"customerCode">[]}>({query:"",matches:[]});
+ const [recentCustomers,setRecentCustomers]=useState<Pick<Customer,"id"|"fullName"|"mobile"|"customerCode">[]>([]);
+ const recentRequest=useRef(0);
+ async function refreshRecentCustomers(){
+  const request=++recentRequest.current;
+  try{
+   const result=await apiFetch<Paged>("/customers?page=1&pageSize=25&sortBy=createdAt&sortDir=desc&includeInactive=false");
+   if(request===recentRequest.current)setRecentCustomers(result.items);
+  }catch{/* Keep the last successful recent list when temporarily offline. */}
+ }
  const customerSearchInput=useRef<HTMLInputElement|null>(null);
  const currentRequest=useRef(0);
  const currentAbort=useRef<AbortController|null>(null);
@@ -48,7 +57,7 @@ export default function CustomersPage(){
  const listReady=!loading&&resultsKey===filterKey;
  const customerSearchMatches=q.trim().length>=2
   ? (liveCustomerResults.query===q.trim()?liveCustomerResults.matches:[])
-  : q.trim()?[]:items.slice(0,25);
+  : q.trim()?[]:recentCustomers;
  const customerSearchLoading=q.trim().length>=2&&liveCustomerResults.query!==q.trim();
  const customerSearchMenuVisible=searchSuggestionsOpen&&(!q.trim()||q.trim().length>=2);
  function chooseCustomerSearchSuggestion(customer:Pick<Customer,"id"|"fullName"|"mobile"|"customerCode">){
@@ -78,7 +87,7 @@ export default function CustomersPage(){
    .catch(err=>{if(request===currentRequest.current&&!controller.signal.aborted)throw err;})
    .finally(()=>{if(request===currentRequest.current)setLoading(false);});
  }
- useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
+ useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}void refreshRecentCustomers();},[]);
  useEffect(()=>{apiFetch<{enabled:boolean}>("/customers/demo-card-availability").then(r=>setDemoEnabled(r.enabled)).catch(()=>setDemoEnabled(false));},[]);
  useEffect(()=>{
   const query=q.trim();
@@ -145,6 +154,7 @@ export default function CustomersPage(){
   try{
    const customer=await apiFetch<{id:string}>("/customers",{method:"POST",body:JSON.stringify({customerTypeId,fullName,mobile:mobile||undefined,ebNumber:ebNumber||undefined,...(demoEnabled&&newDemoNumber?{demoCardNumber:newDemoNumber,demoCardBank:newDemoBank.trim()||"Card"}:{})})});
    setCreating(false);setNewDemoNumber("");setNewDemoBank("");
+   void refreshRecentCustomers();
    if(openDetails){router.push("/customers/"+customer.id+"?setup=1");}
    else{setMessage("Customer created.");await load(1);}
   }
@@ -192,7 +202,7 @@ export default function CustomersPage(){
   <Toolbar>
    <div className="relative min-w-0 lg:col-span-2">
     <input ref={customerSearchInput} type="text" inputMode="search" name="cashledger_customer_search" autoComplete="off" data-no-suggestions="true" role="combobox" aria-label="Search customers" aria-autocomplete="list" aria-expanded={customerSearchMenuVisible} aria-controls="cashledger-customer-search-matches" className={control+" w-full bg-slate-50"} placeholder="Phone, first name, card last 4, bank, UPI or AEPS PR…" value={q}
-     onFocus={()=>setSearchSuggestionsOpen(true)}
+     onFocus={()=>{setSearchSuggestionsOpen(true);if(!q.trim())void refreshRecentCustomers();}}
      onBlur={()=>setSearchSuggestionsOpen(false)}
      onChange={e=>{invalidateSearch();setLoading(true);setQ(e.target.value);setSearchSuggestionIndex(0);}}
      onKeyDown={e=>{
@@ -203,7 +213,7 @@ export default function CustomersPage(){
       if(e.key==="Enter"&&!e.nativeEvent.isComposing){e.preventDefault();chooseCustomerSearchSuggestion(customerSearchMatches[Math.min(searchSuggestionIndex,customerSearchMatches.length-1)]);}
      }}/>
     {customerSearchMenuVisible?<div id="cashledger-customer-search-matches" role="listbox" aria-label="Matching customers" data-customer-search-suggestions="true"
-     className="absolute bottom-[calc(100%+0.35rem)] left-0 right-0 z-[120] max-h-[min(52dvh,250px)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_16px_38px_rgba(15,23,42,.24)] sm:bottom-auto sm:top-[calc(100%+0.35rem)] sm:max-h-[min(55dvh,380px)]">
+     className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-[120] max-h-[min(45dvh,300px)] overflow-y-auto overscroll-contain rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_16px_38px_rgba(15,23,42,.24)]">
      <p className="sticky top-0 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--text-muted)]">{customerSearchLoading?"Searching customers…":(q.trim()?"Matching customers · ":"Recent customers · ")+customerSearchMatches.length}</p>
      {customerSearchLoading?<p className="px-3 py-3 text-xs text-[var(--text-muted)]">Searching saved customers…</p>:customerSearchMatches.length?customerSearchMatches.map((customer,index)=>
       <div key={customer.id} className={"flex items-center gap-2 border-b border-[var(--border)] px-2 py-1 last:border-b-0 "+(searchSuggestionIndex===index?"bg-[var(--accent-soft)]":"")}>
@@ -266,11 +276,11 @@ export default function CustomersPage(){
   <Modal open={addingCard} title="Add saved card" onClose={()=>setAddingCard(false)}
    footer={<button form="add-card" disabled={busy} className="min-h-11 w-full rounded-xl bg-indigo-700 text-sm font-bold text-white disabled:opacity-50">{busy?"Saving…":"Save card"}</button>}>
    <form id="add-card" onSubmit={addCard} className="grid gap-3 sm:grid-cols-2">
-    <Field label="Customer"><SearchSelect value={cardCustomerId} onChange={setCardCustomerId} options={items.filter(c=>c.isActive).map(c=>({value:c.id,label:c.fullName,searchText:c.fullName+" "+(c.mobile??"")}))} placeholder="Select customer" searchPlaceholder="Search customer…"/></Field>
-    <Field label="Bank"><input name="cashledger_bank" autoComplete="on" className={control} value={cardBank} onChange={e=>setCardBank(e.target.value)} required/></Field>
+    <Field label="Customer"><SearchSelect value={cardCustomerId} onChange={id=>{setCardCustomerId(id);setCardNickname(items.find(c=>c.id===id)?.fullName??"");}} options={items.filter(c=>c.isActive).map(c=>({value:c.id,label:c.fullName,searchText:c.fullName+" "+(c.mobile??"")}))} placeholder="Select customer" searchPlaceholder="Search customer…"/></Field>
+    <Field label="Bank"><input name="cashledger_bank" autoComplete="off" className={control} value={cardBank} onChange={e=>setCardBank(e.target.value)} required/></Field>
     <Field label="Card type"><div className={control+" flex items-center bg-slate-50 font-bold"}>CREDIT</div></Field>
     <Field label="Last 4 digits"><input autoComplete="on" name="cashledger_card_last_four" className={control} inputMode="numeric" maxLength={4} value={cardLast4} onChange={e=>setCardLast4(e.target.value.replace(/\D/g,"").slice(0,4))} required/></Field>
-    <Field label="Nickname" className="sm:col-span-2"><input name="cashledger_nickname" autoComplete="on" className={control} value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="Optional"/></Field>
+    <Field label="Nickname" className="sm:col-span-2"><input name="cashledger_nickname" autoComplete="off" className={control} value={cardNickname} onChange={e=>setCardNickname(e.target.value)} placeholder="Optional"/></Field>
     {demoEnabled?<Field label="Card number (16 digits, optional)" className="sm:col-span-2"><input className={control} type="text" inputMode="numeric" maxLength={16} autoComplete="off" spellCheck={false} value={cardDemoNumber} onChange={e=>{const digits=e.target.value.replace(/\D/g,"").slice(0,16);setCardDemoNumber(digits);if(digits.length===16)setCardLast4(digits.slice(-4));}} placeholder="Enter 16 digits"/></Field>:null}
     {error?<p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs font-semibold text-rose-700 sm:col-span-2">{error}</p>:null}
    </form>
