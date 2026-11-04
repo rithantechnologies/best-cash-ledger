@@ -35,6 +35,26 @@ export class CardDueRecoveryDto {
   notes?: string;
 }
 
+// One real customer receipt, allocated to existing principal and assessed commission.
+export class CardDueCombinedReceiptDto {
+  @IsNumber()
+  @Min(0.01)
+  amount!: number;
+
+  @IsString()
+  destinationAccountId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  referenceNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+}
+
 export class CardDueCommissionCollectionDto {
   @IsNumber()
   @Min(0.01)

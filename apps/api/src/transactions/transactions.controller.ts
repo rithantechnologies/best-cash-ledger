@@ -12,6 +12,7 @@ import { RecordCardSwipeCommissionReceiptDto } from './dto/record-card-swipe-com
 import { CorrectTransactionAmountDto } from './dto/correct-transaction-amount.dto.js';
 import {
   CardDueCommissionCollectionDto,
+  CardDueCombinedReceiptDto,
   AssessCardDueCommissionDto,
   CardDueRecoveryDto,
   CreateCardDueClearingDto,
@@ -135,6 +136,16 @@ export class TransactionsController {
       req.user.role,
       key,
     );
+  }
+
+  @Post('card-due-clearings/:id/combined-receipt')
+  addCardDueCombinedReceipt(
+    @Param('id') id: string,
+    @Body() dto: CardDueCombinedReceiptDto,
+    @Req() req: any,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.cardDueClearings.addCombinedReceipt(id, dto, req.user.userId, req.user.role, key);
   }
 
   @Post('card-due-clearings/:id/commission-collections')

@@ -71,6 +71,7 @@ export default function CardDueClearingPage(){
  const [followUp,setFollowUp]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState("");
  const [addRecoveryAmount,setAddRecoveryAmount]=useState(""),[addProviderId,setAddProviderId]=useState(""),[addGatewayId,setAddGatewayId]=useState(""),[addRecoveryAccountId,setAddRecoveryAccountId]=useState(""),[addRecoveryRef,setAddRecoveryRef]=useState("");
  const [addFeeAmount,setAddFeeAmount]=useState(""),[addFeeAccountId,setAddFeeAccountId]=useState(""),[addFeeRef,setAddFeeRef]=useState("");
+ const [combinedAmount,setCombinedAmount]=useState(""),[combinedAccountId,setCombinedAccountId]=useState(""),[combinedRef,setCombinedRef]=useState("");
  const [detailFollowUp,setDetailFollowUp]=useState("");
  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState(""),[success,setSuccess]=useState("");
  const [newCustomerOpen,setNewCustomerOpen]=useState(false),[newCustomerBusy,setNewCustomerBusy]=useState(false);
@@ -90,7 +91,7 @@ export default function CardDueClearingPage(){
   ]);
   setRows(dueRows);setPayables(duePayables);
  };
- const loadSelected=(id:string)=>apiFetch<Clearing>("/transactions/card-due-clearings/"+id).then(row=>{setSelected(row);setDetailFollowUp(row.nextFollowUpAt?localValue(new Date(row.nextFollowUpAt)):"");setAddRecoveryAmount(String(Number(row.principalRemaining)));setAddFeeAmount(String(Number(row.commissionRemaining)));});
+ const loadSelected=(id:string)=>apiFetch<Clearing>("/transactions/card-due-clearings/"+id).then(row=>{setSelected(row);setDetailFollowUp(row.nextFollowUpAt?localValue(new Date(row.nextFollowUpAt)):"");setAddRecoveryAmount(String(Number(row.principalRemaining)));setAddFeeAmount(String(Number(row.commissionRemaining)));setCombinedAmount(String(calcMoney(Number(row.principalRemaining)+Number(row.commissionRemaining))));});
 
  useEffect(()=>{
   try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}
@@ -164,6 +165,8 @@ export default function CardDueClearingPage(){
   setAssessAmount(String(Math.max(0,calcMoney(Number(row.dueAmount)*0.03-Number(row.commissionAmount)))));setSelected(row);setDetailFollowUp(row.nextFollowUpAt?localValue(new Date(row.nextFollowUpAt)):"");
   const customerDue=rows.filter(r=>r.transaction.customer?.id===row.transaction.customer?.id).reduce((sum,r)=>sum+Number(r.principalRemaining),0);
   setAddRecoveryAmount(String(calcMoney(customerDue)));setAddFeeAmount("");
+  setCombinedAmount(String(calcMoney(Number(row.principalRemaining)+Number(row.commissionRemaining))));
+  setCombinedRef("");
   window.history.replaceState(null,"","?id="+row.transactionId);
  }
  async function refreshSelected(id=selected?.transactionId){
@@ -191,6 +194,36 @@ export default function CardDueClearingPage(){
    setDueAmount("");setCommissionRate("3");setReference("");setNotes("");setFollowUp("");
    await refreshSelected(saved.transactionId);
   }catch(err){setError(err instanceof Error?err.message:"Could not save card due clearing");}
+  finally{setSaving(false);}
+ }
+
+ async function addCombinedReceipt(e:FormEvent){
+  e.preventDefault();if(!selected)return;setError("");setSuccess("");
+  const amount=num(combinedAmount);
+  const outstanding=calcMoney(Number(selected.principalRemaining)+Number(selected.commissionRemaining));
+  if(!Number.isFinite(amount)||amount<=0||Math.abs(Math.round(amount*100)-amount*100)>0.00001){
+   setError("Enter a valid amount in rupees and paise.");return;
+  }
+  if(amount>outstanding+.001){
+   setError("This Card Due has only "+money(outstanding)+" outstanding. Select another Card Due case to collect its balance.");return;
+  }
+  const account=accounts.find(a=>a.id===combinedAccountId);
+  if(!account||!["CASH","UPI","BANK"].includes(account.accountType)){
+   setError("Select the cash drawer, bank or UPI account where the payment was received.");return;
+  }
+  setSaving(true);
+  try{
+   const result=await apiFetch<{transactionId:string;principalApplied:number;commissionApplied:number}>(
+    "/transactions/card-due-clearings/"+selected.transactionId+"/combined-receipt",
+    {method:"POST",body:JSON.stringify({
+     amount,destinationAccountId:account.id,referenceNumber:combinedRef.trim()||undefined,
+    })},
+   );
+   setSuccess("Received "+money(amount)+" once in "+account.accountName+
+    ": principal "+money(result.principalApplied)+" + commission "+money(result.commissionApplied)+
+    ". Transaction recorded.");
+   setCombinedRef("");await refreshSelected();
+  }catch(err){setError(err instanceof Error?err.message:"Could not record combined payment");}
   finally{setSaving(false);}
  }
 
@@ -246,6 +279,8 @@ export default function CardDueClearingPage(){
 
  if(loading)return <AppShell><PageLoader label="Loading card due clearing…"/></AppShell>;
 
+ const combinedPrincipal=selected?calcMoney(Math.min(num(combinedAmount),Number(selected.principalRemaining))):0;
+ const combinedCommission=selected?calcMoney(Math.max(0,num(combinedAmount)-combinedPrincipal)):0;
  const selectedCustomerId=selected?.transaction.customer?.id??"";
  const selectedCustomerRows=selectedCustomerId?rows.filter(r=>r.transaction.customer?.id===selectedCustomerId):[];
  const selectedCustomerPayables=selectedCustomerId?payables.filter(p=>p.customer.id===selectedCustomerId):[];
@@ -365,6 +400,33 @@ export default function CardDueClearingPage(){
    </div>
 
    <div className="grid gap-4 p-4 lg:grid-cols-3 sm:p-5">
+    <form onSubmit={addCombinedReceipt} className="rounded-2xl border-2 border-[var(--accent)] bg-[var(--surface-soft)] p-4 lg:col-span-3">
+     <div className="flex flex-wrap items-start justify-between gap-2">
+      <div><h3 className="text-base font-black">Combined customer payment</h3>
+       <p className="mt-1 text-xs text-[var(--text-muted)]">One bank / UPI / cash receipt automatically clears this Card Due principal first, then already-assessed commission. No gateway charge or duplicate income.</p></div>
+      <span className="rounded-lg bg-[var(--surface)] px-2 py-1 text-[10px] font-bold">One payment · Two allocations</span>
+     </div>
+     <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <label><span className="mb-1 block text-[11px] font-bold">Customer paid (₹)</span>
+       <input className="app-control money" value={formatAmount(combinedAmount)} onChange={e=>setCombinedAmount(amountInput(e.target.value))} placeholder="Amount" required/></label>
+      <label><span className="mb-1 block text-[11px] font-bold">Received into cash / bank / UPI</span>
+       <SearchableSelect className="app-control" value={combinedAccountId} onChange={e=>setCombinedAccountId(e.target.value)} required><option value="">Select actual received-in account</option>
+       {liquidAccounts.filter(a=>["CASH","UPI","BANK"].includes(a.accountType)&&a.isActive!==false).map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</SearchableSelect></label>
+      <label><span className="mb-1 block text-[11px] font-bold">UPI UTR / reference (optional)</span>
+       <input className="app-control" value={combinedRef} onChange={e=>setCombinedRef(e.target.value)} placeholder="Payment reference"/></label>
+     </div>
+     <div className="mt-3 grid gap-2 rounded-xl bg-[var(--surface)] p-3 text-xs sm:grid-cols-3">
+      <div><span className="text-[var(--text-muted)]">Principal recovery</span><p className="money mt-1 font-black">{money(combinedPrincipal)}</p></div>
+      <div><span className="text-[var(--text-muted)]">Commission collection</span><p className="money mt-1 font-black">{money(combinedCommission)}</p></div>
+      <div><span className="text-[var(--text-muted)]">This case outstanding after payment</span><p className="money mt-1 font-black">{money(Math.max(0,calcMoney(Number(selected.principalRemaining)+Number(selected.commissionRemaining)-num(combinedAmount))))}</p></div>
+     </div>
+     {num(combinedAmount)>calcMoney(Number(selected.principalRemaining)+Number(selected.commissionRemaining))+.001?
+      <p className="mt-2 text-xs font-bold text-rose-600">Payment exceeds this case&apos;s outstanding. Open the other Card Due case for any additional balance.</p>:null}
+     <button disabled={saving||!combinedAccountId||num(combinedAmount)<=0||num(combinedAmount)>calcMoney(Number(selected.principalRemaining)+Number(selected.commissionRemaining))+.001} className="app-primary-button mt-3 min-h-11 w-full text-sm font-black disabled:opacity-50 sm:w-auto sm:px-8">
+      {saving?"Recording…":"Record one payment · "+money(num(combinedAmount))}
+     </button>
+    </form>
+
     <form onSubmit={addRecovery} className="rounded-2xl border border-[var(--border)] p-3.5">
      <h3 className="text-sm font-black">Receive from customer</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Suggested recovery: {money(selected.principalRemaining)}. You may enter more; excess becomes money to give back.</p>
      <div className="mt-3 space-y-2">

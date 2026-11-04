@@ -31,7 +31,7 @@ const row = {
 
 describe('credit card swipe report', () => {
   it('uses India business dates, masked card details and real payout fee allocation', async () => {
-    const findMany = vi.fn().mockResolvedValue([row]);
+    const findMany = vi.fn().mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
     const service = new CardSwipeReportService({ transaction: { findMany } } as never);
     const result = await service.get('2026-10-27', '2026-10-27');
     expect(findMany.mock.calls[0][0].where.transactionAt).toEqual({
@@ -44,6 +44,32 @@ describe('credit card swipe report', () => {
       swipeAmount: 22900, customerFee: 527, gatewayFee: 366, payoutFee: 22,
       netProfit: 139, payableAmount: 22373, paidAmount: 5000, remainingAmount: 17373,
     });
+  });
+  it('shows a single combined bank receipt with principal and commission separately', async () => {
+    const combined = {
+      id:'combined-tx',transactionNumber:'CDP-TEST',transactionType:'CUSTOMER_LEDGER_ENTRY',
+      transactionAt:new Date('2026-11-04T10:30:00Z'),customer:{fullName:'Test Customer'},
+      grossAmount:'3600',referenceNumber:'UPI-TEST',status:'COMPLETED',
+      commissions:[],charges:[],cardDueClearing:null,cardDueRecovery:null,
+      cardDueCommissionCollection:{amount:'2400'},
+      cardDueCommissionAssessment:null,
+      customerLedgerEntry:{
+        financialAccount:{accountName:'SOUTH INDIAN UPI'},
+        allocations:[{targetType:'CARD_DUE',amount:'1200'}],
+      },
+    };
+    const findMany = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([combined]);
+    const service = new CardSwipeReportService({transaction:{findMany}} as never);
+    const report = await service.get('2026-11-04','2026-11-04');
+    expect(report.cardDue.rows).toHaveLength(1);
+    expect(report.cardDue.rows[0]).toMatchObject({
+      activity:'Combined customer payment',principal:1200,commissionCollected:2400,
+      receivedAmount:3600,receivedIn:'SOUTH INDIAN UPI',referenceNumber:'UPI-TEST',
+      earnedCommission:0,
+    });
+    expect(report.cardDue.summary.principalRecovered).toBe(1200);
+    expect(report.cardDue.summary.earnedCommission).toBe(0);
+    expect(findMany.mock.calls[1][0].where.AND).toBeDefined();
   });
   it('rejects an invalid or reversed date range', async () => {
     const service = new CardSwipeReportService({ transaction: { findMany: vi.fn() } } as never);

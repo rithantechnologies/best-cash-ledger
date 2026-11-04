@@ -7,6 +7,7 @@ import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   CardDueCommissionCollectionDto,
+  CardDueCombinedReceiptDto,
   AssessCardDueCommissionDto,
   CardDueRecoveryDto,
   CreateCardDueClearingDto,
@@ -478,6 +479,197 @@ export class CardDueClearingService {
       transactionIds: affectedIds,
       customerLedger: await this.get(masterTransactionId),
     };
+  }
+
+  /**
+   * Take exactly one customer receipt and allocate it between outstanding Card
+   * Due principal and already-assessed commission. The financial account is
+   * debited exactly once; both components credit the existing customer
+   * receivable. No new income is recognized on collection.
+   *
+   * The linked CustomerLedgerEntry + CardDueCommissionCollection records share
+   * one transaction ID so existing Card Due and customer ledger reports and
+   * reversal handlers can trace the original receipt without double posting.
+   */
+  async addCombinedReceipt(
+    masterTransactionId: string,
+    dto: CardDueCombinedReceiptDto,
+    userId: string,
+    actorRole: RoleName,
+    providedIdempotencyKey?: string,
+  ) {
+    const amount = this.money(dto.amount);
+    if (!Number.isFinite(dto.amount) || amount <= 0 ||
+        Math.abs(dto.amount - amount) > 0.00001) {
+      throw new BadRequestException('Enter a valid receipt amount in rupees and paise');
+    }
+    const idempotencyKey = await this.idempotency.key(
+      TransactionType.CUSTOMER_LEDGER_ENTRY,
+      userId,
+      { masterTransactionId, combinedReceipt: dto },
+      providedIdempotencyKey,
+    );
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      // Serialize receipts against changes to this case's outstanding amounts.
+      await tx.$queryRawUnsafe(
+        'SELECT "id" FROM "CardDueClearingDetail" WHERE "transactionId" = $1 FOR UPDATE',
+        masterTransactionId,
+      );
+      const clearing = await tx.cardDueClearingDetail.findUnique({
+        where: { transactionId: masterTransactionId },
+        include: { transaction: true },
+      });
+      if (!clearing || !clearing.transaction.customerId) {
+        throw new NotFoundException('Card Due customer/case not found');
+      }
+      if (clearing.transaction.status === TransactionStatus.CANCELLED ||
+          clearing.transaction.status === TransactionStatus.REVERSED ||
+          clearing.transaction.status === TransactionStatus.FAILED) {
+        throw new BadRequestException('Cannot receive payment for a reversed or cancelled Card Due');
+      }
+      const principalRemaining = this.money(Number(clearing.principalRemaining));
+      const commissionRemaining = this.money(Number(clearing.commissionRemaining));
+      const outstanding = this.money(principalRemaining + commissionRemaining);
+      if (amount > outstanding + 0.001) {
+        throw new BadRequestException(
+          'Payment exceeds this Card Due outstanding of ₹' + outstanding.toFixed(2) +
+          '. Select the other Card Due case to settle its remaining balance.',
+        );
+      }
+      const principalApplied = this.money(Math.min(amount, principalRemaining));
+      const commissionApplied = this.money(amount - principalApplied);
+      if (commissionApplied > commissionRemaining + 0.001) {
+        throw new BadRequestException('Commission payment exceeds the assessed balance');
+      }
+      const account = await this.validation.liquidAsset(
+        tx, dto.destinationAccountId, 'Combined Card Due receipt account',
+      );
+      if (account.accountType !== AccountType.CASH && account.accountType !== AccountType.BANK &&
+          account.accountType !== AccountType.UPI) {
+        throw new BadRequestException('Choose a cash drawer, bank or UPI account for this receipt');
+      }
+      if (actorRole === RoleName.STAFF && account.accountType === AccountType.CASH &&
+          account.accountName === 'Main Cash Reserve') {
+        throw new BadRequestException('Main Cash Reserve is owner-only');
+      }
+      if (account.accountType === AccountType.CASH) {
+        await this.validation.requireOpenCashDesk(
+          tx, account.id, 'Combined Card Due cash receipt',
+          actorRole === RoleName.STAFF ? userId : undefined,
+        );
+      }
+      const receivableLedger = await tx.ledgerAccount.findUnique({
+        where: { ledgerCode: 'SYS-CUST-RECEIVABLE' },
+      });
+      if (!receivableLedger || !account.ledgerAccount) {
+        throw new BadRequestException('Financial account or receivable ledger is not configured');
+      }
+      const transactionAt = new Date();
+      const transaction = await tx.transaction.create({
+        data: {
+          transactionNumber: 'CDP-' + transactionAt.getTime().toString(36).toUpperCase() +
+            '-' + idempotencyKey.slice(-6).toUpperCase(),
+          transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+          transactionAt,
+          customerId: clearing.transaction.customerId,
+          grossAmount: new Prisma.Decimal(amount),
+          netAmount: new Prisma.Decimal(amount),
+          status: TransactionStatus.COMPLETED,
+          idempotencyKey,
+          referenceNumber: dto.referenceNumber?.trim() || null,
+          notes: dto.notes?.trim() || 'Combined Card Due payment',
+          createdById: userId,
+        },
+      });
+      const detail = await tx.customerLedgerEntryDetail.create({
+        data: {
+          transactionId: transaction.id,
+          customerCardId: clearing.customerCardId,
+          financialAccountId: account.id,
+          direction: 'PAY_IN',
+          amount: new Prisma.Decimal(amount),
+          remarks: 'Combined Card Due payment: principal ' + principalApplied.toFixed(2) +
+            ', commission ' + commissionApplied.toFixed(2),
+          receivableAmount: new Prisma.Decimal(amount),
+          payableAmount: new Prisma.Decimal(0),
+        },
+      });
+      if (principalApplied > 0) {
+        await tx.customerLedgerAllocation.create({
+          data: {
+            customerLedgerEntryId: detail.id,
+            targetType: 'CARD_DUE',
+            cardDueClearingId: clearing.id,
+            amount: new Prisma.Decimal(principalApplied),
+          },
+        });
+      }
+      if (commissionApplied > 0) {
+        await tx.cardDueCommissionCollection.create({
+          data: {
+            clearingId: clearing.id,
+            transactionId: transaction.id,
+            amount: new Prisma.Decimal(commissionApplied),
+            paymentMode: account.accountType,
+            destinationAccountId: account.id,
+            referenceNumber: dto.referenceNumber?.trim() || null,
+            notes: dto.notes?.trim() || 'Part of combined Card Due payment',
+            collectedAt: transactionAt,
+            createdById: userId,
+          },
+        });
+      }
+      await this.ledger.post(
+        tx, transaction.id, userId, 'Combined Card Due principal and commission receipt',
+        [
+          {
+            ledgerAccountId: account.ledgerAccount.id,
+            entryType: EntryType.DEBIT,
+            amount,
+            customerId: clearing.transaction.customerId,
+            description: 'Single customer receipt for Card Due principal and commission',
+          },
+          {
+            ledgerAccountId: receivableLedger.id,
+            entryType: EntryType.CREDIT,
+            amount,
+            customerId: clearing.transaction.customerId,
+            description: 'Principal ' + principalApplied.toFixed(2) +
+              ' + assessed commission ' + commissionApplied.toFixed(2),
+          },
+        ],
+      );
+      await tx.cardDueClearingDetail.update({
+        where: { id: clearing.id },
+        data: {
+          principalRecovered: new Prisma.Decimal(
+            this.money(Number(clearing.principalRecovered) + principalApplied)),
+          principalRemaining: new Prisma.Decimal(
+            this.money(principalRemaining - principalApplied)),
+          commissionCollected: new Prisma.Decimal(
+            this.money(Number(clearing.commissionCollected) + commissionApplied)),
+          commissionRemaining: new Prisma.Decimal(
+            this.money(commissionRemaining - commissionApplied)),
+        },
+      });
+      await this.refreshMasterStatus(tx, clearing.id, clearing.transactionId);
+      await tx.auditLog.create({
+        data: {
+          userId,
+          entityType: 'CARD_DUE_CLEARING',
+          entityId: clearing.id,
+          action: 'COMBINED_CUSTOMER_RECEIPT',
+          oldValues: { principalRemaining, commissionRemaining },
+          newValues: {
+            receiptTransactionId: transaction.id, amount, principalApplied,
+            commissionApplied, destinationAccountId: account.id,
+            referenceNumber: dto.referenceNumber?.trim() || null,
+          },
+        },
+      });
+      return { transactionId: transaction.id, amount, principalApplied, commissionApplied };
+    });
+    return { ...outcome, clearing: await this.get(masterTransactionId) };
   }
 
   async addCommissionCollection(

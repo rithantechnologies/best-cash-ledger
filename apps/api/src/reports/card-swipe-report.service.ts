@@ -161,20 +161,41 @@ export class CardSwipeReportService {
     // A clearing is pending by design; do not require COMPLETED for that type.
     const dueTransactions = await this.prisma.transaction.findMany({
       where: {
-        transactionType: { in: [
-          TransactionType.CARD_DUE_CLEARING,
-          TransactionType.CARD_DUE_RECOVERY,
-          TransactionType.CARD_DUE_COMMISSION_ASSESSMENT,
-          TransactionType.CARD_DUE_COMMISSION_COLLECTION,
-        ] },
+        AND: [{ OR: [
+          { transactionType: { in: [
+            TransactionType.CARD_DUE_CLEARING,
+            TransactionType.CARD_DUE_RECOVERY,
+            TransactionType.CARD_DUE_COMMISSION_ASSESSMENT,
+            TransactionType.CARD_DUE_COMMISSION_COLLECTION,
+          ] } },
+          // Combined receipts use the same CUSTOMER_LEDGER_ENTRY type as Pay In,
+          // but have a dedicated CDP- prefix; exclude unrelated Pay In records.
+          { transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+            transactionNumber: { startsWith: 'CDP-' } },
+        ] }],
         status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] },
         transactionAt: { gte: period.start, lt: period.end },
         ...(customerId ? { customerId } : {}),
-        ...(providerId ? { OR: [
+        ...(providerId ? { AND: [
+          { OR: [
+          { transactionType: { in: [
+            TransactionType.CARD_DUE_CLEARING,
+            TransactionType.CARD_DUE_RECOVERY,
+            TransactionType.CARD_DUE_COMMISSION_ASSESSMENT,
+            TransactionType.CARD_DUE_COMMISSION_COLLECTION,
+          ] } },
+          { transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+            transactionNumber: { startsWith: 'CDP-' } },
+          ] },
+          { OR: [
           { cardDueRecovery: { is: { providerId } } },
           { cardDueClearing: { is: { advanceSourceAccount: { providerId } } } },
           { cardDueCommissionCollection: { is: { clearing: { advanceSourceAccount: { providerId } } } } },
           { cardDueCommissionAssessment: { is: { clearing: { advanceSourceAccount: { providerId } } } } },
+          { customerLedgerEntry: { is: { allocations: { some: {
+            cardDueClearing: { advanceSourceAccount: { providerId } },
+          } } } } },
+          ] },
         ] } : {}),
       },
       include: {
@@ -186,6 +207,8 @@ export class CardSwipeReportService {
         } },
         cardDueRecovery: { select: { swipeAmount: true, clearingId: true } },
         cardDueCommissionCollection: { select: { amount: true } },
+        customerLedgerEntry: { select: { financialAccount: { select: { accountName: true } },
+          allocations: { select: { targetType: true, amount: true } } } },
         cardDueCommissionAssessment: { select: { amount: true } },
       },
       orderBy: [{ transactionAt: 'asc' }, { id: 'asc' }],
@@ -201,17 +224,29 @@ export class CardSwipeReportService {
       const payoutCost = tx.charges.filter(c => c.chargeType === 'PAYOUT')
         .reduce((n, c) => n + paise(c.amount), 0);
       const type = tx.transactionType;
+      const combinedReceipt = type === TransactionType.CUSTOMER_LEDGER_ENTRY &&
+        tx.transactionNumber.startsWith('CDP-');
+      const combinedPrincipal = combinedReceipt
+        ? (tx.customerLedgerEntry?.allocations ?? [])
+            .filter(a => a.targetType === 'CARD_DUE')
+            .reduce((sum, a) => sum + paise(a.amount), 0)
+        : 0;
       return {
         id: tx.id, transactionNumber: tx.transactionNumber,
         transactionAt: tx.transactionAt, customerName: tx.customer?.fullName ?? '—',
         activity: type === TransactionType.CARD_DUE_CLEARING ? 'Card Due opened'
           : type === TransactionType.CARD_DUE_RECOVERY ? 'Principal recovered'
           : type === TransactionType.CARD_DUE_COMMISSION_ASSESSMENT ? 'Extra commission assessed'
+          : combinedReceipt ? 'Combined customer payment'
           : 'Commission collected',
         status: tx.status,
         principal: rupees(type === TransactionType.CARD_DUE_CLEARING
           ? paise(tx.cardDueClearing?.dueAmount)
+          : combinedReceipt ? combinedPrincipal
           : paise(tx.cardDueRecovery?.swipeAmount)),
+        receivedAmount: combinedReceipt ? rupees(paise(tx.grossAmount)) : null,
+        receivedIn: combinedReceipt ? (tx.customerLedgerEntry?.financialAccount.accountName ?? '—') : null,
+        referenceNumber: combinedReceipt ? tx.referenceNumber : null,
         remainingPrincipal: type === TransactionType.CARD_DUE_CLEARING
           ? rupees(paise(tx.cardDueClearing?.principalRemaining)) : null,
         remainingCommission: type === TransactionType.CARD_DUE_CLEARING
@@ -226,7 +261,8 @@ export class CardSwipeReportService {
       s.providerCost += paise(row.providerCost);
       s.payoutCost += paise(row.payoutCost);
       s.netProfit += paise(row.netProfit);
-      s.principalRecovered += row.activity === 'Principal recovered' ? paise(row.principal) : 0;
+      s.principalRecovered += ['Principal recovered', 'Combined customer payment'].includes(row.activity)
+        ? paise(row.principal) : 0;
       return s;
     }, { earnedCommission: 0, providerCost: 0, payoutCost: 0, netProfit: 0, principalRecovered: 0 });
     return {

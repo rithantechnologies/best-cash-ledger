@@ -13,7 +13,8 @@ type Row = { id:string; transactionNumber:string;transactionAt:string;customerNa
 type Totals = Pick<Row,"swipeAmount"|"customerFee"|"gatewayFee"|"payoutFee"|"netProfit"|"payableAmount"|"paidAmount"|"remainingAmount">;
 type DueRow = {id:string;transactionNumber:string;transactionAt:string;customerName:string;activity:string;status:string;
  principal:number;remainingPrincipal:number|null;remainingCommission:number|null;commissionCollected:number;
- earnedCommission:number;providerCost:number;payoutCost:number;netProfit:number};
+ earnedCommission:number;providerCost:number;payoutCost:number;netProfit:number;
+ receivedAmount?:number|null;receivedIn?:string|null;referenceNumber?:string|null};
 type DueSummary = {earnedCommission:number;providerCost:number;payoutCost:number;netProfit:number;principalRecovered:number};
 type Report = {from:string;to:string;count:number;summary:Totals;rows:Row[];basis:string;cardDue?:{rows:DueRow[];summary:DueSummary}};
 type Option = {id:string;name?:string;fullName?:string};
@@ -113,12 +114,15 @@ export default function CardSwipeReportPage(){
      <p className="mt-2 text-sm font-bold">Combined swipe + Card Due profit: {money(s.netProfit+report.cardDue.summary.netProfit)}</p>
     </div>
     {report.cardDue.rows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-xs">
-     <thead><tr className="text-left">{["Date","Transaction","Customer","Activity","Status","Principal","Remaining Due","Remaining Commission","Commission Collected","Earned Commission","Provider Cost","Payout Cost","Net Profit"].map(h=><th key={h} className="px-3 py-3">{h}</th>)}</tr></thead>
+     <thead><tr className="text-left">{["Date","Transaction","Customer","Activity","Status","Principal","Remaining Due","Remaining Commission","Commission Collected","Earned Commission","Provider Cost","Payout Cost","Net Profit","Payment Received","Received Into","UTR / Reference"].map(h=><th key={h} className="px-3 py-3">{h}</th>)}</tr></thead>
      <tbody>{report.cardDue.rows.map(r=><tr key={r.id} className="border-t border-[var(--border)]">
       <td className="whitespace-nowrap px-3 py-3">{displayDate(r.transactionAt)}</td>
       <td className="px-3"><Link className="text-[var(--accent)]" href={"/transactions/"+r.id}>{r.transactionNumber}</Link></td>
       <td className="px-3">{r.customerName}</td><td className="px-3">{r.activity}</td><td className="px-3">{r.status}</td>
       {[r.principal,r.remainingPrincipal,r.remainingCommission,r.commissionCollected,r.earnedCommission,r.providerCost,r.payoutCost,r.netProfit].map((n,i)=><td key={i} className="money px-3 text-right">{n===null?"—":money(n)}</td>)}
+      <td className="money px-3 text-right">{r.receivedAmount==null?"—":money(r.receivedAmount)}</td>
+      <td className="px-3">{r.receivedIn??"—"}</td>
+      <td className="px-3">{r.referenceNumber??"—"}</td>
      </tr>)}</tbody>
     </table></div> : <div className="p-4"><EmptyState title="No Card Due activity in this period"/></div>}
    </Surface> : null}

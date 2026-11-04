@@ -5552,6 +5552,11 @@ export class TransactionsService {
       if (original.status !== TransactionStatus.COMPLETED || original.journal?.status !== JournalStatus.POSTED) {
         throw new BadRequestException('Only active posted Pay In / Pay Out entries can be edited');
       }
+      if (original.transactionNumber.startsWith('CDP-')) {
+        throw new BadRequestException(
+          'Combined Card Due receipts cannot be edited as ordinary Pay In. Reverse this linked receipt and record the corrected payment.',
+        );
+      }
       const detail = original.customerLedgerEntry;
       const previousFee = this.money(original.charges.filter(charge => charge.chargeType === 'PAYOUT')
         .reduce((total, charge) => total + Number(charge.amount), 0));
