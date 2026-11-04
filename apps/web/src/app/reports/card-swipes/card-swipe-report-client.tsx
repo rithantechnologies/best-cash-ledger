@@ -11,7 +11,11 @@ type Row = { id:string; transactionNumber:string;transactionAt:string;customerNa
  swipeAmount:number;customerFee:number;gatewayFee:number;payoutFee:number;netProfit:number;payableAmount:number;paidAmount:number;
  remainingAmount:number;payoutStatus:string;payoutSources:string[];payInAccount:string;provider:string;gateway:string };
 type Totals = Pick<Row,"swipeAmount"|"customerFee"|"gatewayFee"|"payoutFee"|"netProfit"|"payableAmount"|"paidAmount"|"remainingAmount">;
-type Report = {from:string;to:string;count:number;summary:Totals;rows:Row[];basis:string};
+type DueRow = {id:string;transactionNumber:string;transactionAt:string;customerName:string;activity:string;status:string;
+ principal:number;remainingPrincipal:number|null;remainingCommission:number|null;commissionCollected:number;
+ earnedCommission:number;providerCost:number;payoutCost:number;netProfit:number};
+type DueSummary = {earnedCommission:number;providerCost:number;payoutCost:number;netProfit:number;principalRecovered:number};
+type Report = {from:string;to:string;count:number;summary:Totals;rows:Row[];basis:string;cardDue?:{rows:DueRow[];summary:DueSummary}};
 type Option = {id:string;name?:string;fullName?:string};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(v);
 function todayIST(){
@@ -98,7 +102,27 @@ export default function CardSwipeReportPage(){
      </tr>)}</tbody>
      <tfoot className="bg-[var(--surface-soft)] font-black"><tr><td colSpan={6} className="px-3 py-3">TOTAL</td>{[s.swipeAmount,s.gatewayFee,s.customerFee,s.payoutFee,s.netProfit,s.payableAmount,s.paidAmount,s.remainingAmount].map((v,i)=><td key={i} className="money px-3 text-right">{money(v)}</td>)}<td colSpan={3}/></tr></tfoot>
     </table></div>:<div className="p-4"><EmptyState title="No completed card swipes in this period"/></div>}
-   </Surface><p className="mt-3 text-xs text-[var(--text-muted)]">{report.basis} Card numbers are masked.</p>
+   </Surface>
+   {report.cardDue ? <Surface className="mt-4 overflow-hidden">
+    <div className="border-b border-[var(--border)] p-4">
+     <h2 className="text-base font-black">Card Due activity · {report.cardDue.rows.length} entries</h2>
+     <p className="mt-1 text-xs text-[var(--text-muted)]">Includes pending Card Due entries, recoveries and commission events dated within this period. Original swipe totals above remain separate. Recovery principal and commission collection are not new income.</p>
+     <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-5">
+      {([["Principal Recovered",report.cardDue.summary.principalRecovered],["Earned Commission",report.cardDue.summary.earnedCommission],["Provider Costs",report.cardDue.summary.providerCost],["Payout Costs",report.cardDue.summary.payoutCost],["Card Due Net Profit",report.cardDue.summary.netProfit]] as [string,number][]).map(([name,amount])=><div key={name}><p className="text-xs text-[var(--text-muted)]">{name}</p><p className="money font-bold">{money(amount)}</p></div>)}
+     </div>
+     <p className="mt-2 text-sm font-bold">Combined swipe + Card Due profit: {money(s.netProfit+report.cardDue.summary.netProfit)}</p>
+    </div>
+    {report.cardDue.rows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-xs">
+     <thead><tr className="text-left">{["Date","Transaction","Customer","Activity","Status","Principal","Remaining Due","Remaining Commission","Commission Collected","Earned Commission","Provider Cost","Payout Cost","Net Profit"].map(h=><th key={h} className="px-3 py-3">{h}</th>)}</tr></thead>
+     <tbody>{report.cardDue.rows.map(r=><tr key={r.id} className="border-t border-[var(--border)]">
+      <td className="whitespace-nowrap px-3 py-3">{displayDate(r.transactionAt)}</td>
+      <td className="px-3"><Link className="text-[var(--accent)]" href={"/transactions/"+r.id}>{r.transactionNumber}</Link></td>
+      <td className="px-3">{r.customerName}</td><td className="px-3">{r.activity}</td><td className="px-3">{r.status}</td>
+      {[r.principal,r.remainingPrincipal,r.remainingCommission,r.commissionCollected,r.earnedCommission,r.providerCost,r.payoutCost,r.netProfit].map((n,i)=><td key={i} className="money px-3 text-right">{n===null?"—":money(n)}</td>)}
+     </tr>)}</tbody>
+    </table></div> : <div className="p-4"><EmptyState title="No Card Due activity in this period"/></div>}
+   </Surface> : null}
+   <p className="mt-3 text-xs text-[var(--text-muted)]">{report.basis} Card numbers are masked.</p>
   </>:null}
  </PageFrame></AppShell>;
 }
