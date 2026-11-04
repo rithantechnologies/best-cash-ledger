@@ -110,7 +110,8 @@ export class CardDueClearingService {
         { nextFollowUpAt: { sort: 'asc', nulls: 'last' } },
         { createdAt: 'desc' },
       ],
-      take: 200,
+      // Do not silently truncate historical dues and their recoveries.
+      // The customer ledger must include older settled cases as well.
     });
   }
 
