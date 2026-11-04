@@ -319,6 +319,7 @@ export default function CardSwipePage(){
   const [reusedFromCard,setReusedFromCard]=useState(false);
   const manualAmountRef=useRef(false);
   const manualGatewayRef=useRef(false);
+  const manualProviderRateRef=useRef(false);
   const manualTermRef=useRef(false);
   const [settlementDueAt,setSettlementDueAt]=useState("");
   const [reference,setReference]=useState("");
@@ -490,6 +491,7 @@ export default function CardSwipePage(){
     : 0;
 
   useEffect(()=>{
+    if(manualProviderRateRef.current)return;
     if(selectedCardSetup&&selectedCardSetup.providerId===providerId&&selectedCardSetup.gatewayId===gatewayId){
       setProviderRate(rateText(Number(selectedCardSetup.providerChargeRate)));
       return;
@@ -599,7 +601,6 @@ export default function CardSwipePage(){
     defaultedTermRef.current=termId;
     // A payment-term change made by staff selects a new default; an async
     // last-card prefill or settings refresh must not erase a typed commission.
-    if(manualTermRef.current)manualCommissionRef.current=false;
     const historicalRate=selectedCardSetup&&selectedCardSetup.paymentTermId===termId?Number(selectedCardSetup.commissionRate):NaN;
     const nextDefault=Number.isFinite(historicalRate)?historicalRate:Number(term.defaultCommissionRate||0);
     if(!manualCommissionRef.current)setCommissionRate(rateText(nextDefault));
@@ -661,6 +662,7 @@ export default function CardSwipePage(){
     defaultedTermRef.current="";
     manualCommissionRef.current=false;
     manualGatewayRef.current=false;
+    manualProviderRateRef.current=false;
     manualTermRef.current=false;
     manualAmountRef.current=false;
     setReusedFromCard(false);
@@ -720,6 +722,7 @@ export default function CardSwipePage(){
     defaultedTermRef.current="";
     manualCommissionRef.current=false;
     manualGatewayRef.current=false;
+    manualProviderRateRef.current=false;
     manualTermRef.current=false;
     resetCustomerPayoutState();
     setSettlementDueAt("");
@@ -1054,14 +1057,14 @@ export default function CardSwipePage(){
             </div>
             <div className="mt-4 border-t border-[var(--border)] pt-3">
               <div className="flex items-center justify-between gap-3"><h3 className="operational-label">Payment term</h3>{instantTerm?<span className="status-chip status-chip-blue">Due now</span>:customPayment&&customPaymentDate?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(customPaymentDate+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:selectedTerm?<span className="text-xs font-semibold text-[var(--text-muted)]">Due {new Date(effectiveDueAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>:customPayment?<span className="text-xs font-semibold text-[var(--text-muted)]">Choose date</span>:null}</div>
-              <div className="payment-term-strip mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">{quickTerms.map(term=><button key={term.id} type="button" onClick={()=>{manualTermRef.current=true;setTermId(term.id);setCustomPaymentDate("");}} className={"payment-term-pill min-w-0 "+(term.id===termId?"payment-term-pill-active":"")}>{termLabel(term)}</button>)}<button type="button" onClick={()=>{manualTermRef.current=true;setTermId(CUSTOM_PAYMENT_DATE);}} className={"payment-term-pill min-w-0 "+(customPayment?"payment-term-pill-active":"")}>Pick date</button></div>
+              <div className="payment-term-strip mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">{quickTerms.map(term=><button key={term.id} type="button" onClick={()=>{manualTermRef.current=true;manualCommissionRef.current=false;setTermId(term.id);setCustomPaymentDate("");}} className={"payment-term-pill min-w-0 "+(term.id===termId?"payment-term-pill-active":"")}>{termLabel(term)}</button>)}<button type="button" onClick={()=>{manualTermRef.current=true;manualCommissionRef.current=false;setTermId(CUSTOM_PAYMENT_DATE);}} className={"payment-term-pill min-w-0 "+(customPayment?"payment-term-pill-active":"")}>Pick date</button></div>
               {customPayment?<div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-2.5"><label className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Exact payment date</label><input aria-label="Exact payment date" className={control+" mt-1 w-full bg-[var(--surface)] font-semibold"} type="date" min={swipeDate||minCustomPaymentDate} value={customPaymentDate} onChange={e=>{const value=e.target.value;setCustomPaymentDate(value);if(value)setDueAt(customDueDateTime(value));}} required/><p className="mt-1 text-[10px] font-medium text-[var(--text-muted)]">Choose a due date after the swipe. Historical due dates are supported.</p></div>:null}
             </div>
           </section>
 
           <section className="entry-section entry-section-provider">
             <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h2 className="entry-title">Wallet / Platform</h2>{providerIsUsual?<span className="status-chip bg-amber-50 text-amber-700">Usual</span>:null}</div>{routingReady?<button type="button" onClick={()=>setRoutingOpen(v=>!v)} className="text-xs font-semibold text-[var(--accent)]">{routingOpen?"Done":"Change"}</button>:null}</div>
-            {routingReady&&!routingOpen?<div className="provider-summary-card mt-2 flex flex-wrap items-center gap-3 rounded-xl px-3 py-2.5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-50 text-[10px] font-extrabold text-cyan-700">{providerInitials}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{provider?.name} · {gateway?.gatewayName}</p><p className="mt-0.5 text-[13px] font-semibold text-[var(--text-muted)]">Gateway fee <span className="text-[var(--text)]">{rateText(pRate)}%</span></p></div><div className="ml-auto min-w-0 max-w-full text-right"><p className="money provider-fee-money font-bold text-[var(--money-out)]">−{money(providerCharge)}</p></div></div>:<div className="mt-3 grid gap-3 sm:grid-cols-3">{customerMode==="new"&&!providerId?<div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:col-span-3">Choose wallet / platform for this new customer.</div>:null}<Field label="Wallet / Platform"><SearchableSelect className={control} value={providerId} onChange={e=>{manualGatewayRef.current=true;resetCustomerPayoutState();setProviderId(e.target.value);setGatewayId("");setProviderRate("0");setSettlementDueAt("");}} required><option value="">Select wallet / platform</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></Field><Field label="Gateway"><SearchableSelect className={control} value={gatewayId} onChange={e=>{manualGatewayRef.current=true;setGatewayId(e.target.value);if(e.target.value)setRoutingOpen(false);}} disabled={!provider?.gateways.length} required><option value="">{provider&&provider.gateways.length===0?"No gateway set":"Select gateway"}</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</SearchableSelect></Field><Field label="Gateway fee %"><div><input aria-label="Gateway fee percentage" className={control+" text-right font-bold"} type="number" inputMode="decimal" step="0.0001" min="0" max="100" value={providerRate} onChange={e=>{manualGatewayRef.current=true;setProviderRate(e.target.value);}} required/><p className="mt-1 px-1 text-[10px] text-[var(--text-muted)]">Default {rateText(Number(gateway?.defaultChargeRate||0))}% · editable for this swipe</p></div></Field></div>}
+            {routingReady&&!routingOpen?<div className="provider-summary-card mt-2 flex flex-wrap items-center gap-3 rounded-xl px-3 py-2.5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-50 text-[10px] font-extrabold text-cyan-700">{providerInitials}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{provider?.name} · {gateway?.gatewayName}</p><p className="mt-0.5 text-[13px] font-semibold text-[var(--text-muted)]">Gateway fee <span className="text-[var(--text)]">{rateText(pRate)}%</span></p></div><div className="ml-auto min-w-0 max-w-full text-right"><p className="money provider-fee-money font-bold text-[var(--money-out)]">−{money(providerCharge)}</p></div></div>:<div className="mt-3 grid gap-3 sm:grid-cols-3">{customerMode==="new"&&!providerId?<div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:col-span-3">Choose wallet / platform for this new customer.</div>:null}<Field label="Wallet / Platform"><SearchableSelect className={control} value={providerId} onChange={e=>{manualGatewayRef.current=true;manualProviderRateRef.current=false;resetCustomerPayoutState();setProviderId(e.target.value);setGatewayId("");setProviderRate("0");setSettlementDueAt("");}} required><option value="">Select wallet / platform</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></Field><Field label="Gateway"><SearchableSelect className={control} value={gatewayId} onChange={e=>{manualGatewayRef.current=true;manualProviderRateRef.current=false;setGatewayId(e.target.value);if(e.target.value)setRoutingOpen(false);}} disabled={!provider?.gateways.length} required><option value="">{provider&&provider.gateways.length===0?"No gateway set":"Select gateway"}</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</SearchableSelect></Field><Field label="Gateway fee %"><div><input aria-label="Gateway fee percentage" className={control+" text-right font-bold"} type="number" inputMode="decimal" step="0.0001" min="0" max="100" value={providerRate} onChange={e=>{manualGatewayRef.current=true;manualProviderRateRef.current=true;setProviderRate(e.target.value);}} required/><p className="mt-1 px-1 text-[10px] text-[var(--text-muted)]">Default {rateText(Number(gateway?.defaultChargeRate||0))}% · editable for this swipe</p></div></Field></div>}
             {providerWallet?<div className="wallet-summary-card mt-2 rounded-xl border border-[var(--border)] px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <div className="min-w-0 flex-1">
