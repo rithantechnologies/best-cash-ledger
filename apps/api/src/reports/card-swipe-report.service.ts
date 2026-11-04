@@ -157,7 +157,83 @@ export class CardSwipeReportService {
       swipeAmount: 0, customerFee: 0, gatewayFee: 0, payoutFee: 0,
       netProfit: 0, payableAmount: 0, paidAmount: 0, remainingAmount: 0,
     });
+    // Card Due activity is intentionally separate from the original swipe register.
+    // A clearing is pending by design; do not require COMPLETED for that type.
+    const dueTransactions = await this.prisma.transaction.findMany({
+      where: {
+        transactionType: { in: [
+          TransactionType.CARD_DUE_CLEARING,
+          TransactionType.CARD_DUE_RECOVERY,
+          TransactionType.CARD_DUE_COMMISSION_ASSESSMENT,
+          TransactionType.CARD_DUE_COMMISSION_COLLECTION,
+        ] },
+        status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] },
+        transactionAt: { gte: period.start, lt: period.end },
+        ...(customerId ? { customerId } : {}),
+        ...(providerId ? { OR: [
+          { cardDueRecovery: { is: { providerId } } },
+          { cardDueClearing: { is: { advanceSourceAccount: { providerId } } } },
+          { cardDueCommissionCollection: { is: { clearing: { advanceSourceAccount: { providerId } } } } },
+          { cardDueCommissionAssessment: { is: { clearing: { advanceSourceAccount: { providerId } } } } },
+        ] } : {}),
+      },
+      include: {
+        customer: { select: { fullName: true } },
+        commissions: { select: { amount: true } },
+        charges: { select: { amount: true, chargeType: true } },
+        cardDueClearing: { select: {
+          dueAmount: true, principalRemaining: true, commissionRemaining: true,
+        } },
+        cardDueRecovery: { select: { swipeAmount: true, clearingId: true } },
+        cardDueCommissionCollection: { select: { amount: true } },
+        cardDueCommissionAssessment: { select: { amount: true } },
+      },
+      orderBy: [{ transactionAt: 'asc' }, { id: 'asc' }],
+      take: 10_001,
+    });
+    if (dueTransactions.length > 10_000) {
+      throw new BadRequestException('More than 10,000 Card Due entries match. Select a shorter period.');
+    }
+    const dueRows = dueTransactions.map(tx => {
+      const earned = tx.commissions.reduce((n, c) => n + paise(c.amount), 0);
+      const providerCost = tx.charges.filter(c => c.chargeType !== 'PAYOUT')
+        .reduce((n, c) => n + paise(c.amount), 0);
+      const payoutCost = tx.charges.filter(c => c.chargeType === 'PAYOUT')
+        .reduce((n, c) => n + paise(c.amount), 0);
+      const type = tx.transactionType;
+      return {
+        id: tx.id, transactionNumber: tx.transactionNumber,
+        transactionAt: tx.transactionAt, customerName: tx.customer?.fullName ?? '—',
+        activity: type === TransactionType.CARD_DUE_CLEARING ? 'Card Due opened'
+          : type === TransactionType.CARD_DUE_RECOVERY ? 'Principal recovered'
+          : type === TransactionType.CARD_DUE_COMMISSION_ASSESSMENT ? 'Extra commission assessed'
+          : 'Commission collected',
+        status: tx.status,
+        principal: rupees(type === TransactionType.CARD_DUE_CLEARING
+          ? paise(tx.cardDueClearing?.dueAmount)
+          : paise(tx.cardDueRecovery?.swipeAmount)),
+        remainingPrincipal: type === TransactionType.CARD_DUE_CLEARING
+          ? rupees(paise(tx.cardDueClearing?.principalRemaining)) : null,
+        remainingCommission: type === TransactionType.CARD_DUE_CLEARING
+          ? rupees(paise(tx.cardDueClearing?.commissionRemaining)) : null,
+        commissionCollected: rupees(paise(tx.cardDueCommissionCollection?.amount)),
+        earnedCommission: rupees(earned), providerCost: rupees(providerCost),
+        payoutCost: rupees(payoutCost), netProfit: rupees(earned - providerCost - payoutCost),
+      };
+    });
+    const dueSummary = dueRows.reduce((s, row) => {
+      s.earnedCommission += paise(row.earnedCommission);
+      s.providerCost += paise(row.providerCost);
+      s.payoutCost += paise(row.payoutCost);
+      s.netProfit += paise(row.netProfit);
+      s.principalRecovered += row.activity === 'Principal recovered' ? paise(row.principal) : 0;
+      return s;
+    }, { earnedCommission: 0, providerCost: 0, payoutCost: 0, netProfit: 0, principalRecovered: 0 });
     return {
+      cardDue: {
+        rows: dueRows,
+        summary: Object.fromEntries(Object.entries(dueSummary).map(([k, v]) => [k, rupees(v)])),
+      },
       from, to, count: reportRows.length,
       summary: Object.fromEntries(Object.entries(summary).map(([key, value]) => [key, rupees(value)])),
       rows: reportRows,
