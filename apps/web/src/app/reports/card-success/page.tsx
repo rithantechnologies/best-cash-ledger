@@ -1,0 +1,38 @@
+"use client";
+import Link from "next/link";
+import {useEffect,useMemo,useState} from "react";
+import {AppShell} from "@/components/app-shell";
+import {PageFrame,PageLoader,Surface,EmptyState} from "@/components/ui";
+import {apiFetch} from "@/lib/api";
+type Row={cardId:string;bank:string;cardType:string;network:string;lastFour:string;nickname:string;customer:string;provider:string;gateway:string;gatewayId:string;count:number;lastSuccess:string;latestTransactionId:string;latestTransactionNumber:string};
+type Report={totalCompleted:number;distinctCards:number;groups:Row[];note:string};
+const shown=(s:string)=>new Date(s).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",dateStyle:"medium",timeStyle:"short"});
+const dateAgo=(days:number)=>{const now=new Date();now.setDate(now.getDate()-days);return now.toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"});};
+export default function CardSuccessReport(){
+ const [from,setFrom]=useState(""),[to,setTo]=useState(""),[search,setSearch]=useState(""),[provider,setProvider]=useState(""),[gateway,setGateway]=useState("");
+ const [report,setReport]=useState<Report|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
+ useEffect(()=>{if(from&&to&&from>to){setError("From date must be before To date.");setLoading(false);setReport(null);return;}
+ let active=true;const q=new URLSearchParams();if(from)q.set("from",from);if(to)q.set("to",to);
+ setLoading(true);setError("");apiFetch<Report>("/reports/card-success"+(q.size?"?"+q:"")).then(r=>{if(active)setReport(r);}).catch(e=>{if(active){setReport(null);setError(e instanceof Error?e.message:"Report unavailable");}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[from,to]);
+ const providers=useMemo(()=>[...new Set((report?.groups??[]).map(r=>r.provider))].sort(),[report]);
+ const gateways=useMemo(()=>[...new Set((report?.groups??[]).filter(r=>!provider||r.provider===provider).map(r=>r.gateway))].sort(),[report,provider]);
+ const rows=useMemo(()=>(report?.groups??[]).filter(r=>(!provider||r.provider===provider)&&(!gateway||r.gateway===gateway)&&(!search.trim()||[r.bank,r.cardType,r.network,r.lastFour,r.customer,r.nickname,r.provider,r.gateway].some(v=>v.toLowerCase().includes(search.toLowerCase().trim())))),[report,provider,gateway,search]);
+ const total=rows.reduce((n,r)=>n+r.count,0);
+ function csv(){const cell=(v:string|number)=>'"'+String(v).replace(/^[=+@-]/, "'$&").replaceAll('"','""')+'"';const data=[["Bank","Card Type","Network","Last Four","Customer","Provider","Gateway","Completed","Last Success IST","Transaction"],...rows.map(r=>[r.bank,r.cardType,r.network,"****"+r.lastFour,r.customer,r.provider,r.gateway,r.count,shown(r.lastSuccess),r.latestTransactionNumber])];const blob=new Blob([data.map(x=>x.map(cell).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="card-success-report.csv";a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+ return <AppShell><PageFrame>
+ <div className="mb-4 flex flex-wrap justify-between gap-3"><div><p className="text-xs text-[var(--text-muted)]"><Link href="/reports" className="text-[var(--accent)]">Reports</Link> / Card Success</p><h1 className="mt-1 text-2xl font-black">Card Success Report</h1><p className="text-xs text-[var(--text-muted)]">Previous completed swipes by card and gateway. These are not guaranteed future successes.</p></div>
+ <div className="flex gap-2 print:hidden"><button className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-bold" disabled={loading||!report} onClick={()=>window.print()}>Print</button><button className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-bold text-white" disabled={loading||!report} onClick={csv}>Export CSV</button></div></div>
+ <Surface className="mb-4 p-4 print:hidden"><div className="mb-3 flex flex-wrap gap-2"><button className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs" onClick={()=>{setFrom("");setTo("");}}>All history</button><button className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs" onClick={()=>{setFrom(dateAgo(6));setTo(dateAgo(0));}}>Last 7 days</button><button className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs" onClick={()=>{setFrom(dateAgo(29));setTo(dateAgo(0));}}>Last 30 days</button><button className="rounded-lg px-3 py-2 text-xs text-[var(--accent)]" onClick={()=>{setFrom("");setTo("");setSearch("");setProvider("");setGateway("");}}>Reset</button></div>
+ <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+ <label className="text-xs font-bold">From (IST)<input className="app-control mt-1 w-full" type="date" value={from} onChange={e=>setFrom(e.target.value)}/></label>
+ <label className="text-xs font-bold">To (IST)<input className="app-control mt-1 w-full" type="date" value={to} onChange={e=>setTo(e.target.value)}/></label>
+ <label className="text-xs font-bold">Bank / card / last 4 / customer<input className="app-control mt-1 w-full" value={search} onChange={e=>setSearch(e.target.value)} placeholder="HDFC / RuPay / 1234"/></label>
+ <label className="text-xs font-bold">Provider<select className="app-control mt-1 w-full" value={provider} onChange={e=>{setProvider(e.target.value);setGateway("");}}><option value="">All providers</option>{providers.map(v=><option key={v}>{v}</option>)}</select></label>
+ <label className="text-xs font-bold">Gateway<select className="app-control mt-1 w-full" value={gateway} onChange={e=>setGateway(e.target.value)}><option value="">All gateways</option>{gateways.map(v=><option key={v}>{v}</option>)}</select></label></div></Surface>
+ {error?<p role="alert" className="mb-3 text-sm text-rose-600">{error}</p>:null}
+ {loading?<PageLoader label="Loading card history…"/>:report?<><div className="mb-3 grid grid-cols-3 gap-2">{[["Completed swipes",total],["Distinct cards",new Set(rows.map(r=>r.cardId)).size],["Card / gateway matches",rows.length]].map(([label,value])=><Surface key={label} className="p-3"><p className="text-xs text-[var(--text-muted)]">{label}</p><p className="text-xl font-black">{value}</p></Surface>)}</div>
+ <p className="mb-3 text-xs text-[var(--text-muted)]">{report.note} Reversed records are excluded.</p>
+ <Surface className="overflow-hidden"><div className="border-b border-[var(--border)] px-4 py-3 text-sm font-black">Previously successful gateways · newest first</div>
+ {rows.length?<div className="overflow-x-auto"><table className="w-full min-w-[850px] text-xs"><thead className="bg-[var(--surface-soft)] text-left text-[10px] uppercase text-[var(--text-muted)]"><tr>{["Card Bank / Type","Customer / Card","Provider","Gateway","Completed","Last Success","Transaction"].map(x=><th className="px-3 py-3" key={x}>{x}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.cardId+":"+r.gatewayId} className="border-t border-[var(--border)]"><td className="px-3 py-3"><strong>{r.bank}</strong><div>{r.cardType} {r.network}</div></td><td className="px-3">{r.customer}<div className="font-mono">•••• {r.lastFour}</div></td><td className="px-3">{r.provider}</td><td className="px-3 font-bold">{r.gateway}</td><td className="px-3 text-right font-black">{r.count}</td><td className="whitespace-nowrap px-3">{shown(r.lastSuccess)}</td><td className="px-3 print:hidden"><Link href={"/transactions/"+r.latestTransactionId} className="text-[var(--accent)]">{r.latestTransactionNumber}</Link></td></tr>)}</tbody></table></div>:<div className="p-4"><EmptyState title="No matching successful swipes"/></div>}</Surface></>:null}
+ </PageFrame></AppShell>;
+}

@@ -18,6 +18,67 @@ const allocatedCharge = (allocated: unknown, total: unknown, charges: { amount: 
 export class CardSwipeReportService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Historical evidence only: failed gateway attempts are not recorded by the swipe workflow.
+  async successHistory(from?: string, to?: string) {
+    const valid = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+    if ((from && !valid(from)) || (to && !valid(to)) || (from && to && from > to)) {
+      throw new BadRequestException('Invalid report date range');
+    }
+    const transactionAt = {
+      ...(from ? { gte: new Date(from + 'T00:00:00+05:30') } : {}),
+      ...(to ? { lte: new Date(to + 'T23:59:59.999+05:30') } : {}),
+    };
+    const [swipes, providers, gateways] = await Promise.all([
+      this.prisma.cardSwipeDetail.findMany({
+        where: { transaction: {
+          status: TransactionStatus.COMPLETED,
+          ...(Object.keys(transactionAt).length ? { transactionAt } : {}),
+        } },
+        select: {
+          customerCardId: true, providerId: true, gatewayId: true,
+          transaction: { select: { id: true, transactionNumber: true, transactionAt: true,
+            customer: { select: { fullName: true } } } },
+          customerCard: { select: { bankName: true, cardType: true, lastFourDigits: true,
+            nickname: true, cardNetwork: { select: { name: true } } } },
+        },
+        orderBy: [{ transaction: { transactionAt: 'desc' } }, { id: 'desc' }],
+        take: 10001,
+      }),
+      this.prisma.provider.findMany({ select: { id: true, name: true } }),
+      this.prisma.providerGateway.findMany({ select: { id: true, gatewayName: true } }),
+    ]);
+    if (swipes.length > 10000) {
+      throw new BadRequestException('More than 10,000 successful swipes match. Select a shorter period.');
+    }
+    const providerNames = new Map(providers.map(p => [p.id, p.name]));
+    const gatewayNames = new Map(gateways.map(g => [g.id, g.gatewayName]));
+    const groups = new Map<string, {
+      cardId: string; bank: string; cardType: string; network: string; lastFour: string;
+      nickname: string; customer: string; providerId: string; provider: string;
+      gatewayId: string; gateway: string; count: number; lastSuccess: Date;
+      latestTransactionId: string; latestTransactionNumber: string;
+    }>();
+    for (const swipe of swipes) {
+      const key = swipe.customerCardId + ':' + swipe.gatewayId;
+      const row = groups.get(key);
+      if (row) { row.count++; continue; }
+      groups.set(key, {
+        cardId: swipe.customerCardId, bank: swipe.customerCard.bankName,
+        cardType: swipe.customerCard.cardType ?? '', network: swipe.customerCard.cardNetwork?.name ?? '',
+        lastFour: swipe.customerCard.lastFourDigits, nickname: swipe.customerCard.nickname ?? '',
+        customer: swipe.transaction.customer?.fullName ?? '',
+        providerId: swipe.providerId, provider: providerNames.get(swipe.providerId) ?? 'Unknown provider',
+        gatewayId: swipe.gatewayId, gateway: gatewayNames.get(swipe.gatewayId) ?? 'Unknown gateway',
+        count: 1, lastSuccess: swipe.transaction.transactionAt,
+        latestTransactionId: swipe.transaction.id,
+        latestTransactionNumber: swipe.transaction.transactionNumber,
+      });
+    }
+    return { totalCompleted: swipes.length, distinctCards: new Set(swipes.map(s => s.customerCardId)).size,
+      groups: Array.from(groups.values()).sort((a, b) => b.lastSuccess.getTime() - a.lastSuccess.getTime()),
+      note: 'Recorded completed card swipes only. Failed attempts are not tracked; counts are not success rates.' };
+  }
+
   async get(from: string, to: string, customerId?: string, providerId?: string) {
     const period = exportPeriod(from, to, 'card');
     const rows = await this.prisma.transaction.findMany({

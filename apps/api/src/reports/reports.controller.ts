@@ -19,6 +19,11 @@ export class ReportsController {
     return this.excelExport.write(response, from, to, scope ?? 'all', req.user.userId);
   }
 
+  @Get('card-success')
+  cardSuccess(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.cardSwipeReport.successHistory(from, to);
+  }
+
   @Get('card-swipes')
   cardSwipes(@Query('from') from: string, @Query('to') to: string, @Query('customerId') customerId?: string, @Query('providerId') providerId?: string) {
     return this.cardSwipeReport.get(from, to, customerId, providerId);
