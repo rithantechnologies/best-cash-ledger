@@ -7,6 +7,7 @@ import { SearchableSelect } from "@/components/searchable-select";
 import { EmptyState, Modal, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { withReturnTo } from "@/lib/transaction-return";
+import { downloadExpensesExcel, downloadExpensesPdf, type ExpenseExportData } from "./export-expenses";
 
 type ExpenseDetail={expenseCategoryId:string;expenseType:string;amount:string;description:string};
 type Tx={id:string;transactionNumber:string;transactionType:string;transactionAt:string;createdAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;notes:string|null;expense:ExpenseDetail|null};
@@ -157,12 +158,29 @@ export default function ExpensesPage(){
  const monthCount=Math.max(1,new Set(filtered.map(t=>{const d=new Date(t.transactionAt);return d.getFullYear()+"-"+d.getMonth();})).size);
  const topCategory=byCategory[0];
  const periodLabel=period==="TODAY"?"Today":period==="YESTERDAY"?"Yesterday":period==="7D"?"Last 7 days":period==="30D"?"Last 30 days":period==="90D"?"Last 90 days":period==="6M"?"Last 6 months":period==="ALL"?"All time":"Custom range";
+ const exportData:ExpenseExportData={
+  period:period==="CUSTOM"?(dateFrom||"Any date")+" to "+(dateTo||"Any date"):periodLabel,
+  category:categoryId==="ALL"?"All categories":categoryById.get(categoryId)??"Selected category",
+  total:totals.total,categories:byCategory,
+  rows:filtered.map(tx=>({
+   transactionNumber:tx.transactionNumber,
+   date:dateOnly(tx.transactionAt),entered:enteredAt(tx.createdAt),
+   type:tx.expense?.expenseType??"",description:tx.expense?.description??"",
+   category:categoryById.get(tx.expense?.expenseCategoryId??"")??"Other",
+   reference:tx.notes??tx.referenceNumber??"",
+   amount:Number(tx.expense?.amount??tx.grossAmount)
+  }))
+ };
 
  if(loading)return <AppShell><PageLoader label="Loading expenses…"/></AppShell>;
  return <AppShell><div className="page-enter mx-auto -mt-2 max-w-[1450px] space-y-3 sm:-mt-3 lg:-mt-4">
   <div className="flex flex-wrap items-center justify-between gap-3">
    <div><h1 className="text-[1.7rem] font-black tracking-[-.04em] sm:text-[2rem]">Expenses</h1><p className="mt-0.5 text-xs text-[var(--text-muted)]">All expenses, category mix, trend and underlying transactions.</p></div>
-   <Link href="/transactions/expense" className="app-primary-button px-4 py-2.5 text-xs font-bold">+ Add expense</Link>
+   <div className="flex flex-wrap items-center gap-2">
+    <button type="button" disabled={!filtered.length} onClick={()=>downloadExpensesPdf(exportData)} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold disabled:opacity-50">Download PDF</button>
+    <button type="button" disabled={!filtered.length} onClick={()=>downloadExpensesExcel(exportData)} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold disabled:opacity-50">Download Excel</button>
+    <Link href="/transactions/expense" className="app-primary-button px-4 py-2.5 text-xs font-bold">+ Add expense</Link>
+   </div>
   </div>
 
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
