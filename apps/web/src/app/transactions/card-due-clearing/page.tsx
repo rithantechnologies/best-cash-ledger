@@ -3,7 +3,8 @@
 
 import { SearchableSelect } from "@/components/searchable-select";
 import { sortCustomerMatches } from "@/lib/customer-search-rank";
-import { FormEvent, useEffect, useState } from "react";
+import { customerCardDueAttention } from "@/lib/card-due-attention";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState, Field, Modal, PageFrame, PageLoader, StatusBadge, Surface } from "@/components/ui";
@@ -36,8 +37,8 @@ type Clearing={
 type DuePayable={
  id:string;originalAmount:string;paidAmount:string;remainingAmount:string;dueAt:string;status:string;
  customer:{id:string;fullName:string;mobile:string|null};
- sourceTransaction:{id:string;transactionNumber:string;transactionAt:string;transactionType:string};
- payments:{id:string;amount:string;paymentDate:string;transactionId:string}[];
+ sourceTransaction:{id:string;transactionNumber:string;transactionAt:string;transactionType:string;status:string};
+ payments:{id:string;amount:string;paymentDate:string;transactionId:string;status:string}[];
  manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{remarks:string;financialAccount:{accountName:string};transaction:{id:string;transactionNumber:string;transactionAt:string}}}[];
 };
 type DueMovement={id:string;at:string;direction:"IN"|"OUT";label:string;amount:number;detail:string;href?:string;affectsBalance?:boolean};
@@ -72,6 +73,7 @@ export default function CardDueClearingPage(){
  const [addRecoveryAmount,setAddRecoveryAmount]=useState(""),[addProviderId,setAddProviderId]=useState(""),[addGatewayId,setAddGatewayId]=useState(""),[addRecoveryAccountId,setAddRecoveryAccountId]=useState(""),[addRecoveryRef,setAddRecoveryRef]=useState("");
  const [addFeeAmount,setAddFeeAmount]=useState(""),[addFeeAccountId,setAddFeeAccountId]=useState(""),[addFeeRef,setAddFeeRef]=useState("");
  const [combinedAmount,setCombinedAmount]=useState(""),[combinedAccountId,setCombinedAccountId]=useState(""),[combinedRef,setCombinedRef]=useState("");
+ const combinedReceiptRetry=useRef<{fingerprint:string;key:string}|null>(null);
  const [detailFollowUp,setDetailFollowUp]=useState("");
  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState(""),[success,setSuccess]=useState("");
  const [newCustomerOpen,setNewCustomerOpen]=useState(false),[newCustomerBusy,setNewCustomerBusy]=useState(false);
@@ -217,20 +219,29 @@ export default function CardDueClearingPage(){
   if(!account||!["CASH","UPI","BANK"].includes(account.accountType)){
    setError("Select the cash drawer, bank or UPI account where the payment was received.");return;
   }
+  const payload={amount,destinationAccountId:account.id,referenceNumber:combinedRef.trim()||undefined};
+  const fingerprint=JSON.stringify({transactionId:selected.transactionId,...payload});
+  const previous=combinedReceiptRetry.current;
+  const idempotencyKey=previous?.fingerprint===fingerprint?previous.key:crypto.randomUUID();
+  combinedReceiptRetry.current={fingerprint,key:idempotencyKey};
   setSaving(true);
+  let posted=false;
   try{
    const result=await apiFetch<{transactionId:string;principalApplied:number;commissionApplied:number}>(
     "/transactions/card-due-clearings/"+selected.transactionId+"/combined-receipt",
-    {method:"POST",body:JSON.stringify({
-     amount,destinationAccountId:account.id,referenceNumber:combinedRef.trim()||undefined,
-    })},
+    {method:"POST",headers:{"idempotency-key":idempotencyKey},body:JSON.stringify(payload)},
    );
+   posted=true;
    setSuccess("Received "+money(amount)+" once in "+account.accountName+
     ": principal "+money(result.principalApplied)+" + commission "+money(result.commissionApplied)+
     ". Transaction recorded.");
-   setCombinedRef("");await refreshSelected();
-  }catch(err){setError(err instanceof Error?err.message:"Could not record combined payment");}
-  finally{setSaving(false);}
+   await refreshSelected();
+   setCombinedRef("");combinedReceiptRetry.current=null;
+  }catch(err){
+   const detail=err instanceof Error?err.message:"Could not record combined payment";
+   setError(posted?"Payment was saved, but the latest balances could not be loaded. Refresh before any new payment.":
+    detail+" Check the Card Due ledger before retrying; the original request may already be recorded.");
+  }finally{setSaving(false);}
  }
 
  async function addRecovery(e:FormEvent){
@@ -287,7 +298,7 @@ export default function CardDueClearingPage(){
 
  const selectedCustomerId=selected?.transaction.customer?.id??"";
  const selectedCustomerRows=selectedCustomerId?rows.filter(r=>r.transaction.customer?.id===selectedCustomerId):[];
- const selectedCustomerPayables=selectedCustomerId?payables.filter(p=>p.customer.id===selectedCustomerId):[];
+ const selectedCustomerPayables=selectedCustomerId?payables.filter(p=>p.customer.id===selectedCustomerId&&!["REVERSED","CANCELLED","FAILED"].includes(p.status)&&!["REVERSED","CANCELLED","FAILED"].includes(p.sourceTransaction.status)):[];
  const combinedOutstanding=calcMoney(selectedCustomerRows.reduce((n,r)=>n+Number(r.principalRemaining)+Number(r.commissionRemaining),0));
  const combinedOrdered=[...selectedCustomerRows].sort((a,b)=>new Date(a.transaction.transactionAt).getTime()-new Date(b.transaction.transactionAt).getTime()||a.id.localeCompare(b.id));
  let combinedLeft=Math.max(0,num(combinedAmount));
@@ -304,33 +315,24 @@ export default function CardDueClearingPage(){
  const selectedProfit=calcMoney(commissionEarned-selectedProviderCosts);
  const customerPaid=selectedCustomerRows.reduce((sum,r)=>sum+Number(r.dueAmount),0);
  const customerReceived=selectedCustomerRows.reduce((sum,r)=>sum+r.recoveries.reduce((a,x)=>a+Number(x.swipeAmount),0)+r.manualLedgerAllocations.filter(x=>x.targetType==="CARD_DUE").reduce((a,x)=>a+Number(x.amount),0),0);
- const customerReturned=selectedCustomerPayables.reduce((sum,p)=>sum+p.payments.reduce((a,x)=>a+Number(x.amount),0)+p.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
+ const customerReturned=selectedCustomerPayables.reduce((sum,p)=>sum+p.payments.filter(x=>x.status==="COMPLETED").reduce((a,x)=>a+Number(x.amount),0)+p.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
  const customerBalance=calcMoney(customerPaid+customerReturned-customerReceived);
  const customerMovements:DueMovement[]=[
   ...selectedCustomerRows.map(r=>({id:"pay-"+r.id,at:r.transaction.transactionAt,direction:"OUT" as const,label:"Card payment",amount:Number(r.dueAmount),detail:r.customerCard.bankName+" •••• "+r.customerCard.lastFourDigits+" · from "+r.advanceSourceAccount.accountName,href:"/transactions/"+r.transaction.id})),
   ...selectedCustomerRows.flatMap(r=>r.recoveries.map(x=>({id:"rec-"+x.id,at:x.recoveredAt,direction:"IN" as const,label:"Recovery",amount:Number(x.swipeAmount),detail:x.provider.name+" · "+x.gateway.gatewayName+" · into "+x.destinationAccount.accountName,href:"/transactions/"+x.transaction.id}))),
   ...selectedCustomerRows.flatMap(r=>r.manualLedgerAllocations.map(x=>({id:"manual-in-"+x.id,at:x.customerLedgerEntry.transaction.transactionAt,direction:"IN" as const,label:x.targetType==="CARD_DUE_COMMISSION"?"Commission collected":"Pay In",amount:Number(x.amount),affectsBalance:x.targetType!=="CARD_DUE_COMMISSION",detail:x.customerLedgerEntry.remarks+" · into "+x.customerLedgerEntry.financialAccount.accountName,href:"/transactions/"+x.customerLedgerEntry.transaction.id}))),
   ...selectedCustomerRows.flatMap(r=>r.commissionCollections.map(x=>({id:"fee-"+x.id,at:x.collectedAt,direction:"IN" as const,label:"Commission",amount:Number(x.amount),detail:x.paymentMode+" · into "+x.destinationAccount.accountName+" · income (does not change principal balance)",href:"/transactions/"+x.transaction.id,affectsBalance:false}))),
-  ...selectedCustomerPayables.flatMap(x=>x.payments.map(payment=>({id:"refund-"+payment.id,at:payment.paymentDate,direction:"OUT" as const,label:"Paid back to customer",amount:Number(payment.amount),detail:"Customer balance payout",href:"/transactions/"+payment.transactionId}))),
+  ...selectedCustomerPayables.flatMap(x=>x.payments.filter(payment=>payment.status==="COMPLETED").map(payment=>({id:"refund-"+payment.id,at:payment.paymentDate,direction:"OUT" as const,label:"Paid back to customer",amount:Number(payment.amount),detail:"Customer balance payout",href:"/transactions/"+payment.transactionId}))),
   ...selectedCustomerPayables.flatMap(x=>x.manualLedgerAllocations.map(a=>({id:"manual-out-"+a.id,at:a.customerLedgerEntry.transaction.transactionAt,direction:"OUT" as const,label:"Pay Out",amount:Number(a.amount),detail:a.customerLedgerEntry.remarks+" · from "+a.customerLedgerEntry.financialAccount.accountName,href:"/transactions/"+a.customerLedgerEntry.transaction.id}))),
  ].sort((a,b)=>new Date(a.at).getTime()-new Date(b.at).getTime());
  let runningCustomerBalance=0;
  const customerLedger=customerMovements.map(m=>{if(m.affectsBalance!==false)runningCustomerBalance=calcMoney(runningCustomerBalance+(m.direction==="OUT"?m.amount:-m.amount));return {...m,balance:runningCustomerBalance};});
  const openCustomerPayable=selectedCustomerPayables.find(x=>Number(x.remainingAmount)>0.001);
- const customerIds=[...new Set(rows.map(r=>r.transaction.customer?.id).filter((id):id is string=>Boolean(id)))];
- const balanceForCustomer=(id:string)=>{
-  const dueRows=rows.filter(r=>r.transaction.customer?.id===id);
-  const paid=dueRows.reduce((sum,r)=>sum+Number(r.dueAmount),0);
-  const received=dueRows.reduce((sum,r)=>sum+r.recoveries.reduce((a,x)=>a+Number(x.swipeAmount),0)+r.manualLedgerAllocations.filter(x=>x.targetType==="CARD_DUE").reduce((a,x)=>a+Number(x.amount),0),0);
-  const returned=payables.filter(p=>p.customer.id===id).reduce((sum,p)=>sum+p.payments.reduce((a,x)=>a+Number(x.amount),0)+p.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
-  return calcMoney(paid+returned-received);
- };
- const attentionCustomers=customerIds.map(id=>{
-  const customerRow=rows.find(r=>r.transaction.customer?.id===id)!;
-  const balance=balanceForCustomer(id);
-  const latest=rows.filter(r=>r.transaction.customer?.id===id).sort((a,b)=>new Date(b.transaction.transactionAt).getTime()-new Date(a.transaction.transactionAt).getTime())[0];
-  return {id,name:customerRow.transaction.customer?.fullName??"Customer",mobile:customerRow.transaction.customer?.mobile??"",balance,latest};
- }).filter(x=>Math.abs(x.balance)>0.001).sort((a,b)=>Math.abs(b.balance)-Math.abs(a.balance));
+ const attentionCustomers=customerCardDueAttention(rows,payables);
+ const attentionPrincipal=calcMoney(attentionCustomers.reduce((sum,c)=>sum+c.principalToReceive,0));
+ const attentionCommission=calcMoney(attentionCustomers.reduce((sum,c)=>sum+c.commissionToCollect,0));
+ const attentionCollect=calcMoney(attentionPrincipal+attentionCommission);
+ const attentionReturn=calcMoney(attentionCustomers.reduce((sum,c)=>sum+c.principalToReturn,0));
 
  return <AppShell><PageFrame width="max-w-7xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -385,13 +387,13 @@ export default function CardDueClearingPage(){
   {selected?<Surface className="overflow-hidden">
    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-5">
     <div><p className="text-[10px] font-extrabold uppercase tracking-[.12em] text-[var(--text-muted)]">Current case</p><h2 className="mt-1 text-lg font-black">{selected.transaction.customer?.fullName??"Customer"} · {selected.transaction.transactionNumber}</h2><p className="mt-0.5 text-xs text-[var(--text-muted)]">{selected.customerCard.bankName} •••• {selected.customerCard.lastFourDigits} · paid from {selected.advanceSourceAccount.accountName}</p></div>
-    <div className="text-right"><StatusBadge tone={statusTone(selected.transaction.status) as "rose"|"amber"|"emerald"}>{statusLabel(selected.transaction.status)}</StatusBadge><p className={"mt-1 text-[10px] font-bold "+(Number(selected.principalRemaining)<=.001?"text-emerald-700":"text-rose-700")}>Principal {Number(selected.principalRemaining)<=.001?"settled":money(selected.principalRemaining)+" pending"}</p>{Number(selected.commissionAmount)>0?<p className={"mt-0.5 text-[10px] font-bold "+(Number(selected.commissionRemaining)<=.001?"text-emerald-700":"text-amber-700")}>Commission {Number(selected.commissionRemaining)<=.001?"settled":money(selected.commissionRemaining)+" pending"}</p>:null}</div>
+    <div className="text-right"><StatusBadge tone={(Number(selected.principalRemaining)<=0.001&&Number(selected.commissionRemaining)>0.001?"amber":statusTone(selected.transaction.status)) as "rose"|"amber"|"emerald"}>{Number(selected.principalRemaining)<=0.001&&Number(selected.commissionRemaining)>0.001?"Principal paid · commission due":statusLabel(selected.transaction.status)}</StatusBadge><p className={"mt-1 text-[10px] font-bold "+(Number(selected.principalRemaining)<=.001?"text-emerald-700":"text-rose-700")}>Principal {Number(selected.principalRemaining)<=.001?"settled":money(selected.principalRemaining)+" pending"}</p>{Number(selected.commissionAmount)>0?<p className={"mt-0.5 text-[10px] font-bold "+(Number(selected.commissionRemaining)<=.001?"text-emerald-700":"text-amber-700")}>Commission {Number(selected.commissionRemaining)<=.001?"settled":money(selected.commissionRemaining)+" pending"}</p>:null}</div>
    </div>
    <div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4">
     <div className="bg-[var(--surface)] p-3"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Paid out</p><p className="money mt-1 text-base font-black text-rose-600">{money(customerPaid)}</p></div>
     <div className="bg-[var(--surface)] p-3"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Recovered</p><p className="money mt-1 text-base font-black text-emerald-600">{money(customerReceived)}</p><p className="mt-1 text-[9px] text-[var(--text-muted)]">Commission {money(customerCommission)}</p></div>
     <div className="bg-[var(--surface)] p-3"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Paid back</p><p className="money mt-1 text-base font-black text-rose-600">{money(customerReturned)}</p></div>
-    <div className="bg-[var(--surface)] p-3"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{customerBalance>0.001?"To receive":customerBalance<-.001?"To give customer":"Balance"}</p><p className={"money mt-1 text-base font-black "+(customerBalance>0.001?"text-rose-600":customerBalance<-.001?"text-sky-600":"text-emerald-600")}>{money(Math.abs(customerBalance))}</p></div>
+    <div className="bg-[var(--surface)] p-3"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{customerBalance>0.001?"Principal to receive":customerBalance<-.001?"Principal to give customer":"Principal balance"}</p><p className={"money mt-1 text-base font-black "+(customerBalance>0.001?"text-rose-600":customerBalance<-.001?"text-sky-600":"text-emerald-600")}>{money(Math.abs(customerBalance))}</p></div>
    </div>
    {customerBalance<-.001&&openCustomerPayable?<div className="border-t border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 sm:px-5"><b>{money(Number(openCustomerPayable.remainingAmount))} to give customer.</b> <Link href={"/payables/"+openCustomerPayable.id} className="font-black underline">Pay now →</Link></div>:null}
    <div className="border-t border-[var(--border)] p-4 sm:p-5">
@@ -446,7 +448,7 @@ export default function CardDueClearingPage(){
     </form>
 
     <form onSubmit={addRecovery} className="rounded-2xl border border-[var(--border)] p-3.5">
-     <h3 className="text-sm font-black">Receive from customer</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Suggested recovery: {money(selected.principalRemaining)}. You may enter more; excess becomes money to give back.</p>
+     <h3 className="text-sm font-black">Card / gateway recovery</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Only for a real provider-processed recovery with gateway fees. For a normal cash, bank or UPI receipt, use Combined customer payment above. Suggested principal: {money(selected.principalRemaining)}.</p>
      <div className="mt-3 space-y-2">
       <input className="app-control money" value={formatAmount(addRecoveryAmount)} onChange={e=>setAddRecoveryAmount(amountInput(e.target.value))} placeholder="Amount"/>
       <SearchableSelect className="app-control" value={addProviderId} onChange={e=>setAddProviderId(e.target.value)} required><option value="">Provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect>
@@ -454,7 +456,7 @@ export default function CardDueClearingPage(){
       <SearchableSelect className="app-control" value={addRecoveryAccountId} onChange={e=>setAddRecoveryAccountId(e.target.value)} required><option value="">Receive into account</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</SearchableSelect>
       {addGateway?<p className="text-[10px] text-[var(--text-muted)]">Gateway charge {money(calcMoney(num(addRecoveryAmount)*Number(addGateway.defaultChargeRate)/100))}</p>:null}
       <input className="app-control" value={addRecoveryRef} onChange={e=>setAddRecoveryRef(e.target.value)} placeholder="Reference (optional)"/>
-      <button disabled={saving} className="app-primary-button min-h-10 w-full text-xs font-black disabled:opacity-50">Add recovery</button>
+      <button disabled={saving} className="app-primary-button min-h-10 w-full text-xs font-black disabled:opacity-50">Record gateway recovery</button>
      </div>
     </form>
 
@@ -498,15 +500,26 @@ export default function CardDueClearingPage(){
   </Surface>:null}
 
   <Surface className="overflow-hidden">
-   <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><h2 className="text-sm font-black">Needs attention</h2><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">{attentionCustomers.length} customer{attentionCustomers.length===1?"":"s"} currently have a non-zero balance.</p></div><Link href="/dues" className="text-xs font-bold text-[var(--accent)]">All dues →</Link></div>
+   <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5 sm:px-5"><div><h2 className="text-sm font-black">Needs attention</h2><p className="mt-0.5 text-[11px] text-[var(--text-muted)]">{attentionCustomers.length} customer{attentionCustomers.length===1?"":"s"} with principal due, commission due, or a customer refund pending.</p></div><Link href="/dues" className="text-xs font-bold text-[var(--accent)]">All dues →</Link></div>
+   {attentionCustomers.length?<div className="border-b border-[var(--border)] grid grid-cols-2 gap-2 bg-[var(--surface-soft)] p-3 text-xs sm:grid-cols-4 sm:px-5">
+    <div><p className="text-[10px] text-[var(--text-muted)]">Principal to collect</p><p className="money font-black">{money(attentionPrincipal)}</p></div>
+    <div><p className="text-[10px] text-[var(--text-muted)]">Commission to collect</p><p className="money font-black">{money(attentionCommission)}</p></div>
+    <div><p className="text-[10px] text-[var(--text-muted)]">Total to collect</p><p className="money font-black text-rose-700">{money(attentionCollect)}</p></div>
+    <div><p className="text-[10px] text-[var(--text-muted)]">Give back to customers</p><p className="money font-black text-sky-700">{money(attentionReturn)}</p></div>
+   </div>:null}
    {attentionCustomers.length?<div className="divide-y divide-[var(--border)]">{attentionCustomers.map(item=><button key={item.id} type="button" onClick={()=>openCase(item.latest)} className="grid w-full gap-2 px-4 py-3.5 text-left hover:bg-[var(--surface-soft)] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center sm:px-5">
     <div className="min-w-0"><p className="truncate text-sm font-black">{item.name}</p><p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{item.mobile||"No mobile"} · latest {new Date(item.latest.transaction.transactionAt).toLocaleString("en-IN")}</p></div>
-    <div className="text-right"><p className="text-[9px] font-bold uppercase text-[var(--text-muted)]">{item.balance>0?"To receive":"To give customer"}</p><p className={"money mt-0.5 text-base font-black "+(item.balance>0?"text-rose-600":"text-sky-600")}>{money(Math.abs(item.balance))}</p></div>
+    <div className="space-y-0.5 text-right">
+     {item.principalToReceive>0?<p className="text-[11px]">Principal <b className="money text-rose-700">{money(item.principalToReceive)}</b></p>:null}
+     {item.commissionToCollect>0?<p className="text-[11px]">Commission <b className="money text-amber-700">{money(item.commissionToCollect)}</b></p>:null}
+     {item.totalToCollect>0?<p className="text-[11px] font-black">Total to collect <span className="money text-rose-700">{money(item.totalToCollect)}</span></p>:null}
+     {item.principalToReturn>0?<p className="text-[11px] font-black">Give customer <span className="money text-sky-700">{money(item.principalToReturn)}</span></p>:null}
+    </div>
     <span className="text-xs font-black text-[var(--accent)]">Open ledger →</span>
-   </button>)}</div>:<div className="p-4"><EmptyState title="Everything settled" description="No customer currently has money to receive or give."/></div>}
+   </button>)}</div>:<div className="p-4"><EmptyState title="Everything settled" description="No outstanding principal, commission or customer refunds."/></div>}
   </Surface>
 
-  <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer px-4 py-3.5 text-sm font-black">All history <span className="float-right text-xs font-normal text-[var(--text-muted)]">{rows.length} total</span></summary><div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">{rows.map(row=><button key={row.id} onClick={()=>openCase(row)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{row.transaction.customer?.fullName??"Customer"} · {row.transaction.transactionNumber}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(row.transaction.transactionAt).toLocaleString("en-IN")}</p></div><div className="flex items-center gap-3"><span className="money text-xs font-bold">{money(row.dueAmount)}</span><StatusBadge tone={Number(row.principalRemaining)<=0.001?"emerald":Number(row.principalRecovered)>0?"amber":"rose"}>{Number(row.principalRemaining)<=0.001?"Fully settled":Number(row.principalRecovered)>0?"Partly settled":"Pending"}</StatusBadge></div></button>)}</div></details>
+  <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]"><summary className="cursor-pointer px-4 py-3.5 text-sm font-black">All history <span className="float-right text-xs font-normal text-[var(--text-muted)]">{rows.length} total</span></summary><div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">{rows.map(row=><button key={row.id} onClick={()=>openCase(row)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{row.transaction.customer?.fullName??"Customer"} · {row.transaction.transactionNumber}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{new Date(row.transaction.transactionAt).toLocaleString("en-IN")}</p></div><div className="flex items-center gap-3"><span className="money text-xs font-bold">{money(row.dueAmount)}</span><StatusBadge tone={Number(row.principalRemaining)<=0.001&&Number(row.commissionRemaining)>0.001?"amber":Number(row.principalRemaining)<=0.001?"emerald":Number(row.principalRecovered)>0?"amber":"rose"}>{Number(row.principalRemaining)<=0.001?(Number(row.commissionRemaining)>0.001?"Principal paid · commission due":"Fully settled"):Number(row.principalRecovered)>0?"Partly settled":"Pending"}</StatusBadge></div></button>)}</div></details>
   <Modal open={newCustomerOpen} title="Add customer + card" onClose={()=>{if(!newCustomerBusy)setNewCustomerOpen(false);}} footer={<button form="due-new-customer" disabled={newCustomerBusy||!newName.trim()||!validMobile(newMobile)||!newBank||newLastFour.length!==4} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{newCustomerBusy?"Saving…":"Save customer"}</button>}>
    <form id="due-new-customer" onSubmit={createNewCustomerCard} className="grid gap-3 sm:grid-cols-2">
     <Field label="Customer name"><input name="cashledger_customer_name" autoComplete="on" className="app-control" value={newName} onChange={e=>setNewName(e.target.value.toUpperCase())} placeholder="Full name" required/></Field>

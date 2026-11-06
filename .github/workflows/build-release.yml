@@ -35,6 +35,9 @@ jobs:
           node --test apps/web/test/browser-entry-suggestions.test.cjs
           node apps/web/tests/customer-search-ranking.test.cjs
 
+      - name: Verify Card Due attention includes unpaid commission and handles refunds
+        run: node --test apps/web/test/card-due-attention.test.cjs
+
       - name: Generate Prisma client
         working-directory: apps/api
         run: npx prisma generate --schema=prisma/schema.prisma
