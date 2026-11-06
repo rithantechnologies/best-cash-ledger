@@ -197,6 +197,11 @@ export class CardSwipeReportService {
         payableAmount: rupees(payableAmount),
         paidAmount: rupees(payableAmount - remainingAmount),
         remainingAmount: rupees(remainingAmount),
+        // COMPLETED means the card swipe was recorded successfully; it does not
+        // imply that provider settlement or customer payout has taken place.
+        payInStatus: 'SUCCESS',
+        providerSettlementDueAt: swipe.dueAt,
+        expectedPayoutAt: row.payable?.dueAt ?? null,
         payoutStatus: row.payable?.status ?? 'PENDING',
         payoutSources: [...sources],
         payInAccount: swipe.settlementAccount.accountName,
@@ -331,11 +336,47 @@ export class CardSwipeReportService {
         ? paise(row.principal) : 0;
       return s;
     }, { earnedCommission: 0, providerCost: 0, payoutCost: 0, netProfit: 0, principalRecovered: 0 });
+    // Independent of the selected swipe date: a payout due tomorrow must remain
+    // visible even when its card swipe happened on an earlier day.
+    const outstandingPayables = await this.prisma.customerPayable.findMany({
+      where: {
+        remainingAmount: { gt: 0 },
+        ...(customerId ? { customerId } : {}),
+        sourceTransaction: {
+          transactionType: TransactionType.CARD_SWIPE,
+          status: TransactionStatus.COMPLETED,
+          ...(providerId ? { cardSwipe: { is: { providerId } } } : {}),
+        },
+      },
+      select: {
+        sourceTransactionId: true,
+        dueAt: true,
+        originalAmount: true,
+        remainingAmount: true,
+        sourceTransaction: { select: {
+          transactionAt: true, transactionNumber: true,
+          customer: { select: { fullName: true } },
+        } },
+      },
+      orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+      take: 1001,
+    });
+    const pendingPayouts = outstandingPayables.slice(0, 1000).map(p => ({
+      id: p.sourceTransactionId,
+      transactionNumber: p.sourceTransaction.transactionNumber,
+      transactionAt: p.sourceTransaction.transactionAt,
+      customerName: p.sourceTransaction.customer?.fullName ?? '—',
+      expectedPayoutAt: p.dueAt,
+      payableAmount: rupees(paise(p.originalAmount)),
+      paidAmount: rupees(paise(p.originalAmount) - paise(p.remainingAmount)),
+      remainingAmount: rupees(paise(p.remainingAmount)),
+    }));
     return {
       cardDue: {
         rows: dueRows,
         summary: Object.fromEntries(Object.entries(dueSummary).map(([k, v]) => [k, rupees(v)])),
       },
+      pendingPayouts, pendingTruncated: outstandingPayables.length > 1000,
       from, to, count: reportRows.length,
       summary: Object.fromEntries(Object.entries(summary).map(([key, value]) => [key, rupees(value)])),
       rows: reportRows,
