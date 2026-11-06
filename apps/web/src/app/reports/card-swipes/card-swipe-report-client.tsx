@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
@@ -6,6 +7,7 @@ import { EmptyState, PageFrame, PageLoader, Surface } from "@/components/ui";
 import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
 import { indianDate, indianDateTime, reportIsoDate } from "./indian-date";
+import { PendingPayoutModal } from "./pending-payout-modal";
 
 type Row = { id:string; transactionNumber:string;transactionAt:string;customerName:string;mobile:string;cardType:string;cardLastFour:string;
  swipeAmount:number;customerFee:number;gatewayFee:number;payoutFee:number;netProfit:number;payableAmount:number;paidAmount:number;
@@ -16,7 +18,7 @@ type DueRow = {id:string;transactionNumber:string;transactionAt:string;customerN
  earnedCommission:number;providerCost:number;payoutCost:number;netProfit:number;
  receivedAmount?:number|null;receivedIn?:string|null;referenceNumber?:string|null};
 type DueSummary = {earnedCommission:number;providerCost:number;payoutCost:number;netProfit:number;principalRecovered:number};
-type PendingPayout = {id:string;transactionNumber:string;transactionAt:string;customerName:string;expectedPayoutAt:string|null;payableAmount:number;paidAmount:number;remainingAmount:number};
+type PendingPayout = {id:string;payableId:string;transactionNumber:string;transactionAt:string;customerName:string;expectedPayoutAt:string|null;payableAmount:number;paidAmount:number;remainingAmount:number};
 type Report = {from:string;to:string;count:number;summary:Totals;rows:Row[];pendingPayouts:PendingPayout[];pendingTruncated:boolean;basis:string;cardDue?:{rows:DueRow[];summary:DueSummary}};
 type Option = {id:string;name?:string;fullName?:string};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(v);
@@ -47,6 +49,7 @@ export default function CardSwipeReportPage(){
  const [customerId,setCustomerId]=useState(""),[providerId,setProviderId]=useState("");
  const [customers,setCustomers]=useState<Option[]>([]),[providers,setProviders]=useState<Option[]>([]);
  const [report,setReport]=useState<Report|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
+ const [payoutId,setPayoutId]=useState<string|null>(null),[reportRevision,setReportRevision]=useState(0);
  useEffect(()=>{Promise.all([apiFetch<Option[]>("/customers"),apiFetch<Option[]>("/providers?includeInactive=true")])
  .then(([c,p])=>{setCustomers(c);setProviders(p);}).catch(()=>setError("Could not load customer/provider filters."));},[]);
  useEffect(()=>{
@@ -56,7 +59,7 @@ export default function CardSwipeReportPage(){
   .then(r=>{if(active){setReport(r);setError("");}}).catch(e=>{if(active){setReport(null);setError(e instanceof Error?e.message:"Unable to load report.");}})
   .finally(()=>{if(active)setLoading(false);});
   return()=>{active=false;};
- },[from,to,datesValid,customerId,providerId]);
+ },[from,to,datesValid,customerId,providerId,reportRevision]);
  function range(which:string){setToText(indianDate(today));setFromText(indianDate(which==="today"?today:which==="week"?shift(today,-6):today.slice(0,8)+"01"));}
  function csv(){
   if(!report)return;
@@ -111,7 +114,7 @@ export default function CardSwipeReportPage(){
    <Surface className="mt-4 overflow-hidden">
     <div className="border-b border-[var(--border)] p-4">
      <h2 className="font-black">Pending Customer Payouts · {pending.length}</h2>
-     <p className="mt-1 text-xs text-[var(--text-muted)]">All outstanding card-swipe customer payouts, including swipes from earlier dates. Customer and provider filters apply, but the date range does not. Expected payout is a due date, not a confirmed transfer. Open the original transaction to record a payment.</p>
+     <p className="mt-1 text-xs text-[var(--text-muted)]">All outstanding card-swipe customer payouts, including swipes from earlier dates. Customer and provider filters apply, but the date range does not. Expected payout is a due date, not a confirmed transfer. Use Complete / Match to record a new payout or link an earlier recorded payment without paying twice.</p>
     </div>
     {report.pendingTruncated?<p className="px-4 pt-3 text-xs text-amber-700">Showing the first 1,000 outstanding payouts; narrow the customer or provider filter to see more.</p>:null}
     {pending.length?<div className="overflow-x-auto"><table className="w-full min-w-[850px] text-xs">
@@ -121,7 +124,8 @@ export default function CardSwipeReportPage(){
       <td className="px-3"><p className="font-bold">{r.customerName}</p><Link className="text-[var(--accent)]" href={"/transactions/"+r.id}>{r.transactionNumber}</Link></td>
       <td className="money px-3 text-right">{money(r.paidAmount)}</td><td className="money px-3 text-right font-bold">{money(r.remainingAmount)}</td>
       <td className="whitespace-nowrap px-3">{r.expectedPayoutAt?indianDay(r.expectedPayoutAt):"Not set"}</td>
-      <td className="px-3 font-bold text-[var(--money-in)]">Success</td><td className="px-3 font-bold">{r.paidAmount>0?"Partially paid":"Pending"}</td>
+      <td className="px-3 font-bold text-[var(--money-in)]">Success</td>
+      <td className="px-3 py-2"><div className="space-y-1"><p className="font-bold">{r.paidAmount>0?"Partially paid":"Pending"}</p><button type="button" onClick={()=>setPayoutId(r.payableId)} className="min-h-9 whitespace-nowrap rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-bold text-white">Complete / Match</button></div></td>
      </tr>)}</tbody>
     </table></div>:<p className="p-4 text-sm text-[var(--text-muted)]">No outstanding customer payouts.</p>}
    </Surface>
@@ -149,5 +153,6 @@ export default function CardSwipeReportPage(){
    </Surface> : null}
    <p className="mt-3 text-xs text-[var(--text-muted)]">{report.basis} Card numbers are masked.</p>
   </>:null}
+  <PendingPayoutModal payableId={payoutId} onClose={()=>setPayoutId(null)} onSaved={()=>setReportRevision(n=>n+1)}/>
  </PageFrame></AppShell>;
 }

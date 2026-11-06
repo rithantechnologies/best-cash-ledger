@@ -1,7 +1,14 @@
 /** Human-facing report dates are DD-MM-YYYY; API filters remain ISO YYYY-MM-DD. */
 export function indianDate(iso: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  return match ? `${match[3]}-${match[2]}-${match[1]}` : iso;
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(iso);
+  if (!match) return iso;
+  // A date-only string denotes a calendar date. A timestamp needs IST conversion.
+  if (iso.length === 10) return [match[3], match[2], match[1]].join("-");
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric",
+  }).format(date).replaceAll("/", "-");
 }
 
 export function reportIsoDate(text: string): string | null {

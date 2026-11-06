@@ -349,6 +349,7 @@ export class CardSwipeReportService {
         },
       },
       select: {
+        id: true,
         sourceTransactionId: true,
         dueAt: true,
         originalAmount: true,
@@ -363,6 +364,7 @@ export class CardSwipeReportService {
     });
     const pendingPayouts = outstandingPayables.slice(0, 1000).map(p => ({
       id: p.sourceTransactionId,
+      payableId: p.id,
       transactionNumber: p.sourceTransaction.transactionNumber,
       transactionAt: p.sourceTransaction.transactionAt,
       customerName: p.sourceTransaction.customer?.fullName ?? '—',
