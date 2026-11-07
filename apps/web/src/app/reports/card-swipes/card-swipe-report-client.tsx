@@ -50,6 +50,7 @@ export default function CardSwipeReportPage(){
  const [customers,setCustomers]=useState<Option[]>([]),[providers,setProviders]=useState<Option[]>([]);
  const [report,setReport]=useState<Report|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
  const [payoutId,setPayoutId]=useState<string|null>(null),[reportRevision,setReportRevision]=useState(0);
+ const [pendingSearch,setPendingSearch]=useState("");
  useEffect(()=>{Promise.all([apiFetch<Option[]>("/customers"),apiFetch<Option[]>("/providers?includeInactive=true")])
  .then(([c,p])=>{setCustomers(c);setProviders(p);}).catch(()=>setError("Could not load customer/provider filters."));},[]);
  useEffect(()=>{
@@ -77,6 +78,9 @@ export default function CardSwipeReportPage(){
  }
  const s=report?.summary;
  const pending=report?.pendingPayouts??[];
+ const pendingQuery=pendingSearch.trim().toLocaleLowerCase();
+ const matchingPending=[...pending].filter(r=>!pendingQuery||`${r.customerName} ${r.transactionNumber}`.toLocaleLowerCase().includes(pendingQuery))
+  .sort((a,b)=>(a.expectedPayoutAt??"9999").localeCompare(b.expectedPayoutAt??"9999"));
  return <AppShell><PageFrame>
   <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
    <div><p className="text-xs text-[var(--text-muted)]"><Link href="/reports" className="text-[var(--accent)]">Reports</Link> / Credit Cards</p>
@@ -115,11 +119,18 @@ export default function CardSwipeReportPage(){
     <div className="border-b border-[var(--border)] p-4">
      <h2 className="font-black">Pending Customer Payouts · {pending.length}</h2>
      <p className="mt-1 text-xs text-[var(--text-muted)]">All outstanding card-swipe customer payouts, including swipes from earlier dates. Customer and provider filters apply, but the date range does not. Expected payout is a due date, not a confirmed transfer. Use Complete / Match to record a new payout or link an earlier recorded payment without paying twice.</p>
+     <div className="mt-3 flex flex-wrap items-end gap-3">
+      <label className="block w-full max-w-sm text-xs font-bold">Search pending payouts
+       <input type="search" className="app-control mt-1 w-full" value={pendingSearch} onChange={e=>setPendingSearch(e.target.value)} placeholder="Customer name or transaction number" autoComplete="off"/>
+      </label>
+      <span role="status" className="pb-2 text-xs text-[var(--text-muted)]">{pendingQuery?`Showing ${matchingPending.length} of ${pending.length} pending payouts`:`${pending.length} pending payouts`}</span>
+      {pendingSearch?<button type="button" onClick={()=>setPendingSearch("")} className="mb-1 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">Clear search</button>:null}
+     </div>
     </div>
     {report.pendingTruncated?<p className="px-4 pt-3 text-xs text-amber-700">Showing the first 1,000 outstanding payouts; narrow the customer or provider filter to see more.</p>:null}
-    {pending.length?<div className="overflow-x-auto"><table className="w-full min-w-[850px] text-xs">
+    {pending.length&&matchingPending.length?<div className="overflow-x-auto"><table className="w-full min-w-[850px] text-xs">
      <thead className="bg-[var(--surface-soft)] text-left"><tr>{["Swipe date","Customer / transaction","Paid","Remaining","Expected payout","Pay In","Pay Out"].map(h=><th key={h} className="px-3 py-3">{h}</th>)}</tr></thead>
-     <tbody>{[...pending].sort((a,b)=>(a.expectedPayoutAt??"9999").localeCompare(b.expectedPayoutAt??"9999")).map(r=><tr key={r.id} className="border-t border-[var(--border)]">
+     <tbody>{matchingPending.map(r=><tr key={r.id} className="border-t border-[var(--border)]">
       <td className="whitespace-nowrap px-3 py-3">{displayDate(r.transactionAt)}</td>
       <td className="px-3"><p className="font-bold">{r.customerName}</p><Link className="text-[var(--accent)]" href={"/transactions/"+r.id}>{r.transactionNumber}</Link></td>
       <td className="money px-3 text-right">{money(r.paidAmount)}</td><td className="money px-3 text-right font-bold">{money(r.remainingAmount)}</td>
@@ -127,7 +138,7 @@ export default function CardSwipeReportPage(){
       <td className="px-3 font-bold text-[var(--money-in)]">Success</td>
       <td className="px-3 py-2"><div className="space-y-1"><p className="font-bold">{r.paidAmount>0?"Partially paid":"Pending"}</p><button type="button" onClick={()=>setPayoutId(r.payableId)} className="min-h-9 whitespace-nowrap rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-bold text-white">Complete / Match</button></div></td>
      </tr>)}</tbody>
-    </table></div>:<p className="p-4 text-sm text-[var(--text-muted)]">No outstanding customer payouts.</p>}
+    </table></div>:<p className="p-4 text-sm text-[var(--text-muted)]">{pending.length?"No pending payouts match your search.":"No outstanding customer payouts."}</p>}
    </Surface>
    {report.cardDue ? <Surface className="mt-4 overflow-hidden">
     <div className="border-b border-[var(--border)] p-4">
