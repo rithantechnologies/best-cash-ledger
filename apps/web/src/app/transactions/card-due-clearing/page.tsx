@@ -74,6 +74,8 @@ export default function CardDueClearingPage(){
  const [addFeeAmount,setAddFeeAmount]=useState(""),[addFeeAccountId,setAddFeeAccountId]=useState(""),[addFeeRef,setAddFeeRef]=useState("");
  const [combinedAmount,setCombinedAmount]=useState(""),[combinedAccountId,setCombinedAccountId]=useState(""),[combinedRef,setCombinedRef]=useState("");
  const combinedReceiptRetry=useRef<{fingerprint:string;key:string}|null>(null);
+ const combinedSubmitting=useRef(false);
+ const [combinedNotice,setCombinedNotice]=useState<{kind:"error"|"success";text:string}|null>(null);
  const [detailFollowUp,setDetailFollowUp]=useState("");
  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState(""),[success,setSuccess]=useState("");
  const [newCustomerOpen,setNewCustomerOpen]=useState(false),[newCustomerBusy,setNewCustomerBusy]=useState(false);
@@ -173,7 +175,7 @@ export default function CardDueClearingPage(){
   const customerDue=rows.filter(r=>r.transaction.customer?.id===row.transaction.customer?.id).reduce((sum,r)=>sum+Number(r.principalRemaining),0);
   setAddRecoveryAmount(String(calcMoney(customerDue)));setAddFeeAmount("");
   setCombinedAmount(String(calcMoney(rows.filter(r=>r.transaction.customer?.id===row.transaction.customer?.id).reduce((n,r)=>n+Number(r.principalRemaining)+Number(r.commissionRemaining),0))));
-  setCombinedRef("");
+  setCombinedRef("");setCombinedNotice(null);
   window.history.replaceState(null,"","?id="+row.transactionId);
  }
  async function refreshSelected(id=selected?.transactionId){
@@ -205,25 +207,28 @@ export default function CardDueClearingPage(){
  }
 
  async function addCombinedReceipt(e:FormEvent){
-  e.preventDefault();if(!selected)return;setError("");setSuccess("");
+  e.preventDefault();if(!selected||combinedSubmitting.current)return;
+  setError("");setSuccess("");setCombinedNotice(null);
+  const reject=(message:string)=>{setError(message);setCombinedNotice({kind:"error",text:message});};
   const amount=num(combinedAmount);
   const outstanding=calcMoney(rows.filter(r=>r.transaction.customer?.id===selected.transaction.customer?.id)
    .reduce((n,r)=>n+Number(r.principalRemaining)+Number(r.commissionRemaining),0));
   if(!Number.isFinite(amount)||amount<=0||Math.abs(Math.round(amount*100)-amount*100)>0.00001){
-   setError("Enter a valid amount in rupees and paise.");return;
+   reject("Enter a valid amount in rupees and paise.");return;
   }
   if(amount>outstanding+.001){
-   setError("This customer has only "+money(outstanding)+" outstanding across their Card Due cases.");return;
+   reject("This customer has only "+money(outstanding)+" outstanding across their Card Due cases.");return;
   }
   const account=accounts.find(a=>a.id===combinedAccountId);
   if(!account||!["CASH","UPI","BANK"].includes(account.accountType)){
-   setError("Select the cash drawer, bank or UPI account where the payment was received.");return;
+   reject("Select the cash drawer, bank or UPI account where the payment was received.");return;
   }
   const payload={amount,destinationAccountId:account.id,referenceNumber:combinedRef.trim()||undefined};
   const fingerprint=JSON.stringify({transactionId:selected.transactionId,...payload});
   const previous=combinedReceiptRetry.current;
   const idempotencyKey=previous?.fingerprint===fingerprint?previous.key:crypto.randomUUID();
   combinedReceiptRetry.current={fingerprint,key:idempotencyKey};
+  combinedSubmitting.current=true;
   setSaving(true);
   let posted=false;
   try{
@@ -232,16 +237,18 @@ export default function CardDueClearingPage(){
     {method:"POST",headers:{"idempotency-key":idempotencyKey},body:JSON.stringify(payload)},
    );
    posted=true;
-   setSuccess("Received "+money(amount)+" once in "+account.accountName+
+   const message="Received "+money(amount)+" once in "+account.accountName+
     ": principal "+money(result.principalApplied)+" + commission "+money(result.commissionApplied)+
-    ". Transaction recorded.");
+    ". Transaction recorded.";
+   setSuccess(message);setCombinedNotice({kind:"success",text:message});
    await refreshSelected();
    setCombinedRef("");combinedReceiptRetry.current=null;
   }catch(err){
    const detail=err instanceof Error?err.message:"Could not record combined payment";
-   setError(posted?"Payment was saved, but the latest balances could not be loaded. Refresh before any new payment.":
-    detail+" Check the Card Due ledger before retrying; the original request may already be recorded.");
-  }finally{setSaving(false);}
+   const message=posted?"Payment was saved, but the latest balances could not be loaded. Refresh before any new payment.":
+    detail+" Check the Card Due ledger before retrying; the original request may already be recorded.";
+   setError(message);setCombinedNotice({kind:"error",text:message});
+  }finally{combinedSubmitting.current=false;setSaving(false);}
  }
 
  async function addRecovery(e:FormEvent){
@@ -422,9 +429,9 @@ export default function CardDueClearingPage(){
      </div>
      <div className="mt-4 grid gap-3 sm:grid-cols-3">
       <label><span className="mb-1 block text-[11px] font-bold">Customer paid (₹)</span>
-       <input className="app-control money" value={formatAmount(combinedAmount)} onChange={e=>setCombinedAmount(amountInput(e.target.value))} placeholder="Amount" required/></label>
+       <input className="app-control money" value={formatAmount(combinedAmount)} onChange={e=>{setCombinedAmount(amountInput(e.target.value));setCombinedNotice(null);}} placeholder="Amount" required/></label>
       <label><span className="mb-1 block text-[11px] font-bold">Received into cash / bank / UPI</span>
-       <SearchableSelect className="app-control" value={combinedAccountId} onChange={e=>setCombinedAccountId(e.target.value)} required><option value="">Select actual received-in account</option>
+       <SearchableSelect className="app-control" value={combinedAccountId} onChange={e=>{setCombinedAccountId(e.target.value);setCombinedNotice(null);}} required><option value="">Select actual received-in account</option>
        {liquidAccounts.filter(a=>["CASH","UPI","BANK"].includes(a.accountType)&&a.isActive!==false).map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</SearchableSelect></label>
       <label><span className="mb-1 block text-[11px] font-bold">UPI UTR / reference (optional)</span>
        <input className="app-control" value={combinedRef} onChange={e=>setCombinedRef(e.target.value)} placeholder="Payment reference"/></label>
@@ -445,6 +452,7 @@ export default function CardDueClearingPage(){
      <button disabled={saving||!combinedAccountId||num(combinedAmount)<=0||num(combinedAmount)>combinedOutstanding+.001} className="app-primary-button mt-3 min-h-11 w-full text-sm font-black disabled:opacity-50 sm:w-auto sm:px-8">
       {saving?"Recording…":"Record one payment · "+money(num(combinedAmount))}
      </button>
+     {combinedNotice?<p role="status" aria-live="polite" className={"mt-3 rounded-lg p-3 text-xs font-bold "+(combinedNotice.kind==="error"?"bg-rose-50 text-rose-800":"bg-emerald-50 text-emerald-800")}>{combinedNotice.text}</p>:null}
     </form>
 
     <form onSubmit={addRecovery} className="rounded-2xl border border-[var(--border)] p-3.5">

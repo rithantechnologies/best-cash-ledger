@@ -94,6 +94,32 @@ describe('customer-wide Card Due combined payment',()=>{
   expect(result).toMatchObject({principalApplied:1200,commissionApplied:0.37});
   expect(f.ledger.post.mock.calls[0][4][0].amount).toBe(1200.37);
  });
+ it('records principal and commission as separate allocations to the SAME Card Due case',async()=>{
+  const f=fixture({principal:625,commission:1125});
+  const result=await f.service.addCombinedReceipt('new-tx',
+   {amount:1750,destinationAccountId:'destination-id'},'staff-1',RoleName.STAFF);
+  expect(result).toMatchObject({principalApplied:625,commissionApplied:1125});
+  expect(f.tx.customerLedgerAllocation.create.mock.calls.map((call:any[])=>call[0].data)).toEqual([
+   expect.objectContaining({targetType:'CARD_DUE',cardDueClearingId:'due-new',amount:dec(625)}),
+   expect.objectContaining({targetType:'CARD_DUE_COMMISSION',cardDueClearingId:'due-new',amount:dec(1125)}),
+  ]);
+  expect(f.tx.transaction.create).toHaveBeenCalledTimes(1);
+  expect(f.ledger.post).toHaveBeenCalledTimes(1);
+ });
+ it('records a commission-only cash receipt without recognizing income again',async()=>{
+  const f=fixture({principal:0,commission:1125,accountType:AccountType.CASH});
+  const result=await f.service.addCombinedReceipt('new-tx',
+   {amount:1125,destinationAccountId:'destination-id'},'staff-1',RoleName.STAFF);
+  expect(result).toMatchObject({principalApplied:0,commissionApplied:1125});
+  expect(f.validation.requireOpenCashDesk).toHaveBeenCalledTimes(1);
+  expect(f.tx.customerLedgerAllocation.create).toHaveBeenCalledTimes(1);
+  expect(f.tx.customerLedgerAllocation.create.mock.calls[0][0].data.targetType).toBe('CARD_DUE_COMMISSION');
+  expect(f.ledger.post.mock.calls[0][4]).toEqual([
+   expect.objectContaining({ledgerAccountId:'bank-ledger',entryType:EntryType.DEBIT,amount:1125}),
+   expect.objectContaining({ledgerAccountId:'receivable-ledger',entryType:EntryType.CREDIT,amount:1125}),
+  ]);
+  expect(f.cases[0].commissionRemaining.toString()).toBe('0');
+ });
  it('accepts bank account and requires cash desk for cash account',async()=>{
   const bank=fixture({accountType:AccountType.BANK,twoCases:true});
   await bank.service.addCombinedReceipt('new-tx',request,'staff-1',RoleName.STAFF);

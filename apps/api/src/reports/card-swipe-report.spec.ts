@@ -32,7 +32,7 @@ const row = {
 describe('credit card swipe report', () => {
   it('uses India business dates, masked card details and real payout fee allocation', async () => {
     const findMany = vi.fn().mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
-    const service = new CardSwipeReportService({ transaction: { findMany } } as never);
+    const service = new CardSwipeReportService({ transaction: { findMany }, customerPayable: {findMany: vi.fn().mockResolvedValue([])} } as never);
     const result = await service.get('2026-10-27', '2026-10-27');
     expect(findMany.mock.calls[0][0].where.transactionAt).toEqual({
       gte: new Date('2026-10-26T18:30:00.000Z'), lt: new Date('2026-10-27T18:30:00.000Z'),
@@ -59,7 +59,7 @@ describe('credit card swipe report', () => {
       },
     };
     const findMany = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([combined]);
-    const service = new CardSwipeReportService({transaction:{findMany}} as never);
+    const service = new CardSwipeReportService({transaction:{findMany},customerPayable:{findMany:vi.fn().mockResolvedValue([])}} as never);
     const report = await service.get('2026-11-04','2026-11-04');
     expect(report.cardDue.rows).toHaveLength(1);
     expect(report.cardDue.rows[0]).toMatchObject({
