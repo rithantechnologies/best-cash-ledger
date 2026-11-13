@@ -220,8 +220,8 @@ export default function CardDueClearingPage(){
    reject("This customer has only "+money(outstanding)+" outstanding across their Card Due cases.");return;
   }
   const account=accounts.find(a=>a.id===combinedAccountId);
-  if(!account||!["CASH","UPI","BANK"].includes(account.accountType)){
-   reject("Select the cash drawer, bank or UPI account where the payment was received.");return;
+  if(!account||!["CASH","UPI","BANK","PROVIDER_WALLET"].includes(account.accountType)){
+   reject("Select the cash drawer, bank, UPI or wallet where the payment was received.");return;
   }
   const payload={amount,destinationAccountId:account.id,referenceNumber:combinedRef.trim()||undefined};
   const fingerprint=JSON.stringify({transactionId:selected.transactionId,...payload});
@@ -430,9 +430,9 @@ export default function CardDueClearingPage(){
      <div className="mt-4 grid gap-3 sm:grid-cols-3">
       <label><span className="mb-1 block text-[11px] font-bold">Customer paid (₹)</span>
        <input className="app-control money" value={formatAmount(combinedAmount)} onChange={e=>{setCombinedAmount(amountInput(e.target.value));setCombinedNotice(null);}} placeholder="Amount" required/></label>
-      <label><span className="mb-1 block text-[11px] font-bold">Received into cash / bank / UPI</span>
+      <label><span className="mb-1 block text-[11px] font-bold">Received into cash / bank / UPI / wallet</span>
        <SearchableSelect className="app-control" value={combinedAccountId} onChange={e=>{setCombinedAccountId(e.target.value);setCombinedNotice(null);}} required><option value="">Select actual received-in account</option>
-       {liquidAccounts.filter(a=>["CASH","UPI","BANK"].includes(a.accountType)&&a.isActive!==false).map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</SearchableSelect></label>
+       {liquidAccounts.filter(a=>["CASH","UPI","BANK","PROVIDER_WALLET"].includes(a.accountType)&&a.isActive!==false).map(a=><option key={a.id} value={a.id}>{a.accountName} · {a.accountType}</option>)}</SearchableSelect></label>
       <label><span className="mb-1 block text-[11px] font-bold">UPI UTR / reference (optional)</span>
        <input className="app-control" value={combinedRef} onChange={e=>setCombinedRef(e.target.value)} placeholder="Payment reference"/></label>
      </div>

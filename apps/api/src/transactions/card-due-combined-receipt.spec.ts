@@ -128,6 +128,12 @@ describe('customer-wide Card Due combined payment',()=>{
   await cash.service.addCombinedReceipt('new-tx',request,'staff-1',RoleName.STAFF);
   expect(cash.validation.requireOpenCashDesk).toHaveBeenCalledTimes(1);
  });
+ it('accepts a provider wallet as the received-in account and posts to its ledger',async()=>{
+  const wallet=fixture({accountType:AccountType.PROVIDER_WALLET,twoCases:true});
+  await wallet.service.addCombinedReceipt('new-tx',request,'staff-1',RoleName.STAFF);
+  expect(wallet.validation.requireOpenCashDesk).not.toHaveBeenCalled();
+  expect(wallet.ledger.post.mock.calls[0][4]).toEqual(expect.arrayContaining([expect.objectContaining({ledgerAccountId:'bank-ledger',entryType:EntryType.DEBIT,amount:3600})]));
+ });
  it('rejects amount exceeding all Card Due balances before posting',async()=>{
   const f=fixture({principal:1200,commission:240});
   await expect(f.service.addCombinedReceipt('new-tx',request,'staff-1',RoleName.STAFF)).rejects.toThrow('total open Card Due');

@@ -563,8 +563,8 @@ export class CardDueClearingService {
         tx, dto.destinationAccountId, 'Combined Card Due receipt account',
       );
       if (account.accountType !== AccountType.CASH && account.accountType !== AccountType.BANK &&
-          account.accountType !== AccountType.UPI) {
-        throw new BadRequestException('Choose a cash drawer, bank or UPI account for this receipt');
+          account.accountType !== AccountType.UPI && account.accountType !== AccountType.PROVIDER_WALLET) {
+        throw new BadRequestException('Choose a cash drawer, bank, UPI or wallet account for this receipt');
       }
       if (actorRole === RoleName.STAFF && account.accountType === AccountType.CASH &&
           account.accountName === 'Main Cash Reserve') {
