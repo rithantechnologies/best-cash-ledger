@@ -51,6 +51,16 @@ export default function CardSwipeReportPage(){
  const [report,setReport]=useState<Report|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
  const [payoutId,setPayoutId]=useState<string|null>(null),[reportRevision,setReportRevision]=useState(0);
  const [pendingSearch,setPendingSearch]=useState("");
+ // Links from a customer's Card Ledger retain the same business-day selection.
+ useEffect(()=>{
+  const params=new URLSearchParams(window.location.search);
+  const selectedFrom=params.get("from"),selectedTo=params.get("to");
+  if(selectedFrom&&selectedTo&&/^\d{4}-\d{2}-\d{2}$/.test(selectedFrom)&&/^\d{4}-\d{2}-\d{2}$/.test(selectedTo)&&
+    reportIsoDate(indianDate(selectedFrom))===selectedFrom&&reportIsoDate(indianDate(selectedTo))===selectedTo&&selectedFrom<=selectedTo){
+   setFromText(indianDate(selectedFrom));setToText(indianDate(selectedTo));
+  }
+  if(params.get("customerId"))setCustomerId(params.get("customerId")!);
+ },[]);
  useEffect(()=>{Promise.all([apiFetch<Option[]>("/customers"),apiFetch<Option[]>("/providers?includeInactive=true")])
  .then(([c,p])=>{setCustomers(c);setProviders(p);}).catch(()=>setError("Could not load customer/provider filters."));},[]);
  useEffect(()=>{
@@ -61,7 +71,11 @@ export default function CardSwipeReportPage(){
   .finally(()=>{if(active)setLoading(false);});
   return()=>{active=false;};
  },[from,to,datesValid,customerId,providerId,reportRevision]);
- function range(which:string){setToText(indianDate(today));setFromText(indianDate(which==="today"?today:which==="week"?shift(today,-6):today.slice(0,8)+"01"));}
+ function range(which:string){
+  const end=which==="yesterday"?shift(today,-1):today;
+  const begin=which==="all"?"1900-01-01":which==="week"?shift(today,-6):which==="month"?today.slice(0,8)+"01":end;
+  setFromText(indianDate(begin));setToText(indianDate(end));
+ }
  function csv(){
   if(!report)return;
   const s=report.summary;const values:(string|number)[][]=[cols,...report.rows.map(rowCsv),["TOTAL","","","","","","",s.swipeAmount,s.gatewayFee,s.customerFee,s.payoutFee,s.netProfit,s.payableAmount,s.paidAmount,s.remainingAmount,"","","","","","","","",""]];
@@ -88,10 +102,10 @@ export default function CardSwipeReportPage(){
    <div className="flex flex-wrap gap-2"><button type="button" onClick={pdfExport} disabled={loading||!report||pdfBusy} className="rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{pdfBusy?"Preparing PDF…":"Download PDF"}</button><button type="button" onClick={csv} disabled={loading||!report} className="rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Download CSV</button><Link href="/reports/export" className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-bold">Full Excel Export</Link></div>
   </div>
   <Surface className="mb-4 p-4">
-   <div className="flex flex-wrap gap-2">{[["today","Today"],["week","Last 7 Days"],["month","This Month"]].map(([key,label])=><button type="button" key={key} onClick={()=>range(key)} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">{label}</button>)}</div>
+   <div className="flex flex-wrap gap-2">{[["today","Today"],["yesterday","Yesterday"],["week","Last 7 Days"],["month","This Month"],["all","All Time"]].map(([key,label])=><button type="button" key={key} onClick={()=>range(key)} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">{label}</button>)}</div>
    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-    <label className="text-xs font-bold">From (DD-MM-YYYY)<input className="app-control mt-1 w-full" type="text" inputMode="numeric" maxLength={10} placeholder="DD-MM-YYYY" value={fromText} onChange={e=>setFromText(e.target.value)}/></label>
-    <label className="text-xs font-bold">To (DD-MM-YYYY)<input className="app-control mt-1 w-full" type="text" inputMode="numeric" maxLength={10} placeholder="DD-MM-YYYY" value={toText} onChange={e=>setToText(e.target.value)}/></label>
+    <label className="text-xs font-bold">From (DD-MM-YYYY)<input aria-label="From calendar date" className="app-control mt-1 mb-1 w-full" type="date" value={from} onChange={e=>setFromText(indianDate(e.target.value))}/><input className="app-control mt-1 w-full" type="text" inputMode="numeric" maxLength={10} placeholder="DD-MM-YYYY" value={fromText} onChange={e=>setFromText(e.target.value)}/></label>
+    <label className="text-xs font-bold">To (DD-MM-YYYY)<input aria-label="To calendar date" className="app-control mt-1 mb-1 w-full" type="date" value={to} onChange={e=>setToText(indianDate(e.target.value))}/><input className="app-control mt-1 w-full" type="text" inputMode="numeric" maxLength={10} placeholder="DD-MM-YYYY" value={toText} onChange={e=>setToText(e.target.value)}/></label>
     <label className="text-xs font-bold">Customer<SearchableSelect className="app-control mt-1 w-full" value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">All customers</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</SearchableSelect></label>
     <label className="text-xs font-bold">Provider<SearchableSelect className="app-control mt-1 w-full" value={providerId} onChange={e=>setProviderId(e.target.value)}><option value="">All providers</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></label>
    </div>

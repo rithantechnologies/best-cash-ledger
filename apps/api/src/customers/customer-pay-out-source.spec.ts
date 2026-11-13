@@ -109,6 +109,19 @@ describe('Pay Out source suggestions from Pay In', () => {
         accountName: 'PaySwitch Wallet',
         transactionNumber: 'PAYOUT-1',
       });
+    const swipeDay = await service.getCardLedger('customer-1', undefined, '2026-10-16', '2026-10-16');
+    expect(swipeDay.period.swipeSummary).toEqual({
+      grossSwipe: 4100, customerCharges: 100, netSwipePayable: 4000, swipeCount: 1,
+    });
+    expect(swipeDay.period.rows.map(row => row.kind)).toEqual(['CARD_SWIPE']);
+    expect(swipeDay.period.totals).toMatchObject({
+      credit: 4000, debit: 0, openingBalance: 0, balance: 4000,
+    });
+    const payoutDay = await service.getCardLedger('customer-1', undefined, '2026-10-17', '2026-10-17');
+    expect(payoutDay.period.swipeSummary.swipeCount).toBe(0);
+    expect(payoutDay.period.totals.openingBalance).toBe(4000);
+    // Date filters cannot change current payout obligations or funding suggestions.
+    expect(payoutDay.payOutSources).toEqual(result.payOutSources);
   });
 
   it('returns original swipe provider, gateway, charges and card for a pending payout', async () => {

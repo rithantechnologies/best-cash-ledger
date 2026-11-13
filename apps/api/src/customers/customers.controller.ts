@@ -63,8 +63,8 @@ export class CustomersController {
   }
 
   @Get(':id/card-ledger')
-  cardLedger(@Param('id') id: string, @Query('cardId') cardId?: string) {
-    return this.customers.getCardLedger(id, cardId);
+  cardLedger(@Param('id') id: string, @Query('cardId') cardId?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.customers.getCardLedger(id, cardId, from, to);
   }
 
   @Post(':id/card-ledger-entry')

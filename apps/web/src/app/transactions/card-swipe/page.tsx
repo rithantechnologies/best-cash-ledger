@@ -1012,6 +1012,7 @@ export default function CardSwipePage(){
   return <AppShell><><form onSubmit={submit} className="swipe-commerce-page">
     <div className="mx-auto max-w-6xl pb-28 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-5 lg:pb-24">
       <div className="space-y-3">
+        <div className="flex justify-end"><Link href="/reports/card-swipes" className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--accent)]">Card Swipe reports · Today / Yesterday / Date Range →</Link></div>
         {error?<div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>:null}
 
         <Surface className="entry-sheet overflow-visible">

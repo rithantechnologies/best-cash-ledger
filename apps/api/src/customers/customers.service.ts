@@ -7,6 +7,7 @@ import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.s
 import { JournalEntry, LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { findCustomerIdsForSearch } from './customer-search-filter.js';
+import { cardLedgerDateWindow } from './card-ledger-date-window.js';
 import { CreateCustomerDto } from './dto/create-customer.dto.js';
 import { CreateQuickCustomerCardDto } from './dto/create-quick-customer-card.dto.js';
 import { CreateCardDto } from './dto/create-card.dto.js';
@@ -1304,7 +1305,8 @@ export class CustomersService {
     });
   }
 
-  async getCardLedger(id: string, cardId?: string) {
+  async getCardLedger(id: string, cardId?: string, from?: string, to?: string) {
+    const periodWindow = cardLedgerDateWindow(from, to);
     const customer = await this.prisma.customer.findUnique({
       where: { id },
       select: {
@@ -1748,6 +1750,41 @@ export class CustomersService {
       netSwipePayable: money(swipes.reduce((sum, row) => sum + Number(row.customerPayableAmount), 0)),
       swipeCount: swipes.length,
     };
+    // Display-only business-date totals. The full ledger above remains the source
+    // for matching, funding suggestions and current customer obligations.
+    const withinPeriod = (at: Date) => !periodWindow ||
+      (at >= periodWindow.start && at < periodWindow.end);
+    const periodRows = rows.filter(row => withinPeriod(new Date(row.at)));
+    const periodSwipes = swipes.filter(swipe => withinPeriod(swipe.transaction.transactionAt));
+    const periodSummary = {
+      grossSwipe: money(periodSwipes.reduce((sum, row) => sum + Number(row.swipeAmount), 0)),
+      customerCharges: money(periodSwipes.reduce((sum, row) => sum + Number(row.commissionAmount), 0)),
+      netSwipePayable: money(periodSwipes.reduce((sum, row) => sum + Number(row.customerPayableAmount), 0)),
+      swipeCount: periodSwipes.length,
+    };
+    const periodOpening = periodWindow
+      ? (rows.filter(row => new Date(row.at) < periodWindow.start).at(-1)?.closingBalance ?? 0)
+      : 0;
+    // This is the balance AS OF the selected end date, not just the period's net.
+    const periodClosing = periodWindow
+      ? (rows.filter(row => new Date(row.at) < periodWindow.end).at(-1)?.closingBalance ?? 0)
+      : runningBalance;
+    const periodDebit = money(periodRows.reduce((sum, row) => sum + row.debit, 0));
+    const periodCredit = money(periodRows.reduce((sum, row) => sum + row.credit, 0));
+    const period = {
+      from: periodWindow?.from ?? null,
+      to: periodWindow?.to ?? null,
+      rows: periodRows,
+      swipeSummary: periodSummary,
+      totals: {
+        debit: periodDebit,
+        credit: periodCredit,
+        openingBalance: periodOpening,
+        balance: periodClosing,
+        position: periodClosing > 0.001 ? 'TO_PAY_CUSTOMER' :
+          periodClosing < -0.001 ? 'TO_RECOVER_FROM_CUSTOMER' : 'SETTLED',
+      },
+    };
     const payInSources = manualEntries
       .filter(entry =>
         entry.direction === 'PAY_IN' &&
@@ -1859,6 +1896,7 @@ export class CustomersService {
       availableAdvances,
       availableUnallocatedPayOuts,
       swipeSummary,
+      period,
       payInSources,
       payOutSources,
       cards: customer.cards.map((card) => ({
