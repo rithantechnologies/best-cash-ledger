@@ -16,7 +16,8 @@ type UpiDestination={id:string;accountName:string;upiId:string|null;mobileNumber
 type PayoutCard={id:string;bankName:string;lastFourDigits:string;nickname:string|null;isActive:boolean};
 type PayoutBeneficiary={id:string;beneficiaryName:string;accounts:{id:string;bankName:string|null;accountReference:string|null;upiId:string|null;mobileNumber:string|null;isActive:boolean}[]};
 type Payable={id:string;originalAmount:string;paidAmount:string;offsetAmount:string;remainingAmount:string;dueAt:string;status:string;customer:{id:string;fullName:string;customerCode:string;mobile:string|null;bankAccounts:BankDestination[];upiAccounts:UpiDestination[];cards:PayoutCard[];beneficiaries:PayoutBeneficiary[]};sourceTransaction:{transactionNumber:string;transactionType:string;cardSwipe:{swipeAmount:string;commissionAmount:string;providerChargeAmount:string;customerCard:{id:string;bankName:string;lastFourDigits:string}|null}|null}};
-type Account={id:string;accountName:string;accountType:string;currentBalance:number};
+type Account={id:string;accountName:string;accountType:string;currentBalance:number;providerId:string|null};
+type Provider={id:string;payoutChargeRules:{minAmount:string;maxAmount:string|null;calculationType:"PERCENTAGE"|"FIXED";value:string}[]};
 type Paged={items:Payable[];pagination:{page:number;pageSize:number;total:number;totalPages:number}};
 type Reconciliation={inspected:number;issueCount:number;issues:{id:string;customer:string;transactionNumber:string;storedRemainingAmount:number;expectedRemainingAmount:number;reasons:string[]}[]};
 const money=(v:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR"}).format(Number(v));
@@ -32,8 +33,16 @@ function payableDisplay(p:Payable){
 }
 const serviceLabel=(v:string)=>({AEPS_WITHDRAWAL:"AEPS",CARD_SWIPE:"Card Swipe",MICRO_ATM:"Micro ATM",ATM_WITHDRAWAL:"ATM Withdrawal",CASH_TRANSFER:"Cash Transfer",CUSTOMER_PAYOUT:"Customer Payout"} as Record<string,string>)[v]??v.replaceAll("_"," ").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
 
+function configuredCharge(providers:Provider[],account:Account|undefined,amount:number){
+ if(!account||account.accountType!=="PROVIDER_WALLET"||!account.providerId||amount<=0)return null;
+ const rules=providers.find(p=>p.id===account.providerId)?.payoutChargeRules??[];
+ if(!rules.length)return null;
+ const rule=rules.find(r=>amount+0.001>=Number(r.minAmount)&&(r.maxAmount===null||amount<=Number(r.maxAmount)+0.001));
+ if(!rule)return 0;
+ return Math.round((rule.calculationType==="PERCENTAGE"?amount*Number(rule.value)/100:Number(rule.value))*100)/100;
+}
 export default function PayablesPage(){
- const [items,setItems]=useState<Payable[]>([]),[accounts,setAccounts]=useState<Account[]>([]);
+ const [items,setItems]=useState<Payable[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[providers,setProviders]=useState<Provider[]>([]);
  const [dueReport,setDueReport]=useState<NetBalanceReport|null>(null),[dueDate,setDueDate]=useState("");
  const [downloading,setDownloading]=useState(false);
  const [reconciliation,setReconciliation]=useState<Reconciliation|null>(null);
@@ -55,14 +64,17 @@ export default function PayablesPage(){
  const sourceIsCash=sourceAccount?.accountType==="CASH";
  const walletSource=sourceAccount?.accountType==="PROVIDER_WALLET";
  const payoutAmount=Number(amount||0);
- const payoutCharge=walletSource?Number(charge||0):0;
+ const autoCharge=configuredCharge(providers,sourceAccount,payoutAmount);
+ const payoutCharge=walletSource?(charge===""&&autoCharge!==null?autoCharge:Number(charge||0)):0;
  const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
  const payoutDetailsRequired=["OTHER","OTHER_CARD"].includes(destinationType);
  const invalidPayoutDetails=payoutDetailsRequired&&!destinationDetails.trim();
  const payoutAmountInvalid=!Number.isFinite(payoutAmount)||payoutAmount<=0||payoutAmount>Number(selected?.remainingAmount??0)+0.001;
  function openPayout(payable:Payable){
   paySaveRetryRef.current=null;
-  setSelected(payable);setAmount(payable.remainingAmount);setCharge("");setSource("");setDestination(defaultPaidToCustomerBank(payable.customer.bankAccounts));
+  const remembered=typeof window!=="undefined"?localStorage.getItem("cashledger_card_payout_source")||"":"";
+  const defaultSource=accounts.find(a=>a.id===remembered)??(walletPayoutAccounts.length===1?walletPayoutAccounts[0]:undefined);
+  setSelected(payable);setAmount(payable.remainingAmount);setCharge("");setSource(defaultSource?.id??"");setDestination(defaultSource?.accountType==="CASH"?"CASH":defaultPaidToCustomerBank(payable.customer.bankAccounts));
   setDestinationDetails("");setReference("");setPaymentNotes("");setPayoutError("");
  }
  function closePayout(){if(busy)return;setSelected(null);setPayoutError("");paySaveRetryRef.current=null;}
@@ -78,9 +90,10 @@ export default function PayablesPage(){
   return Promise.all([
    apiFetch<Paged>("/payables?"+params.toString()),
    apiFetch<Account[]>("/dashboard/accounts"),
+   apiFetch<Provider[]>("/providers"),
    apiFetch<NetBalanceReport>("/payables/due-report?"+summaryParams.toString()),
   ])
-   .then(([p,a,r])=>{setItems(p.items);setPagination(p.pagination);setAccounts(a);setDueReport(r);setError("");})
+   .then(([p,a,pr,r])=>{setItems(p.items);setPagination(p.pagination);setAccounts(a);setProviders(pr);setDueReport(r);setError("");})
    .finally(()=>setLoading(false));
  }
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"");}catch{}},[]);
@@ -106,6 +119,7 @@ export default function PayablesPage(){
    await apiFetch("/payables/"+selected.id+"/payments",{
     method:"POST",headers:{"idempotency-key":key},body:JSON.stringify(payload),
    });
+   try{localStorage.setItem("cashledger_card_payout_source",source);}catch{}
    setSelected(null);setAmount("");setCharge("");setSource("");setDestination("");
    setDestinationDetails("");setReference("");setPaymentNotes("");paySaveRetryRef.current=null;
    try{await load();}catch{setError("Payment saved. Refresh to see the updated balance. Do not pay again.");}
@@ -206,7 +220,7 @@ export default function PayablesPage(){
     </div>
     <form id="pay-form" onSubmit={pay} className="grid gap-3 sm:grid-cols-2">
      <Field label="Paid from *" className="sm:col-span-2" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance):undefined}>
-      <SearchableSelect className={control} value={source} onChange={e=>{const next=accounts.find(x=>x.id===e.target.value);setSource(e.target.value);setDestination(current=>next?.accountType==="CASH"?"CASH":current&&current!=="CASH"?current:defaultPaidToCustomerBank(selected?.customer.bankAccounts));setDestinationDetails("");setPayoutError("");if(next?.accountType!=="PROVIDER_WALLET")setCharge("");}} required searchPlaceholder="Search wallet or bank account…">
+      <SearchableSelect className={control} value={source} onChange={e=>{const next=accounts.find(x=>x.id===e.target.value);setSource(e.target.value);setDestination(current=>next?.accountType==="CASH"?"CASH":current&&current!=="CASH"?current:defaultPaidToCustomerBank(selected?.customer.bankAccounts));setDestinationDetails("");setPayoutError("");setCharge("");}} required searchPlaceholder="Search wallet or bank account…">
        <option value="">Select payout source</option>
        <optgroup label="Wallets">{walletPayoutAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</optgroup>
        <optgroup label="Bank / UPI accounts">{bankPayoutAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName} · {money(a.currentBalance)} available</option>)}</optgroup>
@@ -232,7 +246,7 @@ export default function PayablesPage(){
       {payoutDetailsRequired?<input aria-label={destinationType==="OTHER_CARD"?"Other card details":"Other recipient details"} className={control+" mt-2"} required value={destinationDetails} onChange={e=>{setDestinationDetails(e.target.value);setPayoutError("");}} maxLength={160} placeholder={destinationType==="OTHER_CARD"?"Cardholder, bank and last 4 digits only":"Recipient name and bank / UPI details"}/>:null}
      </Field>
      <Field label="Amount to pay"><input className={control} type="number" step="0.01" max={selected.remainingAmount} min="0.01" value={amount} onChange={e=>{setAmount(e.target.value);setPayoutError("");}} required/></Field>
-     {walletSource?<Field label="Wallet charge"><input className={control} type="number" step="0.01" min="0" value={charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
+     {walletSource?<Field label="Wallet charge"><input className={control} type="number" step="0.01" min="0" value={charge===""&&autoCharge!==null?String(autoCharge):charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
      <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder={destinationType==="CASH"?"Optional cash acknowledgement":"UTR / bank reference"}/></Field>
      <Field label="Notes (optional)" className="sm:col-span-2"><input name="cashledger_notes" autoComplete="on" className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Notes"/></Field>
      {payoutError?<p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs font-bold text-rose-800 sm:col-span-2">{payoutError}</p>:null}
