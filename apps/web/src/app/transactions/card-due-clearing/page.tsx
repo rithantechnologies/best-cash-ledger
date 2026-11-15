@@ -19,7 +19,7 @@ type SwipeHistory={id:string;transactionNumber:string;transactionAt:string;gross
 type Recovery={
  id:string;swipeAmount:string;providerChargeAmount:string;providerChargeRate:string;recoveredAt:string;referenceNumber:string|null;
  provider:{name:string};gateway:{gatewayName:string};destinationAccount:Account;
- transaction:{id:string;transactionNumber:string;netAmount:string|null;charges:{amount:string}[]};
+ transaction:{id:string;transactionNumber:string;idempotencyKey:string|null;netAmount:string|null;charges:{amount:string}[]};
 };
 type FeeAssessment={id:string;amount:string;createdAt:string;transaction:{id:string;transactionNumber:string;status:string}};
 type FeeCollection={
@@ -41,7 +41,7 @@ type DuePayable={
  payments:{id:string;amount:string;paymentDate:string;transactionId:string;status:string}[];
  manualLedgerAllocations:{id:string;amount:string;createdAt:string;customerLedgerEntry:{remarks:string;financialAccount:{accountName:string};transaction:{id:string;transactionNumber:string;transactionAt:string}}}[];
 };
-type DueMovement={id:string;at:string;direction:"IN"|"OUT";label:string;amount:number;detail:string;href?:string;affectsBalance?:boolean};
+type DueMovement={id:string;at:string;direction:"IN"|"OUT";label:string;amount:number;detail:string;href?:string;affectsBalance?:boolean;breakdown?:{amount:number;due:string;detail:string;href:string}[]};
 
 const money=(v:string|number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(v||0));
 const num=(v:string)=>Number(v.replace(/,/g,"")||0);
@@ -255,13 +255,14 @@ export default function CardDueClearingPage(){
   e.preventDefault();if(!selected)return;setError("");setSuccess("");
   const amount=num(addRecoveryAmount);
   if(amount<=0||!addProviderId||!addGatewayId||!addRecoveryAccountId){setError("Amount, provider, gateway and receive account are required.");return;}
+  if(amount>Number(selected.principalRemaining)+0.001){setError("Amount exceeds this Card Due's remaining principal. Select another due or use a customer-wide payment.");return;}
   setSaving(true);
   try{
-   await apiFetch("/transactions/card-due-clearings/"+selected.transactionId+"/customer-recovery",{method:"POST",body:JSON.stringify({
+   await apiFetch("/transactions/card-due-clearings/"+selected.transactionId+"/recoveries",{method:"POST",body:JSON.stringify({
     amount,providerId:addProviderId,gatewayId:addGatewayId,destinationAccountId:addRecoveryAccountId,
     referenceNumber:addRecoveryRef||undefined,
    })});
-   setSuccess("Recovery added atomically to the customer ledger.");setAddRecoveryRef("");setAddRecoveryAmount("");await refreshSelected();
+   setSuccess("Recovery applied to this Card Due as one transaction.");setAddRecoveryRef("");setAddRecoveryAmount("");await refreshSelected();
   }catch(err){setError(err instanceof Error?err.message:"Could not add recovery");}finally{setSaving(false);}
  }
 
@@ -322,11 +323,35 @@ export default function CardDueClearingPage(){
  const selectedProfit=calcMoney(commissionEarned-selectedProviderCosts);
  const customerPaid=selectedCustomerRows.reduce((sum,r)=>sum+Number(r.dueAmount),0);
  const customerReceived=selectedCustomerRows.reduce((sum,r)=>sum+r.recoveries.reduce((a,x)=>a+Number(x.swipeAmount),0)+r.manualLedgerAllocations.filter(x=>x.targetType==="CARD_DUE").reduce((a,x)=>a+Number(x.amount),0),0);
+ // Customer-wide gateway recoveries can create several posted allocations from one form submission.
+ // Display those as one receipt, but keep every individual transaction accessible in the breakdown.
+ const recoveryParts=selectedCustomerRows.flatMap(r=>r.recoveries.map(x=>({
+  id:"rec-"+x.id,at:x.recoveredAt,amount:Number(x.swipeAmount),
+  detail:x.provider.name+" · "+x.gateway.gatewayName+" · into "+x.destinationAccount.accountName,
+  href:"/transactions/"+x.transaction.id,due:r.transaction.transactionNumber,
+  key:x.transaction.idempotencyKey,
+ })));
+ const recoveryKeys=new Set(recoveryParts.map(p=>p.key).filter((key):key is string=>!!key));
+ const groupedRecoveryMovements=new Map<string,DueMovement>();
+ for(const part of recoveryParts){
+  const match=part.key?.match(/^(.*):([2-9]\d*)$/);
+  const groupKey=match&&recoveryKeys.has(match[1])?match[1]:(part.key??part.id);
+  const allocation={amount:part.amount,due:part.due,detail:part.detail,href:part.href};
+  const group=groupedRecoveryMovements.get(groupKey);
+  if(group){
+   group.amount=calcMoney(group.amount+part.amount);
+   group.breakdown?.push(allocation);
+   group.detail=part.detail+" · "+group.breakdown?.length+" Card Due allocations";
+   if(new Date(part.at).getTime()<new Date(group.at).getTime())group.at=part.at;
+  }else{
+   groupedRecoveryMovements.set(groupKey,{id:part.id,at:part.at,direction:"IN",label:"Recovery",amount:part.amount,detail:part.detail,href:part.href,breakdown:[allocation]});
+  }
+ }
  const customerReturned=selectedCustomerPayables.reduce((sum,p)=>sum+p.payments.filter(x=>x.status==="COMPLETED").reduce((a,x)=>a+Number(x.amount),0)+p.manualLedgerAllocations.reduce((a,x)=>a+Number(x.amount),0),0);
  const customerBalance=calcMoney(customerPaid+customerReturned-customerReceived);
  const customerMovements:DueMovement[]=[
   ...selectedCustomerRows.map(r=>({id:"pay-"+r.id,at:r.transaction.transactionAt,direction:"OUT" as const,label:"Card payment",amount:Number(r.dueAmount),detail:r.customerCard.bankName+" •••• "+r.customerCard.lastFourDigits+" · from "+r.advanceSourceAccount.accountName,href:"/transactions/"+r.transaction.id})),
-  ...selectedCustomerRows.flatMap(r=>r.recoveries.map(x=>({id:"rec-"+x.id,at:x.recoveredAt,direction:"IN" as const,label:"Recovery",amount:Number(x.swipeAmount),detail:x.provider.name+" · "+x.gateway.gatewayName+" · into "+x.destinationAccount.accountName,href:"/transactions/"+x.transaction.id}))),
+  ...groupedRecoveryMovements.values(),
   ...selectedCustomerRows.flatMap(r=>r.manualLedgerAllocations.map(x=>({id:"manual-in-"+x.id,at:x.customerLedgerEntry.transaction.transactionAt,direction:"IN" as const,label:x.targetType==="CARD_DUE_COMMISSION"?"Commission collected":"Pay In",amount:Number(x.amount),affectsBalance:x.targetType!=="CARD_DUE_COMMISSION",detail:x.customerLedgerEntry.remarks+" · into "+x.customerLedgerEntry.financialAccount.accountName,href:"/transactions/"+x.customerLedgerEntry.transaction.id}))),
   ...selectedCustomerRows.flatMap(r=>r.commissionCollections.map(x=>({id:"fee-"+x.id,at:x.collectedAt,direction:"IN" as const,label:"Commission",amount:Number(x.amount),detail:x.paymentMode+" · into "+x.destinationAccount.accountName+" · income (does not change principal balance)",href:"/transactions/"+x.transaction.id,affectsBalance:false}))),
   ...selectedCustomerPayables.flatMap(x=>x.payments.filter(payment=>payment.status==="COMPLETED").map(payment=>({id:"refund-"+payment.id,at:payment.paymentDate,direction:"OUT" as const,label:"Paid back to customer",amount:Number(payment.amount),detail:"Customer balance payout",href:"/transactions/"+payment.transactionId}))),
@@ -405,14 +430,34 @@ export default function CardDueClearingPage(){
    {customerBalance<-.001&&openCustomerPayable?<div className="border-t border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 sm:px-5"><b>{money(Number(openCustomerPayable.remainingAmount))} to give customer.</b> <Link href={"/payables/"+openCustomerPayable.id} className="font-black underline">Pay now →</Link></div>:null}
    <div className="border-t border-[var(--border)] p-4 sm:p-5">
     <div className="mb-3 flex items-center justify-between"><div><h3 className="text-sm font-black">Customer ledger</h3><p className="text-[11px] text-[var(--text-muted)]">All card payments, recoveries, commission and customer payouts in one running view.</p></div><span className="text-[10px] font-bold text-[var(--text-muted)]">{customerLedger.length} movement{customerLedger.length===1?"":"s"}</span></div>
-    {customerLedger.length?<div className="space-y-2">{[...customerLedger].reverse().map(m=><div key={m.id} className={"rounded-xl border p-3 "+(m.direction==="OUT"?"border-rose-200 bg-rose-50":"border-emerald-200 bg-emerald-50")}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className={"text-sm font-black "+(m.direction==="OUT"?"text-rose-700":"text-emerald-700")}>{m.direction==="OUT"?"−":"+"} {money(m.amount)} · {m.label}</p><p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{m.detail} · {new Date(m.at).toLocaleString("en-IN")}</p></div><div className="shrink-0 text-right"><p className={"money text-xs font-black "+(m.balance>0.001?"text-rose-700":m.balance<-.001?"text-sky-700":"text-emerald-700")}>{m.balance>0.001?"Receive ":m.balance<-.001?"Give ":"Settled "}{money(Math.abs(m.balance))}</p>{m.href?<Link href={m.href} className="text-[10px] font-bold text-[var(--accent)]">Open</Link>:null}</div></div></div>)}</div>:<EmptyState title="No movements yet" description="Save the first card payment to start this customer ledger."/>}
+    {customerLedger.length?<div className="space-y-2">{[...customerLedger].reverse().map(m=>
+     <div key={m.id} className={"rounded-xl border p-3 "+(m.direction==="OUT"?"border-rose-200 bg-rose-50":"border-emerald-200 bg-emerald-50")}>
+      <div className="flex items-start justify-between gap-3">
+       <div className="min-w-0">
+        <p className={"text-sm font-black "+(m.direction==="OUT"?"text-rose-700":"text-emerald-700")}>{m.direction==="OUT"?"−":"+"} {money(m.amount)} · {m.label}</p>
+        <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">{m.detail} · {new Date(m.at).toLocaleString("en-IN")}</p>
+       </div>
+       <div className="shrink-0 text-right">
+        <p className={"money text-xs font-black "+(m.balance>0.001?"text-rose-700":m.balance<-.001?"text-sky-700":"text-emerald-700")}>{m.balance>0.001?"Receive ":m.balance<-.001?"Give ":"Settled "}{money(Math.abs(m.balance))}</p>
+        {m.href&&(!m.breakdown||m.breakdown.length===1)?<Link href={m.href} className="text-[10px] font-bold text-[var(--accent)]">Open</Link>:null}
+       </div>
+      </div>
+      {m.breakdown&&m.breakdown.length>1?<details className="mt-2 rounded-lg border border-emerald-200 bg-white/75 px-3 py-2 text-xs">
+       <summary className="cursor-pointer font-semibold text-emerald-800">View {m.breakdown.length} Card Due allocations (one recovery entered)</summary>
+       <div className="mt-2 space-y-2">
+        {m.breakdown.map((part,i)=><div key={part.href+"-"+i} className="flex items-center justify-between gap-3">
+         <span>{money(part.amount)} · Due {part.due}</span><Link href={part.href} className="shrink-0 font-bold text-[var(--accent)]">Open</Link>
+        </div>)}
+       </div>
+      </details>:null}
+     </div>)}</div>:<EmptyState title="No movements yet" description="Save the first card payment to start this customer ledger."/>}
    </div>
 
    <div className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-3 lg:grid-cols-6">
     {[
-     ["Card paid",selected.dueAmount,"text-rose-600"],
-     ["Recovered",selected.principalRecovered,"text-[var(--money-in)]"],
-     ["To receive",selected.principalRemaining,Number(selected.principalRemaining)>0?"text-rose-600":"text-[var(--money-in)]"],
+     ["This due · paid",selected.dueAmount,"text-rose-600"],
+     ["This due · recovered",selected.principalRecovered,"text-[var(--money-in)]"],
+     ["This due · to receive",selected.principalRemaining,Number(selected.principalRemaining)>0?"text-rose-600":"text-[var(--money-in)]"],
      ["Commission earned",commissionEarned,"text-[var(--money-in)]"],
      ["Commission to collect",selectedCustomerRows.reduce((sum,r)=>sum+Number(r.commissionRemaining),0),"text-amber-700"],
      ["Provider / payout costs",selectedProviderCosts,selectedProviderCosts>0?"text-[var(--money-out)]":""],
@@ -456,7 +501,7 @@ export default function CardDueClearingPage(){
     </form>
 
     <form onSubmit={addRecovery} className="rounded-2xl border border-[var(--border)] p-3.5">
-     <h3 className="text-sm font-black">Card / gateway recovery</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Only for a real provider-processed recovery with gateway fees. For a normal cash, bank or UPI receipt, use Combined customer payment above. Suggested principal: {money(selected.principalRemaining)}.</p>
+     <h3 className="text-sm font-black">Card / gateway recovery</h3><p className="mt-1 text-[11px] text-[var(--text-muted)]">Only for a real provider-processed recovery with gateway fees. Applies to this selected Card Due only, as one transaction (no automatic split). For a normal cash, bank or UPI receipt, use Combined customer payment above. Remaining principal: {money(selected.principalRemaining)}.</p>
      <div className="mt-3 space-y-2">
       <input className="app-control money" value={formatAmount(addRecoveryAmount)} onChange={e=>setAddRecoveryAmount(amountInput(e.target.value))} placeholder="Amount"/>
       <SearchableSelect className="app-control" value={addProviderId} onChange={e=>setAddProviderId(e.target.value)} required><option value="">Provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect>
