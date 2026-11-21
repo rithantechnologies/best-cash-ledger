@@ -52,6 +52,19 @@ describe('Payable payout destinations',()=>{
    expect.objectContaining({ledgerAccountId:'customer-liability',amount:2500}),
   ]));
  });
+ it('rejects a payout charge accidentally equal to the customer payout before ledger changes',async()=>{
+  const f=fixture();f.dto.chargeAmount=2500;
+  await expect(f.service.pay('payable1',f.dto,'owner1',RoleName.OWNER)).rejects.toThrow(/cannot equal or exceed/);
+  expect(f.tx.transaction.create).not.toHaveBeenCalled();
+  expect(f.tx.payablePayment.create).not.toHaveBeenCalled();
+  expect(f.ledger.post).not.toHaveBeenCalled();
+ });
+ it('rejects an abnormally high manual wallet fee before any posting',async()=>{
+  const f=fixture();f.dto.chargeAmount=500;
+  await expect(f.service.pay('payable1',f.dto,'owner1',RoleName.OWNER)).rejects.toThrow(/exceeds 10%/);
+  expect(f.tx.payablePayment.create).not.toHaveBeenCalled();
+  expect(f.ledger.post).not.toHaveBeenCalled();
+ });
  it('rejects card IDs belonging to another customer before posting',async()=>{
   const f=fixture();f.tx.customerCard.findFirst.mockResolvedValue(null);
   await expect(f.service.pay('payable1',f.dto,'owner1',RoleName.OWNER)).rejects.toThrow('does not belong');

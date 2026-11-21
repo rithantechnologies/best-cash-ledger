@@ -8,6 +8,7 @@ import { AppShell } from "@/components/app-shell";
 import { DetailStat, EmptyState, Field, Modal, PageFrame, PageLoader, PanelHeader, StatusBadge, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { defaultPaidToCustomerBank } from "@/lib/customer-bank-payout-default.mjs";
+import { payoutChargeProblem, highPayoutChargeWarning } from "@/lib/customer-payout-charge-safety.mjs";
 
 type Payment={
  id:string;paymentDate:string;amount:string;destinationType:string|null;destinationLabel:string|null;destinationReference:string|null;destinationDetails:Record<string,unknown>|null;referenceNumber:string|null;notes:string|null;status:string;
@@ -94,6 +95,8 @@ export default function PayableDetailPage(){
  const roundingDifference=cashRoundedAmount===null?0:Math.round((Number(item.remainingAmount)-cashRoundedAmount)*100)/100;
  const autoPayoutCharge=configuredPayoutCharge(providers,sourceAccount,payoutAmount);
  const payoutCharge=walletSource?(autoPayoutCharge===null?Number(charge||0):autoPayoutCharge):0;
+ const feeProblem=walletSource?payoutChargeProblem(payoutAmount,payoutCharge,autoPayoutCharge!==null):"";
+ const feeWarning=walletSource?highPayoutChargeWarning(payoutAmount,payoutCharge):"";
  const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
  const chosenRecorded=(item.availableUnallocatedPayOuts||[]).find(a=>a.id===recordedId);
  const recordedMax=Math.min(Number(item.remainingAmount),chosenRecorded?.remainingUnallocated||0);
@@ -167,7 +170,7 @@ export default function PayableDetailPage(){
   finally{setBusy(false);}
  }
  const canPay=Number(item.remainingAmount)>0&&!["PAID","CANCELLED","REVERSED"].includes(item.status);
- async function submitPayment(e:FormEvent){e.preventDefault();if(!item||!canPay||!source||!destinationType||invalidPayoutDetails)return;setBusy(true);setError("");try{await apiFetch("/payables/"+item.id+"/payments",{method:"POST",body:JSON.stringify({amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,destinationType,destinationId,destinationDetails:payoutDetailsRequired?destinationDetails.trim():undefined,referenceNumber:reference||undefined,notes:notes||undefined})});setPayOpen(false);setAmount("");setCharge("");setSource("");setDestination("");setDestinationDetails("");setReference("");setNotes("");await load();}catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}}
+ async function submitPayment(e:FormEvent){e.preventDefault();if(!item||!canPay||!source||!destinationType||invalidPayoutDetails||feeProblem)return;setBusy(true);setError("");try{await apiFetch("/payables/"+item.id+"/payments",{method:"POST",body:JSON.stringify({amount:payoutAmount,chargeAmount:payoutCharge,sourceAccountId:source,destinationType,destinationId,destinationDetails:payoutDetailsRequired?destinationDetails.trim():undefined,referenceNumber:reference||undefined,notes:notes||undefined})});setPayOpen(false);setAmount("");setCharge("");setSource("");setDestination("");setDestinationDetails("");setReference("");setNotes("");await load();}catch(err){setError(err instanceof Error?err.message:"Payment failed");}finally{setBusy(false);}}
  function openPayment(){if(!item)return;setAmount(item.remainingAmount);setCharge("");setSource("");setDestination(defaultPaidToCustomerBank(item.customer.bankAccounts));setDestinationDetails("");setReference("");setNotes("");setPayOpen(true);}
 
  return <AppShell><PageFrame width="max-w-6xl">
@@ -256,7 +259,7 @@ export default function PayableDetailPage(){
     <p className="text-xs text-[var(--text-muted)]">Cash requires an open drawer session. This action is auditable and cannot be posted twice.</p>
    </form>
   </Modal>
-  <Modal open={payOpen} title={"Pay "+item.customer.fullName} description={serviceLabel(item.sourceTransaction.transactionType)+" · Remaining "+money(item.remainingAmount)} onClose={()=>setPayOpen(false)} footer={<button form="detail-pay-form" disabled={busy||sourceShort||payoutAmount<=0||!source||!destinationType} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
+  <Modal open={payOpen} title={"Pay "+item.customer.fullName} description={serviceLabel(item.sourceTransaction.transactionType)+" · Remaining "+money(item.remainingAmount)} onClose={()=>setPayOpen(false)} footer={<button form="detail-pay-form" disabled={busy||sourceShort||payoutAmount<=0||!source||!destinationType||!!feeProblem} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Recording payout…":"Record payment"}</button>}>
    <div className="space-y-3">
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
      <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Payable for</p>
@@ -286,7 +289,12 @@ export default function PayableDetailPage(){
      </Field>
      <Field label="Customer payout"><input className={control} type="number" step="0.01" max={destinationType==="CASH"?Math.ceil(Number(item.remainingAmount)):item.remainingAmount} min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} required/></Field>
      {destinationType==="CASH"&&cashRoundedAmount!==null&&cashRoundedAmount>0?<div className="sm:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">Nearest-rupee cash: <strong>{money(cashRoundedAmount)}</strong> · Non-cash rounding adjustment: <strong>{money(Math.abs(roundingDifference))}</strong>. The customer payable is settled without a wallet transfer. <button type="button" className="ml-2 underline font-bold" onClick={()=>setAmount(String(cashRoundedAmount))}>Use rounded cash</button></div>:null}
-     {walletSource?<Field label="Wallet payout charge" hint={autoPayoutCharge===null?"Deducted from business profit":"Auto from provider payout slab · deducted in addition to payout"}><input className={control} type="number" step="0.01" min="0" value={autoPayoutCharge===null?charge:String(autoPayoutCharge)} readOnly={autoPayoutCharge!==null} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
+     {walletSource?<Field label="Provider fee (extra business expense)" hint={autoPayoutCharge===null?"Enter only the provider fee — NOT the customer payout":"Auto from provider payout slab · deducted in addition to payout"}><input className={control} type="number" step="0.01" min="0" value={autoPayoutCharge===null?charge:String(autoPayoutCharge)} readOnly={autoPayoutCharge!==null} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
+     <div className="sm:col-span-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3 text-xs">
+      <div className="grid grid-cols-3 gap-2"><span>Customer receives<br/><strong className="text-[var(--text)]">{money(payoutAmount)}</strong></span><span>Provider fee<br/><strong className="text-[var(--text)]">{money(payoutCharge)}</strong></span><span>Wallet / account debited<br/><strong className="text-[var(--text)]">{money(payoutAmount+payoutCharge)}</strong></span></div>
+      <p className="mt-2 text-[var(--text-muted)]">Only the provider fee reduces profit. The customer payout is principal, not a charge.</p>
+      {feeProblem?<p role="alert" className="mt-2 font-bold text-rose-700">{feeProblem}</p>:feeWarning?<p role="status" className="mt-2 font-bold text-amber-700">{feeWarning}</p>:null}
+     </div>
      <Field label="Paid from" hint={sourceAccount?"Available "+money(sourceAccount.currentBalance)+" · Debit "+money(payoutAmount+payoutCharge):destinationType==="CASH"?"Choose the cash drawer handing over the cash":"Choose bank, UPI or wallet sending the payment"}>
       <SearchableSelect className={control} value={source} onChange={e=>{setSource(e.target.value);const a=accounts.find(x=>x.id===e.target.value);if(a?.accountType!=="PROVIDER_WALLET")setCharge("");}} disabled={!destinationType} required searchPlaceholder="Search source account…">
        <option value="">{destinationType?"Select source account":"Select Pay to first"}</option>

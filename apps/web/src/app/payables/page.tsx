@@ -9,6 +9,7 @@ import { AppShell } from "@/components/app-shell";
 import { EmptyState, Field, Modal, PageFrame, PageLoader, Pager, SectionHeading, StatusBadge, Surface, Toolbar } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { defaultPaidToCustomerBank } from "@/lib/customer-bank-payout-default.mjs";
+import { payoutChargeProblem, highPayoutChargeWarning } from "@/lib/customer-payout-charge-safety.mjs";
 import { PayablesNetBalanceReport, type NetBalanceReport } from "@/components/payables-net-balance-report";
 
 type BankDestination={id:string;accountHolderName:string;bankName:string;accountReference:string;ifsc:string|null;isActive:boolean};
@@ -65,7 +66,9 @@ export default function PayablesPage(){
  const walletSource=sourceAccount?.accountType==="PROVIDER_WALLET";
  const payoutAmount=Number(amount||0);
  const autoCharge=configuredCharge(providers,sourceAccount,payoutAmount);
- const payoutCharge=walletSource?(charge===""&&autoCharge!==null?autoCharge:Number(charge||0)):0;
+ const payoutCharge=walletSource?(autoCharge!==null?autoCharge:Number(charge||0)):0;
+ const feeProblem=walletSource?payoutChargeProblem(payoutAmount,payoutCharge,autoCharge!==null):"";
+ const feeWarning=walletSource?highPayoutChargeWarning(payoutAmount,payoutCharge):"";
  const sourceShort=payoutAmount>0&&sourceAccount?payoutAmount+payoutCharge>sourceAccount.currentBalance+0.001:false;
  const payoutDetailsRequired=["OTHER","OTHER_CARD"].includes(destinationType);
  const invalidPayoutDetails=payoutDetailsRequired&&!destinationDetails.trim();
@@ -102,7 +105,7 @@ export default function PayablesPage(){
 
  async function pay(e:FormEvent){
   e.preventDefault();if(!selected||busy)return;
-  if(payoutAmountInvalid||!destinationType||invalidPayoutDetails||!source||sourceShort){
+  if(payoutAmountInvalid||!destinationType||invalidPayoutDetails||!source||sourceShort||feeProblem){
    setPayoutError("Check the amount, source and recipient.");return;
   }
   const payload={
@@ -211,7 +214,7 @@ export default function PayablesPage(){
   </>}
 
   <Modal open={!!selected} title={selected?"Pay "+selected.customer.fullName:"Record payout"} description={selected?"Remaining "+money(selected.remainingAmount):undefined} onClose={closePayout}
-   footer={<button form="pay-form" disabled={busy||sourceShort||payoutAmountInvalid||!source||!destinationType||invalidPayoutDetails} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Record payment"}</button>}>
+   footer={<button form="pay-form" disabled={busy||sourceShort||payoutAmountInvalid||!source||!destinationType||invalidPayoutDetails||!!feeProblem} className="app-primary-button min-h-11 w-full text-sm font-bold disabled:opacity-50">{busy?"Saving…":"Record payment"}</button>}>
    {selected?<div className="space-y-3">
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
      <p className="text-sm font-black">{selected.customer.fullName}</p>
@@ -246,7 +249,12 @@ export default function PayablesPage(){
       {payoutDetailsRequired?<input aria-label={destinationType==="OTHER_CARD"?"Other card details":"Other recipient details"} className={control+" mt-2"} required value={destinationDetails} onChange={e=>{setDestinationDetails(e.target.value);setPayoutError("");}} maxLength={160} placeholder={destinationType==="OTHER_CARD"?"Cardholder, bank and last 4 digits only":"Recipient name and bank / UPI details"}/>:null}
      </Field>
      <Field label="Amount to pay"><input className={control} type="number" step="0.01" max={selected.remainingAmount} min="0.01" value={amount} onChange={e=>{setAmount(e.target.value);setPayoutError("");}} required/></Field>
-     {walletSource?<Field label="Wallet charge"><input className={control} type="number" step="0.01" min="0" value={charge===""&&autoCharge!==null?String(autoCharge):charge} onChange={e=>setCharge(e.target.value)} placeholder="0.00"/></Field>:<div/>}
+     {walletSource?<Field label="Provider fee (extra business expense)" hint={autoCharge!==null?"Set by provider payout slab":"Enter only the provider fee — NOT the customer payout"}><input className={control} type="number" step="0.01" min="0" value={autoCharge!==null?String(autoCharge):charge} readOnly={autoCharge!==null} onChange={e=>{setCharge(e.target.value);setPayoutError("");}} placeholder="0.00"/></Field>:<div/>}
+     <div className="sm:col-span-2 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3 text-xs">
+      <div className="grid grid-cols-3 gap-2"><span>Customer receives<br/><strong className="text-[var(--text)]">{money(payoutAmount)}</strong></span><span>Provider fee<br/><strong className="text-[var(--text)]">{money(payoutCharge)}</strong></span><span>Wallet / account debited<br/><strong className="text-[var(--text)]">{money(payoutAmount+payoutCharge)}</strong></span></div>
+      <p className="mt-2 text-[var(--text-muted)]">Only the provider fee reduces profit. The customer payout is principal, not a charge.</p>
+      {feeProblem?<p role="alert" className="mt-2 font-bold text-rose-700">{feeProblem}</p>:feeWarning?<p role="status" className="mt-2 font-bold text-amber-700">{feeWarning}</p>:null}
+     </div>
      <Field label="Reference / UTR"><input className={control} value={reference} onChange={e=>setReference(e.target.value)} placeholder={destinationType==="CASH"?"Optional cash acknowledgement":"UTR / bank reference"}/></Field>
      <Field label="Notes (optional)" className="sm:col-span-2"><input name="cashledger_notes" autoComplete="on" className={control} value={paymentNotes} onChange={e=>setPaymentNotes(e.target.value)} placeholder="Notes"/></Field>
      {payoutError?<p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs font-bold text-rose-800 sm:col-span-2">{payoutError}</p>:null}

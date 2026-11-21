@@ -4,6 +4,7 @@ import { AccountType, CustomerType, EntryType, PayableStatus, PaymentStatus, Pri
 import { FinancialValidationService, requireWholeRupeeCashPayout } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
+import { validateCustomerPayoutCharge } from '../finance/payout-charge-guard.js';
 import { JournalEntry, LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { findCustomerIdsForSearch } from './customer-search-filter.js';
@@ -1099,6 +1100,9 @@ export class CustomersService {
         ? await this.payoutCharges.resolve(tx, account, amount, transactionAt)
         : null;
       const payoutChargeAmount = configuredCharge?.amount ?? 0;
+      if (dto.direction === 'PAY_OUT') {
+        validateCustomerPayoutCharge(amount, payoutChargeAmount, Boolean(configuredCharge));
+      }
       if (dto.direction === 'PAY_OUT') {
         await this.validation.ensureSufficientFunds(
           tx,

@@ -4,6 +4,7 @@ import { AccountNature, AccountType, CalculationType, CommissionMethod, Customer
 import { FinancialValidationService, requireWholeRupeeCashPayout } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
+import { validateCustomerPayoutCharge } from '../finance/payout-charge-guard.js';
 import { LedgerService, type JournalEntry } from '../ledger/ledger.service.js';
 import { ProviderSettlementsService } from '../provider-settlements/provider-settlements.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -805,6 +806,7 @@ export class TransactionsService {
         const chargeAmount = configuredCharge
           ? configuredCharge.amount
           : payment.requestedChargeAmount;
+        validateCustomerPayoutCharge(payment.amount, chargeAmount, Boolean(configuredCharge));
         if (
           sourceAccount.accountType !== AccountType.PROVIDER_WALLET &&
           chargeAmount > 0

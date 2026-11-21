@@ -3,6 +3,7 @@ import { AccountType, EntryType, PayableStatus, PaymentStatus, Prisma, ProviderS
 import { FinancialValidationService, requireWholeRupeeCashPayout } from '../finance/financial-validation.service.js';
 import { IdempotencyService } from '../finance/idempotency.service.js';
 import { ProviderPayoutChargeService } from '../finance/provider-payout-charge.service.js';
+import { validateCustomerPayoutCharge } from '../finance/payout-charge-guard.js';
 import { LedgerService } from '../ledger/ledger.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreatePayablePaymentDto } from './dto/create-payable-payment.dto.js';
@@ -695,6 +696,7 @@ export class PayablesService {
       const chargeAmount = configuredCharge
         ? configuredCharge.amount
         : Math.round(((dto.chargeAmount ?? 0) + Number.EPSILON) * 100) / 100;
+      validateCustomerPayoutCharge(dto.amount, chargeAmount, Boolean(configuredCharge));
       if (
         sourceAccount.accountType !== AccountType.PROVIDER_WALLET &&
         chargeAmount > 0
