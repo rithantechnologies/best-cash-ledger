@@ -21,6 +21,7 @@ type DueSummary = {earnedCommission:number;providerCost:number;payoutCost:number
 type PendingPayout = {id:string;payableId:string;transactionNumber:string;transactionAt:string;customerName:string;expectedPayoutAt:string|null;payableAmount:number;paidAmount:number;remainingAmount:number};
 type Report = {from:string;to:string;count:number;summary:Totals;rows:Row[];pendingPayouts:PendingPayout[];pendingTruncated:boolean;basis:string;cardDue?:{rows:DueRow[];summary:DueSummary}};
 type Option = {id:string;name?:string;fullName?:string};
+type CardOption = {id:string;bankName:string;lastFourDigits:string;nickname?:string|null};
 const money=(v:number)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(v);
 function todayIST(){
  const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
@@ -43,10 +44,12 @@ export default function CardSwipeReportPage(){
  const [today]=useState(todayIST);
  const [fromText,setFromText]=useState(()=>indianDate(todayIST()));
  const [toText,setToText]=useState(()=>indianDate(todayIST()));
- const from=reportIsoDate(fromText)??"";
+ const allTime=fromText==="All Time";
+ const from=allTime?"1900-01-01":reportIsoDate(fromText)??"";
  const to=reportIsoDate(toText)??"";
  const datesValid=Boolean(from&&to&&from<=to);
- const [customerId,setCustomerId]=useState(""),[providerId,setProviderId]=useState("");
+ const [customerId,setCustomerId]=useState(""),[providerId,setProviderId]=useState(""),[cardId,setCardId]=useState("");
+ const [cards,setCards]=useState<CardOption[]>([]);
  const [customers,setCustomers]=useState<Option[]>([]),[providers,setProviders]=useState<Option[]>([]);
  const [report,setReport]=useState<Report|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
  const [payoutId,setPayoutId]=useState<string|null>(null),[reportRevision,setReportRevision]=useState(0);
@@ -57,36 +60,44 @@ export default function CardSwipeReportPage(){
   const selectedFrom=params.get("from"),selectedTo=params.get("to");
   if(selectedFrom&&selectedTo&&/^\d{4}-\d{2}-\d{2}$/.test(selectedFrom)&&/^\d{4}-\d{2}-\d{2}$/.test(selectedTo)&&
     reportIsoDate(indianDate(selectedFrom))===selectedFrom&&reportIsoDate(indianDate(selectedTo))===selectedTo&&selectedFrom<=selectedTo){
-   setFromText(indianDate(selectedFrom));setToText(indianDate(selectedTo));
+   setFromText(selectedFrom==="1900-01-01"?"All Time":indianDate(selectedFrom));setToText(indianDate(selectedTo));
   }
-  if(params.get("customerId"))setCustomerId(params.get("customerId")!);
+  if(params.get("customerId")){setCustomerId(params.get("customerId")!);if(params.get("cardId"))setCardId(params.get("cardId")!);}
  },[]);
- useEffect(()=>{Promise.all([apiFetch<Option[]>("/customers"),apiFetch<Option[]>("/providers?includeInactive=true")])
+ useEffect(()=>{
+   if(!customerId){setCards([]);return;}
+   let active=true;
+   apiFetch<{cards:CardOption[]}>("/customers/"+encodeURIComponent(customerId))
+     .then(customer=>{if(active){setCards(customer.cards??[]);setCardId(current=>current&&!(customer.cards??[]).some(card=>card.id===current)?"":current);}})
+     .catch(()=>{if(active){setCards([]);setCardId("");}});
+   return()=>{active=false;};
+  },[customerId]);
+  useEffect(()=>{Promise.all([apiFetch<Option[]>("/customers"),apiFetch<Option[]>("/providers?includeInactive=true")])
  .then(([c,p])=>{setCustomers(c);setProviders(p);}).catch(()=>setError("Could not load customer/provider filters."));},[]);
  useEffect(()=>{
   if(!datesValid){setReport(null);setLoading(false);return;}
-  let active=true;const query=new URLSearchParams({from,to});if(customerId)query.set("customerId",customerId);if(providerId)query.set("providerId",providerId);
+  let active=true;const query=new URLSearchParams({from,to});if(customerId)query.set("customerId",customerId);if(providerId)query.set("providerId",providerId);if(customerId&&cardId)query.set("cardId",cardId);
   setLoading(true);apiFetch<Report>("/reports/card-swipes?"+query.toString())
   .then(r=>{if(active){setReport(r);setError("");}}).catch(e=>{if(active){setReport(null);setError(e instanceof Error?e.message:"Unable to load report.");}})
   .finally(()=>{if(active)setLoading(false);});
   return()=>{active=false;};
- },[from,to,datesValid,customerId,providerId,reportRevision]);
+ },[from,to,datesValid,customerId,providerId,cardId,reportRevision]);
  function range(which:string){
   const end=which==="yesterday"?shift(today,-1):today;
   const begin=which==="all"?"1900-01-01":which==="week"?shift(today,-6):which==="month"?today.slice(0,8)+"01":end;
-  setFromText(indianDate(begin));setToText(indianDate(end));
+  setFromText(which==="all"?"All Time":indianDate(begin));setToText(indianDate(end));
  }
  function csv(){
   if(!report)return;
   const s=report.summary;const values:(string|number)[][]=[cols,...report.rows.map(rowCsv),["TOTAL","","","","","","",s.swipeAmount,s.gatewayFee,s.customerFee,s.payoutFee,s.netProfit,s.payableAmount,s.paidAmount,s.remainingAmount,"","","","","","","","",""]];
   const blob=new Blob(["\uFEFF"+values.map(v=>v.map(csvCell).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"});
-  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="Credit_Card_Report_"+indianDay(from)+"_to_"+indianDay(to)+".csv";document.body.appendChild(a);a.click();a.remove();window.setTimeout(()=>URL.revokeObjectURL(url),30000);
+  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="Credit_Card_Report_"+(allTime?"All_Time":indianDay(from))+"_to_"+indianDay(to)+".csv";document.body.appendChild(a);a.click();a.remove();window.setTimeout(()=>URL.revokeObjectURL(url),30000);
  }
  const [pdfBusy,setPdfBusy]=useState(false);
  async function pdfExport(){
   if(!report||pdfBusy)return;
   setPdfBusy(true);
-  try{const {downloadCardSwipePdf}=await import("./export-pdf");downloadCardSwipePdf(from,to,report.rows,report.summary);}
+  try{const {downloadCardSwipePdf}=await import("./export-pdf");downloadCardSwipePdf(from,to,report.rows,report.summary,allTime);}
   catch(e){setError(e instanceof Error?e.message:"Unable to generate PDF.");}
   finally{setPdfBusy(false);}
  }
@@ -103,20 +114,22 @@ export default function CardSwipeReportPage(){
   </div>
   <Surface className="mb-4 p-4">
    <div className="flex flex-wrap gap-2">{[["today","Today"],["yesterday","Yesterday"],["week","Last 7 Days"],["month","This Month"],["all","All Time"]].map(([key,label])=><button type="button" key={key} onClick={()=>range(key)} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">{label}</button>)}</div>
-   <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-    <label className="text-xs font-bold">From (DD-MM-YYYY)<input aria-label="From calendar date" className="app-control mt-1 mb-1 w-full" type="date" value={from} onChange={e=>setFromText(indianDate(e.target.value))}/><input className="app-control mt-1 w-full" type="text" inputMode="numeric" maxLength={10} placeholder="DD-MM-YYYY" value={fromText} onChange={e=>setFromText(e.target.value)}/></label>
+   <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <label className="text-xs font-bold">{allTime?"From · All recorded dates":"From (DD-MM-YYYY)"}<input aria-label="From calendar date" className="app-control mt-1 mb-1 w-full" type="date" value={allTime?"":from} onChange={e=>setFromText(indianDate(e.target.value))}/><input className="app-control mt-1 w-full" type="text" inputMode="numeric" maxLength={10} placeholder={allTime?"All Time — no start date":"DD-MM-YYYY"} value={allTime?"":fromText} onChange={e=>setFromText(e.target.value)}/></label>
     <label className="text-xs font-bold">To (DD-MM-YYYY)<input aria-label="To calendar date" className="app-control mt-1 mb-1 w-full" type="date" value={to} onChange={e=>setToText(indianDate(e.target.value))}/><input className="app-control mt-1 w-full" type="text" inputMode="numeric" maxLength={10} placeholder="DD-MM-YYYY" value={toText} onChange={e=>setToText(e.target.value)}/></label>
-    <label className="text-xs font-bold">Customer<SearchableSelect className="app-control mt-1 w-full" value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">All customers</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</SearchableSelect></label>
+    <label className="text-xs font-bold">Customer<SearchableSelect className="app-control mt-1 w-full" value={customerId} onChange={e=>{setCustomerId(e.target.value);setCardId("");}}><option value="">All customers</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}</option>)}</SearchableSelect></label>
+     <label className="text-xs font-bold">Saved card<SearchableSelect className="app-control mt-1 w-full" value={cardId} disabled={!customerId||cards.length===0} onChange={e=>setCardId(e.target.value)}><option value="">All cards</option>{cards.map(c=><option key={c.id} value={c.id}>{c.bankName+" •••• "+c.lastFourDigits+(c.nickname?" · "+c.nickname:"")}</option>)}</SearchableSelect></label>
     <label className="text-xs font-bold">Provider<SearchableSelect className="app-control mt-1 w-full" value={providerId} onChange={e=>setProviderId(e.target.value)}><option value="">All providers</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></label>
    </div>
-   {!datesValid?<p role="alert" className="mt-2 text-xs text-rose-600">{!from||!to?"Enter valid dates in DD-MM-YYYY format.":"From date must be before To date."}</p>:null}
+   <p className="mt-2 text-[11px] text-[var(--text-muted)]">Swipe totals use the selected IST transaction dates and customer/card filters. Paid and outstanding amounts show the latest recorded payout state, even for a historical swipe period. Pending payouts below are an all-time outstanding list.</p>
+    {!datesValid?<p role="alert" className="mt-2 text-xs text-rose-600">{!from||!to?"Enter valid dates in DD-MM-YYYY format.":"From date must be before To date."}</p>:null}
    {error?<p role="alert" className="mt-2 text-xs text-rose-600">{error}</p>:null}
   </Surface>
   {loading?<PageLoader label="Loading card swipes…"/>:report&&s?<>
    <div className="mb-3 grid grid-cols-2 gap-2.5 lg:grid-cols-4">{([["Swipe Amount",s.swipeAmount],["Customer Fees",s.customerFee],["Gateway Fees",s.gatewayFee],["Net Profit",s.netProfit]] as [string,number][]).map(([label,value])=><Surface key={label} className="p-4"><p className="text-xs text-[var(--text-muted)]">{label}</p><p className={"money mt-1 text-xl font-black "+(label==="Net Profit"?profitClass(value):"")}>{money(value)}</p></Surface>)}</div>
    <Surface className="mb-4 p-4"><div className="grid grid-cols-2 gap-4 sm:grid-cols-4">{([["Original Payable",s.payableAmount],["Paid / Allocated",s.paidAmount],["Outstanding",s.remainingAmount],["Payout Charges",s.payoutFee]] as [string,number][]).map(([label,value])=><div key={label}><p className="text-xs text-[var(--text-muted)]">{label}</p><p className="money mt-1 font-bold">{money(value)}</p></div>)}</div></Surface>
    <Surface className="overflow-hidden">
-    <div className="border-b border-[var(--border)] px-4 py-3 text-sm font-black">Swipe register ({indianDay(from)}{from===to?"":" to "+indianDay(to)}) · {report.count} transaction{report.count===1?"":"s"}</div>
+    <div className="border-b border-[var(--border)] px-4 py-3 text-sm font-black">Swipe register ({allTime?"All Time through "+indianDay(to):indianDay(from)+(from===to?"":" to "+indianDay(to))}) · {report.count} transaction{report.count===1?"":"s"}</div>
     {report.rows.length?<div className="overflow-x-auto"><table className="w-full min-w-[1850px] text-xs">
      <thead className="bg-[var(--surface-soft)] text-left text-[10px] font-bold uppercase text-[var(--text-muted)]"><tr>{["S.No","Date","Customer / Pay In","Cell number","Card type","Card number","Amount","Com. Fee","Cus. Fee","Payout Fee","Net Profit","Payable","Paid","Remaining","Payout source","Pay In account","Pay In status","Pay Out status","Provider due","Customer payout due"].map(h=><th key={h} className="whitespace-nowrap px-3 py-3">{h}</th>)}</tr></thead>
      <tbody>{report.rows.map((r,i)=><tr key={r.id} className="border-t border-[var(--border)] hover:bg-[var(--surface-soft)]">
@@ -132,7 +145,7 @@ export default function CardSwipeReportPage(){
    <Surface className="mt-4 overflow-hidden">
     <div className="border-b border-[var(--border)] p-4">
      <h2 className="font-black">Pending Customer Payouts · {pending.length}</h2>
-     <p className="mt-1 text-xs text-[var(--text-muted)]">All outstanding card-swipe customer payouts, including swipes from earlier dates. Customer and provider filters apply, but the date range does not. Expected payout is a due date, not a confirmed transfer. Use Complete / Match to record a new payout or link an earlier recorded payment without paying twice.</p>
+     <p className="mt-1 text-xs text-[var(--text-muted)]">All outstanding card-swipe customer payouts, including swipes from earlier dates. Customer, saved-card and provider filters apply, but the date range does not. Expected payout is a due date, not a confirmed transfer. Use Complete / Match to record a new payout or link an earlier recorded payment without paying twice.</p>
      <div className="mt-3 flex flex-wrap items-end gap-3">
       <label className="block w-full max-w-sm text-xs font-bold">Search pending payouts
        <input type="search" className="app-control mt-1 w-full" value={pendingSearch} onChange={e=>setPendingSearch(e.target.value)} placeholder="Customer name or transaction number" autoComplete="off"/>
@@ -141,7 +154,7 @@ export default function CardSwipeReportPage(){
       {pendingSearch?<button type="button" onClick={()=>setPendingSearch("")} className="mb-1 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">Clear search</button>:null}
      </div>
     </div>
-    {report.pendingTruncated?<p className="px-4 pt-3 text-xs text-amber-700">Showing the first 1,000 outstanding payouts; narrow the customer or provider filter to see more.</p>:null}
+    {report.pendingTruncated?<p className="px-4 pt-3 text-xs text-amber-700">Showing the first 1,000 outstanding payouts; narrow the customer, saved card or provider filter to see more.</p>:null}
     {pending.length&&matchingPending.length?<div className="overflow-x-auto"><table className="w-full min-w-[850px] text-xs">
      <thead className="bg-[var(--surface-soft)] text-left"><tr>{["Swipe date","Customer / transaction","Paid","Remaining","Expected payout","Pay In","Pay Out"].map(h=><th key={h} className="px-3 py-3">{h}</th>)}</tr></thead>
      <tbody>{matchingPending.map(r=><tr key={r.id} className="border-t border-[var(--border)]">

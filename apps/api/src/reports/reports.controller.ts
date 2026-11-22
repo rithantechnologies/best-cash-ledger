@@ -25,8 +25,8 @@ export class ReportsController {
   }
 
   @Get('card-swipes')
-  cardSwipes(@Query('from') from: string, @Query('to') to: string, @Query('customerId') customerId?: string, @Query('providerId') providerId?: string) {
-    return this.cardSwipeReport.get(from, to, customerId, providerId);
+  cardSwipes(@Query('from') from: string, @Query('to') to: string, @Query('customerId') customerId?: string, @Query('providerId') providerId?: string, @Query('cardId') cardId?: string) {
+    return this.cardSwipeReport.get(from, to, customerId, providerId, cardId);
   }
 
   @Get('transactions')

@@ -46,7 +46,7 @@ const rgb = {
 };
 
 /** Generate a printable, single-width register from exactly the filtered rows on screen. */
-export function downloadCardSwipePdf(from: string, to: string, rows: ReportRow[], summary: Summary) {
+export function downloadCardSwipePdf(from: string, to: string, rows: ReportRow[], summary: Summary, allTime = false) {
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3", compress: true });
   const multiDay = from !== to;
   const widths = multiDay ? multiDayWidths : singleDayWidths;
@@ -73,7 +73,7 @@ export function downloadCardSwipePdf(from: string, to: string, rows: ReportRow[]
     amount(summary.swipeAmount), amount(summary.gatewayFee), amount(summary.customerFee),
     amount(summary.payoutFee), amount(summary.netProfit), amount(summary.payableAmount), "", "",
   ];
-  const displayedDate = indianDate(from) + (multiDay ? ` to ${indianDate(to)}` : "");
+  const displayedDate = allTime ? `All recorded dates through ${indianDate(to)}` : indianDate(from) + (multiDay ? ` to ${indianDate(to)}` : "");
   const generated = timestampIST();
   const pagesToken = "{total_pages_count_string}";
 
@@ -135,6 +135,6 @@ export function downloadCardSwipePdf(from: string, to: string, rows: ReportRow[]
     },
   });
   if (typeof pdf.putTotalPages === "function") pdf.putTotalPages(pagesToken);
-  pdf.save(`Credit_Card_Report_${indianDate(from)}_to_${indianDate(to)}.pdf`);
+  pdf.save(`Credit_Card_Report_${allTime?"All_Time":indianDate(from)}_to_${indianDate(to)}.pdf`);
   return pdf;
 }

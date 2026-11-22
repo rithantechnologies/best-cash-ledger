@@ -636,7 +636,7 @@ function switchView(next:"details"|"activity"){
      <button type="button" onClick={()=>openLedgerEntry("PAY_IN")} className="min-h-10 rounded-xl bg-emerald-700 px-3.5 text-xs font-black text-white shadow-sm">+ Pay In</button>
      <button type="button" onClick={()=>openLedgerEntry("PAY_OUT")} className="min-h-10 rounded-xl bg-rose-700 px-3.5 text-xs font-black text-white shadow-sm">− Pay Out</button>
      <SearchableSelect className="app-control min-w-[190px]" value={ledgerCardId} onChange={e=>setLedgerCardId(e.target.value)}><option value="">All cards</option>{c.cards.map(card=><option key={card.id} value={card.id}>{card.bankName+" •••• "+card.lastFourDigits+(card.nickname?" · "+card.nickname:"")}</option>)}</SearchableSelect>
-     <Link href={"/reports/card-swipes?"+new URLSearchParams({customerId:id,from:ledgerFrom??"1900-01-01",to:ledgerTo??ledgerToday}).toString()} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-black">Report / CSV / PDF</Link>
+     <Link href={"/reports/card-swipes?"+new URLSearchParams({customerId:id,from:ledgerFrom??"1900-01-01",to:ledgerTo??ledgerToday,...(ledgerCardId?{cardId:ledgerCardId}:{})}).toString()} className="inline-flex min-h-10 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-black">Report / CSV / PDF</Link>
      <button type="button" onClick={printCardLedger} disabled={!displayedLedger?.rows.length} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-black disabled:opacity-40">Print statement</button>
     </div>
    </div>

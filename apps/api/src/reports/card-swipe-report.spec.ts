@@ -71,6 +71,31 @@ describe('credit card swipe report', () => {
     expect(report.cardDue.summary.earnedCommission).toBe(0);
     expect(findMany.mock.calls[1][0].where.AND).toBeDefined();
   });
+  it('filters swipe, Card Due and pending payout sections by the chosen saved card', async () => {
+    const findMany = vi.fn().mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
+    const pendingFindMany = vi.fn().mockResolvedValue([]);
+    const service = new CardSwipeReportService({
+      transaction: { findMany }, customerPayable: { findMany: pendingFindMany },
+    } as never);
+    await service.get('2026-10-27', '2026-10-27', 'customer-1', 'provider-1', 'card-1');
+    expect(findMany.mock.calls[0][0].where).toMatchObject({
+      customerId: 'customer-1', cardSwipe: { is: { providerId: 'provider-1', customerCardId: 'card-1' } },
+    });
+    expect(findMany.mock.calls[1][0].where.AND).toHaveLength(3);
+    expect(findMany.mock.calls[1][0].where.AND[2].OR[0])
+      .toEqual({ cardDueClearing: { is: { customerCardId: 'card-1' } } });
+    expect(pendingFindMany.mock.calls[0][0].where.sourceTransaction.cardSwipe.is)
+      .toEqual({ providerId: 'provider-1', customerCardId: 'card-1' });
+  });
+  it('also limits a card report without a provider filter', async () => {
+    const findMany = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    const service = new CardSwipeReportService({
+      transaction: { findMany }, customerPayable: { findMany: vi.fn().mockResolvedValue([]) },
+    } as never);
+    await service.get('2026-10-27', '2026-10-27', 'customer-1', undefined, 'card-1');
+    expect(findMany.mock.calls[0][0].where.cardSwipe.is).toEqual({ customerCardId: 'card-1' });
+    expect(findMany.mock.calls[1][0].where.AND).toHaveLength(2);
+  });
   it('rejects an invalid or reversed date range', async () => {
     const service = new CardSwipeReportService({ transaction: { findMany: vi.fn() } } as never);
     await expect(service.get('2026-10-29','2026-10-27')).rejects.toThrow();

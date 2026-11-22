@@ -6,6 +6,7 @@ import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
 import { networkForSavedCard } from "@/lib/card-network";
 import { useRememberedValues } from "@/lib/remembered-values";
+import { istSwipeNow, selectedSwipeTransactionAt } from "@/lib/card-swipe-business-date.mjs";
 
 type Card={id:string;bankName:string;cardType?:string|null;cardNetworkId?:string|null;cardNetwork?:{id:string;name:string}|null;lastFourDigits:string;nickname?:string|null;isActive:boolean};
 type Customer={id:string;fullName:string;mobile:string|null;cards:Card[];match?:{cardLastFour:string|null;bankLastFour?:string|null;bankName?:string|null;upiAccountName?:string|null;recipientLastFour?:string|null}};
@@ -42,7 +43,7 @@ const CUSTOM_PAYMENT_DATE="__CUSTOM_DATE__";
 function dateInputValue(date:Date){return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,10);}
 function tomorrowDateInput(){const date=new Date();date.setDate(date.getDate()+1);return dateInputValue(date);}
 function customDueDate(value:string){return new Date(value+"T23:59:59.999").toISOString();}
-function dueDate(term:Term){const unit=term.durationUnit==="DAYS"?24*60*60*1000:60*60*1000;return new Date(Date.now()+term.durationValue*unit).toISOString();}
+function dueDate(term:Term,swipeAt?:string){const unit=term.durationUnit==="DAYS"?24*60*60*1000:60*60*1000;return new Date((swipeAt?new Date(swipeAt).getTime():Date.now())+term.durationValue*unit).toISOString();}
 
 export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""}:{onSaved?:()=>void;showTrigger?:boolean;buttonClassName?:string}){
   const [presetCustomerId,setPresetCustomerId]=useState("");
@@ -53,6 +54,9 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const [addingCard,setAddingCard]=useState(false),[addingCardBusy,setAddingCardBusy]=useState(false);
   const [existingCardBank,setExistingCardBank]=useState(""),[existingCardLast4,setExistingCardLast4]=useState(""),[existingCardNickname,setExistingCardNickname]=useState(""),[existingCardNetworkId,setExistingCardNetworkId]=useState("");
   const [network,setNetwork]=useState(""),[amount,setAmount]=useState(""),[amountTouched,setAmountTouched]=useState(false),[reusedSwipeAmount,setReusedSwipeAmount]=useState(false),[providerId,setProviderId]=useState(""),[gatewayId,setGatewayId]=useState(""),[termId,setTermId]=useState(""),[customPaymentDate,setCustomPaymentDate]=useState(""),[commissionRate,setCommissionRate]=useState("2.3"),[previousRate,setPreviousRate]=useState<number|null>(null),[commissionTouched,setCommissionTouched]=useState(false);
+  // Most entries use the actual current timestamp. Backdating is an explicit, rare action.
+  const [backdated,setBackdated]=useState(false);
+  const [businessDate,setBusinessDate]=useState(()=>istSwipeNow().date),[businessTime,setBusinessTime]=useState(()=>istSwipeNow().time);
   const [swipeHistory,setSwipeHistory]=useState<SwipeHistory[]>([]),[historyLoading,setHistoryLoading]=useState(false);
   // Apply prior card setup only once. Staff-selected routing always takes precedence.
   const appliedHistoryKeyRef=useRef("");
@@ -63,6 +67,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const openWithPreviousAmount=useCallback(()=>{
     const previousAmount=lastSavedSwipeAmount();
     setAmount(previousAmount);setAmountTouched(false);setReusedSwipeAmount(!!previousAmount);
+    const now=istSwipeNow();setBusinessDate(now.date);setBusinessTime(now.time);setBackdated(false);
     setOpen(true);
   },[]);
   useEffect(()=>{
@@ -179,7 +184,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
     return()=>{cancelled=true;};
   },[customer?.id,providerId,gatewayId,termId,term,historySetup,selectedCardHistory,commissionTouched,customPayment]);
 
-  function reset(){appliedHistoryKeyRef.current="";manuallySelectedRoutingRef.current=false;setPresetCustomerId("");setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setAmountTouched(false);setReusedSwipeAmount(false);setCustomPaymentDate("");setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setAddingCard(false);setAddingCardBusy(false);setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId("");setError("");}
+  function reset(){appliedHistoryKeyRef.current="";manuallySelectedRoutingRef.current=false;setPresetCustomerId("");setMode("existing");setQuery("");setMatches([]);setCustomer(null);setCardId("");setNewName("");setNewMobile("");setNewBank("");setNewLastFour("");setNetwork("");setAmount("");setAmountTouched(false);setReusedSwipeAmount(false);setCustomPaymentDate("");setBackdated(false);setCommissionRate("2.3");setPreviousRate(null);setCommissionTouched(false);setSwipeHistory([]);setHistoryLoading(false);setAddingCard(false);setAddingCardBusy(false);setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId("");setError("");}
   function startAddExistingCard(){
     if(!customer)return;
     setExistingCardBank("");setExistingCardLast4("");setExistingCardNickname("");setExistingCardNetworkId("");
@@ -223,7 +228,9 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const existingReady=!!customer&&!!cardId&&!!network,newReady=!!newName.trim()&&validMobile(newMobile)&&!!newBank&&newLastFour.length===4&&!!network;
   const commissionValue=Number(commissionRate),commissionReady=commissionRate.trim()!==""&&Number.isFinite(commissionValue)&&commissionValue>=0&&commissionValue<=100;
   const paymentDateReady=customPayment?!!customPaymentDate&&customPaymentDate>=minCustomPaymentDate:!!termId;
-  const canSave=!saving&&!addingCardBusy&&!addingCard&&swipe>0&&commissionReady&&!!providerId&&!!gatewayId&&paymentDateReady&&(mode==="existing"?existingReady:newReady);
+  const selectedAt=backdated?selectedSwipeTransactionAt(businessDate,businessTime):undefined;
+  const dateReady=!backdated||!!selectedAt;
+  const canSave=!saving&&!addingCardBusy&&!addingCard&&swipe>0&&commissionReady&&!!providerId&&!!gatewayId&&paymentDateReady&&dateReady&&(mode==="existing"?existingReady:newReady);
 
   async function submit(e:FormEvent){
     e.preventDefault();if(!canSave)return;setSaving(true);setError("");
@@ -231,7 +238,8 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
       if(mode==="existing"&&selectedCard&&(selectedCard.cardNetworkId!==network||(selectedCard.cardType?.trim().toUpperCase()||"CREDIT")!=="CREDIT")){await apiFetch("/customers/cards/"+selectedCard.id,{method:"PATCH",body:JSON.stringify({cardNetworkId:network,cardType:"CREDIT"})});}
       const result=await apiFetch<SavedSwipe>("/transactions/card-swipe",{method:"POST",body:JSON.stringify({
         ...(mode==="new"?{newCustomer:{fullName:newName.trim(),mobile:newMobile,bankName:newBank,cardType:"CREDIT",cardNetworkId:network,lastFourDigits:newLastFour}}:{customerId:customer!.id,customerCardId:cardId}),
-        swipeAmount:swipe,providerId,gatewayId,providerChargeRate:providerRate,commissionRate:Number(commissionRate),paymentTermId:customPayment?undefined:termId,dueAt:customPayment?customDueDate(customPaymentDate):dueDate(term!),settledNow:true,
+        swipeAmount:swipe,providerId,gatewayId,providerChargeRate:providerRate,commissionRate:Number(commissionRate),paymentTermId:customPayment?undefined:termId,dueAt:customPayment?customDueDate(customPaymentDate):dueDate(term!,selectedAt??undefined),settledNow:true,
+        ...(selectedAt?{transactionAt:selectedAt}:{}),
       })});
       rememberCustomerName(mode==="existing"?customer?.fullName??"":newName);
       try{localStorage.setItem("cashledger_card_last_saved_swipe_amount",String(swipe));}catch{}
@@ -276,6 +284,14 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Customer fee / commission % *</span><div className="relative mt-1"><input className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 pr-9 text-right text-lg font-black outline-none" type="number" inputMode="decimal" min="0" max="100" step="0.0001" value={commissionRate} onChange={e=>{setCommissionRate(e.target.value);setCommissionTouched(true);}}/><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--text-muted)]">%</span></div><p className="mt-1 text-[10px] text-[var(--text-muted)]">{previousRate!==null&&!commissionTouched?"Using this card's last swipe rate":"Defaults to configured rate, otherwise 2.3%"}</p></label>
           </div>
 
+          <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2.5">
+            <label className="flex cursor-pointer items-center gap-2 text-xs font-bold"><input type="checkbox" checked={backdated} onChange={e=>{setBackdated(e.target.checked);if(e.target.checked){const now=istSwipeNow();setBusinessDate(now.date);setBusinessTime(now.time);}}}/> Enter an earlier transaction date (missed entry)</label>
+            {backdated?<div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="text-[11px] font-bold">Transaction date (IST) *<input aria-label="Swipe business date IST" required type="date" max={istSwipeNow().date} className="app-control mt-1 w-full" value={businessDate} onChange={e=>setBusinessDate(e.target.value)}/></label>
+              <label className="text-[11px] font-bold">Transaction time (IST) *<input aria-label="Swipe business time IST" required type="time" className="app-control mt-1 w-full" value={businessTime} onChange={e=>setBusinessTime(e.target.value)}/></label>
+              {!dateReady?<p role="alert" className="col-span-2 text-xs font-semibold text-rose-700">Choose a valid past date and time (IST).</p>:<p className="col-span-2 text-[11px] text-[var(--text-muted)]">The original date is used in the ledger and reports. Creation and audit time stay unchanged.</p>}
+            </div>:null}
+          </div>
           {showingPreviousAmount?<p className="mt-2 text-xs font-semibold text-indigo-700">Previous gross swipe amount suggested · confirm or edit before saving</p>:null}
           {swipe>0?<div className="mt-3 rounded-[18px] border border-[var(--border)] bg-[var(--surface-soft)] p-3"><div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Customer gets</p><p className="money mt-1 text-xl font-black">{money(payable)}</p></div><div className="text-right"><p className="text-[10px] text-[var(--text-muted)]">Business profit before payout charges</p><p className={"money mt-1 font-black "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(profit)}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--border)] pt-3 text-xs"><div><span className="text-[var(--text-muted)]">Swipe</span><strong className="money mt-1 block">{money(swipe)}</strong></div><div><span className="text-[var(--text-muted)]">Customer fee</span><strong className="money mt-1 block text-[var(--money-in)]">{money(commission)}</strong></div><div><span className="text-[var(--text-muted)]">Gateway fee</span><strong className="money mt-1 block text-[var(--money-out)]">{money(providerFee)}</strong></div></div></div>:null}
           {loading?<p className="mt-3 text-xs font-bold text-[var(--text-muted)]">Loading swipe settings…</p>:null}{error?<div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm font-bold text-rose-700">{error}</div>:null}

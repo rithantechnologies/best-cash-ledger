@@ -79,7 +79,7 @@ export class CardSwipeReportService {
       note: 'Recorded completed card swipes only. Failed attempts are not tracked; counts are not success rates.' };
   }
 
-  async get(from: string, to: string, customerId?: string, providerId?: string) {
+  async get(from: string, to: string, customerId?: string, providerId?: string, cardId?: string) {
     const period = exportPeriod(from, to, 'card');
     const rows = await this.prisma.transaction.findMany({
       where: {
@@ -87,7 +87,10 @@ export class CardSwipeReportService {
         status: TransactionStatus.COMPLETED,
         transactionAt: { gte: period.start, lt: period.end },
         ...(customerId ? { customerId } : {}),
-        ...(providerId ? { cardSwipe: { is: { providerId } } } : {}),
+        ...(providerId || cardId ? { cardSwipe: { is: {
+          ...(providerId ? { providerId } : {}),
+          ...(cardId ? { customerCardId: cardId } : {}),
+        } } } : {}),
       },
       include: {
         customer: { select: { fullName: true, mobile: true } },
@@ -227,42 +230,39 @@ export class CardSwipeReportService {
     // A clearing is pending by design; do not require COMPLETED for that type.
     const dueTransactions = await this.prisma.transaction.findMany({
       where: {
-        AND: [{ OR: [
-          { transactionType: { in: [
-            TransactionType.CARD_DUE_CLEARING,
-            TransactionType.CARD_DUE_RECOVERY,
-            TransactionType.CARD_DUE_COMMISSION_ASSESSMENT,
-            TransactionType.CARD_DUE_COMMISSION_COLLECTION,
-          ] } },
-          // Combined receipts use the same CUSTOMER_LEDGER_ENTRY type as Pay In,
-          // but have a dedicated CDP- prefix; exclude unrelated Pay In records.
-          { transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
-            transactionNumber: { startsWith: 'CDP-' } },
-        ] }],
+        AND: [
+          { OR: [
+            { transactionType: { in: [
+              TransactionType.CARD_DUE_CLEARING,
+              TransactionType.CARD_DUE_RECOVERY,
+              TransactionType.CARD_DUE_COMMISSION_ASSESSMENT,
+              TransactionType.CARD_DUE_COMMISSION_COLLECTION,
+            ] } },
+            { transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
+              transactionNumber: { startsWith: 'CDP-' } },
+          ] },
+          ...(providerId ? [{ OR: [
+            { cardDueRecovery: { is: { providerId } } },
+            { cardDueClearing: { is: { advanceSourceAccount: { providerId } } } },
+            { cardDueCommissionCollection: { is: { clearing: { advanceSourceAccount: { providerId } } } } },
+            { cardDueCommissionAssessment: { is: { clearing: { advanceSourceAccount: { providerId } } } } },
+            { customerLedgerEntry: { is: { allocations: { some: {
+              cardDueClearing: { advanceSourceAccount: { providerId } },
+            } } } } },
+          ] }] : []),
+          ...(cardId ? [{ OR: [
+            { cardDueClearing: { is: { customerCardId: cardId } } },
+            { cardDueRecovery: { is: { clearing: { customerCardId: cardId } } } },
+            { cardDueCommissionCollection: { is: { clearing: { customerCardId: cardId } } } },
+            { cardDueCommissionAssessment: { is: { clearing: { customerCardId: cardId } } } },
+            { customerLedgerEntry: { is: { allocations: { some: {
+              cardDueClearing: { customerCardId: cardId },
+            } } } } },
+          ] }] : []),
+        ],
         status: { notIn: [TransactionStatus.CANCELLED, TransactionStatus.REVERSED] },
         transactionAt: { gte: period.start, lt: period.end },
         ...(customerId ? { customerId } : {}),
-        ...(providerId ? { AND: [
-          { OR: [
-          { transactionType: { in: [
-            TransactionType.CARD_DUE_CLEARING,
-            TransactionType.CARD_DUE_RECOVERY,
-            TransactionType.CARD_DUE_COMMISSION_ASSESSMENT,
-            TransactionType.CARD_DUE_COMMISSION_COLLECTION,
-          ] } },
-          { transactionType: TransactionType.CUSTOMER_LEDGER_ENTRY,
-            transactionNumber: { startsWith: 'CDP-' } },
-          ] },
-          { OR: [
-          { cardDueRecovery: { is: { providerId } } },
-          { cardDueClearing: { is: { advanceSourceAccount: { providerId } } } },
-          { cardDueCommissionCollection: { is: { clearing: { advanceSourceAccount: { providerId } } } } },
-          { cardDueCommissionAssessment: { is: { clearing: { advanceSourceAccount: { providerId } } } } },
-          { customerLedgerEntry: { is: { allocations: { some: {
-            cardDueClearing: { advanceSourceAccount: { providerId } },
-          } } } } },
-          ] },
-        ] } : {}),
       },
       include: {
         customer: { select: { fullName: true } },
@@ -345,7 +345,10 @@ export class CardSwipeReportService {
         sourceTransaction: {
           transactionType: TransactionType.CARD_SWIPE,
           status: TransactionStatus.COMPLETED,
-          ...(providerId ? { cardSwipe: { is: { providerId } } } : {}),
+          ...(providerId || cardId ? { cardSwipe: { is: {
+          ...(providerId ? { providerId } : {}),
+          ...(cardId ? { customerCardId: cardId } : {}),
+        } } } : {}),
         },
       },
       select: {
@@ -382,7 +385,7 @@ export class CardSwipeReportService {
       from, to, count: reportRows.length,
       summary: Object.fromEntries(Object.entries(summary).map(([key, value]) => [key, rupees(value)])),
       rows: reportRows,
-      basis: 'Completed swipes in India Standard Time. Net profit = customer fee - gateway fee - recorded payout charges (including allocated Pay Out charges). Payable is the original customer entitlement, not the outstanding balance.',
+      basis: 'Completed swipes in India Standard Time. Net profit = customer fee - gateway fee - recorded payout charges (including allocated Pay Out charges). Payable is the original customer entitlement. Paid and outstanding reflect current payout state, not the payout balance on the selected historical date.',
     };
   }
 }
