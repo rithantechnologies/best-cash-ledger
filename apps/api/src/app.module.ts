@@ -20,6 +20,7 @@ import { SearchModule } from './search/search.module.js';
 import { FinanceModule } from './finance/finance.module.js';
 import { ProviderSettlementsModule } from './provider-settlements/provider-settlements.module.js';
 import { EndOfDayModule } from './end-of-day/end-of-day.module.js';
+import { FollowUpsModule } from './follow-ups/follow-ups.module.js';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { EndOfDayModule } from './end-of-day/end-of-day.module.js';
     ReceivablesModule,
     ProviderSettlementsModule,
     EndOfDayModule,
+    FollowUpsModule,
     LedgerModule,
     TransactionsModule,
     AuthModule,

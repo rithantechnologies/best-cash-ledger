@@ -173,6 +173,7 @@ model User {
   lastLoginAt  DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+  followUpsCreated FollowUpTask[] @relation("FollowUpCreator")
   customers    Customer[]
 }
 
@@ -197,6 +198,7 @@ model Customer {
   aepsAccounts CustomerAepsAccount[]
   esevaiServices CustomerEsevaiService[]
   transactions  Transaction[]
+  followUps FollowUpTask[]
   payables      CustomerPayable[]
   receivables   CustomerReceivable[]
   ledgerEntries LedgerEntry[]
@@ -233,6 +235,7 @@ model CustomerCard {
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   demoCard         CustomerDemoCard?
+  followUps FollowUpTask[]
   cardSwipeDetails CardSwipeDetail[]
   cardDueClearings CardDueClearingDetail[]
   manualLedgerEntries CustomerLedgerEntryDetail[]
@@ -375,6 +378,7 @@ model Provider {
   aepsCommissionRate    Decimal              @default(0) @db.Decimal(10, 4)
   aepsProviderChargeRate Decimal             @default(0) @db.Decimal(10, 4)
   isActive           Boolean              @default(true)
+  followUps FollowUpTask[]
   gateways           ProviderGateway[]
   accounts           FinancialAccount[]
   charges                     TransactionCharge[]
@@ -396,6 +400,7 @@ model ProviderGateway {
   defaultChargeType CalculationType
   defaultChargeRate Decimal              @db.Decimal(10, 4)
   isActive          Boolean              @default(true)
+  followUps FollowUpTask[]
   settlements       ProviderSettlement[]
   cardDueRecoveries CardDueRecovery[]
   createdAt         DateTime             @default(now())
@@ -460,6 +465,7 @@ model FinancialAccount {
   usageType                       UsageType
   openingBalance                  Decimal                       @default(0) @db.Decimal(18, 2)
   isActive                        Boolean                       @default(true)
+  followUpsAsRefundTarget FollowUpTask[]
   ledgerAccount                   LedgerAccount?
   dailyBalances                   DailyAccountBalance[]
   cardSwipeSettlements            CardSwipeDetail[]
@@ -555,6 +561,8 @@ model Transaction {
   updatedById                 String?
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
+  followUpsAsSource FollowUpTask[] @relation("FollowUpSourceTransaction")
+  followUpsAsReceipt FollowUpTask[] @relation("FollowUpReceiptTransaction")
   charges                     TransactionCharge[]
   commissions                 TransactionCommission[]
   cardSwipe                   CardSwipeDetail?
@@ -1402,4 +1410,59 @@ model DailyPayableSummary {
   paymentsMade   Decimal  @db.Decimal(18, 2)
   closingPayable Decimal  @db.Decimal(18, 2)
   createdAt      DateTime @default(now())
+}
+
+
+// Operational tasks are not financial transactions and never post ledgers.
+// Refund receipts must be linked to an independently posted account credit.
+model FollowUpTask {
+  id                   String            @id @default(uuid())
+  kind                 String
+  status               String            @default("OPEN")
+  customerId           String
+  customer             Customer          @relation(fields: [customerId], references: [id])
+  cardId               String?
+  card                 CustomerCard?     @relation(fields: [cardId], references: [id])
+  providerId           String?
+  provider             Provider?         @relation(fields: [providerId], references: [id])
+  gatewayId            String?
+  gateway              ProviderGateway?  @relation(fields: [gatewayId], references: [id])
+  accountId            String?
+  account              FinancialAccount? @relation(fields: [accountId], references: [id])
+  sourceTransactionId  String?
+  sourceTransaction    Transaction?      @relation("FollowUpSourceTransaction", fields: [sourceTransactionId], references: [id])
+  receiptTransactionId String?           @unique
+  receiptTransaction   Transaction?      @relation("FollowUpReceiptTransaction", fields: [receiptTransactionId], references: [id])
+  expectedAmount       Decimal?          @db.Decimal(18, 2)
+  reference            String?
+  reason               String
+  notes                String?
+  nextReminderAt       DateTime?
+  createdById          String
+  createdBy            User              @relation("FollowUpCreator", fields: [createdById], references: [id])
+  updatedById          String?
+  completedById        String?
+  completedAt          DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  events               FollowUpEvent[]
+
+  @@index([status, nextReminderAt])
+  @@index([customerId, status])
+  @@index([kind, status])
+  @@index([sourceTransactionId])
+}
+
+model FollowUpEvent {
+  id         String       @id @default(uuid())
+  followUpId String
+  followUp   FollowUpTask @relation(fields: [followUpId], references: [id])
+  action     String
+  actorId    String
+  note       String?
+  oldValues  Json?
+  newValues  Json?
+  createdAt  DateTime     @default(now())
+
+  @@index([followUpId, createdAt])
 }

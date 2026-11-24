@@ -16,6 +16,7 @@ const navItems = [
   { group:"Overview", label:"Dashboard", short:"Home", href:"/", icon:"home" },
   { group:"Operations", label:"Transactions", short:"Activity", href:"/transactions", icon:"activity" },
   { group:"Operations", label:"Customers", short:"Customers", href:"/customers", icon:"people" },
+  { group:"Operations", label:"Follow-ups", short:"Follow-ups", href:"/follow-ups", icon:"activity" },
   { group:"Cash", label:"Daily Cash", short:"Cash", href:"/cash-counter", icon:"cash" },
   { group:"Receivables", label:"Dues", short:"Dues", href:"/dues", icon:"settle" },
   { group:"Receivables", label:"Settlements", short:"Settlements", href:"/provider-settlements", icon:"settle" },
@@ -134,6 +135,7 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
   const hideShellSearch=isPreviewIndex;
   const showShellNew=pathname!=="/accounts";
   const [role,setRole]=useState(""),[userName,setUserName]=useState(""),[search,setSearch]=useState("");
+  const [dueFollowUps,setDueFollowUps]=useState(0);
   const [menuOpen,setMenuOpen]=useState(false),[newOpen,setNewOpen]=useState(false),[speedDialOpen,setSpeedDialOpen]=useState(false),[navigating,setNavigating]=useState(false);
   const [desktopCollapsed,setDesktopCollapsed]=useState(cachedDesktopCollapsed??false);
   const [desktopUserOpen,setDesktopUserOpen]=useState(false);
@@ -154,6 +156,15 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
     }catch{}
   },[]);
   useEffect(()=>{setMenuOpen(false);setNewOpen(false);setSpeedDialOpen(false);setDesktopUserOpen(false);setCustomerSearchOpen(false);setNavigating(false);},[pathname]);
+  useEffect(()=>{
+    let alive=true;
+    const refresh=()=>apiFetch<{due:number}>("/follow-ups/summary")
+      .then(result=>{if(alive)setDueFollowUps(result.due);})
+      .catch(()=>{if(alive)setDueFollowUps(0);});
+    refresh();const timer=window.setInterval(refresh,60000);
+    window.addEventListener("focus",refresh);
+    return()=>{alive=false;window.clearInterval(timer);window.removeEventListener("focus",refresh);};
+  },[pathname]);
   useEffect(()=>{
     if(canRememberTransactionOrigin(pathname))rememberTransactionOrigin(window.location.pathname+window.location.search);
   },[pathname]);
@@ -216,11 +227,13 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
         <Icon name={item.icon} className="h-[18px] w-[18px]"/>
       </span>
       {!compact?<span className="min-w-0 flex-1 truncate">{item.label}</span>:null}
+      {item.href==="/follow-ups"&&dueFollowUps>0?<span className="rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-black text-white" title="Customer follow-ups due">{dueFollowUps>99?"99+":dueFollowUps}</span>:null}
     </Link>;
   };
 
   return <div className={"min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)] "+(isDashboard?"dashboard-finance-shell":"")}>
     <BrowserEntrySuggestions/>
+    {dueFollowUps>0&&pathname!=="/follow-ups"?<Link href="/follow-ups" className="fixed right-3 top-[79px] z-[35] rounded-full bg-rose-600 px-3 py-2 text-xs font-extrabold text-white shadow-lg lg:right-6">{dueFollowUps} customer follow-up{dueFollowUps===1?"":"s"} due · Review</Link>:null}
     {navigating?<div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-[var(--accent-soft)]"><div className="h-full w-1/2 bg-[var(--accent)] [animation:cashledger-progress_.9s_ease-in-out_infinite]"/></div>:null}
     {desktopUserOpen?<button className="fixed inset-0 z-[35] hidden cursor-default lg:block" onClick={()=>setDesktopUserOpen(false)} aria-label="Close account menu"/>:null}
     <aside className={"app-sidebar fixed inset-y-0 left-0 z-40 hidden border-r border-[var(--border)] bg-[var(--surface)] transition-[width] duration-200 ease-out lg:flex lg:flex-col "+(desktopCollapsed?"w-[72px]":"w-[288px]")}>
@@ -312,7 +325,7 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
       <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/transactions")?"bg-[var(--accent-soft)]":"")}><Icon name="activity" className="h-[19px] w-[19px]"/></span><span>Activity</span></Link>
       <button type="button" onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[11px] font-black text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-[20px] border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#4f46e5)] text-white shadow-[0_10px_26px_rgba(37,99,235,.34)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
       <Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/dues")?"bg-[var(--accent-soft)]":"")}><Icon name="settle" className="h-[19px] w-[19px]"/></span><span>Dues</span></Link>
-      <button onClick={()=>setMenuOpen(true)} className="flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold text-[var(--text-muted)]"><span className="grid h-8 w-10 place-items-center rounded-xl"><Icon name="more" className="h-[19px] w-[19px]"/></span><span>More</span></button>
+      <button onClick={()=>setMenuOpen(true)} className="relative flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold text-[var(--text-muted)]">{dueFollowUps>0?<span className="absolute right-3 top-0 rounded-full bg-rose-600 px-1.5 text-[10px] font-extrabold text-white">{dueFollowUps>99?"99+":dueFollowUps}</span>:null}<span className="grid h-8 w-10 place-items-center rounded-xl"><Icon name="more" className="h-[19px] w-[19px]"/></span><span>More</span></button>
     </nav>:null}
   </div>;
 }
