@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
 import { networkForSavedCard } from "@/lib/card-network";
+import { gatewayDefaultRate } from "@/lib/card-swipe-gateway-rate.mjs";
 import { useRememberedValues } from "@/lib/remembered-values";
 import { istSwipeNow, selectedSwipeTransactionAt } from "@/lib/card-swipe-business-date.mjs";
 
@@ -92,16 +93,22 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   },[open,presetCustomerId]);
   useEffect(()=>{if(!open)return;const prev=document.body.style.overflow;document.body.style.overflow="hidden";const key=(e:KeyboardEvent)=>{if(e.key==="Escape")close();};window.addEventListener("keydown",key);return()=>{document.body.style.overflow=prev;window.removeEventListener("keydown",key);};},[open]);
   useEffect(()=>{
-    if(!open||providers.length)return;
-    setLoading(true);setError("");
+    if(!open)return;
+    // Re-fetch gateway settings on every opening. Never allow a stale cached
+    // gateway fee to be saved if refreshing fails.
+    let cancelled=false;
+    setLoading(true);setError("");setProviders([]);
     Promise.all([apiFetch<Provider[]>("/providers"),apiFetch<Term[]>("/settings/payment-terms"),apiFetch<Network[]>("/settings/card-networks")])
       .then(([p,t,n])=>{
+        if(cancelled)return;
         setProviders(p);setTerms(t);setNetworks(n);
         const instant=t.find(x=>x.name.toLowerCase().includes("instant"))??t[0];if(instant)setTermId(instant.id);
         let remembered="";try{remembered=localStorage.getItem("cashledger_card_provider")||"";}catch{}
         const first=p.find(x=>x.id===remembered)??p[0];if(first)setProviderId(first.id);
-      }).catch(e=>setError(e instanceof Error?e.message:"Could not load card swipe form")).finally(()=>setLoading(false));
-  },[open,providers.length]);
+      }).catch(e=>{if(!cancelled)setError(e instanceof Error?e.message:"Could not load current gateway settings");})
+      .finally(()=>{if(!cancelled)setLoading(false);});
+    return()=>{cancelled=true;};
+  },[open]);
   useEffect(()=>{
     if(!open||mode!=="existing"||!canSearch(query)||customer)return void setMatches([]);
     let cancelled=false;setSearching(true);const timer=window.setTimeout(()=>apiFetch<Customer[]>("/search/customers?q="+encodeURIComponent(query.trim())).then(rows=>{if(!cancelled)setMatches(rows);}).catch(()=>{if(!cancelled)setMatches([]);}).finally(()=>{if(!cancelled)setSearching(false);}),180);
@@ -119,7 +126,9 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const suggestedCardAmount=!amountTouched&&Number.isFinite(priorCardSwipeAmount)&&priorCardSwipeAmount>0?String(priorCardSwipeAmount):"";
   const displayedAmount=suggestedCardAmount||amount;
   const showingPreviousAmount=!amountTouched&&(reusedSwipeAmount||!!suggestedCardAmount);
-  const providerRate=historySetup&&historySetup.providerId===providerId&&historySetup.gatewayId===gatewayId?Number(historySetup.providerChargeRate):Number(gateway?.defaultChargeRate||0);
+  // Never price a new swipe with the prior swipe's historical gateway fee.
+  // The selected active gateway always supplies the current configured rate.
+  const providerRate=gatewayDefaultRate(gateway);
   const swipe=Number(displayedAmount||0),commission=swipe*Number(commissionRate||0)/100,providerFee=swipe*providerRate/100,payable=Math.max(0,swipe-commission),profit=commission-providerFee;
   const activeCards=customer?.cards.filter(c=>c.isActive)??[];
 
@@ -153,9 +162,13 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
     if(appliedHistoryKeyRef.current===historyKey)return;
     appliedHistoryKeyRef.current=historyKey;
     const priorProvider=providers.find(p=>p.id===historySetup.providerId&&p.isActive!==false);
-    if(!manuallySelectedRoutingRef.current&&priorProvider?.gateways.some(g=>g.id===historySetup.gatewayId&&g.isActive!==false)){
-      setProviderId(historySetup.providerId);
-      setGatewayId(historySetup.gatewayId);
+    if(!manuallySelectedRoutingRef.current&&priorProvider){
+      const usable=priorProvider.gateways.filter(g=>g.isActive!==false);
+      const lastGateway=usable.find(g=>g.id===historySetup.gatewayId);
+      // Retain the provider but never resurrect an inactive gateway.
+      // If there is exactly one replacement, use its current configured fee.
+      setProviderId(priorProvider.id);
+      setGatewayId(lastGateway?.id??(usable.length===1?usable[0].id:""));
     }
     if(historySetup.paymentTermId&&terms.some(t=>t.id===historySetup.paymentTermId&&t.isActive!==false))setTermId(historySetup.paymentTermId);
     const priorNetworkId=selectedCard.cardNetworkId??historySetup.customerCard?.cardNetworkId??"";
@@ -230,7 +243,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
   const paymentDateReady=customPayment?!!customPaymentDate&&customPaymentDate>=minCustomPaymentDate:!!termId;
   const selectedAt=backdated?selectedSwipeTransactionAt(businessDate,businessTime):undefined;
   const dateReady=!backdated||!!selectedAt;
-  const canSave=!saving&&!addingCardBusy&&!addingCard&&swipe>0&&commissionReady&&!!providerId&&!!gatewayId&&paymentDateReady&&dateReady&&(mode==="existing"?existingReady:newReady);
+  const canSave=!saving&&!loading&&!addingCardBusy&&!addingCard&&swipe>0&&commissionReady&&!!providerId&&!!gateway&&gateway.isActive!==false&&paymentDateReady&&dateReady&&(mode==="existing"?existingReady:newReady);
 
   async function submit(e:FormEvent){
     e.preventDefault();if(!canSave)return;setSaving(true);setError("");
@@ -268,7 +281,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
                 </div>
                 {error?<p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{error}</p>:null}
                 <button type="button" onClick={()=>void saveExistingCard()} disabled={addingCardBusy||!existingCardBank.trim()||existingCardLast4.length!==4||!existingCardNetworkId} className="mt-3 min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-black text-white disabled:opacity-40">{addingCardBusy?"Saving card…":"Save & use card"}</button>
-              </div>:null}{historyLoading&&cardId?<p className="mt-2 text-[10px] font-bold text-[var(--text-muted)]">Loading this card&apos;s last setup…</p>:selectedCardHistory&&historySetup?<p className="mt-2 rounded-lg bg-indigo-50 px-2.5 py-2 text-[10px] font-bold text-indigo-700">Last setup loaded: {historyProvider?.name||"Provider"} · {historyGateway?.gatewayName||"Gateway"} · {historyTerm?.name||"Term"} · gateway {rateText(Number(historySetup.providerChargeRate))}% · commission {rateText(Number(historySetup.commissionRate))}%</p>:cardId?<p className="mt-2 text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Configured defaults will be used.</p>:<p className="mt-2 text-[10px] font-semibold text-[var(--text-muted)]">Tap a card to continue.</p>}</div>:null}</div>:
+              </div>:null}{historyLoading&&cardId?<p className="mt-2 text-[10px] font-bold text-[var(--text-muted)]">Loading this card&apos;s last setup…</p>:selectedCardHistory&&historySetup?<p className="mt-2 rounded-lg bg-indigo-50 px-2.5 py-2 text-[10px] font-bold text-indigo-700">Last setup loaded: {historyProvider?.name||"Provider"} · {historyGateway?.gatewayName||"Previous gateway inactive"} · {historyTerm?.name||"Term"} · previous gateway fee {rateText(Number(historySetup.providerChargeRate))}% · commission {rateText(Number(historySetup.commissionRate))}%</p>:cardId?<p className="mt-2 text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Configured defaults will be used.</p>:<p className="mt-2 text-[10px] font-semibold text-[var(--text-muted)]">Tap a card to continue.</p>}</div>:null}</div>:
             <div className="mt-3 grid gap-2 sm:grid-cols-2"><input className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" name="cashledger_quick_card_new_customer_name" autoComplete="section-quickcardcustomer name" list="cashledger-quick-card-remembered-names" value={newName} onChange={e=>setNewName(e.target.value.toUpperCase())} placeholder="Customer name *"/><input className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" type="tel" inputMode="numeric" name="cashledger_customer_mobile" autoComplete="section-quickcardcustomer tel" value={newMobile} onChange={e=>setNewMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile *"/><SearchableSelect mobileSheet className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={newBank} onChange={e=>setNewBank(e.target.value)}><option value="">Card bank *</option>{INDIAN_BANKS.map(bank=><option key={bank}>{bank}</option>)}</SearchableSelect><input name="cashledger_card_last_four" className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold tracking-[.12em]" inputMode="numeric" autoComplete="on" value={newLastFour} onChange={e=>setNewLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="Card last 4 *"/></div>}
           </div>
           <datalist id="cashledger-quick-card-remembered-names">{rememberedCustomerNames.map(name=><option key={name} value={name}/>)}</datalist>
@@ -279,9 +292,9 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Card network *</span><SearchableSelect mobileSheet searchPlaceholder="Search card network" className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={network} onChange={e=>setNetwork(e.target.value)}><option value="">Choose network</option>{networks.filter(item=>item.isActive!==false).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SearchableSelect></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Swipe amount *</span><div className="mt-1 flex min-h-11 items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3"><span className="mr-2 font-black">₹</span><input className="min-w-0 flex-1 bg-transparent text-lg font-black outline-none" inputMode="decimal" value={displayedAmount} onChange={e=>{setAmount(cleanAmount(e.target.value));setAmountTouched(true);setReusedSwipeAmount(false);}} placeholder="0"/></div></label>
             <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Provider / wallet *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={providerId} onChange={e=>{manuallySelectedRoutingRef.current=true;setCommissionTouched(false);setProviderId(e.target.value);}}><option value="">Choose provider</option>{providers.filter(p=>p.isActive!==false).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></label>
-            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Gateway *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={gatewayId} onChange={e=>{manuallySelectedRoutingRef.current=true;setCommissionTouched(false);setGatewayId(e.target.value);}}><option value="">Choose gateway</option>{provider?.gateways.filter(g=>g.isActive!==false).map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {rateText(g.id===gatewayId?providerRate:Number(g.defaultChargeRate))}%</option>)}</SearchableSelect></label>
+            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Gateway *</span><SearchableSelect mobileSheet className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={gatewayId} onChange={e=>{manuallySelectedRoutingRef.current=true;setCommissionTouched(false);setGatewayId(e.target.value);}}><option value="">Choose gateway</option>{provider?.gateways.filter(g=>g.isActive!==false).map(g=><option key={g.id} value={g.id}>{g.gatewayName} · {rateText(gatewayDefaultRate(g))}%</option>)}</SearchableSelect></label>
             <div className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Payment term *</span><SearchableSelect mobileSheet searchPlaceholder="Search payment term" className="mt-1 min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold" value={termId} onChange={e=>{setCommissionTouched(false);setTermId(e.target.value);}}><option value="">Choose term</option>{terms.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}<option value={CUSTOM_PAYMENT_DATE}>Choose future date…</option></SearchableSelect>{customPayment?<div className="mt-2"><input aria-label="Custom payment date" className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none" type="date" min={minCustomPaymentDate} value={customPaymentDate} onChange={e=>setCustomPaymentDate(e.target.value)} required/></div>:null}</div>
-            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Customer fee / commission % *</span><div className="relative mt-1"><input className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 pr-9 text-right text-lg font-black outline-none" type="number" inputMode="decimal" min="0" max="100" step="0.0001" value={commissionRate} onChange={e=>{setCommissionRate(e.target.value);setCommissionTouched(true);}}/><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--text-muted)]">%</span></div><p className="mt-1 text-[10px] text-[var(--text-muted)]">{previousRate!==null&&!commissionTouched?"Using this card's last swipe rate":"Defaults to configured rate, otherwise 2.3%"}</p></label>
+            <label className="block"><span className="text-[10px] font-black uppercase tracking-[.1em] text-[var(--text-muted)]">Customer fee / commission % *</span><div className="relative mt-1"><input className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 pr-9 text-right text-lg font-black outline-none" type="number" inputMode="decimal" min="0" max="100" step="0.0001" value={commissionRate} onChange={e=>{setCommissionRate(e.target.value);setCommissionTouched(true);}}/><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--text-muted)]">%</span></div><p className="mt-1 text-[10px] text-[var(--text-muted)]">{previousRate!==null&&!commissionTouched?"Using this card's last customer commission rate":"Defaults to configured customer commission rate, otherwise 2.3%"}</p></label>
           </div>
 
           <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2.5">
@@ -293,7 +306,7 @@ export function QuickCardSwipeEntry({onSaved,showTrigger=true,buttonClassName=""
             </div>:null}
           </div>
           {showingPreviousAmount?<p className="mt-2 text-xs font-semibold text-indigo-700">Previous gross swipe amount suggested · confirm or edit before saving</p>:null}
-          {swipe>0?<div className="mt-3 rounded-[18px] border border-[var(--border)] bg-[var(--surface-soft)] p-3"><div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Customer gets</p><p className="money mt-1 text-xl font-black">{money(payable)}</p></div><div className="text-right"><p className="text-[10px] text-[var(--text-muted)]">Business profit before payout charges</p><p className={"money mt-1 font-black "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(profit)}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--border)] pt-3 text-xs"><div><span className="text-[var(--text-muted)]">Swipe</span><strong className="money mt-1 block">{money(swipe)}</strong></div><div><span className="text-[var(--text-muted)]">Customer fee</span><strong className="money mt-1 block text-[var(--money-in)]">{money(commission)}</strong></div><div><span className="text-[var(--text-muted)]">Gateway fee</span><strong className="money mt-1 block text-[var(--money-out)]">{money(providerFee)}</strong></div></div></div>:null}
+          {swipe>0?<div className="mt-3 rounded-[18px] border border-[var(--border)] bg-[var(--surface-soft)] p-3"><div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">Customer gets</p><p className="money mt-1 text-xl font-black">{money(payable)}</p></div><div className="text-right"><p className="text-[10px] text-[var(--text-muted)]">Business profit before payout charges</p><p className={"money mt-1 font-black "+(profit>=0?"text-[var(--money-in)]":"text-[var(--money-out)]")}>{money(profit)}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--border)] pt-3 text-xs"><div><span className="text-[var(--text-muted)]">Swipe</span><strong className="money mt-1 block">{money(swipe)}</strong></div><div><span className="text-[var(--text-muted)]">Customer fee</span><strong className="money mt-1 block text-[var(--money-in)]">{money(commission)}</strong></div><div><span className="text-[var(--text-muted)]">Gateway fee · current {rateText(providerRate)}%</span><strong className="money mt-1 block text-[var(--money-out)]">{money(providerFee)}</strong></div></div></div>:null}
           {loading?<p className="mt-3 text-xs font-bold text-[var(--text-muted)]">Loading swipe settings…</p>:null}{error?<div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm font-bold text-rose-700">{error}</div>:null}
         </div>
         <footer className="border-t border-[var(--border)] bg-[var(--surface)] p-3 px-4 pb-[max(.75rem,env(safe-area-inset-bottom))]"><button disabled={!canSave||loading} className="min-h-[52px] w-full rounded-[16px] bg-indigo-600 px-5 text-base font-black text-white disabled:opacity-40">{saving?"Saving swipe…":"Save card swipe"}</button></footer>

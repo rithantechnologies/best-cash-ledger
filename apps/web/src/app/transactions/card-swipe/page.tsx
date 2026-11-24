@@ -9,6 +9,7 @@ import { AppShell } from "@/components/app-shell";
 import { Field, Modal, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { networkForSavedCard } from "@/lib/card-network";
+import { gatewayDefaultRate } from "@/lib/card-swipe-gateway-rate.mjs";
 import { useRememberedValues } from "@/lib/remembered-values";
 import { payoutChargeProblem, highPayoutChargeWarning } from "@/lib/customer-payout-charge-safety.mjs";
 
@@ -503,12 +504,10 @@ export default function CardSwipePage(){
 
   useEffect(()=>{
     if(manualProviderRateRef.current)return;
-    if(selectedCardSetup&&selectedCardSetup.providerId===providerId&&selectedCardSetup.gatewayId===gatewayId){
-      setProviderRate(rateText(Number(selectedCardSetup.providerChargeRate)));
-      return;
-    }
-    setProviderRate(gateway?String(Number(gateway.defaultChargeRate)):"0");
-  },[gatewayId,gateway,providerId,selectedCardSetup]);
+    // A previous card setup can select routing, but it must never restore an
+    // obsolete charge from a past transaction over current gateway settings.
+    setProviderRate(String(gatewayDefaultRate(gateway)));
+  },[gateway]);
 
   useEffect(()=>{
     const active=customer?.cards.filter(c=>c.isActive)??[];
@@ -543,14 +542,23 @@ export default function CardSwipePage(){
     }
     const previousProvider=providers.find(item=>item.id===selectedCardSetup.providerId);
     const previousGateway=previousProvider?.gateways.find(item=>item.id===selectedCardSetup.gatewayId);
-    // Wait for the provider and payment terms before marking the setup hydrated.
-    if(!previousProvider||!previousGateway||!terms.length)return;
+    // The previous gateway may now be inactive and therefore absent from
+    // /providers. Do not silently preserve an inactive historical route.
+    if(!providers.length||!terms.length)return;
     hydratedCardSetupRef.current=setupKey;
     if(!manualGatewayRef.current){
-      setProviderId(previousProvider.id);
-      setGatewayId(previousGateway.id);
-      setProviderRate(rateText(Number(selectedCardSetup.providerChargeRate)));
-      setRoutingOpen(false);
+      if(previousProvider&&previousGateway){
+        setProviderId(previousProvider.id);
+        setGatewayId(previousGateway.id);
+        setProviderRate(String(gatewayDefaultRate(previousGateway)));
+        setRoutingOpen(false);
+      }else{
+        // Show available routing instead of reusing the disabled gateway.
+        setProviderId(previousProvider?.id??"");
+        setGatewayId(previousProvider?.gateways.length===1?previousProvider.gateways[0].id:"");
+        setProviderRate(String(gatewayDefaultRate(previousProvider?.gateways.length===1?previousProvider.gateways[0]:undefined)));
+        setRoutingOpen(true);
+      }
     }
     if(!manualTermRef.current){
       if(selectedCardSetup.paymentTermId&&terms.some(item=>item.id===selectedCardSetup.paymentTermId)){
@@ -994,7 +1002,7 @@ export default function CardSwipePage(){
   const calculationReady=swipe>0&&routingReady;
   const paymentDateReady=customPayment?!!customPaymentDate&&customPaymentDate>=(swipeDate||minCustomPaymentDate):!!termId;
   const swipeDateReady=!swipeDate||swipeDate<=dateInputValue(new Date());
-  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&paymentDateReady&&swipeDateReady&&!!providerId&&!!gatewayId&&!!providerWallet&&payoutValid&&separateFeeValid;
+  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&paymentDateReady&&swipeDateReady&&!!providerId&&!!gateway&&!!providerWallet&&payoutValid&&separateFeeValid;
   const displayCustomerName=customer?.fullName??(customerMode==="new"?quickName.trim():"");
   const normalSaveLabel=swipe<=0?"Save card swipe":recordCustomerPayment
     ? (remainingAmount<=.001?"Save & pay "+money(payable):"Save & record "+money(paidAmount))
@@ -1051,7 +1059,7 @@ export default function CardSwipePage(){
                 {activeCards.map(card=>{const selected=card.id===cardId;const usual=card.id===usualCardId;const network=networks.find(item=>item.id===card.cardNetworkId);const last=customerHistory.find(row=>!["REVERSED","CANCELLED"].includes(row.status)&&row.cardSwipe?.customerCard?.id===card.id);return <button key={card.id} type="button" onClick={()=>chooseCard(card.id)} className={"swipe-card-choice min-w-[168px] rounded-xl border px-3 py-2.5 text-left "+(selected?"swipe-card-choice-selected border-[var(--accent)] bg-[var(--accent-soft)]":"border-[var(--border)] bg-[var(--surface)]")}><div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-bold">{card.bankName}</span>{selected?<span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[8px] font-semibold text-white">Selected</span>:card.id===latestUsedCardId?<span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700">Last used</span>:usual?<span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[8px] font-semibold text-amber-700">Usual</span>:null}</div><p className="mt-1 font-mono text-xs font-bold tracking-[.08em]">•••• {card.lastFourDigits}</p><p className="mt-1 truncate text-[9px] font-semibold text-[var(--text-muted)]">{[network?.name,"CREDIT"].filter(Boolean).join(" · ")}{last?" · Used "+new Date(last.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short"}):""}</p></button>;})}
                 <button type="button" onClick={openAddCard} className="flex min-w-[110px] items-center justify-center rounded-xl border border-dashed border-[var(--border)] px-3 text-xs font-semibold text-[var(--accent)]">+ Add card</button>
               </div>
-              {cardId?<div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,180px)_minmax(0,220px)_1fr]"><Field label="Card type"><div className={control+" flex items-center bg-[var(--surface-soft)] font-bold text-[var(--text)]"}>CREDIT</div></Field><Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field><div className="self-end pb-1">{historyLoading||historyLoadedFor!==customerId?<p className="text-[10px] font-semibold text-[var(--text-muted)]">Loading this card setup…</p>:historyError?<p className="text-[10px] font-semibold text-amber-700">Previous card setup unavailable. Enter this swipe manually.</p>:selectedCardSetup?<p className="rounded-lg bg-[var(--accent-soft)] px-2.5 py-2 text-[10px] font-bold text-[var(--accent)]">Last card setup suggested · editable: {selectedCardHistoryProvider?.name||"Provider"} · {selectedCardHistoryGateway?.gatewayName||"Gateway"} · {selectedCardHistoryTerm?.name||(selectedCardSetup.paymentTermId?"Term":"Custom date")} · gateway {rateText(Number(selectedCardSetup.providerChargeRate))}% · commission {rateText(Number(selectedCardSetup.commissionRate))}%</p>:<p className="text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Choose the setup once and it will be reused next time.</p>}</div></div>:null}
+              {cardId?<div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,180px)_minmax(0,220px)_1fr]"><Field label="Card type"><div className={control+" flex items-center bg-[var(--surface-soft)] font-bold text-[var(--text)]"}>CREDIT</div></Field><Field label="Card network"><SearchableSelect className={control} value={cardNetworkId} onChange={e=>setCardNetworkId(e.target.value)} required><option value="">Select network</option>{networks.filter(network=>network.isActive).map(network=><option key={network.id} value={network.id}>{network.name}</option>)}</SearchableSelect></Field><div className="self-end pb-1">{historyLoading||historyLoadedFor!==customerId?<p className="text-[10px] font-semibold text-[var(--text-muted)]">Loading this card setup…</p>:historyError?<p className="text-[10px] font-semibold text-amber-700">Previous card setup unavailable. Enter this swipe manually.</p>:selectedCardSetup?<p className="rounded-lg bg-[var(--accent-soft)] px-2.5 py-2 text-[10px] font-bold text-[var(--accent)]">Last card setup suggested · editable: {selectedCardHistoryProvider?.name||"Provider"} · {selectedCardHistoryGateway?.gatewayName||"Previous gateway inactive"} · {selectedCardHistoryTerm?.name||(selectedCardSetup.paymentTermId?"Term":"Custom date")} · previous gateway fee {rateText(Number(selectedCardSetup.providerChargeRate))}% · commission {rateText(Number(selectedCardSetup.commissionRate))}% · new gateway fee follows current settings</p>:<p className="text-[10px] font-semibold text-[var(--text-muted)]">No previous swipe for this card. Choose the setup once and it will be reused next time.</p>}</div></div>:null}
             </div>:<div className="relative mt-3"><input className="app-control text-base" inputMode="search" name="cashledger_customer_search" data-no-suggestions="true" autoComplete="off" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search name, bank/card last 4 or UPI ID" autoFocus/>{customerSearch.trim()?<div className="absolute inset-x-0 top-[calc(100%+.4rem)] z-40 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-xl">{customerMatches.length?customerMatches.map(match=>{const matchDigits=customerDigits?match.cards.filter(card=>card.isActive&&card.lastFourDigits.includes(customerDigits)):[];const matchBank=customerDigits?match.bankAccounts?.find(bank=>bank.isActive&&bank.accountReference.includes(customerDigits)):undefined;return <button key={match.id} type="button" onClick={()=>selectCustomer(match)} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[var(--surface-soft)]"><div className="min-w-0"><p className="truncate text-sm font-semibold">{match.fullName}</p><p className="truncate text-[11px] text-[var(--text-muted)]">{formatIndianMobile(match.mobile)||"No mobile"}{matchDigits.length?" · "+matchDigits.map(x=>"••••"+x.lastFourDigits).join(", "):matchBank?" · Bank ••••"+matchBank.accountReference.slice(-4):""}</p></div><span className="text-xs font-semibold text-[var(--accent)]">Use</span></button>; }):<button type="button" onClick={beginNewCustomer} className="w-full rounded-lg px-3 py-4 text-left text-xs font-semibold text-[var(--accent)]">No match · Create new customer</button>}</div>:null}</div>}
             {customer?<CustomerCardSwipeHistory rows={customerHistory} loading={historyLoading}/>:null}
           </section>
@@ -1077,7 +1085,7 @@ export default function CardSwipePage(){
 
           <section className="entry-section entry-section-provider">
             <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><h2 className="entry-title">Wallet / Platform</h2>{providerIsUsual?<span className="status-chip bg-amber-50 text-amber-700">Usual</span>:null}</div>{routingReady?<button type="button" onClick={()=>setRoutingOpen(v=>!v)} className="text-xs font-semibold text-[var(--accent)]">{routingOpen?"Done":"Change"}</button>:null}</div>
-            {routingReady&&!routingOpen?<div className="provider-summary-card mt-2 flex flex-wrap items-center gap-3 rounded-xl px-3 py-2.5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-50 text-[10px] font-extrabold text-cyan-700">{providerInitials}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{provider?.name} · {gateway?.gatewayName}</p><p className="mt-0.5 text-[13px] font-semibold text-[var(--text-muted)]">Gateway fee <span className="text-[var(--text)]">{rateText(pRate)}%</span></p></div><div className="ml-auto min-w-0 max-w-full text-right"><p className="money provider-fee-money font-bold text-[var(--money-out)]">−{money(providerCharge)}</p></div></div>:<div className="mt-3 grid gap-3 sm:grid-cols-3">{customerMode==="new"&&!providerId?<div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:col-span-3">Choose wallet / platform for this new customer.</div>:null}<Field label="Wallet / Platform"><SearchableSelect className={control} value={providerId} onChange={e=>{manualGatewayRef.current=true;manualProviderRateRef.current=false;resetCustomerPayoutState();setProviderId(e.target.value);setGatewayId("");setProviderRate("0");setSettlementDueAt("");}} required><option value="">Select wallet / platform</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></Field><Field label="Gateway"><SearchableSelect className={control} value={gatewayId} onChange={e=>{manualGatewayRef.current=true;manualProviderRateRef.current=false;setGatewayId(e.target.value);if(e.target.value)setRoutingOpen(false);}} disabled={!provider?.gateways.length} required><option value="">{provider&&provider.gateways.length===0?"No gateway set":"Select gateway"}</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</SearchableSelect></Field><Field label="Gateway fee %"><div><input aria-label="Gateway fee percentage" className={control+" text-right font-bold"} type="number" inputMode="decimal" step="0.0001" min="0" max="100" value={providerRate} onChange={e=>{manualGatewayRef.current=true;manualProviderRateRef.current=true;setProviderRate(e.target.value);}} required/><p className="mt-1 px-1 text-[10px] text-[var(--text-muted)]">Default {rateText(Number(gateway?.defaultChargeRate||0))}% · editable for this swipe</p></div></Field></div>}
+            {routingReady&&!routingOpen?<div className="provider-summary-card mt-2 flex flex-wrap items-center gap-3 rounded-xl px-3 py-2.5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-50 text-[10px] font-extrabold text-cyan-700">{providerInitials}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{provider?.name} · {gateway?.gatewayName}</p><p className="mt-0.5 text-[13px] font-semibold text-[var(--text-muted)]">Gateway fee <span className="text-[var(--text)]">{rateText(pRate)}%</span></p></div><div className="ml-auto min-w-0 max-w-full text-right"><p className="money provider-fee-money font-bold text-[var(--money-out)]">−{money(providerCharge)}</p></div></div>:<div className="mt-3 grid gap-3 sm:grid-cols-3">{customerMode==="new"&&!providerId?<div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:col-span-3">Choose wallet / platform for this new customer.</div>:null}<Field label="Wallet / Platform"><SearchableSelect className={control} value={providerId} onChange={e=>{manualGatewayRef.current=true;manualProviderRateRef.current=false;resetCustomerPayoutState();setProviderId(e.target.value);setGatewayId("");setProviderRate("0");setSettlementDueAt("");}} required><option value="">Select wallet / platform</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></Field><Field label="Gateway"><SearchableSelect className={control} value={gatewayId} onChange={e=>{manualGatewayRef.current=true;manualProviderRateRef.current=false;setGatewayId(e.target.value);if(e.target.value)setRoutingOpen(false);}} disabled={!provider?.gateways.length} required><option value="">{provider&&provider.gateways.length===0?"No gateway set":"Select gateway"}</option>{provider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName}</option>)}</SearchableSelect></Field><Field label="Gateway fee %"><div><input aria-label="Gateway fee percentage" className={control+" text-right font-bold"} type="number" inputMode="decimal" step="0.0001" min="0" max="100" value={providerRate} onChange={e=>{manualGatewayRef.current=true;manualProviderRateRef.current=true;setProviderRate(e.target.value);}} required/><p className="mt-1 px-1 text-[10px] text-[var(--text-muted)]">Current gateway default {rateText(gatewayDefaultRate(gateway))}% · editable for this swipe</p></div></Field></div>}
             {providerWallet?<div className="wallet-summary-card mt-2 rounded-xl border border-[var(--border)] px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <div className="min-w-0 flex-1">

@@ -20,13 +20,14 @@ test("latest non-reversed card swipe determines last-used card, sorted by actual
  assert.match(source,/card\.id===latestUsedCardId\?<span/);
 });
 
-test("only the selected customer's loaded history can prefill prior gateway, fees, amount and term",()=>{
+test("only the selected customer's history can prefill active routing, amount and customer commission",()=>{
  const restore=segment("  useEffect(()=>{\n    if(customerMode!==\"existing\"||!cardId||historyLoading", "  useEffect(()=>{\n    if(!providerId)return;");
  assert.match(restore,/historyLoadedFor!==customerId/);
  assert.match(restore,/hydratedCardSetupRef\.current===setupKey/);
  assert.match(restore,/setProviderId\(previousProvider\.id\)/);
  assert.match(restore,/setGatewayId\(previousGateway\.id\)/);
- assert.match(restore,/setProviderRate\(rateText\(Number\(selectedCardSetup\.providerChargeRate\)\)\)/);
+ assert.match(restore,/setProviderRate\(String\(gatewayDefaultRate\(previousGateway\)\)\)/);
+ assert.doesNotMatch(restore,/setProviderRate\(rateText\(Number\(selectedCardSetup\.providerChargeRate\)/);
  assert.match(restore,/setTermId\(selectedCardSetup\.paymentTermId\)/);
  assert.match(restore,/setCommissionRate\(rateText\(previousCommission\)\)/);
  assert.match(restore,/setAmount\(String\(lastAmount\)\)/);
@@ -43,8 +44,8 @@ test("explicit card choice and manually typed fields win over late responses and
  assert.match(choose,/resetCustomerPayoutState\(\)/);
  assert.match(choose,/setSettlementDueAt\(""\)/);
  assert.match(source,/manualAmountRef\.current=true;setAmount\(cleanAmountInput/);
- assert.match(source,/manualGatewayRef\.current=true;setGatewayId\(e\.target\.value\)/);
- assert.match(source,/manualTermRef\.current=true;setTermId\(term\.id\)/);
+ assert.match(source,/manualGatewayRef\.current=true;manualProviderRateRef\.current=false;setGatewayId\(e\.target\.value\)/);
+ assert.match(source,/manualTermRef\.current=true;manualCommissionRef\.current=false;setTermId\(term\.id\)/);
  const prefs=segment('const pref=JSON.parse(raw) as CustomerPreference;', '  },[customerId,providers,terms,customer]);');
  assert.doesNotMatch(prefs,/setCardId/);
 });

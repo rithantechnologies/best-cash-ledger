@@ -45,6 +45,7 @@ jobs:
       - name: Test Card Swipe date, card-specific reports and payout safety
         run: |
           node --test apps/web/test/card-swipe-business-date.test.mjs apps/web/test/customer-payout-charge-safety.test.mjs
+          node --test apps/web/test/card-swipe-gateway-rate.test.mjs apps/web/test/card-swipe-latest-card-prefill.test.cjs apps/web/test/card-swipe-gateway-stability.test.cjs apps/web/test/quick-card-swipe-existing-customer.test.cjs
           cd apps/api
           npx vitest run src/reports/card-swipe-report.spec.ts src/transactions/card-swipe-business-date.spec.ts src/finance/payout-charge-guard.spec.ts --maxWorkers=1
 
