@@ -3472,3 +3472,128 @@ a.app-metric:hover { border-color: var(--border-strong); }
     box-shadow: 0 -10px 28px rgba(15,23,42,.08);
   }
 }
+
+/* Cash Ledger's warm maroon brand option.
+   Deliberately reversible through Appearance > Light / System / Dark.
+   Styling only: financial status colors retain their meaning. */
+html[data-theme="maroon"] {
+  color-scheme: light;
+  --bg: #faf7f8;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-soft: #fcf5f7;
+  --surface-muted: #fcf5f7;
+  --border: #eadbe0;
+  --border-strong: #d6bcc6;
+  --text: #2a1a22;
+  --text-muted: #695660;
+  --text-subtle: #85717a;
+  --accent: #8c2043;
+  --accent-soft: #fff0f4;
+  --accent-hover: #6f1835;
+  --accent-contrast: #ffffff;
+  --info: #7d3551;
+  --info-soft: #fcf0f4;
+  --money-in: #087c58;
+  --money-out: #bb3450;
+  --positive: var(--money-in);
+  --positive-soft: #e9f6ef;
+  --negative: var(--money-out);
+  --negative-soft: #fff0f3;
+  --warning: #ad661a;
+  --danger: #c53047;
+}
+html[data-theme="maroon"] body {
+  font-family: var(--font-geist-sans), "Segoe UI", system-ui, sans-serif;
+  font-feature-settings: "ss01" 1, "cv02" 1, "cv03" 1;
+  letter-spacing: -.006em;
+}
+html[data-theme="maroon"] .app-main :is(h1, h2, h3),
+html[data-theme="maroon"] .dashboard-top-title {
+  letter-spacing: -.035em;
+}
+html[data-theme="maroon"] .ui-preview { --ui-action: var(--accent); }
+html[data-theme="maroon"] body.cashledger-modern-task {
+  --bg: #faf7f8;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-soft: #fcf5f7;
+  --border: #eadbe0;
+  --text: #2a1a22;
+  --text-muted: #695660;
+  --accent: #8c2043;
+  --accent-soft: #fff0f4;
+  --money-in: #087c58;
+  --money-out: #bb3450;
+  --warning: #ad661a;
+  --danger: #c53047;
+}
+html[data-theme="maroon"] .swipe-commerce-page {
+  --accent: #8c2043;
+  --accent-soft: #fff0f4;
+  --money-in: #087c58;
+  --money-out: #bb3450;
+}
+html[data-theme="maroon"] .app-primary-button,
+html[data-theme="maroon"] .ui-preview .app-primary-button,
+html[data-theme="maroon"] .swipe-primary-action,
+html[data-theme="maroon"] body.cashledger-modern-task .swipe-primary-action,
+html[data-theme="maroon"] body.cashledger-modern-task .app-primary-button {
+  background: linear-gradient(135deg, #a72b50 0%, #781b3b 100%);
+  color: #ffffff;
+  box-shadow: 0 8px 19px rgba(111,24,53,.18);
+}
+html[data-theme="maroon"] .app-primary-button:hover:not(:disabled),
+html[data-theme="maroon"] .swipe-primary-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, #942144, #64162f);
+  box-shadow: 0 10px 22px rgba(111,24,53,.23);
+}
+html[data-theme="maroon"] .swipe-result-card {
+  background:
+    radial-gradient(circle at 90% 8%, rgba(230,116,147,.18), transparent 35%),
+    linear-gradient(145deg, #3c1528 0%, #5e1a36 54%, #7a2446 100%);
+  box-shadow: 0 14px 32px rgba(69,18,39,.15);
+}
+html[data-theme="maroon"] .dashboard-finance-shell .app-sidebar {
+  background: linear-gradient(180deg, #fff9fb, var(--surface));
+}
+html[data-theme="maroon"] .app-main table thead {
+  background: #fbf0f4 !important;
+}
+html[data-theme="maroon"] .app-main table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface)) !important;
+}
+/* Non-semantic navigation and new-entry buttons use the brand palette.
+   Never recolor payment-status badges, reconciliation or money-in indicators. */
+html[data-theme="maroon"] .app-mobile-nav button[aria-label="Open quick actions"],
+html[data-theme="maroon"] .app-main button[aria-label="Open quick actions"] {
+  background: var(--accent);
+}
+/* Preserve visible keyboard focus when the background is warm pink. */
+html[data-theme="maroon"] :is(button,a,input,textarea,select):focus-visible {
+  outline-color: #8c2043;
+  outline-offset: 2px;
+}
+
+
+html[data-theme="maroon"] .cashledger-mobile-new {
+  background: linear-gradient(135deg, #a72b50, #781b3b);
+  box-shadow: 0 10px 26px rgba(111,24,53,.26);
+}
+html[data-theme="maroon"] .cashledger-speed-card,
+html[data-theme="maroon"] .cashledger-speed-expense,
+html[data-theme="maroon"] .cashledger-expense-trigger {
+  background: #8c2043;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(111,24,53,.18);
+}
+html[data-theme="maroon"] .cash-quick-sheet .bg-violet-600 {
+  background-color: var(--accent);
+}
+html[data-theme="maroon"] .cash-quick-sheet .bg-violet-100,
+html[data-theme="maroon"] .cash-quick-sheet .bg-violet-50 {
+  background-color: var(--accent-soft);
+}
+html[data-theme="maroon"] .cash-quick-sheet .text-violet-700 {
+  color: var(--accent);
+}

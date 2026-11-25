@@ -137,7 +137,7 @@ export function QuickExpenseEntry({
 
   return <>
     {showTrigger?<button type="button" aria-label="Expense" onClick={()=>{setExpenseDate(localDateValue());setOpen(true);}}
-      className={"flex min-h-10 items-center gap-2 rounded-full bg-violet-600 px-3.5 text-[13px] font-black text-white shadow-[0_8px_22px_rgba(124,58,237,.24)] transition hover:-translate-y-0.5 active:translate-y-0 "+buttonClassName}>
+      className={"cashledger-expense-trigger flex min-h-10 items-center gap-2 rounded-full bg-violet-600 px-3.5 text-[13px] font-black text-white shadow-[0_8px_22px_rgba(124,58,237,.24)] transition hover:-translate-y-0.5 active:translate-y-0 "+buttonClassName}>
       <span className="text-base leading-none">₹</span><span>Expense</span>
     </button>:null}
 

@@ -59,7 +59,7 @@ function Icon({name,className="h-5 w-5"}:{name:IconName;className?:string}) {
   return <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...common}>{paths[name]}</svg>;
 }
 
-type ThemeMode="system"|"light"|"dark";
+type ThemeMode="maroon"|"system"|"light"|"dark";
 const transactionTaskTitles:Record<string,string>={
   "/transactions/card-swipe":"Card swipe",
   "/transactions/card-due-clearing":"Customer Due",
@@ -139,7 +139,7 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
   const [menuOpen,setMenuOpen]=useState(false),[newOpen,setNewOpen]=useState(false),[speedDialOpen,setSpeedDialOpen]=useState(false),[navigating,setNavigating]=useState(false);
   const [desktopCollapsed,setDesktopCollapsed]=useState(cachedDesktopCollapsed??false);
   const [desktopUserOpen,setDesktopUserOpen]=useState(false);
-  const [theme,setTheme]=useState<ThemeMode>("system");
+  const [theme,setTheme]=useState<ThemeMode>("maroon");
   const [customerSuggestions,setCustomerSuggestions]=useState<CustomerSuggestion[]>([]);
   const [customerSearchLoading,setCustomerSearchLoading]=useState(false);
   const [customerSearchOpen,setCustomerSearchOpen]=useState(false);
@@ -149,7 +149,7 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
       const user=JSON.parse(localStorage.getItem("cashledger_user")||"{}");
       setRole(user.role||"");
       setUserName(user.fullName||user.email||"Cash Ledger User");
-      setTheme((localStorage.getItem("cashledger_theme") as ThemeMode)||"system");
+      setTheme((localStorage.getItem("cashledger_theme") as ThemeMode)||"maroon");
       const collapsed=localStorage.getItem("cashledger_desktop_nav_collapsed")==="true";
       cachedDesktopCollapsed=collapsed;
       setDesktopCollapsed(collapsed);
@@ -199,7 +199,7 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
   function applyTheme(mode:ThemeMode){
     setTheme(mode);localStorage.setItem("cashledger_theme",mode);
     const dark=mode==="dark"||(mode==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);
-    document.documentElement.setAttribute("data-theme",dark?"dark":"light");
+    document.documentElement.setAttribute("data-theme",mode==="maroon"?"maroon":dark?"dark":"light");
   }
   function toggleDesktopNav(){
     setDesktopUserOpen(false);
@@ -251,7 +251,7 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
       <div className="relative shrink-0 border-t border-[var(--border)] p-2">
         {desktopUserOpen?<div className={"absolute z-50 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2.5 shadow-[0_18px_50px_rgba(15,23,42,.18)] "+(desktopCollapsed?"bottom-2 left-[calc(100%+8px)] w-[240px]":"bottom-[68px] left-2 right-2")}>
           <p className="mb-1.5 px-1 text-[10px] font-extrabold uppercase tracking-[.12em] text-[var(--text-muted)]">Appearance</p>
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface-soft)] p-1">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-8 rounded-lg text-[10px] font-bold capitalize transition "+(theme===mode?"bg-[var(--surface)] text-[var(--text)] shadow-sm ring-1 ring-[var(--border)]":"text-[var(--text-muted)] hover:text-[var(--text)]")}>{mode}</button>)}</div>
+          <div className="grid grid-cols-4 gap-1 rounded-xl bg-[var(--surface-soft)] p-1" role="group" aria-label="Appearance theme">{(["maroon","system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-8 rounded-lg text-[10px] font-bold capitalize transition "+(theme===mode?"bg-[var(--surface)] text-[var(--text)] shadow-sm ring-1 ring-[var(--border)]":"text-[var(--text-muted)] hover:text-[var(--text)]")}>{mode}</button>)}</div>
           <button onClick={logout} className="mt-2 flex min-h-10 w-full items-center gap-2 rounded-xl px-2.5 text-sm font-semibold text-[var(--danger)] transition hover:bg-[color-mix(in_srgb,var(--danger)_6%,var(--surface))]"><Icon name="logout" className="h-[18px] w-[18px]"/>Sign out</button>
         </div>:null}
         <button title={desktopCollapsed?(userName||"Cash Ledger User"):undefined} onClick={()=>setDesktopUserOpen(open=>!open)} aria-expanded={desktopUserOpen} className={"flex min-h-[52px] w-full items-center rounded-xl border border-transparent transition hover:bg-[var(--surface-soft)] "+(desktopUserOpen?"bg-[var(--surface-soft)] ":"")+(desktopCollapsed?"justify-center p-1":"gap-2.5 px-2 py-1.5")}>
@@ -295,7 +295,7 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--accent)] text-sm font-black text-white">{userInitial}</span>
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{userName||"Cash Ledger User"}</p><p className="mt-0.5 truncate text-[10.5px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">{role||"User"}</p></div>
           </div>
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface)] p-1 ring-1 ring-[var(--border)]">{(["system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-9 rounded-lg text-[11px] font-bold capitalize transition "+(theme===mode?"bg-[var(--accent-soft)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>{mode}</button>)}</div>
+          <div className="grid grid-cols-4 gap-1 rounded-xl bg-[var(--surface)] p-1 ring-1 ring-[var(--border)]" role="group" aria-label="Appearance theme">{(["maroon","system","light","dark"] as ThemeMode[]).map(mode=><button key={mode} onClick={()=>applyTheme(mode)} className={"min-h-9 rounded-lg text-[11px] font-bold capitalize transition "+(theme===mode?"bg-[var(--accent-soft)] text-[var(--accent)] shadow-sm":"text-[var(--text-muted)]")}>{mode}</button>)}</div>
           <button onClick={logout} className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[color-mix(in_srgb,var(--danger)_18%,var(--border))] bg-[color-mix(in_srgb,var(--danger)_5%,var(--surface))] px-3 text-sm font-bold text-[var(--danger)]"><Icon name="logout" className="h-[18px] w-[18px]"/>Sign out</button>
         </div>
       </aside>
@@ -314,8 +314,8 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
       {speedDialOpen?<div className="flex flex-col items-end gap-2" role="menu" aria-label="Quick actions">
         <Link href="/cash-counter?quick=IN" onClick={(event)=>{setSpeedDialOpen(false);if(pathname==="/cash-counter"){event.preventDefault();window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"IN"}));}}} className="flex min-h-10 items-center gap-2 rounded-full bg-emerald-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>↓</span><span>Cash In</span></Link>
         <Link href="/cash-counter?quick=OUT" onClick={(event)=>{setSpeedDialOpen(false);if(pathname==="/cash-counter"){event.preventDefault();window.dispatchEvent(new CustomEvent("cashledger:open-quick-cash",{detail:"OUT"}));}}} className="flex min-h-10 items-center gap-2 rounded-full bg-rose-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>↑</span><span>Cash Out</span></Link>
-        {pathname!=="/transactions/card-swipe"?<button type="button" onClick={()=>{setSpeedDialOpen(false);window.dispatchEvent(new CustomEvent("cashledger:open-quick-card-swipe"));}} className="flex min-h-10 items-center gap-2 rounded-full bg-indigo-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>▣</span><span>Card Swipe</span></button>:null}
-        <button type="button" onClick={()=>{setSpeedDialOpen(false);window.dispatchEvent(new CustomEvent("cashledger:open-quick-expense"));}} className="flex min-h-10 items-center gap-2 rounded-full bg-violet-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>₹</span><span>Expense</span></button>
+        {pathname!=="/transactions/card-swipe"?<button type="button" onClick={()=>{setSpeedDialOpen(false);window.dispatchEvent(new CustomEvent("cashledger:open-quick-card-swipe"));}} className="cashledger-speed-card flex min-h-10 items-center gap-2 rounded-full bg-indigo-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>▣</span><span>Card Swipe</span></button>:null}
+        <button type="button" onClick={()=>{setSpeedDialOpen(false);window.dispatchEvent(new CustomEvent("cashledger:open-quick-expense"));}} className="cashledger-speed-expense flex min-h-10 items-center gap-2 rounded-full bg-violet-600 px-3.5 text-[12px] font-black text-white shadow-lg"><span>₹</span><span>Expense</span></button>
       </div>:null}
       <button type="button" onClick={()=>setSpeedDialOpen(open=>!open)} aria-expanded={speedDialOpen} aria-label={speedDialOpen?"Close quick actions":"Open quick actions"} className="grid h-12 w-12 place-items-center rounded-full bg-[var(--accent)] text-2xl font-black text-white shadow-[0_10px_26px_rgba(37,99,235,.30)] transition active:scale-95"><span className={"transition-transform "+(speedDialOpen?"rotate-45":"")}>+</span></button>
     </div>}
@@ -323,7 +323,7 @@ export function AppShell({ children, headerAction }: { children: ReactNode; head
     {!isTaskFlow?<nav className="app-mobile-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-end border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_94%,transparent)] px-1.5 pb-[max(.4rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-12px_30px_rgba(15,23,42,.08)] backdrop-blur-xl lg:hidden">
       <Link href="/" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/")?"bg-[var(--accent-soft)]":"")}><Icon name="home" className="h-[19px] w-[19px]"/></span><span>Home</span></Link>
       <Link href="/transactions" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/transactions")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/transactions")?"bg-[var(--accent-soft)]":"")}><Icon name="activity" className="h-[19px] w-[19px]"/></span><span>Activity</span></Link>
-      <button type="button" onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[11px] font-black text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-[20px] border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#4f46e5)] text-white shadow-[0_10px_26px_rgba(37,99,235,.34)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
+      <button type="button" onClick={()=>setNewOpen(true)} className="relative flex min-h-14 flex-col items-center justify-end gap-1 pb-0.5 text-[11px] font-black text-[var(--accent)]"><span className="absolute -top-5 grid h-14 w-14 place-items-center rounded-[20px] border-4 border-[var(--surface)] bg-[linear-gradient(135deg,#2f6df6,#4f46e5)] cashledger-mobile-new text-white shadow-[0_10px_26px_rgba(37,99,235,.34)]"><Icon name="plus" className="h-6 w-6"/></span><span>New</span></button>
       <Link href="/dues" className={"flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold "+(active("/dues")?"text-[var(--accent)]":"text-[var(--text-muted)]")}><span className={"grid h-8 w-10 place-items-center rounded-xl "+(active("/dues")?"bg-[var(--accent-soft)]":"")}><Icon name="settle" className="h-[19px] w-[19px]"/></span><span>Dues</span></Link>
       <button onClick={()=>setMenuOpen(true)} className="relative flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-bold text-[var(--text-muted)]">{dueFollowUps>0?<span className="absolute right-3 top-0 rounded-full bg-rose-600 px-1.5 text-[10px] font-extrabold text-white">{dueFollowUps>99?"99+":dueFollowUps}</span>:null}<span className="grid h-8 w-10 place-items-center rounded-xl"><Icon name="more" className="h-[19px] w-[19px]"/></span><span>More</span></button>
     </nav>:null}

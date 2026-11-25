@@ -16,9 +16,9 @@ export const metadata: Metadata = {
 const themeScript = `
 (() => {
   try {
-    const saved = localStorage.getItem("cashledger_theme") || "system";
+    const saved = localStorage.getItem("cashledger_theme") || "maroon";
     const dark = saved === "dark" || (saved === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.dataset.theme = saved === "maroon" ? "maroon" : dark ? "dark" : "light";
   } catch {}
 })();
 `;
