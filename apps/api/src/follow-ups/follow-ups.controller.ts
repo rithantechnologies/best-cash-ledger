@@ -11,6 +11,8 @@ export class FollowUpsController {
 
   @Get('summary') summary() { return this.followUps.summary(); }
 
+  @Get('customer-summary') customerSummary() { return this.followUps.customerSummary(); }
+
   @Get() list(
     @Query('status') status?: string,
     @Query('kind') kind?: string,

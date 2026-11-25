@@ -1434,6 +1434,8 @@ model FollowUpTask {
   receiptTransactionId String?           @unique
   receiptTransaction   Transaction?      @relation("FollowUpReceiptTransaction", fields: [receiptTransactionId], references: [id])
   expectedAmount       Decimal?          @db.Decimal(18, 2)
+  // Non-posting planned card swipe amount for follow-up planning only.
+  plannedSwipeAmount   Decimal?          @db.Decimal(18, 2)
   reference            String?
   reason               String
   notes                String?

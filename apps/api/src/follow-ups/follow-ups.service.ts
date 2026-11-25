@@ -68,12 +68,57 @@ export class FollowUpsService {
     ],
   };
 
+  // Aggregate across the full open queue, not just the first 300 list rows.
+  // Grouping is operational planning only: these values never post money.
+  async customerSummary() {
+    const where: Prisma.FollowUpTaskWhereInput = { kind: 'CARD_RETRY', status: 'OPEN' };
+    const now = new Date();
+    const [groups, cards, due] = await Promise.all([
+      this.prisma.followUpTask.groupBy({
+        by: ['customerId'], where,
+        _count: { _all: true, plannedSwipeAmount: true },
+        _sum: { plannedSwipeAmount: true },
+        _min: { nextReminderAt: true },
+      }),
+      this.prisma.followUpTask.findMany({
+        where, distinct: ['customerId', 'cardId'], select: { customerId: true, cardId: true },
+      }),
+      this.prisma.followUpTask.groupBy({
+        by: ['customerId'], where: { ...where, nextReminderAt: { lte: now } },
+        _count: { _all: true },
+      }),
+    ]);
+    if (!groups.length) return [];
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: groups.map(group => group.customerId) } },
+      select: { id: true, fullName: true, mobile: true },
+    });
+    const names = new Map(customers.map(customer => [customer.id, customer]));
+    const uniqueCards = new Map<string, number>();
+    for (const card of cards) {
+      if (card.cardId) uniqueCards.set(card.customerId, (uniqueCards.get(card.customerId) ?? 0) + 1);
+    }
+    const dueCounts = new Map(due.map(group => [group.customerId, group._count._all]));
+    return groups.map(group => ({
+      customerId: group.customerId,
+      customerName: names.get(group.customerId)?.fullName ?? 'Customer',
+      customerMobile: names.get(group.customerId)?.mobile ?? null,
+      taskCount: group._count._all,
+      cardCount: uniqueCards.get(group.customerId) ?? 0,
+      amountCount: group._count.plannedSwipeAmount,
+      amountMissing: group._count._all - group._count.plannedSwipeAmount,
+      plannedSwipeTotal: group._sum.plannedSwipeAmount ?? 0,
+      dueCount: dueCounts.get(group.customerId) ?? 0,
+      nextReminderAt: group._min.nextReminderAt,
+    })).sort((a, b) => b.dueCount - a.dueCount || b.taskCount - a.taskCount || a.customerName.localeCompare(b.customerName));
+  }
+
   async summary() {
     const now = new Date();
     const refundPendingFilter: Prisma.FollowUpTaskWhereInput = {
       kind: 'BANK_REFUND', OR: [{ status: 'OPEN' }, this.reversedRefund],
     };
-    const [open, due, cardRetries, pendingRefunds, refundTotal, reversedRefunds] = await Promise.all([
+    const [open, due, cardRetries, pendingRefunds, refundTotal, reversedRefunds, planned] = await Promise.all([
       this.prisma.followUpTask.count({ where: { status: 'OPEN' } }),
       this.prisma.followUpTask.count({ where: { status: 'OPEN', nextReminderAt: { lte: now } } }),
       this.prisma.followUpTask.count({ where: { status: 'OPEN', kind: 'CARD_RETRY' } }),
@@ -83,11 +128,18 @@ export class FollowUpsService {
         _sum: { expectedAmount: true },
       }),
       this.prisma.followUpTask.count({ where: this.reversedRefund }),
+      this.prisma.followUpTask.aggregate({
+        where: { kind: 'CARD_RETRY', status: 'OPEN' },
+        _sum: { plannedSwipeAmount: true },
+        _count: { plannedSwipeAmount: true },
+      }),
     ]);
     return {
       open: open + reversedRefunds, due: due + reversedRefunds,
       cardRetries, pendingRefunds, needsReceiptReview: reversedRefunds,
       expectedRefundTotal: refundTotal._sum.expectedAmount ?? 0,
+      plannedSwipeTotal: planned._sum.plannedSwipeAmount ?? 0,
+      missingPlannedSwipeAmounts: cardRetries - planned._count.plannedSwipeAmount,
     };
   }
 
@@ -154,7 +206,11 @@ export class FollowUpsService {
       if (!dto.cardId) throw new BadRequestException('Choose the card needing a retry');
       if (dto.accountId || dto.expectedAmount)
         throw new BadRequestException('Bank refund fields are not valid on a card retry');
+      if (dto.plannedSwipeAmount !== undefined && (!Number.isFinite(dto.plannedSwipeAmount) || dto.plannedSwipeAmount <= 0))
+        throw new BadRequestException('Planned swipe amount must be positive');
     } else {
+      if (dto.plannedSwipeAmount !== undefined)
+        throw new BadRequestException('Planned swipe amount is only for card retry follow-ups');
       if (!dto.accountId || !dto.expectedAmount || dto.expectedAmount <= 0)
         throw new BadRequestException('Refund amount and destination bank/wallet account are required');
       const account = await this.prisma.financialAccount.findUnique({
@@ -193,6 +249,7 @@ export class FollowUpsService {
           providerId: dto.providerId || null, gatewayId: dto.gatewayId || null,
           accountId: dto.kind === 'BANK_REFUND' ? dto.accountId : null,
           expectedAmount: dto.kind === 'BANK_REFUND' ? dto.expectedAmount : null,
+          plannedSwipeAmount: dto.kind === 'CARD_RETRY' ? dto.plannedSwipeAmount ?? null : null,
           sourceTransactionId: sourceTransactionId ?? null,
           reference: dto.reference?.trim() || null,
           reason: dto.reason.trim(), notes: dto.notes?.trim() || null,
@@ -201,6 +258,7 @@ export class FollowUpsService {
             create: { action: 'CREATED', actorId, newValues: {
               kind: dto.kind, nextReminderAt: nextReminderAt.toISOString(),
               expectedAmount: dto.expectedAmount ?? null,
+              plannedSwipeAmount: dto.kind === 'CARD_RETRY' ? dto.plannedSwipeAmount ?? null : null,
             } },
           },
         },
@@ -208,7 +266,9 @@ export class FollowUpsService {
       await tx.auditLog.create({
         data: { userId: actorId, entityType: 'FOLLOW_UP', entityId: record.id, action: 'CREATE',
           newValues: { kind: record.kind, customerId: record.customerId, cardId: record.cardId,
-            expectedAmount: record.expectedAmount?.toString() ?? null, nextReminderAt: record.nextReminderAt?.toISOString() ?? null } },
+            expectedAmount: record.expectedAmount?.toString() ?? null,
+            plannedSwipeAmount: record.plannedSwipeAmount?.toString() ?? null,
+            nextReminderAt: record.nextReminderAt?.toISOString() ?? null } },
       });
       return record;
     });
@@ -231,6 +291,10 @@ export class FollowUpsService {
         change.nextReminderAt = retryReminder(now);
       } else if (row.status !== 'OPEN') {
         throw new ConflictException('Closed follow-ups cannot be changed; reopen first');
+      } else if (action === 'SET_AMOUNT') {
+        if (row.kind !== 'CARD_RETRY' || !Number.isFinite(dto.plannedSwipeAmount) || !dto.plannedSwipeAmount || dto.plannedSwipeAmount <= 0)
+          throw new BadRequestException('Choose a valid positive planned card swipe amount');
+        change.plannedSwipeAmount = dto.plannedSwipeAmount;
       } else if (action === 'SCHEDULE') {
         if (!dto.nextReminderAt) throw new BadRequestException('Choose the reminder time');
         const when = new Date(dto.nextReminderAt);
@@ -287,17 +351,20 @@ export class FollowUpsService {
       const changedFields = {
         action, status: updated.status, nextReminderAt: updated.nextReminderAt?.toISOString() ?? null,
         receiptTransactionId: updated.receiptTransactionId,
+        plannedSwipeAmount: updated.plannedSwipeAmount?.toString() ?? null,
       };
       await tx.followUpEvent.create({ data: {
         followUpId: id, actorId, action, note,
         oldValues: { status: row.status, nextReminderAt: row.nextReminderAt?.toISOString() ?? null,
-          receiptTransactionId: row.receiptTransactionId },
+          receiptTransactionId: row.receiptTransactionId,
+          plannedSwipeAmount: row.plannedSwipeAmount?.toString() ?? null },
         newValues: changedFields,
       } });
       await tx.auditLog.create({ data: {
         userId: actorId, entityType: 'FOLLOW_UP', entityId: id, action,
         oldValues: { status: row.status, nextReminderAt: row.nextReminderAt?.toISOString() ?? null,
-          receiptTransactionId: row.receiptTransactionId },
+          receiptTransactionId: row.receiptTransactionId,
+          plannedSwipeAmount: row.plannedSwipeAmount?.toString() ?? null },
         newValues: changedFields, reason: note,
       } });
       return updated;
