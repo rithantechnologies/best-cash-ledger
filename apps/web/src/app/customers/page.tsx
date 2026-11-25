@@ -53,6 +53,8 @@ export default function CustomersPage(){
  const currentAbort=useRef<AbortController|null>(null);
  const control="app-control";
  const admin=role==="OWNER"||role==="ADMIN";
+ // Staff may register customers, but only OWNER/ADMIN can edit or retire them.
+ const canRegisterCustomer=admin||role==="STAFF";
  const filterKey=[q.trim(),sortBy,sortDir,pagination.pageSize,admin].join("|");
  const listReady=!loading&&resultsKey===filterKey;
  const customerSearchMatches=q.trim().length>=2
@@ -188,7 +190,7 @@ export default function CustomersPage(){
 
  return <AppShell><PageFrame>
   <SectionHeading title="Customers"
-   action={<div className="flex gap-2"><button onClick={()=>{setError("");setCardDemoNumber("");setAddingCard(true);}} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{admin?<button onClick={()=>openCustomerCreate()} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
+   action={<div className="flex gap-2"><button onClick={()=>{setError("");setCardDemoNumber("");setAddingCard(true);}} className="app-secondary-button min-h-11 px-3 text-xs font-bold">+ Saved card</button>{canRegisterCustomer?<button onClick={()=>openCustomerCreate()} className="app-primary-button min-h-11 px-4 text-sm font-bold">+ Customer</button>:null}</div>}/>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
   {message?<div className="fixed right-4 top-20 z-[90] rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-emerald-700 shadow-xl">{message}</div>:null}
 
@@ -223,7 +225,13 @@ export default function CustomersPage(){
        </button>
        <Link href={"/customers/"+customer.id} onPointerDown={e=>e.preventDefault()} onClick={()=>setSearchSuggestionsOpen(false)} className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--accent)]">Open</Link>
       </div>
-     ):<p className="px-3 py-4 text-sm text-[var(--text-muted)]">No matching customers</p>}
+     ):<div className="px-3 py-3">
+      <p className="text-sm text-[var(--text-muted)]">No matching customers</p>
+      {canRegisterCustomer&&q.trim().length>=2?<button type="button"
+       onPointerDown={e=>e.preventDefault()}
+       onClick={()=>{setSearchSuggestionsOpen(false);openCustomerCreate(q);}}
+       className="mt-2 min-h-10 w-full rounded-lg bg-[var(--accent)] px-3 text-sm font-bold text-white">+ Create customer</button>:null}
+     </div>}
     </div>:null}
    </div>
    <button type="button" onClick={()=>setShowMobileFilters(v=>!v)} aria-expanded={showMobileFilters} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-muted)] sm:hidden">{showMobileFilters?"Hide options":"Sort & page size"}</button>
@@ -232,7 +240,7 @@ export default function CustomersPage(){
     <SearchableSelect className={control} value={pagination.pageSize} onChange={e=>setPagination(p=>({...p,pageSize:Number(e.target.value),page:1}))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} per page</option>)}</SearchableSelect>
    </div>
   </Toolbar>
-  {admin&&listReady&&pagination.total===0&&q.trim().length>=2?<div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-3" role="status"><span className="text-sm font-semibold text-[var(--text-muted)]">No customer found for <strong className="text-[var(--text)]">{q.trim()}</strong></span><button type="button" onClick={()=>openCustomerCreate(q)} className="app-primary-button min-h-11 px-4 text-sm font-black">+ Create customer</button></div>:null}
+  {canRegisterCustomer&&listReady&&pagination.total===0&&q.trim().length>=2?<div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-3" role="status"><span className="text-sm font-semibold text-[var(--text-muted)]">No customer found for <strong className="text-[var(--text)]">{q.trim()}</strong></span><button type="button" onClick={()=>openCustomerCreate(q)} className="app-primary-button min-h-11 px-4 text-sm font-black">+ Create customer</button></div>:null}
   {!listReady?<PageLoader label={q.trim()?"Searching customers…":"Loading customers…"}/>:<>
    <div className="space-y-2 md:hidden">{items.map(c=><Surface key={c.id} className={!c.isActive?"p-3.5 opacity-60":"p-3.5"}>
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Link href={"/customers/"+c.id} className="block truncate text-sm font-black">{c.fullName}</Link><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{c.mobile||"No mobile"} · {c.customerCode}</p></div><StatusBadge tone={c.isActive?"emerald":"slate"}>{c.isActive?"Active":"Inactive"}</StatusBadge></div>

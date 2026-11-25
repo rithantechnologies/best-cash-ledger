@@ -34,6 +34,7 @@ jobs:
           node apps/web/tests/browser-suggestion-history.test.cjs
           node --test apps/web/test/browser-entry-suggestions.test.cjs
           node apps/web/tests/customer-search-ranking.test.cjs
+          node --test apps/web/test/customer-staff-registration.test.cjs
 
       - name: Verify Card Due attention includes unpaid commission and handles refunds
         run: node --test apps/web/test/card-due-attention.test.cjs
