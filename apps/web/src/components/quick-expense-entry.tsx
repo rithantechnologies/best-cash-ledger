@@ -113,7 +113,7 @@ export function QuickExpenseEntry({
     const category=categories.find(item=>item.id===categoryId);
     setSaving(true);setError("");
     try{
-      await apiFetch("/transactions/expense",{
+      const saved=await apiFetch<{transactionNumber?:string}>("/transactions/expense",{
         method:"POST",
         body:JSON.stringify({
           expenseCategoryId:categoryId,
@@ -127,7 +127,9 @@ export function QuickExpenseEntry({
       });
       close();
       onSaved?.();
-      window.dispatchEvent(new CustomEvent("cashledger:expense-saved"));
+      window.dispatchEvent(new CustomEvent("cashledger:expense-saved",{
+        detail:{transactionAt:dateWithCurrentLocalTime(expenseDate),categoryId,transactionNumber:saved?.transactionNumber},
+      }));
     }catch(e){
       setError(e instanceof Error?e.message:"Expense could not be saved");
     }finally{setSaving(false);}

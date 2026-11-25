@@ -1,17 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { SearchableSelect } from "@/components/searchable-select";
 import { EmptyState, Modal, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { withReturnTo } from "@/lib/transaction-return";
 import { downloadExpensesExcel, downloadExpensesPdf, type ExpenseExportData } from "./export-expenses";
+import { todayIst, transactionAtForBusinessDate } from "@/lib/card-swipe-today-ist.mjs";
 
 type ExpenseDetail={expenseCategoryId:string;expenseType:string;amount:string;description:string};
 type Tx={id:string;transactionNumber:string;transactionType:string;transactionAt:string;createdAt:string;grossAmount:string;netAmount:string|null;status:string;referenceNumber:string|null;notes:string|null;expense:ExpenseDetail|null};
 type Category={id:string;name:string;expenseUsage:string;isActive?:boolean};
+type Account={id:string;accountName:string;accountType:string;isActive?:boolean};
+type SavedExpenseNotice={transactionAt?:string;categoryId?:string;transactionNumber?:string};
 type Scope="COMBINED"|"BUSINESS"|"PERSONAL";
 type Period="TODAY"|"YESTERDAY"|"7D"|"30D"|"90D"|"6M"|"ALL"|"CUSTOM";
 
@@ -53,6 +56,13 @@ export default function ExpensesPage(){
  const [categoryId,setCategoryId]=useState("ALL"),[dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState("");
  const [loading,setLoading]=useState(true),[error,setError]=useState("");
  const [role,setRole]=useState(""),[categoryTarget,setCategoryTarget]=useState<Tx|null>(null),[deleteTarget,setDeleteTarget]=useState<Tx|null>(null);
+ const [accounts,setAccounts]=useState<Account[]>([]);
+ const [inlineOpen,setInlineOpen]=useState(true),[entryCategory,setEntryCategory]=useState(""),[entryAmount,setEntryAmount]=useState("");
+ const [entryDate,setEntryDate]=useState(()=>todayIst()),[entryAccount,setEntryAccount]=useState("");
+ const [entryPayee,setEntryPayee]=useState(""),[entryNotes,setEntryNotes]=useState("");
+ const [entryBusy,setEntryBusy]=useState(false),[entryError,setEntryError]=useState("");
+ const [lastSaved,setLastSaved]=useState(""),[refreshing,setRefreshing]=useState(false);
+ const amountInput=useRef<HTMLInputElement>(null),requestCounter=useRef(0),activeRequest=useRef<AbortController|null>(null);
  const [chosenCategory,setChosenCategory]=useState(""),[categoryReason,setCategoryReason]=useState(""),[deleteReason,setDeleteReason]=useState(""),[actionSaving,setActionSaving]=useState(false);
  useEffect(()=>{try{setRole(JSON.parse(localStorage.getItem("cashledger_user")||"{}").role||"")}catch{}},[]);
  function openCategory(tx:Tx){setCategoryTarget(tx);setChosenCategory(tx.expense?.expenseCategoryId||"");setCategoryReason("");setError("");}
@@ -62,6 +72,7 @@ export default function ExpensesPage(){
    await apiFetch("/transactions/expense/"+categoryTarget.id+"/category",{method:"PATCH",body:JSON.stringify({expenseCategoryId:chosenCategory,reason:categoryReason.trim()})});
    setTransactions(previous=>previous.map(t=>t.id===categoryTarget.id&&t.expense?{...t,expense:{...t.expense,expenseCategoryId:chosenCategory}}:t));
    setCategoryTarget(null);
+   await reload(true);
   }catch(e){setError(e instanceof Error?e.message:"Category update failed")}finally{setActionSaving(false)}
  }
  async function deleteExpense(e:React.FormEvent){e.preventDefault();if(!deleteTarget)return;setActionSaving(true);setError("");
@@ -69,41 +80,91 @@ export default function ExpensesPage(){
    await apiFetch("/transactions/expense/"+deleteTarget.id+"/delete",{method:"POST",body:JSON.stringify({reason:deleteReason.trim()})});
    setTransactions(previous=>previous.filter(t=>t.id!==deleteTarget.id));
    setDeleteTarget(null);
+   await reload(true);
   }catch(e){setError(e instanceof Error?e.message:"Expense deletion failed")}finally{setActionSaving(false)}
  }
- useEffect(()=>{
-  let cancelled=false;
-  const load=async()=>{
-   setLoading(true);setError("");
-   try{
-    let payload:[Tx[],Tx[],Category[]]|null=null;
-    for(let attempt=0;attempt<2&&!payload;attempt++){
-     const [business,personal,cats]=await Promise.all([
-      apiFetch<Tx[]|null>("/reports/transactions?type=BUSINESS_EXPENSE"),
-      apiFetch<Tx[]|null>("/reports/transactions?type=PERSONAL_EXPENSE"),
-      apiFetch<Category[]|null>("/settings/expense-categories?includeInactive=true"),
-     ]);
-     if(Array.isArray(business)&&Array.isArray(personal)&&Array.isArray(cats)){
-      payload=[business,personal,cats];
-      break;
-     }
-     if(attempt===0)await new Promise(resolve=>window.setTimeout(resolve,250));
-    }
-    if(!payload)throw new Error("Expense data was temporarily unavailable. Please refresh and try again.");
-    if(cancelled)return;
-    const [business,personal,cats]=payload;
-    setTransactions([...business,...personal].filter(tx=>tx.status!=="REVERSED").sort((a,b)=>new Date(b.transactionAt).getTime()-new Date(a.transactionAt).getTime()));
-    setCategories(cats);
-   }catch(e){
-    if(!cancelled)setError(e instanceof Error?e.message:"Failed to load expenses");
-   }finally{
-    if(!cancelled)setLoading(false);
-   }
-  };
-  load();
-  return()=>{cancelled=true;};
+ // Refresh after quick saves, navigation back, or revisiting the browser tab.
+ // Sequence numbers + cancellation keep a slow older response from replacing new data.
+ const reload=useCallback(async(silent=true)=>{
+  const sequence=++requestCounter.current;
+  activeRequest.current?.abort();
+  const controller=new AbortController();
+  activeRequest.current=controller;
+  if(silent)setRefreshing(true);else setLoading(true);
+  try{
+   const options:RequestInit={signal:controller.signal,cache:"no-store"};
+   const [business,personal,cats,accountRows]=await Promise.all([
+    apiFetch<Tx[]>("/reports/transactions?type=BUSINESS_EXPENSE",options),
+    apiFetch<Tx[]>("/reports/transactions?type=PERSONAL_EXPENSE",options),
+    apiFetch<Category[]>("/settings/expense-categories?includeInactive=true",options),
+    apiFetch<Account[]>("/dashboard/accounts",options),
+   ]);
+   if(controller.signal.aborted||sequence!==requestCounter.current)return;
+   if(!Array.isArray(business)||!Array.isArray(personal)||!Array.isArray(cats)||!Array.isArray(accountRows))
+    throw new Error("Expense data was temporarily unavailable.");
+   const updated=[...business,...personal].filter(tx=>tx.status!=="REVERSED")
+    .sort((a,b)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime()
+      ||b.transactionNumber.localeCompare(a.transactionNumber));
+   setTransactions(updated);setCategories(cats);setAccounts(accountRows);setError("");
+  }catch(e){
+   if(!controller.signal.aborted&&sequence===requestCounter.current)
+    setError(e instanceof Error?e.message:"Could not refresh the expense ledger");
+  }finally{
+   if(sequence===requestCounter.current){setLoading(false);setRefreshing(false);}
+  }
  },[]);
+ useEffect(()=>{
+  void reload(false);
+  const onSaved=(event:Event)=>{
+   const details=(event as CustomEvent<SavedExpenseNotice>).detail;
+   if(details?.transactionAt&&todayIst(new Date(details.transactionAt))!==todayIst())setPeriod("ALL");
+   if(details?.categoryId)setCategoryId(current=>current!=="ALL"&&current!==details.categoryId?"ALL":current);
+   setLastSaved(details?.transactionNumber?"Saved "+details.transactionNumber+" — updating ledger.":"Expense saved — updating ledger…");
+   void reload(true);
+  };
+  const onFocus=()=>void reload(true);
+  const onVisible=()=>{if(document.visibilityState==="visible")void reload(true);};
+  window.addEventListener("cashledger:expense-saved",onSaved);
+  window.addEventListener("focus",onFocus);
+  document.addEventListener("visibilitychange",onVisible);
+  return()=>{
+   requestCounter.current++;activeRequest.current?.abort();
+   window.removeEventListener("cashledger:expense-saved",onSaved);
+   window.removeEventListener("focus",onFocus);
+   document.removeEventListener("visibilitychange",onVisible);
+  };
+ },[reload]);
+ const availableAccounts=accounts.filter(a=>a.isActive!==false&&
+  ["CASH","BANK","UPI","PROVIDER_WALLET","OWNER_CREDIT_CARD"].includes(a.accountType));
 
+ async function saveInlineExpense(event:FormEvent){
+  event.preventDefault();
+  if(entryBusy)return;
+  const value=Number(entryAmount);
+  if(!entryCategory||!Number.isFinite(value)||value<=0||!entryDate||entryDate>todayIst()){
+   setEntryError("Select a category, positive amount and valid expense date.");return;
+  }
+  setEntryBusy(true);setEntryError("");setLastSaved("");
+  try{
+   const transactionAt=transactionAtForBusinessDate(entryDate)??new Date().toISOString();
+   const response=await apiFetch<{transactionNumber?:string}>("/transactions/expense",{
+    method:"POST",body:JSON.stringify({
+     expenseCategoryId:entryCategory,expenseType:"BUSINESS",amount:value,
+     transactionAt,paymentAccountId:entryAccount||undefined,
+     description:categories.find(c=>c.id===entryCategory)?.name??"Expense",
+     payee:entryPayee.trim()||undefined,notes:entryNotes.trim()||undefined,
+    }),
+   });
+   setEntryAmount("");setEntryPayee("");setEntryNotes("");
+   setLastSaved("Expense saved. Updating ledger…");
+   if(entryDate!==todayIst())setPeriod("ALL");
+   if(categoryId!=="ALL"&&categoryId!==entryCategory)setCategoryId("ALL");
+   await reload(true);
+   setLastSaved((response?.transactionNumber?"Saved "+response.transactionNumber:"Expense saved")+" · ready for next entry.");
+   amountInput.current?.focus();
+  }catch(e){setEntryError(e instanceof Error?e.message:"Could not save expense. Please try again.");}
+  finally{setEntryBusy(false);}
+ }
  const categoryById=useMemo(()=>new Map(categories.map(x=>[x.id,x.name])),[categories]);
  const filtered=useMemo(()=>{
   const now=new Date();
@@ -179,11 +240,13 @@ export default function ExpensesPage(){
    <div className="flex flex-wrap items-center gap-2">
     <button type="button" disabled={!filtered.length} onClick={()=>downloadExpensesPdf(exportData)} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold disabled:opacity-50">Download PDF</button>
     <button type="button" disabled={!filtered.length} onClick={()=>downloadExpensesExcel(exportData)} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold disabled:opacity-50">Download Excel</button>
-    <Link href="/transactions/expense" className="app-primary-button px-4 py-2.5 text-xs font-bold">+ Add expense</Link>
+    <button type="button" onClick={()=>{setInlineOpen(true);amountInput.current?.focus();}} className="app-primary-button px-4 py-2.5 text-xs font-bold">+ Add expense</button>
+    <button type="button" onClick={()=>void reload(true)} disabled={refreshing} className="min-h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold disabled:opacity-50">{refreshing?"Updating…":"Refresh ledger"}</button>
    </div>
   </div>
 
-  {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
+  {error?<div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
+  {lastSaved?<p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800">{lastSaved}</p>:null}
 
   <Surface className="p-3 sm:p-4">
    <div>
@@ -217,7 +280,20 @@ export default function ExpensesPage(){
 
    </Surface>
 
-   <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5"><div><p className="dashboard-kicker">Transactions</p><h2 className="mt-1 text-base font-bold">Expense ledger</h2></div><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">All activity</Link></div>
+   <Surface className="dashboard-panel overflow-hidden"><div className="app-panel-header flex items-center justify-between border-b border-[var(--border)] px-4 py-3.5"><div><p className="dashboard-kicker">Transactions</p><h2 className="mt-1 text-base font-bold">Expense ledger</h2><p className="mt-1 text-[10px] text-[var(--text-muted)]">Newest entered first · original expense dates preserved</p></div><div className="flex items-center gap-2"><button type="button" onClick={()=>setInlineOpen(v=>!v)} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">{inlineOpen?"Hide entry":"+ Quick entry"}</button><Link href="/transactions" className="text-xs font-bold text-[var(--accent)]">All activity</Link></div></div>
+    {inlineOpen?<form aria-label="Add consecutive expenses" onSubmit={saveInlineExpense} className="border-b border-[var(--border)] bg-[var(--surface-soft)] p-3 sm:p-4">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><strong className="text-xs">New expense entry</strong><Link href="/transactions/expense" className="text-[11px] font-bold text-[var(--accent)]">Detailed expense form</Link></div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(120px,1.2fr)_minmax(95px,.7fr)_minmax(138px,.9fr)]">
+       <label className="text-[10px] font-bold">Category *<SearchableSelect mobileSheet className="app-control mt-1 w-full text-xs" value={entryCategory} onChange={e=>setEntryCategory(e.target.value)} required><option value="">Choose category</option>{categories.filter(c=>c.isActive!==false&&["BUSINESS","MIXED"].includes(c.expenseUsage)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</SearchableSelect></label>
+       <label className="text-[10px] font-bold">Amount (₹) *<input ref={amountInput} className="app-control mt-1 w-full text-xs" type="number" min=".01" step=".01" value={entryAmount} onChange={e=>setEntryAmount(e.target.value)} placeholder="0.00" required/></label>
+       <label className="text-[10px] font-bold">Expense date *<input className="app-control mt-1 w-full text-xs" type="date" max={todayIst()} value={entryDate} onChange={e=>setEntryDate(e.target.value)} required/></label>
+       <label className="text-[10px] font-bold">Paid from (optional)<SearchableSelect mobileSheet className="app-control mt-1 w-full text-xs" value={entryAccount} onChange={e=>setEntryAccount(e.target.value)}><option value="">Complete later</option>{availableAccounts.map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}</SearchableSelect></label>
+       <label className="text-[10px] font-bold">Payee (optional)<input className="app-control mt-1 w-full text-xs" value={entryPayee} onChange={e=>setEntryPayee(e.target.value)} maxLength={120} placeholder="Name / company"/></label>
+       <label className="text-[10px] font-bold">Notes (optional)<input className="app-control mt-1 w-full text-xs" value={entryNotes} onChange={e=>setEntryNotes(e.target.value)} maxLength={500} placeholder="Receipt or description"/></label>
+      </div>
+      {entryError?<p role="alert" className="mt-2 text-xs font-bold text-rose-700">{entryError}</p>:null}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-[11px] text-[var(--text-muted)]">After saving, the entry appears below. Category, date and payment source stay selected for the next expense.</p><button disabled={entryBusy||!entryCategory||Number(entryAmount)<=0} className="min-h-10 rounded-lg bg-rose-600 px-4 text-xs font-bold text-white disabled:opacity-40">{entryBusy?"Saving…":"Save & add next"}</button></div>
+    </form>:null}
     {filtered.length?<><div className="md:hidden divide-y divide-[var(--border)]">{filtered.slice(0,20).map(tx=><div key={tx.id} className="px-4 py-3.5"><Link href={"/transactions/"+tx.id} className="block"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold">{tx.expense?.description??"Expense"}</p><p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{categoryById.get(tx.expense?.expenseCategoryId??"")??"Other"} · Expense {dateOnly(tx.transactionAt)}</p><p className="mt-0.5 text-[9px] text-[var(--text-muted)]">Entered {enteredAt(tx.createdAt)}</p></div><strong className="money shrink-0 text-sm text-[var(--money-out)]">{money(tx.expense?.amount??tx.grossAmount)}</strong></div></Link><div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-bold"><button onClick={()=>openCategory(tx)} className="text-[var(--accent)]">Change category</button><Link href={withReturnTo("/expenses/"+tx.id+"/edit","/expenses")} className="text-[var(--accent)]">Edit</Link>{role==="OWNER"?<button onClick={()=>openDelete(tx)} className="text-rose-700">Delete</button>:null}</div></div>)}</div>
      <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[900px] text-xs"><thead className="bg-[var(--surface-soft)] text-left text-[10px] uppercase tracking-[.06em] text-[var(--text-muted)]"><tr><th className="px-4 py-3">Expense date</th><th>Entered</th><th>Particulars</th><th>Category</th><th>Notes / reference</th><th className="pr-4 text-right">Amount</th><th className="pr-4 text-right">Actions</th></tr></thead><tbody>{filtered.slice(0,100).map(tx=><tr key={tx.id} className="border-t border-[var(--border)]"><td className="px-4 py-3 font-semibold text-[var(--text)]">{dateOnly(tx.transactionAt)}</td><td className="whitespace-nowrap text-[var(--text-muted)]">{enteredAt(tx.createdAt)}</td><td><Link href={"/transactions/"+tx.id} className="font-bold text-[var(--accent)]">{tx.expense?.description??tx.transactionNumber}</Link></td><td>{categoryById.get(tx.expense?.expenseCategoryId??"")??"Other"}</td><td className="max-w-[260px] truncate text-[var(--text-muted)]" title={tx.notes??tx.referenceNumber??undefined}>{tx.notes??tx.referenceNumber??"—"}</td><td className="money pr-4 text-right font-bold text-[var(--money-out)]">{money(tx.expense?.amount??tx.grossAmount)}</td><td className="whitespace-nowrap pr-4 text-right font-bold"><button onClick={()=>openCategory(tx)} className="text-[var(--accent)]">Category</button><Link href={withReturnTo("/expenses/"+tx.id+"/edit","/expenses")} className="ml-3 text-[var(--accent)]">Edit</Link>{role==="OWNER"?<button onClick={()=>openDelete(tx)} className="ml-3 text-rose-700">Delete</button>:null}</td></tr>)}</tbody></table></div>
     </>:<div className="p-4"><EmptyState title="No expenses in this range" description="Change the filter or record a new expense."/></div>}
