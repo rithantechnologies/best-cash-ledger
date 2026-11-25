@@ -13,6 +13,11 @@ export class FollowUpsController {
 
   @Get('customer-summary') customerSummary() { return this.followUps.customerSummary(); }
 
+  @Get('completed-report') completedReport(
+    @Query('from') from?: string, @Query('to') to?: string,
+    @Query('kind') kind?: string,
+  ) { return this.followUps.completedReport(from ?? '', to ?? '', kind); }
+
   @Get() list(
     @Query('status') status?: string,
     @Query('kind') kind?: string,

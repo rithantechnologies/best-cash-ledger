@@ -3,6 +3,7 @@ import { AccountType, JournalStatus, Prisma, TransactionStatus, TransactionType 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateFollowUpDto, UpdateFollowUpDto } from './dto.js';
 import { retryReminder } from './reminder-windows.js';
+import { completedReportBounds } from './completed-report-date.js';
 
 const taskInclude = {
   customer: { select: { id: true, fullName: true, mobile: true } },
@@ -140,6 +141,56 @@ export class FollowUpsService {
       dueCount: dueCounts.get(group.customerId) ?? 0,
       nextReminderAt: group._min.nextReminderAt,
     })).sort((a, b) => b.dueCount - a.dueCount || b.taskCount - a.taskCount || a.customerName.localeCompare(b.customerName));
+  }
+
+  async completedReport(from: string, to: string, kind?: string) {
+    if (kind && !['CARD_RETRY', 'BANK_REFUND'].includes(kind))
+      throw new BadRequestException('Invalid follow-up type');
+    const completedAt = completedReportBounds(from, to);
+    const where: Prisma.FollowUpTaskWhereInput = {
+      status: 'COMPLETED', completedAt, ...(kind ? { kind } : {}),
+    };
+    // Avoid silently dropping completed work from staff reports. Require a
+    // narrower range if the dataset exceeds the safe per-request limit.
+    const tasks = await this.prisma.followUpTask.findMany({
+      where, include: {
+        ...taskInclude,
+        events: { where: { action: { in: ['COMPLETE', 'VERIFY_REFUND'] } },
+          orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+      orderBy: [{ completedAt: 'asc' }, { id: 'asc' }], take: 10001,
+    });
+    if (tasks.length > 10000)
+      throw new BadRequestException('More than 10,000 completed tasks. Choose a smaller date range');
+    const actors = await this.prisma.user.findMany({
+      where: { id: { in: [...new Set(tasks.map(row => row.completedById).filter((id): id is string => !!id))] } },
+      select: { id: true, fullName: true },
+    });
+    const byId = new Map(actors.map(actor => [actor.id, actor.fullName]));
+    const rows = tasks.map(task => {
+      const formatted = this.format(task);
+      return {
+        id: task.id, kind: task.kind,
+        customer: task.customer.fullName, mobile: task.customer.mobile ?? '',
+        card: task.card ? task.card.bankName + ' •••• ' + task.card.lastFourDigits : '',
+        provider: task.provider?.name ?? '', gateway: task.gateway?.gatewayName ?? '',
+        account: task.account?.accountName ?? '', reason: task.reason,
+        reference: task.reference ?? '', createdAt: task.createdAt,
+        completedAt: task.completedAt, completedBy: task.completedById
+          ? byId.get(task.completedById) ?? 'Former staff' : 'Unknown',
+        completionNote: task.events[0]?.note ?? '',
+        plannedAmount: task.plannedSwipeAmount === null ? null : Number(task.plannedSwipeAmount),
+        swipedAmount: formatted.swipedAmount,
+        expectedRefund: task.kind === 'BANK_REFUND' ? Number(task.expectedAmount ?? 0) : null,
+        refundCreditVerified: formatted.receiptVerified,
+      };
+    });
+    return {
+      from, to, total: rows.length,
+      cardRetries: rows.filter(row => row.kind === 'CARD_RETRY').length,
+      bankRefunds: rows.filter(row => row.kind === 'BANK_REFUND').length,
+      rows,
+    };
   }
 
   async summary() {

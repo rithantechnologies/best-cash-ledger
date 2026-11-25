@@ -54,3 +54,15 @@ test('a follow-up card swipe preselects its card, gateway and verified remaining
  assert.match(swipe,/remainingPlannedAmount/);
  assert.match(queue,/Linked partial swipes/);
 });
+
+test('follow-ups can add customers/cards inline and export completed tasks by IST completion date',()=>{
+ const page=read('app/follow-ups/page.tsx');
+ assert.match(page,/Customer not found\? \+ Add customer here/);
+ assert.match(page,/Add card to this customer/);
+ assert.match(page,/\/customers\/quick-card/);
+ assert.match(page,/\/customers\/\"\+encodeURIComponent\(customerId\)\+\"\/cards/);
+ assert.match(page,/completed-report\?/);
+ assert.match(page,/downloadCompletedReport/);
+ assert.match(page,/completedTasksCsv/);
+ assert.match(page,/Completed task report/);
+});

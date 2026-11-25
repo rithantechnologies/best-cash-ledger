@@ -6,6 +6,8 @@ import { AppShell } from "@/components/app-shell";
 import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
 import { amountSuggestion } from "@/lib/follow-up-planned-amount.mjs";
+import { todayIst } from "@/lib/card-swipe-today-ist.mjs";
+import { completedTasksCsv } from "@/lib/follow-up-completed-csv.mjs";
 
 type Customer = {id:string;fullName:string;mobile:string|null;cards:{id:string;bankName:string;lastFourDigits:string;isActive:boolean}[]};
 type Provider = {id:string;name:string;gateways:{id:string;gatewayName:string;isActive:boolean}[]};
@@ -25,6 +27,14 @@ type Task = {
  reason:string;notes:string|null;nextReminderAt:string|null;createdAt:string;completedAt:string|null;events?:FollowUpEvent[];
 };
 type Summary = {open:number;due:number;cardRetries:number;pendingRefunds:number;needsReceiptReview?:number;expectedRefundTotal:string|number;plannedSwipeTotal:string|number;missingPlannedSwipeAmounts:number;swipedAmount:number|string;remainingPlannedAmount:number};
+type CompletedTaskRow = {
+ id:string;kind:"CARD_RETRY"|"BANK_REFUND";customer:string;mobile:string;card:string;
+ provider:string;gateway:string;account:string;reason:string;reference:string;
+ completedAt:string;createdAt:string;completedBy:string;completionNote:string;
+ plannedAmount:number|null;swipedAmount:number;expectedRefund:number|null;refundCreditVerified:boolean;
+};
+type CompletedReport = {from:string;to:string;total:number;cardRetries:number;bankRefunds:number;rows:CompletedTaskRow[]};
+type QuickCardResult = {customer:{id:string;fullName:string;mobile:string|null};card:{id:string;bankName:string;lastFourDigits:string;isActive:boolean}};
 type CustomerSwipeSummary = {customerId:string;customerName:string;customerMobile:string|null;taskCount:number;cardCount:number;amountCount:number;amountMissing:number;plannedSwipeTotal:string|number;swipedAmount:number;remainingPlannedAmount:number;dueCount:number;nextReminderAt:string|null};
 const input="app-control min-h-10 w-full rounded-xl";
 const money=(n:string|number|null|undefined)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(n??0));
@@ -56,6 +66,16 @@ export default function FollowUpsPage(){
  const [search,setSearch]=useState("");
  const [busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const [createOpen,setCreateOpen]=useState(false);
+ const [quickEntryMode,setQuickEntryMode]=useState<"new"|"card"|null>(null);
+ const [quickName,setQuickName]=useState(""),[quickMobile,setQuickMobile]=useState("");
+ const [quickBank,setQuickBank]=useState(""),[quickLastFour,setQuickLastFour]=useState("");
+ const [quickBusy,setQuickBusy]=useState(false);
+ const [showReport,setShowReport]=useState(false);
+ const [reportFrom,setReportFrom]=useState(()=>todayIst());
+ const [reportTo,setReportTo]=useState(()=>todayIst());
+ const [reportKind,setReportKind]=useState("");
+ const [completedReport,setCompletedReport]=useState<CompletedReport|null>(null);
+ const [reportLoading,setReportLoading]=useState(false),[reportError,setReportError]=useState("");
  const [kind,setKind]=useState<"CARD_RETRY"|"BANK_REFUND">("CARD_RETRY");
  const [customerId,setCustomerId]=useState(""),[cardId,setCardId]=useState("");
  const [providerId,setProviderId]=useState(""),[gatewayId,setGatewayId]=useState("");
@@ -122,6 +142,71 @@ export default function FollowUpsPage(){
     ||rows.some(row=>row.customer.id===group.customerId&&[row.card?.lastFourDigits,row.provider?.name,row.gateway?.gatewayName].some(v=>v?.toLowerCase().includes(q)));
  }),[customerSummaries,search,rows]);
 
+ async function saveQuickCustomer(){
+  if(quickBusy)return;
+  setError("");setQuickBusy(true);
+  try {
+   const fullName=quickName.trim().toUpperCase();
+   const mobile=quickMobile.trim();
+   const bankName=quickBank.trim();
+   const lastFourDigits=quickLastFour.trim();
+   if(quickEntryMode==="new"){
+    if(!fullName||!/^[6-9]\d{9}$/.test(mobile))throw new Error("Enter customer name and a valid 10-digit Indian mobile number.");
+    if(kind==="CARD_RETRY"){
+     if(!bankName||!/^\d{4}$/.test(lastFourDigits))throw new Error("Enter the card bank and last 4 digits.");
+     const saved=await apiFetch<QuickCardResult>("/customers/quick-card",{
+      method:"POST",body:JSON.stringify({fullName,mobile,bankName,lastFourDigits}),
+     });
+     setCustomers(prev=>[{...saved.customer,cards:[saved.card]},...prev]);
+     setCustomerId(saved.customer.id);setCardId(saved.card.id);
+    }else{
+     const saved=await apiFetch<{id:string;fullName:string;mobile:string|null}>("/customers",{
+      method:"POST",body:JSON.stringify({fullName,mobile}),
+     });
+     setCustomers(prev=>[{...saved,cards:[]},...prev]);
+     setCustomerId(saved.id);setCardId("");
+    }
+   }else if(quickEntryMode==="card"){
+    if(!customerId||!bankName||!/^\d{4}$/.test(lastFourDigits))throw new Error("Choose a customer, then enter the card bank and last 4 digits.");
+    const card=await apiFetch<QuickCardResult["card"]>("/customers/"+encodeURIComponent(customerId)+"/cards",{
+     method:"POST",body:JSON.stringify({bankName,cardType:"CREDIT",lastFourDigits}),
+    });
+    setCustomers(prev=>prev.map(customer=>customer.id===customerId?{...customer,cards:[...customer.cards,card]}:customer));
+    setCardId(card.id);
+   }
+   setQuickEntryMode(null);setQuickName("");setQuickMobile("");setQuickBank("");setQuickLastFour("");
+   setNotice("Customer/card saved in Customers and selected here. Complete the follow-up details below.");
+  }catch(err){setError(err instanceof Error?err.message:"Could not save customer/card");}
+  finally{setQuickBusy(false);}
+ }
+ function changeReportPeriod(period:"TODAY"|"YESTERDAY"|"WEEK"|"MONTH"){
+  const today=todayIst();
+  const offset=(days:number)=>todayIst(new Date(Date.now()-days*86_400_000));
+  setReportFrom(period==="TODAY"?today:period==="YESTERDAY"?offset(1):period==="WEEK"?offset(6):today.slice(0,7)+"-01");
+  setReportTo(period==="YESTERDAY"?offset(1):today);
+  setCompletedReport(null);setReportError("");
+ }
+ async function loadCompletedReport(){
+  if(reportLoading)return;
+  setReportError("");setCompletedReport(null);
+  if(!reportFrom||!reportTo||reportFrom>reportTo){setReportError("Choose a valid From/To completion date range.");return;}
+  setReportLoading(true);
+  try{
+   const q=new URLSearchParams({from:reportFrom,to:reportTo});
+   if(reportKind)q.set("kind",reportKind);
+   setCompletedReport(await apiFetch<CompletedReport>("/follow-ups/completed-report?"+q.toString()));
+  }catch(err){setReportError(err instanceof Error?err.message:"Could not load completed tasks");}
+  finally{setReportLoading(false);}
+ }
+ function downloadCompletedReport(){
+  if(!completedReport)return;
+  const blob=new Blob([completedTasksCsv(completedReport.rows)],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=url;link.download="cash-ledger-completed-followups-"+completedReport.from+"-to-"+completedReport.to+".csv";
+  document.body.appendChild(link);link.click();link.remove();
+  window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }
  async function create(e:FormEvent){
   e.preventDefault();if(busy)return;setError("");setNotice("");setBusy(true);
   try{
@@ -195,15 +280,45 @@ export default function FollowUpsPage(){
   <p className="text-xs text-[var(--text-muted)]">Example retry windows: 8–10 AM and 3–4 PM IST. New card retries automatically get the next eligible window; staff can reschedule. Expected refunds are NOT included in available bank/wallet balances. Reversed or invalidated receipt credits return to the open follow-up queue for review.</p>
   {error?<p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{error}</p>:null}
   {notice?<p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{notice}</p>:null}
+  <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+   <div className="flex flex-wrap items-center justify-between gap-2">
+    <div><h2 className="text-base font-black">Completed task report</h2><p className="mt-1 text-xs text-[var(--text-muted)]">Filter by completion date in IST. Includes staff, customer, card, gateway and completion notes.</p></div>
+    <button type="button" onClick={()=>setShowReport(v=>!v)} className="rounded-lg border border-[var(--border)] px-4 py-2 text-xs font-bold">{showReport?"Hide report":"View completed report"}</button>
+   </div>
+   {showReport?<div className="mt-4 space-y-3">
+    <div className="flex flex-wrap gap-2">
+     {(["TODAY","YESTERDAY","WEEK","MONTH"] as const).map(period=><button key={period} type="button" onClick={()=>changeReportPeriod(period)} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">{period==="WEEK"?"Last 7 days":period==="MONTH"?"This month":period==="TODAY"?"Today":"Yesterday"}</button>)}
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+     <label className="text-xs font-bold">Completed from (IST)<input type="date" className={input+" mt-1"} value={reportFrom} max={todayIst()} onChange={e=>{setReportFrom(e.target.value);setCompletedReport(null);}}/></label>
+     <label className="text-xs font-bold">Completed to (IST)<input type="date" className={input+" mt-1"} value={reportTo} max={todayIst()} onChange={e=>{setReportTo(e.target.value);setCompletedReport(null);}}/></label>
+     <label className="text-xs font-bold">Task type<select className={input+" mt-1"} value={reportKind} onChange={e=>{setReportKind(e.target.value);setCompletedReport(null);}}><option value="">All types</option><option value="CARD_RETRY">Card retry</option><option value="BANK_REFUND">Bank refund</option></select></label>
+     <div className="flex items-end gap-2"><button type="button" disabled={reportLoading} onClick={loadCompletedReport} className="app-primary-button min-h-10 rounded-xl px-4 text-xs font-bold disabled:opacity-50">{reportLoading?"Loading…":"Show report"}</button>
+      {completedReport?<button type="button" onClick={downloadCompletedReport} className="min-h-10 rounded-xl border border-[var(--border)] px-4 text-xs font-bold">Download CSV</button>:null}</div>
+    </div>
+    {reportError?<p role="alert" className="text-xs font-bold text-rose-700">{reportError}</p>:null}
+    {completedReport?<><p className="text-sm font-bold">{completedReport.total} completed tasks · {completedReport.cardRetries} card retries · {completedReport.bankRefunds} refunds</p>
+     <div className="overflow-x-auto"><table className="min-w-[760px] w-full text-left text-xs"><thead><tr className="border-b border-[var(--border)] text-[var(--text-muted)]"><th className="p-2">Completed (IST)</th><th className="p-2">Staff</th><th className="p-2">Customer / card</th><th className="p-2">Provider / gateway</th><th className="p-2">Outcome</th></tr></thead>
+      <tbody>{completedReport.rows.map(task=><tr key={task.id} className="border-b border-[var(--border)]"><td className="p-2 whitespace-nowrap">{istTime(task.completedAt)}</td><td className="p-2">{task.completedBy}</td><td className="p-2"><strong>{task.customer}</strong><p>{task.card||task.mobile}</p></td><td className="p-2">{[task.provider,task.gateway].filter(Boolean).join(" / ")||task.account||"—"}</td><td className="p-2">{task.kind==="CARD_RETRY"?"Card retry completed":"Refund verified"}<p className="mt-1">{task.completionNote||task.reason}</p></td></tr>)}</tbody>
+     </table></div>
+     {completedReport.rows.length===0?<p className="text-sm text-[var(--text-muted)]">No tasks completed in this period.</p>:null}
+     <p className="text-xs text-[var(--text-muted)]">CSV includes all matched tasks, linked swipe amounts and verification status. Unlinked historical swipes are never guessed.</p>
+    </>:null}
+   </div>:null}
+  </section>
   {createOpen?<form onSubmit={create} className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
    <div className="flex flex-wrap items-center gap-2">
     <label className="flex items-center gap-2 text-sm font-bold"><input type="radio" checked={kind==="CARD_RETRY"} onChange={()=>setKind("CARD_RETRY")}/>Card retry</label>
     <label className="ml-3 flex items-center gap-2 text-sm font-bold"><input type="radio" checked={kind==="BANK_REFUND"} onChange={()=>setKind("BANK_REFUND")}/>Pending bank/wallet refund</label>
    </div>
    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-    <label className="text-xs font-bold">Customer *<SearchableSelect className={input+" mt-1"} value={customerId} onChange={e=>{setCustomerId(e.target.value);setCardId("");}} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}{c.mobile?" · "+c.mobile:""}</option>)}</SearchableSelect></label>
+    <div><label className="text-xs font-bold">Customer *<SearchableSelect className={input+" mt-1"} value={customerId} onChange={e=>{setCustomerId(e.target.value);setCardId("");setQuickEntryMode(null);}} required><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName}{c.mobile?" · "+c.mobile:""}</option>)}</SearchableSelect></label>
+     <button type="button" onClick={()=>{setQuickEntryMode(mode=>mode==="new"?null:"new");setError("");}} className="mt-1 text-xs font-bold text-[var(--accent)] underline">Customer not found? + Add customer here</button>
+    </div>
     {kind==="CARD_RETRY"?<>
-     <label className="text-xs font-bold">Saved card *<SearchableSelect className={input+" mt-1"} value={cardId} onChange={e=>setCardId(e.target.value)} required><option value="">Choose card</option>{selectedCustomer?.cards.map(c=><option key={c.id} value={c.id}>{c.bankName+" •••• "+c.lastFourDigits+(c.isActive?"":" (inactive)")}</option>)}</SearchableSelect></label>
+     <div><label className="text-xs font-bold">Saved card *<SearchableSelect className={input+" mt-1"} value={cardId} onChange={e=>setCardId(e.target.value)} required><option value="">Choose card</option>{selectedCustomer?.cards.filter(c=>c.isActive).map(c=><option key={c.id} value={c.id}>{c.bankName+" •••• "+c.lastFourDigits}</option>)}</SearchableSelect></label>
+      {selectedCustomer?<button type="button" onClick={()=>{setQuickEntryMode(mode=>mode==="card"?null:"card");setError("");}} className="mt-1 text-xs font-bold text-[var(--accent)] underline">+ Add card to this customer</button>:null}
+     </div>
      <label className="text-xs font-bold">Planned swipe amount (₹) *<input aria-label="Planned card swipe amount" type="number" min=".01" max="999999999" step=".01" required className={input+" mt-1"} value={plannedAmount} onChange={e=>setPlannedAmount(e.target.value)} placeholder="e.g. 60000"/></label>
      <label className="text-xs font-bold">Provider (optional)<SearchableSelect className={input+" mt-1"} value={providerId} onChange={e=>{setProviderId(e.target.value);setGatewayId("");}}><option value="">Choose provider</option>{providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></label>
      <label className="text-xs font-bold">Gateway (optional)<SearchableSelect className={input+" mt-1"} value={gatewayId} onChange={e=>setGatewayId(e.target.value)}><option value="">Choose gateway</option>{selectedProvider?.gateways.map(g=><option key={g.id} value={g.id}>{g.gatewayName+(g.isActive?"":" (unsupported / inactive)")}</option>)}</SearchableSelect></label>
@@ -215,6 +330,23 @@ export default function FollowUpsPage(){
     <label className="text-xs font-bold">Reference / complaint number<input className={input+" mt-1"} value={reference} onChange={e=>setReference(e.target.value)} maxLength={120} placeholder="Optional"/></label>
     <label className="text-xs font-bold">Override reminder time (IST)<input type="datetime-local" className={input+" mt-1"} value={createReminder} onChange={e=>setCreateReminder(e.target.value)}/></label>
    </div>
+   {quickEntryMode?<div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+     <div className="mb-3 flex items-center justify-between gap-2"><strong className="text-sm">{quickEntryMode==="new"?"Quick add customer":"Add card to "+(selectedCustomer?.fullName||"customer")}</strong>
+      <button type="button" className="text-xs font-bold underline" onClick={()=>setQuickEntryMode(null)}>Cancel quick entry</button></div>
+     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {quickEntryMode==="new"?<>
+       <label className="text-xs font-bold">Customer name *<input className={input+" mt-1"} maxLength={150} value={quickName} onChange={e=>setQuickName(e.target.value)} placeholder="Customer full name"/></label>
+       <label className="text-xs font-bold">Mobile number *<input className={input+" mt-1"} type="tel" inputMode="numeric" maxLength={10} value={quickMobile} onChange={e=>setQuickMobile(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile"/></label>
+      </>:null}
+      {(kind==="CARD_RETRY"||quickEntryMode==="card")?<>
+       <label className="text-xs font-bold">Card bank *<input className={input+" mt-1"} value={quickBank} maxLength={100} onChange={e=>setQuickBank(e.target.value)} placeholder="e.g. SBI"/></label>
+       <label className="text-xs font-bold">Card last 4 digits *<input className={input+" mt-1"} inputMode="numeric" maxLength={4} value={quickLastFour} onChange={e=>setQuickLastFour(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="1234"/></label>
+      </>:null}
+     </div>
+     <p className="mt-2 text-xs text-indigo-800">Creates only a customer/card record with audit history. It does not post a card swipe or complete this follow-up. Duplicate mobile numbers are rejected.</p>
+     <button type="button" disabled={quickBusy||quickEntryMode==="new"&&(!quickName.trim()||quickMobile.length!==10)||((kind==="CARD_RETRY"||quickEntryMode==="card")&&(!quickBank.trim()||quickLastFour.length!==4))} onClick={saveQuickCustomer}
+      className="mt-3 rounded-lg bg-indigo-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{quickBusy?"Saving customer…":"Save and select"}</button>
+    </div>:null}
    <label className="block text-xs font-bold">Reason / next action *<textarea className={input+" mt-1 min-h-20 p-3"} value={reason} onChange={e=>setReason(e.target.value)} required maxLength={500} placeholder={kind==="CARD_RETRY"?"Card unsupported by gateway; retry in afternoon window":"Refund requested but not credited yet"}/></label>
    <label className="block text-xs font-bold">Internal notes<textarea className={input+" mt-1 min-h-16 p-3"} value={notes} onChange={e=>setNotes(e.target.value)} maxLength={2000} placeholder="Customer contacted, complaint reference, etc."/></label>
    {kind==="BANK_REFUND"?<p className="rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-800">This only creates a pending refund follow-up. It will NOT increase the selected bank/wallet balance. When credited, first record or locate the actual account ledger credit, then verify it here. <Link href="/accounts" className="font-bold underline">Open Accounts</Link></p>:null}
