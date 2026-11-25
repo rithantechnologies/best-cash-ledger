@@ -26,6 +26,7 @@ describe('customer-wise pending card summary', () => {
       customer: { findMany: vi.fn().mockResolvedValue([
         {id: customer, fullName:'DEIVASIGAMANI', mobile:'9990001112'},
       ]) },
+      followUpSwipeAllocation: {findMany: vi.fn().mockResolvedValue([])},
     };
     const result = await new FollowUpsService(db as never).customerSummary();
     expect(result).toMatchObject([{
@@ -48,6 +49,7 @@ describe('customer-wise pending card summary', () => {
     const update = vi.fn().mockResolvedValue({...old,plannedSwipeAmount:160000});
     const tx = {
       followUpTask:{findUnique:vi.fn().mockResolvedValue(old),update},
+      followUpSwipeAllocation:{aggregate:vi.fn().mockResolvedValue({_sum:{amount:null}})},
       followUpEvent:{create:vi.fn().mockResolvedValue({})},
       auditLog:{create:vi.fn().mockResolvedValue({})},
     };
@@ -66,7 +68,7 @@ describe('customer-wise pending card summary', () => {
       }),
     }));
     expect(tx.auditLog.create).toHaveBeenCalledOnce();
-    expect(Object.keys(tx).sort()).toEqual(['auditLog','followUpEvent','followUpTask']);
+    expect(Object.keys(tx).sort()).toEqual(['auditLog','followUpEvent','followUpSwipeAllocation','followUpTask']);
   });
 
   it('rejects zero/negative and refund misuse of planned card amount', async () => {

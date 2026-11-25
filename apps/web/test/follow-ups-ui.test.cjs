@@ -37,3 +37,20 @@ test('customer-wise card summary displays bold provider/gateway and requires con
  assert.match(page,/plannedSwipeAmount:Number\(plannedAmount\)/);
  assert.match(page,/action\(row,\"SET_AMOUNT\"\)/);
 });
+
+test('a follow-up card swipe preselects its card, gateway and verified remaining amount',()=>{
+ const swipe=read('app/transactions/card-swipe/page.tsx');
+ const queue=read('app/follow-ups/page.tsx');
+ assert.match(queue,/followUpId=\"\+encodeURIComponent\(row\.id\)/);
+ assert.match(swipe,/apiFetch<SwipeFollowUp>\(\"\/follow-ups\/\"/);
+ assert.match(swipe,/manualAmountRef\.current=true/);
+ assert.match(swipe,/setAmount\(Number\.isFinite\(remaining\)&&remaining>0/);
+ assert.match(swipe,/setProviderRate\(String\(gatewayDefaultRate\(current\)\)\)/);
+ assert.match(swipe,/action:\"RECORD_SWIPE\"/);
+ assert.match(swipe,/Retry follow-up link/);
+ assert.match(swipe,/cashledger_card_customer_pref_/);
+ assert.match(swipe,/transactionAtForBusinessDate\(swipeDate\)/);
+ assert.match(swipe,/setSwipeDate\(todayIst\(\)\)/);
+ assert.match(swipe,/remainingPlannedAmount/);
+ assert.match(queue,/Linked partial swipes/);
+});

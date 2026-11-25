@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountType, JournalStatus, Prisma, TransactionStatus } from '@prisma/client';
+import { AccountType, JournalStatus, Prisma, TransactionStatus, TransactionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateFollowUpDto, UpdateFollowUpDto } from './dto.js';
 import { retryReminder } from './reminder-windows.js';
@@ -24,6 +24,13 @@ const taskInclude = {
     },
   },
   createdBy: { select: { id: true, fullName: true } },
+  swipeAllocations: {
+    select: {
+      id: true, amount: true, linkedAt: true,
+      transaction: { select: { id: true, transactionNumber: true, status: true, transactionAt: true } },
+    },
+    orderBy: { linkedAt: 'asc' },
+  },
 } as const;
 
 function receiptPosted(task: {
@@ -51,8 +58,17 @@ export class FollowUpsService {
   constructor(private readonly prisma: PrismaService) {}
 
   private format(task: any) {
+    // Count only live completed swipes. A later reversal immediately restores
+    // the outstanding operational amount without touching any posted journal.
+    const linked = task.kind === 'CARD_RETRY'
+      ? (task.swipeAllocations ?? []).filter((x: any) => x.transaction.status === TransactionStatus.COMPLETED)
+        .reduce((sum: number, x: any) => sum + Math.round(Number(x.amount) * 100), 0)
+      : 0;
+    const planned = task.plannedSwipeAmount === null ? null : Math.round(Number(task.plannedSwipeAmount) * 100);
     return {
       ...task,
+      swipedAmount: linked / 100,
+      remainingPlannedAmount: planned === null ? null : Math.max(0, planned - linked) / 100,
       receiptVerified: receiptPosted(task),
       // A later reversal makes the historical completed flag unsafe to trust.
       needsReceiptReview: task.kind === 'BANK_REFUND' && task.status === 'COMPLETED'
@@ -73,7 +89,7 @@ export class FollowUpsService {
   async customerSummary() {
     const where: Prisma.FollowUpTaskWhereInput = { kind: 'CARD_RETRY', status: 'OPEN' };
     const now = new Date();
-    const [groups, cards, due] = await Promise.all([
+    const [groups, cards, due, linked] = await Promise.all([
       this.prisma.followUpTask.groupBy({
         by: ['customerId'], where,
         _count: { _all: true, plannedSwipeAmount: true },
@@ -87,6 +103,11 @@ export class FollowUpsService {
         by: ['customerId'], where: { ...where, nextReminderAt: { lte: now } },
         _count: { _all: true },
       }),
+      this.prisma.followUpSwipeAllocation.findMany({
+        where: { followUp: { kind: 'CARD_RETRY', status: 'OPEN' },
+          transaction: { status: TransactionStatus.COMPLETED } },
+        select: { followUp: { select: { customerId: true } }, amount: true },
+      }),
     ]);
     if (!groups.length) return [];
     const customers = await this.prisma.customer.findMany({
@@ -99,6 +120,11 @@ export class FollowUpsService {
       if (card.cardId) uniqueCards.set(card.customerId, (uniqueCards.get(card.customerId) ?? 0) + 1);
     }
     const dueCounts = new Map(due.map(group => [group.customerId, group._count._all]));
+    const swiped = new Map<string, number>();
+    for (const item of linked) {
+      const id = item.followUp.customerId;
+      swiped.set(id, (swiped.get(id) ?? 0) + Math.round(Number(item.amount) * 100));
+    }
     return groups.map(group => ({
       customerId: group.customerId,
       customerName: names.get(group.customerId)?.fullName ?? 'Customer',
@@ -108,6 +134,9 @@ export class FollowUpsService {
       amountCount: group._count.plannedSwipeAmount,
       amountMissing: group._count._all - group._count.plannedSwipeAmount,
       plannedSwipeTotal: group._sum.plannedSwipeAmount ?? 0,
+      swipedAmount: (swiped.get(group.customerId) ?? 0) / 100,
+      remainingPlannedAmount: Math.max(0,
+        Math.round(Number(group._sum.plannedSwipeAmount ?? 0) * 100) - (swiped.get(group.customerId) ?? 0)) / 100,
       dueCount: dueCounts.get(group.customerId) ?? 0,
       nextReminderAt: group._min.nextReminderAt,
     })).sort((a, b) => b.dueCount - a.dueCount || b.taskCount - a.taskCount || a.customerName.localeCompare(b.customerName));
@@ -118,7 +147,7 @@ export class FollowUpsService {
     const refundPendingFilter: Prisma.FollowUpTaskWhereInput = {
       kind: 'BANK_REFUND', OR: [{ status: 'OPEN' }, this.reversedRefund],
     };
-    const [open, due, cardRetries, pendingRefunds, refundTotal, reversedRefunds, planned] = await Promise.all([
+    const [open, due, cardRetries, pendingRefunds, refundTotal, reversedRefunds, planned, linked] = await Promise.all([
       this.prisma.followUpTask.count({ where: { status: 'OPEN' } }),
       this.prisma.followUpTask.count({ where: { status: 'OPEN', nextReminderAt: { lte: now } } }),
       this.prisma.followUpTask.count({ where: { status: 'OPEN', kind: 'CARD_RETRY' } }),
@@ -133,12 +162,20 @@ export class FollowUpsService {
         _sum: { plannedSwipeAmount: true },
         _count: { plannedSwipeAmount: true },
       }),
+      this.prisma.followUpSwipeAllocation.aggregate({
+        where: { followUp: { kind: 'CARD_RETRY', status: 'OPEN' },
+          transaction: { status: TransactionStatus.COMPLETED } },
+        _sum: { amount: true },
+      }),
     ]);
     return {
       open: open + reversedRefunds, due: due + reversedRefunds,
       cardRetries, pendingRefunds, needsReceiptReview: reversedRefunds,
       expectedRefundTotal: refundTotal._sum.expectedAmount ?? 0,
       plannedSwipeTotal: planned._sum.plannedSwipeAmount ?? 0,
+      swipedAmount: linked._sum.amount ?? 0,
+      remainingPlannedAmount: Math.max(0, Math.round((
+        Number(planned._sum.plannedSwipeAmount ?? 0) - Number(linked._sum.amount ?? 0)) * 100)) / 100,
       missingPlannedSwipeAmounts: cardRetries - planned._count.plannedSwipeAmount,
     };
   }
@@ -282,6 +319,7 @@ export class FollowUpsService {
       const note = dto.note?.trim() || null;
       const change: Prisma.FollowUpTaskUpdateInput = { updatedById: actorId };
       let action = dto.action;
+      let linkedSwipeAmount: number | null = null;
       if (action === 'REOPEN') {
         if (row.status === 'OPEN') throw new ConflictException('Follow-up is already open');
         change.status = 'OPEN';
@@ -294,7 +332,52 @@ export class FollowUpsService {
       } else if (action === 'SET_AMOUNT') {
         if (row.kind !== 'CARD_RETRY' || !Number.isFinite(dto.plannedSwipeAmount) || !dto.plannedSwipeAmount || dto.plannedSwipeAmount <= 0)
           throw new BadRequestException('Choose a valid positive planned card swipe amount');
+        const linked = await tx.followUpSwipeAllocation.aggregate({
+          where: { followUpId: id, transaction: { status: TransactionStatus.COMPLETED } },
+          _sum: { amount: true },
+        });
+        if (Math.round(dto.plannedSwipeAmount * 100) <
+          Math.round(Number(linked._sum.amount ?? 0) * 100))
+          throw new BadRequestException('Planned amount cannot be smaller than already completed linked swipes');
         change.plannedSwipeAmount = dto.plannedSwipeAmount;
+      } else if (action === 'RECORD_SWIPE') {
+        if (row.kind !== 'CARD_RETRY' || !row.customerId || !row.cardId || !row.plannedSwipeAmount)
+          throw new BadRequestException('Confirm the planned amount and saved card first');
+        if (!dto.swipeTransactionNumber?.trim())
+          throw new BadRequestException('Provide the saved Card Swipe transaction number');
+        const swipe = await tx.transaction.findUnique({
+          where: { transactionNumber: dto.swipeTransactionNumber.trim() },
+          select: { id: true, transactionNumber: true, status: true, transactionType: true, customerId: true,
+            cardSwipe: { select: { customerCardId: true, swipeAmount: true } },
+            journal: { select: { status: true } } },
+        });
+        if (!swipe || swipe.status !== TransactionStatus.COMPLETED ||
+          swipe.journal?.status !== JournalStatus.POSTED ||
+          swipe.transactionType !== TransactionType.CARD_SWIPE || !swipe.cardSwipe ||
+          swipe.customerId !== row.customerId || swipe.cardSwipe.customerCardId !== row.cardId)
+          throw new BadRequestException('The completed swipe must belong to this customer and saved card');
+        const existing = await tx.followUpSwipeAllocation.findUnique({
+          where: { transactionId: swipe.id }, select: { followUpId: true },
+        });
+        if (existing && existing.followUpId !== id)
+          throw new ConflictException('This swipe is already linked to another follow-up');
+        const linked = await tx.followUpSwipeAllocation.aggregate({
+          where: { followUpId: id, transaction: { status: TransactionStatus.COMPLETED } },
+          _sum: { amount: true },
+        });
+        const allocated = Math.round(Number(linked._sum.amount ?? 0) * 100);
+        const amount = Math.round(Number(swipe.cardSwipe.swipeAmount) * 100);
+        const planned = Math.round(Number(row.plannedSwipeAmount) * 100);
+        if (!existing && (amount < 1 || allocated + amount > planned))
+          throw new BadRequestException('Swipe exceeds remaining planned amount; edit the plan explicitly if needed');
+        if (!existing) {
+          await tx.followUpSwipeAllocation.create({ data: {
+            followUpId: id, transactionId: swipe.id, amount: swipe.cardSwipe.swipeAmount, linkedById: actorId,
+          } });
+        }
+        linkedSwipeAmount = Number(swipe.cardSwipe.swipeAmount);
+        // Reuse the normal task + audit history below. Do not create a ledger entry.
+        change.notes = row.notes;
       } else if (action === 'SCHEDULE') {
         if (!dto.nextReminderAt) throw new BadRequestException('Choose the reminder time');
         const when = new Date(dto.nextReminderAt);
@@ -309,6 +392,15 @@ export class FollowUpsService {
       } else if (action === 'COMPLETE') {
         if (row.kind !== 'CARD_RETRY')
           throw new BadRequestException('Bank refunds may only be marked received after matching an actual posted credit; otherwise cancel with a reason');
+        if (row.plannedSwipeAmount !== null) {
+          const linked = await tx.followUpSwipeAllocation.aggregate({
+            where: { followUpId: id, transaction: { status: TransactionStatus.COMPLETED } },
+            _sum: { amount: true },
+          });
+          if (Math.round(Number(linked._sum.amount ?? 0) * 100) <
+            Math.round(Number(row.plannedSwipeAmount) * 100))
+            throw new BadRequestException('Swipe the remaining planned amount first, or cancel the follow-up with a reason');
+        }
         change.status = 'COMPLETED';
         change.completedAt = now;
         change.completedById = actorId;
@@ -350,6 +442,8 @@ export class FollowUpsService {
       const updated = await tx.followUpTask.update({ where: { id }, data: change });
       const changedFields = {
         action, status: updated.status, nextReminderAt: updated.nextReminderAt?.toISOString() ?? null,
+        linkedSwipeTransactionNumber: action === 'RECORD_SWIPE' ? dto.swipeTransactionNumber : null,
+        linkedSwipeAmount,
         receiptTransactionId: updated.receiptTransactionId,
         plannedSwipeAmount: updated.plannedSwipeAmount?.toString() ?? null,
       };
@@ -368,6 +462,6 @@ export class FollowUpsService {
         newValues: changedFields, reason: note,
       } });
       return updated;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 }

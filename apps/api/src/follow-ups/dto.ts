@@ -18,10 +18,11 @@ export class CreateFollowUpDto {
 }
 
 export class UpdateFollowUpDto {
-  @IsIn(['NOTE', 'SCHEDULE', 'REMIND_LATER', 'COMPLETE', 'CANCEL', 'REOPEN', 'VERIFY_REFUND', 'SET_AMOUNT'])
-  action!: 'NOTE' | 'SCHEDULE' | 'REMIND_LATER' | 'COMPLETE' | 'CANCEL' | 'REOPEN' | 'VERIFY_REFUND' | 'SET_AMOUNT';
+  @IsIn(['NOTE', 'SCHEDULE', 'REMIND_LATER', 'COMPLETE', 'CANCEL', 'REOPEN', 'VERIFY_REFUND', 'SET_AMOUNT', 'RECORD_SWIPE'])
+  action!: 'NOTE' | 'SCHEDULE' | 'REMIND_LATER' | 'COMPLETE' | 'CANCEL' | 'REOPEN' | 'VERIFY_REFUND' | 'SET_AMOUNT' | 'RECORD_SWIPE';
   @IsOptional() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) @Max(999999999) plannedSwipeAmount?: number;
   @IsOptional() @IsString() @MaxLength(2000) note?: string;
   @IsOptional() @IsDateString() nextReminderAt?: string;
   @IsOptional() @IsString() @MaxLength(60) receiptTransactionNumber?: string;
+  @IsOptional() @IsString() @MaxLength(60) swipeTransactionNumber?: string;
 }

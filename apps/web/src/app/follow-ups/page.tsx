@@ -18,11 +18,14 @@ type Task = {
  account:null|{id:string;accountName:string;accountType:string};
  sourceTransaction:null|{transactionNumber:string};
  receiptTransaction:null|{transactionNumber:string;status:string};
- receiptVerified:boolean;needsReceiptReview:boolean;expectedAmount:string|null;plannedSwipeAmount:string|null;reference:string|null;
+ receiptVerified:boolean;needsReceiptReview:boolean;expectedAmount:string|null;plannedSwipeAmount:string|null;
+ swipedAmount:number;remainingPlannedAmount:number|null;
+ swipeAllocations?:{id:string;amount:string;linkedAt:string;transaction:{id:string;transactionNumber:string;status:string;transactionAt:string}}[];
+ reference:string|null;
  reason:string;notes:string|null;nextReminderAt:string|null;createdAt:string;completedAt:string|null;events?:FollowUpEvent[];
 };
-type Summary = {open:number;due:number;cardRetries:number;pendingRefunds:number;needsReceiptReview?:number;expectedRefundTotal:string|number;plannedSwipeTotal:string|number;missingPlannedSwipeAmounts:number};
-type CustomerSwipeSummary = {customerId:string;customerName:string;customerMobile:string|null;taskCount:number;cardCount:number;amountCount:number;amountMissing:number;plannedSwipeTotal:string|number;dueCount:number;nextReminderAt:string|null};
+type Summary = {open:number;due:number;cardRetries:number;pendingRefunds:number;needsReceiptReview?:number;expectedRefundTotal:string|number;plannedSwipeTotal:string|number;missingPlannedSwipeAmounts:number;swipedAmount:number|string;remainingPlannedAmount:number};
+type CustomerSwipeSummary = {customerId:string;customerName:string;customerMobile:string|null;taskCount:number;cardCount:number;amountCount:number;amountMissing:number;plannedSwipeTotal:string|number;swipedAmount:number;remainingPlannedAmount:number;dueCount:number;nextReminderAt:string|null};
 const input="app-control min-h-10 w-full rounded-xl";
 const money=(n:string|number|null|undefined)=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(Number(n??0));
 function istTime(value:string|null|undefined){
@@ -48,7 +51,7 @@ export default function FollowUpsPage(){
  const [customerSummaries,setCustomerSummaries]=useState<CustomerSwipeSummary[]>([]);
  const [focusCustomerId,setFocusCustomerId]=useState("");
  const [total,setTotal]=useState(0);
- const [summary,setSummary]=useState<Summary>({open:0,due:0,cardRetries:0,pendingRefunds:0,expectedRefundTotal:0,plannedSwipeTotal:0,missingPlannedSwipeAmounts:0});
+ const [summary,setSummary]=useState<Summary>({open:0,due:0,cardRetries:0,pendingRefunds:0,expectedRefundTotal:0,plannedSwipeTotal:0,missingPlannedSwipeAmounts:0,swipedAmount:0,remainingPlannedAmount:0});
  const [status,setStatus]=useState("OPEN"),[filterKind,setFilterKind]=useState("");
  const [search,setSearch]=useState("");
  const [busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
@@ -184,9 +187,10 @@ export default function FollowUpsPage(){
   </header>
   <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
    {[
-    ["Open tasks",summary.open],["Due / overdue",summary.due],["Cards to retry",summary.cardRetries],["Planned swipes",money(summary.plannedSwipeTotal)],["Expected refunds",money(summary.expectedRefundTotal)],
+    ["Open tasks",summary.open],["Due / overdue",summary.due],["Cards to retry",summary.cardRetries],["Remaining to swipe",money(summary.remainingPlannedAmount)],["Expected refunds",money(summary.expectedRefundTotal)],
    ].map(([label,value])=><div key={label} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"><p className="text-xs font-bold text-[var(--text-muted)]">{label}</p><p className="money mt-2 text-2xl font-black">{value}</p></div>)}
   </div>
+  <p className="text-xs font-medium text-[var(--text-muted)]">Confirmed planned {money(summary.plannedSwipeTotal)} · Completed swipes linked {money(summary.swipedAmount)} · Remaining {money(summary.remainingPlannedAmount)}.</p>
   {summary.missingPlannedSwipeAmounts>0?<p className="text-xs font-bold text-amber-800">{summary.missingPlannedSwipeAmounts} open card retr{summary.missingPlannedSwipeAmounts===1?"y needs":"ies need"} a confirmed planned amount before the full total can be shown.</p>:null}
   <p className="text-xs text-[var(--text-muted)]">Example retry windows: 8–10 AM and 3–4 PM IST. New card retries automatically get the next eligible window; staff can reschedule. Expected refunds are NOT included in available bank/wallet balances. Reversed or invalidated receipt credits return to the open follow-up queue for review.</p>
   {error?<p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800">{error}</p>:null}
@@ -221,7 +225,8 @@ export default function FollowUpsPage(){
    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{visibleCustomers.map(group=><button key={group.customerId} type="button" aria-pressed={focusCustomerId===group.customerId} onClick={()=>{setFocusCustomerId(current=>current===group.customerId?"":group.customerId);setStatus("OPEN");setFilterKind("CARD_RETRY");}} className={"rounded-xl border p-3 text-left transition "+(focusCustomerId===group.customerId?"border-[var(--accent)] bg-[var(--accent-soft)]":"border-[var(--border)] bg-[var(--surface-soft)] hover:border-[var(--accent)]")}>
     <div className="flex items-start justify-between gap-2"><div><p className="text-base font-black">{group.customerName}</p><p className="text-[11px] text-[var(--text-muted)]">{group.customerMobile||"No mobile"}</p></div>{group.dueCount>0?<span className="text-xs font-bold text-rose-700">{group.dueCount} due</span>:null}</div>
     <p className="mt-2 text-xs font-bold">{group.cardCount} {group.cardCount===1?"card":"cards"} · {group.taskCount} open {group.taskCount===1?"entry":"entries"}</p>
-    <p className="money mt-1 text-lg font-black">{money(group.plannedSwipeTotal)}</p>
+    <p className="money mt-1 text-lg font-black">Remaining {money(group.remainingPlannedAmount)}</p>
+    <p className="text-[11px] text-[var(--text-muted)]">Planned {money(group.plannedSwipeTotal)} · Swiped {money(group.swipedAmount)}</p>
     <p className="text-[11px] text-[var(--text-muted)]">{group.amountMissing>0?"Confirmed planned amount only · "+group.amountMissing+" amount"+(group.amountMissing===1?"":"s")+" missing":"Total planned swipe amount confirmed"}</p>
    </button>)}</div>
   </section>:null}
@@ -244,6 +249,7 @@ export default function FollowUpsPage(){
          <p className="text-xs">Provider <strong className="ml-1 text-base font-black tracking-tight text-[var(--text)]">{row.provider?.name||"Not selected"}</strong></p>
          <p className="text-xs">Gateway <strong className="ml-1 text-base font-black tracking-tight text-[var(--text)]">{row.gateway?.gatewayName||"Not selected"}</strong></p>
          <p className="text-xs">Planned <strong className="ml-1 text-base font-black tracking-tight">{row.plannedSwipeAmount!==null?money(row.plannedSwipeAmount):"Amount not entered"}</strong></p>
+         {row.plannedSwipeAmount!==null?<p className="text-xs">Swiped <strong className="ml-1 text-base font-black">{money(row.swipedAmount)}</strong> · Remaining <strong className="ml-1 text-base font-black text-amber-700">{money(row.remainingPlannedAmount)}</strong></p>:null}
         </div>:null}
        </div>
        <div className="text-right text-xs"><p className={due?"font-bold text-rose-700":"text-[var(--text-muted)]"}>{row.needsReceiptReview?"Receipt reversal — reopen":row.status==="OPEN"?"Reminder "+istTime(row.nextReminderAt):"Updated / closed"}</p>{row.kind==="BANK_REFUND"?<p className="money mt-1 font-bold">Expected {money(row.expectedAmount)}</p>:null}</div>
@@ -254,6 +260,13 @@ export default function FollowUpsPage(){
        <p className="mt-1 font-semibold">{row.receiptVerified?"Refund matched to posted bank/wallet credit "+row.receiptTransaction?.transactionNumber:row.needsReceiptReview?"Previously linked receipt has been reversed or is no longer valid — REOPEN for review":"Expected refund not yet verified in ledger"}</p>
        <p className="mt-1 text-[var(--text-muted)]">Expected refund is informational; it is never added to the balance by this follow-up.</p>
       </div>:null}
+      {row.kind==="CARD_RETRY"&&row.swipeAllocations?.length?<div className="mt-2 rounded-lg border border-[var(--border)] p-2 text-xs">
+       <p className="font-bold">Linked partial swipes</p>
+       {row.swipeAllocations.map(link=><p key={link.id} className="mt-1">
+        <Link href={"/transactions/"+encodeURIComponent(link.transaction.id)} className="font-bold text-[var(--accent)] underline">{link.transaction.transactionNumber}</Link> · {money(link.amount)} · {link.transaction.status}
+        {link.transaction.status!=="COMPLETED"?" · Not counted in remaining":""}
+       </p>)}
+      </div>:null}
       {row.reference?<p className="mt-2 text-xs">Reference: <strong>{row.reference}</strong></p>:null}
       {row.notes?<p className="mt-2 whitespace-pre-line text-xs text-[var(--text-muted)]">{row.notes}</p>:null}
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -262,8 +275,8 @@ export default function FollowUpsPage(){
         <button disabled={busy} type="button" onClick={()=>action(row,"NOTE")} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">Add note</button>
         {row.kind==="CARD_RETRY"?<button disabled={busy} type="button" onClick={()=>action(row,"SET_AMOUNT")} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">{row.plannedSwipeAmount===null?"Set planned amount":"Edit planned amount"}{row.plannedSwipeAmount===null&&amountSuggestion(row.reason)!==null?" · suggested "+money(amountSuggestion(row.reason)):""}</button>:null}
         {row.kind==="CARD_RETRY"?<>
-         <Link href={"/transactions/card-swipe?customerId="+encodeURIComponent(row.customer.id)+(row.card?"&cardId="+encodeURIComponent(row.card.id):"")} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--accent)]">Open Card Swipe</Link>
-         <button disabled={busy} type="button" onClick={()=>action(row,"COMPLETE")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Mark completed</button>
+         <Link href={"/transactions/card-swipe?customerId="+encodeURIComponent(row.customer.id)+(row.card?"&cardId="+encodeURIComponent(row.card.id):"")+"&followUpId="+encodeURIComponent(row.id)} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--accent)]">Open Card Swipe · remaining {row.remainingPlannedAmount===null?"not set":money(row.remainingPlannedAmount)}</Link>
+         <button disabled={busy||row.plannedSwipeAmount!==null&&Number(row.remainingPlannedAmount)>0.001} type="button" onClick={()=>action(row,"COMPLETE")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40" title={Number(row.remainingPlannedAmount)>0.001?"Complete remaining planned amount first":"Mark follow-up completed"}>Mark completed</button>
         </>:<button disabled={busy} type="button" onClick={()=>action(row,"VERIFY_REFUND")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Verify posted refund</button>}
         <button disabled={busy} type="button" onClick={()=>action(row,"CANCEL")} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold">Cancel</button>
         <div className="flex w-full flex-wrap items-center gap-2"><label className="text-xs font-bold">Reschedule (IST)<input aria-label={"Next reminder "+row.customer.fullName} type="datetime-local" className="app-control ml-2 min-h-9" value={editReminders[row.id]??dateInputIst(row.nextReminderAt)} onChange={e=>setEditReminders(prev=>({...prev,[row.id]:e.target.value}))}/></label><button disabled={busy||!editReminders[row.id]} type="button" onClick={()=>action(row,"SCHEDULE")} className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold disabled:opacity-40">Set reminder</button></div>

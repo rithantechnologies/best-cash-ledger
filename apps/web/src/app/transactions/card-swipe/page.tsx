@@ -10,6 +10,7 @@ import { Field, Modal, PageLoader, Surface } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
 import { networkForSavedCard } from "@/lib/card-network";
 import { gatewayDefaultRate } from "@/lib/card-swipe-gateway-rate.mjs";
+import { todayIst, transactionAtForBusinessDate } from "@/lib/card-swipe-today-ist.mjs";
 import { useRememberedValues } from "@/lib/remembered-values";
 import { payoutChargeProblem, highPayoutChargeWarning } from "@/lib/customer-payout-charge-safety.mjs";
 
@@ -33,6 +34,12 @@ type CustomerSwipeHistory={
   providerSettlementSource:{status:string;provider:{name:string}|null;gateway:{gatewayName:string}|null}|null;
 };
 type CustomerPreference={providerId:string;gatewayId:string;termId:string;cardId?:string;commissionRate?:string};
+type SwipeFollowUp={
+  id:string;kind:string;status:string;
+  customer:{id:string};card:{id:string}|null;
+  provider:{id:string}|null;gateway:{id:string}|null;
+  plannedSwipeAmount:string|null;swipedAmount:number;remainingPlannedAmount:number|null;
+};
 type SavedSwipe={
   transaction:{id:string;transactionNumber:string;grossAmount:string;netAmount:string};
   payable:{id:string;originalAmount:string;paidAmount:string;remainingAmount:string;status:string};
@@ -294,7 +301,11 @@ export default function CardSwipePage(){
   const [newCardNickname,setNewCardNickname]=useState("");
   const [addingCardBusy,setAddingCardBusy]=useState(false);
   const [amount,setAmount]=useState("");
-  const [swipeDate,setSwipeDate]=useState("");
+  const [swipeDate,setSwipeDate]=useState(()=>todayIst());
+  const [followUpId,setFollowUpId]=useState("");
+  const [followUpContext,setFollowUpContext]=useState<SwipeFollowUp|null>(null);
+  const [followUpLinkIssue,setFollowUpLinkIssue]=useState("");
+  const [linkingFollowUp,setLinkingFollowUp]=useState(false);
   const [reusedSwipeAmount,setReusedSwipeAmount]=useState(false);
   const [providerId,setProviderId]=useState("");
   const [gatewayId,setGatewayId]=useState("");
@@ -368,10 +379,41 @@ export default function CardSwipePage(){
       const presetCustomerId=params.get("customerId");
       const presetCardId=params.get("cardId");
       const presetCustomer=c.find(x=>x.id===presetCustomerId);
+      const followUpRequestId=params.get("followUpId");
+      if(followUpRequestId)setFollowUpId(followUpRequestId);
       if(presetCustomer){
         setCustomerId(presetCustomer.id);
         setCustomerSearch(presetCustomer.fullName+(presetCustomer.mobile?" · "+presetCustomer.mobile:""));
         if(presetCardId&&presetCustomer.cards.some(card=>card.id===presetCardId&&card.isActive))setCardId(presetCardId);
+      }
+      if(followUpRequestId){
+        // A follow-up route must be validated from the API, never trusted from
+        // query-string amount or provider fields.
+        return apiFetch<SwipeFollowUp>("/follow-ups/"+encodeURIComponent(followUpRequestId))
+          .then(task=>{
+            const eligibleCard=presetCustomer?.cards.find(card=>card.id===task.card?.id&&card.isActive);
+            if(task.kind!=="CARD_RETRY"||task.status!=="OPEN"||!eligibleCard||
+              presetCustomer?.id!==task.customer.id|| (presetCardId&&presetCardId!==task.card?.id))
+              throw new Error("The follow-up is not an open card retry for this customer and active saved card");
+            manualAmountRef.current=true;
+            setCardId(eligibleCard.id);
+            const remaining=Number(task.remainingPlannedAmount);
+            setAmount(Number.isFinite(remaining)&&remaining>0?String(remaining):"");
+            setReusedSwipeAmount(false);
+            setFollowUpContext(task);
+            if(task.provider&&task.gateway){
+              const chosen=p.find(provider=>provider.id===task.provider?.id);
+              const current=chosen?.gateways.find(gateway=>gateway.id===task.gateway?.id);
+              if(current){
+                manualGatewayRef.current=true;
+                setProviderId(chosen!.id);
+                setGatewayId(current.id);
+                setProviderRate(String(gatewayDefaultRate(current)));
+                setRoutingOpen(false);
+              }else{setRoutingOpen(true);}
+            }
+          })
+          .catch(err=>setFollowUpLinkIssue(err instanceof Error?err.message:"Unable to open this follow-up"));
       }
     }).catch(e=>setError(e instanceof Error?e.message:"Failed to load form"))
       .finally(()=>setLoading(false));
@@ -536,8 +578,15 @@ export default function CardSwipePage(){
       if(!manualCommissionRef.current)setSuggestedCommission(Number(terms.find(term=>term.id===termId)?.defaultCommissionRate||0));
       if(!manualGatewayRef.current){setProviderId("");setGatewayId("");setProviderRate("0");}
       const instant=terms.find(term=>term.name.toLowerCase().includes("instant"))??terms.find(term=>term.durationValue===0)??terms[0];
-      if(instant&&!manualTermRef.current)setTermId(instant.id);
-      setRoutingOpen(true);
+      // A never-used saved card may still use this customer's previous payment
+      // term; keep gateway selection card-specific and never reuse an inactive one.
+      let preferredTerm=instant;
+      try{
+        const remembered=JSON.parse(localStorage.getItem("cashledger_card_customer_pref_"+customerId)||"{}") as CustomerPreference;
+        preferredTerm=terms.find(term=>term.id===remembered.termId)??instant;
+      }catch{}
+      if(preferredTerm&&!manualTermRef.current)setTermId(preferredTerm.id);
+      if(!manualGatewayRef.current)setRoutingOpen(true);
       return;
     }
     const previousProvider=providers.find(item=>item.id===selectedCardSetup.providerId);
@@ -690,7 +739,7 @@ export default function CardSwipePage(){
     try{recent=Number(localStorage.getItem("cashledger_card_last_saved_swipe_amount")||0);}catch{}
     const useRecent=Number.isFinite(recent)&&recent>0&&recent<=999999999;
     setAmount(useRecent?String(recent):"");
-    setSwipeDate("");
+    setSwipeDate(todayIst());
     setReusedSwipeAmount(useRecent);
     setProviderId("");
     setGatewayId("");
@@ -891,7 +940,7 @@ export default function CardSwipePage(){
           },
         }:{customerId,customerCardId:cardId}),
         swipeAmount:swipe,providerId,gatewayId,
-        ...(swipeDate?{transactionAt:selectedSwipeBusinessTime(swipeDate).toISOString()}:{}),
+        ...(transactionAtForBusinessDate(swipeDate)?{transactionAt:transactionAtForBusinessDate(swipeDate)}:{}),
         providerChargeRate:pRate,commissionRate:cRate,
          commissionSettlementMode,
          commissionReceiptAccountId:commissionSettlementMode==="SEPARATE"?commissionReceiptAccountId:undefined,
@@ -923,16 +972,50 @@ export default function CardSwipePage(){
       rememberCustomerName(result.createdCustomer?.customer.fullName??customer?.fullName??quickName);
       savePreferences(preferenceCustomerId,result.createdCustomer?.card.id||cardId);
       try{localStorage.setItem("cashledger_card_last_saved_swipe_amount",String(swipe));}catch{}
+      // The financial swipe is already safely saved. Failure to attach it to
+      // a follow-up must NEVER say "Failed to save swipe" or permit a double swipe.
+      if(followUpContext){
+        setLinkingFollowUp(true);
+        try{
+          await apiFetch("/follow-ups/"+encodeURIComponent(followUpContext.id),{
+            method:"PATCH",body:JSON.stringify({
+              action:"RECORD_SWIPE",swipeTransactionNumber:result.transaction.transactionNumber,
+            }),
+          });
+          const refreshed=await apiFetch<SwipeFollowUp>("/follow-ups/"+encodeURIComponent(followUpContext.id));
+          setFollowUpContext(refreshed);
+          setFollowUpLinkIssue("");
+        }catch(linkError){
+          setFollowUpLinkIssue("Swipe "+result.transaction.transactionNumber+" SAVED, but follow-up progress was not updated: "+(linkError instanceof Error?linkError.message:"Please retry linking"));
+        }finally{setLinkingFollowUp(false);}
+      }
       setSaved(result);
       window.scrollTo({top:0,behavior:"smooth"});
     }catch(err){setError(err instanceof Error?err.message:"Failed to save swipe");}
     finally{setSaving(false);}
   }
 
+  async function retryFollowUpLink(){
+    if(!saved||!followUpContext||linkingFollowUp)return;
+    setLinkingFollowUp(true);
+    try{
+      await apiFetch("/follow-ups/"+encodeURIComponent(followUpContext.id),{
+        method:"PATCH",body:JSON.stringify({
+          action:"RECORD_SWIPE",swipeTransactionNumber:saved.transaction.transactionNumber,
+        }),
+      });
+      const task=await apiFetch<SwipeFollowUp>("/follow-ups/"+encodeURIComponent(followUpContext.id));
+      setFollowUpContext(task);setFollowUpLinkIssue("");
+    }catch(err){setFollowUpLinkIssue("Swipe "+saved.transaction.transactionNumber+" is saved. Linking failed: "+(err instanceof Error?err.message:"Try again"));}
+    finally{setLinkingFollowUp(false);}
+  }
+
   function repeatSwipe(){
+    if(followUpContext&&followUpLinkIssue){setError("Link the saved swipe to its follow-up before repeating it.");return;}
     setSaved(null);
-    setAmount(swipe>0?String(swipe):"");
-    setReusedSwipeAmount(swipe>0);
+    const remaining=Number(followUpContext?.remainingPlannedAmount);
+    setAmount(followUpContext?(Number.isFinite(remaining)&&remaining>0?String(remaining):""):(swipe>0?String(swipe):""));
+    setReusedSwipeAmount(!followUpContext&&swipe>0);
     setSettledNow(true);
     setRecordCustomerPayment(false);
     setPayoutTouched(false);
@@ -947,7 +1030,9 @@ export default function CardSwipePage(){
   }
 
   function newCustomerSwipe(){
+    if(followUpContext&&followUpLinkIssue)return;
     repeatSwipe();
+    setFollowUpId("");setFollowUpContext(null);setFollowUpLinkIssue("");
     clearCustomer();
     setCustomerMode("existing");
     setQuickName("");setQuickMobile("");setQuickBank("");setQuickLastFour("");
@@ -964,6 +1049,12 @@ export default function CardSwipePage(){
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-700">✓</div>
           <h1 className="mt-4 text-2xl font-semibold tracking-[-.03em]">Swipe saved</h1>
           <p className="mt-1 text-sm text-[var(--text-muted)]">{saved.transaction.transactionNumber}</p>
+          {followUpContext?<div className="mt-3 rounded-xl border border-[var(--border)] p-3 text-left text-sm">
+            <p className="font-bold">Linked card retry follow-up</p>
+            <p className="mt-1">Planned {money(followUpContext.plannedSwipeAmount??0)} · Swiped {money(followUpContext.swipedAmount)} · <strong>Remaining {followUpContext.remainingPlannedAmount===null?"Unconfirmed":money(followUpContext.remainingPlannedAmount)}</strong></p>
+            {followUpLinkIssue?<p role="alert" className="mt-2 font-bold text-rose-700">{followUpLinkIssue}</p>:<p className="mt-2 text-xs text-emerald-700">Follow-up progress updated. Each swipe remains a separate audited transaction.</p>}
+            {followUpLinkIssue?<button type="button" disabled={linkingFollowUp} onClick={retryFollowUpLink} className="mt-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white">Retry follow-up link</button>:null}
+          </div>:null}
           <div className="mx-auto mt-5 max-w-lg overflow-hidden rounded-2xl bg-[var(--surface-soft)] p-4">
             <p className="text-xs font-semibold text-[var(--text-muted)]">{customer?.fullName??saved.createdCustomer?.customer.fullName??"Customer"} gets</p>
             <p className="money saved-total mt-1 font-black">{money(saved.payable.originalAmount)}</p>
@@ -981,8 +1072,9 @@ export default function CardSwipePage(){
           <Link href="/" className="min-h-11 rounded-xl bg-[var(--accent)] px-4 py-3 text-center text-sm font-bold text-white">Back to dashboard</Link>
           {savedRemaining>.001?<Link href={"/payables/"+saved.payable.id} className="min-h-11 rounded-xl bg-[var(--text)] px-4 py-3 text-center text-sm font-semibold text-[var(--surface)]">Pay / apply earlier advance</Link>:null}
           <Link href={"/transactions/"+saved.transaction.id} className="min-h-11 rounded-xl border border-[var(--border)] px-4 py-3 text-center text-sm font-semibold">Open transaction</Link>
-          <button type="button" onClick={repeatSwipe} className="min-h-11 rounded-xl border border-[var(--border)] px-4 text-sm font-semibold">Repeat same customer</button>
-          <button type="button" onClick={newCustomerSwipe} className="min-h-11 rounded-xl border border-[var(--border)] px-4 text-sm font-semibold">New swipe</button>
+          {followUpContext?<Link href="/follow-ups" className="min-h-11 rounded-xl border border-[var(--border)] px-4 py-3 text-center text-sm font-semibold">Back to follow-ups</Link>:null}
+          <button type="button" onClick={repeatSwipe} disabled={Boolean(followUpContext&&(followUpLinkIssue||!followUpContext.remainingPlannedAmount))} className="min-h-11 rounded-xl border border-[var(--border)] px-4 text-sm font-semibold disabled:opacity-40">{followUpContext?"Swipe remaining on this card":"Repeat same customer"}</button>
+          <button type="button" onClick={newCustomerSwipe} disabled={Boolean(followUpContext&&followUpLinkIssue)} className="min-h-11 rounded-xl border border-[var(--border)] px-4 text-sm font-semibold disabled:opacity-40">New swipe</button>
         </div>
       </Surface>
     </div></AppShell>;
@@ -1001,8 +1093,11 @@ export default function CardSwipePage(){
   const payoutReady=swipe>0&&routingReady&&customerReady;
   const calculationReady=swipe>0&&routingReady;
   const paymentDateReady=customPayment?!!customPaymentDate&&customPaymentDate>=(swipeDate||minCustomPaymentDate):!!termId;
-  const swipeDateReady=!swipeDate||swipeDate<=dateInputValue(new Date());
-  const canSave=!saving&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&paymentDateReady&&swipeDateReady&&!!providerId&&!!gateway&&!!providerWallet&&payoutValid&&separateFeeValid;
+  const swipeDateReady=!!swipeDate&&swipeDate<=todayIst();
+  const followUpReady=!followUpId||Boolean(followUpContext&&!followUpLinkIssue&&
+    Number(followUpContext.plannedSwipeAmount)>0&&Number(followUpContext.remainingPlannedAmount)>0&&
+    swipe<=Number(followUpContext.remainingPlannedAmount)+0.001);
+  const canSave=!saving&&followUpReady&&rawPayable>=-0.001&&settlement>0&&swipe>0&&customerReady&&paymentDateReady&&swipeDateReady&&!!providerId&&!!gateway&&!!providerWallet&&payoutValid&&separateFeeValid;
   const displayCustomerName=customer?.fullName??(customerMode==="new"?quickName.trim():"");
   const normalSaveLabel=swipe<=0?"Save card swipe":recordCustomerPayment
     ? (remainingAmount<=.001?"Save & pay "+money(payable):"Save & record "+money(paidAmount))
@@ -1066,14 +1161,18 @@ export default function CardSwipePage(){
 
           <section className="entry-section entry-section-amount">
             <div>
+              {followUpId?<div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs font-semibold text-indigo-900">
+                <p className="font-black">Card retry follow-up</p>
+                {followUpContext?<p className="mt-1">Confirmed plan {followUpContext.plannedSwipeAmount===null?"Not confirmed":money(followUpContext.plannedSwipeAmount)} · Swiped {money(followUpContext.swipedAmount)} · <strong>Remaining {followUpContext.remainingPlannedAmount===null?"Amount not confirmed":money(followUpContext.remainingPlannedAmount)}</strong>. Partial swipe amounts are editable below. {followUpContext.plannedSwipeAmount===null?"Confirm the plan on Follow-ups before swiping.":swipe>Number(followUpContext.remainingPlannedAmount)?"Entered amount exceeds remaining plan. Edit the amount or update the plan.":""}</p>:<p className="mt-1 text-rose-700">{followUpLinkIssue||"Loading verified follow-up details…"}</p>}
+              </div>:null}
               <div className="flex items-center justify-between gap-3"><h2 className="entry-title">Swipe amount</h2><span className="currency-badge">₹ INR</span></div>
               <div className="relative mt-2"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-[var(--text-muted)]">₹</span><input className="entry-amount-input" type="text" inputMode="decimal" value={formatAmountInput(amount)} onChange={e=>{manualAmountRef.current=true;setAmount(cleanAmountInput(e.target.value));setReusedSwipeAmount(false);setReusedFromCard(false);}} placeholder="0" required/></div>
               <p className="mt-1.5 truncate text-xs font-medium text-[var(--text-muted)]">{amountWords||"Enter swipe amount"}</p>
               {reusedSwipeAmount?<p className="mt-1 text-xs font-semibold text-indigo-700">{reusedFromCard?"Last swipe amount for this card suggested":"Last saved gross swipe amount suggested"} · confirm or edit before saving</p>:null}
               <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-3">
-                <label htmlFor="card-swipe-business-date" className="text-xs font-bold">Transaction date <span className="font-medium text-[var(--text-muted)]">(optional)</span></label>
-                <input id="card-swipe-business-date" aria-label="Card Swipe transaction date" type="date" max={dateInputValue(new Date())} value={swipeDate} onChange={e=>setSwipeDate(e.target.value)} className="app-control mt-1 bg-[var(--surface)]"/>
-                <p className="mt-1 text-[10px] font-medium text-[var(--text-muted)]">{swipeDate?"Backdated to "+swipeDate+". Swipe, received settlement and any payout will use this business date.":"Leave blank for today's date and current time."} Actual creation and audit timestamps are preserved.</p>
+                <label htmlFor="card-swipe-business-date" className="text-xs font-bold">Transaction date (IST)</label>
+                <input id="card-swipe-business-date" aria-label="Card Swipe transaction date" type="date" max={todayIst()} value={swipeDate} onChange={e=>setSwipeDate(e.target.value)} className="app-control mt-1 bg-[var(--surface)]" required/>
+                <p className="mt-1 text-[10px] font-medium text-[var(--text-muted)]">{swipeDate===todayIst()?"Today preselected · recorded with the current actual timestamp.":swipeDate?"Historical business date "+swipeDate+" selected.":"Choose today's date or an earlier date."} Original creation and audit timestamps are preserved.</p>
               </div>
             </div>
             <div className="mt-4 border-t border-[var(--border)] pt-3">

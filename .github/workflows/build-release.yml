@@ -46,9 +46,9 @@ jobs:
         run: |
           node --test apps/web/test/card-swipe-business-date.test.mjs apps/web/test/customer-payout-charge-safety.test.mjs
           node --test apps/web/test/card-swipe-gateway-rate.test.mjs apps/web/test/card-swipe-latest-card-prefill.test.cjs apps/web/test/card-swipe-gateway-stability.test.cjs apps/web/test/quick-card-swipe-existing-customer.test.cjs
-          node --test apps/web/test/follow-ups-ui.test.cjs apps/web/test/follow-up-planned-amount.test.mjs
+          node --test apps/web/test/follow-ups-ui.test.cjs apps/web/test/follow-up-planned-amount.test.mjs apps/web/test/card-swipe-today-ist.test.mjs apps/web/test/card-swipe-history-date.test.cjs
           cd apps/api
-          npx vitest run src/reports/card-swipe-report.spec.ts src/transactions/card-swipe-business-date.spec.ts src/finance/payout-charge-guard.spec.ts src/follow-ups/reminder-windows.spec.ts src/follow-ups/follow-ups.service.spec.ts src/follow-ups/customer-summary.spec.ts --maxWorkers=1
+          npx vitest run src/reports/card-swipe-report.spec.ts src/transactions/card-swipe-business-date.spec.ts src/finance/payout-charge-guard.spec.ts src/follow-ups/reminder-windows.spec.ts src/follow-ups/follow-ups.service.spec.ts src/follow-ups/customer-summary.spec.ts src/follow-ups/partial-swipes.spec.ts --maxWorkers=1
 
       - name: Build API
         run: npm --prefix apps/api run build
