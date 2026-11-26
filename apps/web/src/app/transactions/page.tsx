@@ -10,10 +10,12 @@ import { moneyStatus, moneyStatusOptions } from "@/lib/money-status";
 import { MoneyFlowIcon } from "@/components/money-flow-icon";
 import { isCashOutTransaction, transactionParticulars } from "@/lib/transaction-particulars";
 import { pendingClearingHref, pendingExpenseHref } from "@/lib/pending-clearing";
+import { formatTransactionDateIst, formatTransactionDayIst, formatTransactionTimeIst, transactionRangeIst } from "@/lib/transaction-ist.mjs";
 
 type Tx={
  id:string;transactionNumber:string;transactionType:string;transactionAt:string;grossAmount:string;netAmount:string|null;
  status:string;referenceNumber:string|null;customer:{fullName:string}|null;createdBy:{id:string;fullName:string}|null;
+ expense:{expenseCategory:{name:string}|null}|null;
  cardSwipe:{customerCard:{bankName:string;lastFourDigits:string}}|null;
  microAtm:{customerBankName:string|null;cardLastFour:string}|null;
  aeps:{customerBankName:string;aadhaarLastFour:string}|null;
@@ -146,10 +148,8 @@ export default function TransactionsPage(){
   const params=new URLSearchParams({page:String(page),pageSize:String(pagination.pageSize),sortBy,sortDir});
   if(q.trim())params.set("q",q.trim());if(type)params.set("type",type);if(status)params.set("status",status);if(moneyStatusFilter)params.set("moneyStatus",moneyStatusFilter);
   if(range!=="all"){
-   const start=new Date();start.setHours(0,0,0,0);const end=new Date(start);end.setHours(23,59,59,999);
-   if(range==="yesterday"){start.setDate(start.getDate()-1);end.setDate(end.getDate()-1);}
-   if(range==="week")start.setDate(start.getDate()-6);
-   params.set("from",start.toISOString());params.set("to",end.toISOString());
+   const boundaries=transactionRangeIst(range);
+   if(boundaries){params.set("from",boundaries.from);params.set("to",boundaries.to);}
   }
   return params;
  }
@@ -224,7 +224,7 @@ export default function TransactionsPage(){
  const resetDesktopColumns=()=>{setDesktopColumnOrder(DEFAULT_DESKTOP_COLUMNS);setDesktopVisibleColumns(DEFAULT_DESKTOP_COLUMNS);};
  const changeSort=(key:DesktopColumnKey)=>{const next=SORTABLE_DESKTOP_COLUMNS[key];if(!next)return;if(sortBy===next)setSortDir(d=>d==="asc"?"desc":"asc");else{setSortBy(next);setSortDir("asc");}};
 
- const grouped=items.reduce((map,t)=>{const k=new Date(t.transactionAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});const row=map.get(k)??[];row.push(t);map.set(k,row);return map;},new Map<string,Tx[]>());
+ const grouped=items.reduce((map,t)=>{const k=formatTransactionDayIst(t.transactionAt);const row=map.get(k)??[];row.push(t);map.set(k,row);return map;},new Map<string,Tx[]>());
 
  return <AppShell><PageFrame width="max-w-none" className="ui-preview transactions-preview w-full min-w-0">
   <SectionHeading title="Transactions"/>
@@ -398,7 +398,7 @@ export default function TransactionsPage(){
           {cashOut?<span className="mt-1 inline-block rounded-md bg-[color-mix(in_srgb,var(--money-out)_14%,transparent)] px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[var(--money-out)]">Cash Out</span>:null}
           {displayServiceDetail(tx)?<p className="mt-0.5 text-xs leading-4 text-[var(--text-muted)]">{displayServiceDetail(tx)}</p>:null}
           <div className="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">
-            <p className="truncate">{tx.transactionNumber} · {new Date(tx.transactionAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · {displayUser(tx)}</p>
+            <p className="truncate">{tx.transactionNumber} · {formatTransactionTimeIst(tx.transactionAt)} · {displayUser(tx)}</p>
             {source||tx.transactionType==="SERVICE_INCOME"?<p className="mt-0.5 line-clamp-2"><span className="font-semibold text-[var(--text)]">Received in:</span> {sourceContext(tx)}</p>:null}
           </div>
         </div>
@@ -420,7 +420,7 @@ export default function TransactionsPage(){
     <tbody>{items.map(tx=>{const providerFees=sum(tx.charges.filter(charge=>charge.chargeType!=="SERVICE_PARTNER_COST")),customerCommission=customerCommissionIncome(tx),providerEarn=providerIncome(tx),service=serviceRevenue(tx),partnerCost=tx.transactionType==="SERVICE_INCOME"?Number(tx.quickCashTransfer?.servicePartnerCharge??0):0,netServiceEarning=service-partnerCost,income=customerCommission+providerEarn+service,profit=income-providerFees-partnerCost,direction=activityDirection(tx),source=settlementSource(tx),mStatus=moneyStatus(tx),cashOut=isCashOutTransaction(tx),expenseHref=pendingExpenseHref(tx),completeHref=expenseHref??pendingClearingHref(tx);
       const content=(key:DesktopColumnKey)=>{
        if(key==="transactionId")return <Link className={"font-bold whitespace-nowrap "+(cashOut?"text-[var(--money-out)]":"text-[var(--accent)]")} href={txHref(tx)}>{tx.transactionNumber}</Link>;
-       if(key==="date")return <span className="text-xs whitespace-nowrap">{new Date(tx.transactionAt).toLocaleString("en-IN")}</span>;
+       if(key==="date")return <span className="text-xs whitespace-nowrap">{formatTransactionDateIst(tx.transactionAt)}</span>;
        if(key==="service")return <><span className="flex min-w-0 items-start gap-2">{direction?<MoneyFlowIcon direction={direction} size="sm"/>:null}<span className={"min-w-0 break-words font-medium leading-5 "+(cashOut?"text-[var(--money-out)]":"")}>{displayService(tx)}{displayServiceDetail(tx)?<span className="mt-0.5 block text-[11px] font-normal leading-4 text-[var(--text-muted)]">{displayServiceDetail(tx)}</span>:null}</span></span>{providerEarn>0?<span className="mt-0.5 block text-[10px] font-bold leading-4 text-[var(--money-in)]">Provider commission +{money(providerEarn)}</span>:null}</>;
        if(key==="customer")return <span className="block whitespace-normal break-words font-semibold leading-5">{displayCustomer(tx)}</span>;
        if(key==="source")return source||tx.transactionType==="SERVICE_INCOME"?<span className="block whitespace-normal break-words text-xs leading-5 text-[var(--text)]">{sourceContext(tx)}</span>:<span className="text-[var(--text-muted)]">—</span>;

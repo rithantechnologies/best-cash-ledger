@@ -9,6 +9,7 @@ import { AppShell } from "@/components/app-shell";
 import { Modal, PageFrame, PageLoader, StatusBadge, Surface } from "@/components/ui";
 import { SearchableSelect } from "@/components/searchable-select";
 import { apiFetch } from "@/lib/api";
+import { formatTransactionDateIst, transactionTimestampToInputIst, transactionInputIstToIso } from "@/lib/transaction-ist.mjs";
 import { transactionReturnPath } from "@/lib/transaction-return";
 import { CustomerLedgerEditor } from "@/components/customer-ledger-editor";
 
@@ -284,14 +285,13 @@ export default function TransactionDetailPage(){
  async function deleteTransaction(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{await apiFetch("/transactions/"+id+"/delete",{method:"POST",body:JSON.stringify({reason})});setReason("");setDeleteOpen(false);router.replace(returnTo);}catch(err){setError(err instanceof Error?err.message:"Delete failed");}finally{setSaving(false);}}
  function openDateTimeEditor(){
    if(!tx)return;
-   const d=new Date(tx.transactionAt);
-   const local=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
-   setEditDateTime(local);setDateTimeReason("");setDateTimeOpen(true);
+   setEditDateTime(transactionTimestampToInputIst(tx.transactionAt));
+   setDateTimeReason("");setDateTimeOpen(true);
  }
  async function updateDateTime(e:FormEvent){
    e.preventDefault();if(!editDateTime)return;setSaving(true);setError("");
    try{
-     await apiFetch("/transactions/"+id+"/date-time",{method:"POST",body:JSON.stringify({transactionAt:new Date(editDateTime).toISOString(),reason:dateTimeReason.trim()})});
+     await apiFetch("/transactions/"+id+"/date-time",{method:"POST",body:JSON.stringify({transactionAt:transactionInputIstToIso(editDateTime),reason:dateTimeReason.trim()})});
      setDateTimeOpen(false);setDateTimeReason("");router.replace(returnTo);router.refresh();
    }catch(err){setError(err instanceof Error?err.message:"Date/time update failed");}finally{setSaving(false);}
  }
@@ -386,7 +386,7 @@ export default function TransactionDetailPage(){
 
  return <AppShell><PageFrame width="max-w-6xl">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-   <div><Link href={returnTo} className="text-xs font-bold text-[var(--accent)]">← Back to previous view</Link><p className="mt-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--text-muted)]">{["BUSINESS_EXPENSE","PERSONAL_EXPENSE"].includes(tx.transactionType)?"Expense":displayService(tx)}</p><h1 className="mt-1 text-2xl font-black tracking-[-.035em] sm:text-3xl">{tx.transactionNumber}</h1><p className="mt-1 text-xs text-[var(--text-muted)]">{new Date(tx.transactionAt).toLocaleString("en-IN")} · {tx.createdBy?.fullName??tx.createdById}</p></div>
+   <div><Link href={returnTo} className="text-xs font-bold text-[var(--accent)]">← Back to previous view</Link><p className="mt-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--text-muted)]">{tx.expense?label(tx.transactionType)+" · "+tx.expense.expenseCategory.name:displayService(tx)}</p><h1 className="mt-1 text-2xl font-black tracking-[-.035em] sm:text-3xl">{tx.transactionNumber}</h1><p className="mt-1 text-xs text-[var(--text-muted)]">{formatTransactionDateIst(tx.transactionAt)} · {tx.createdBy?.fullName??tx.createdById}</p></div>
    <div className="flex flex-wrap items-center gap-2">{payoutState?<StatusBadge tone={payoutState.tone}>{payoutState.label}</StatusBadge>:null}<StatusBadge tone={tone(tx.status) as "slate"|"emerald"|"amber"|"rose"}>{tx.transactionType==="CARD_SWIPE"?"Swipe "+label(tx.status):label(tx.status)}</StatusBadge>{eligibleLateAepsCommission?<button type="button" onClick={()=>void openAepsCommission()} className="min-h-10 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-800">+ Add missing AEPS commission</button>:null}{partnerPayablePending?<button onClick={()=>void openPartnerPayment()} className="min-h-10 rounded-xl bg-violet-100 px-3 text-xs font-black text-violet-800">Pay partner {money(tx.quickCashTransfer?.servicePartnerCharge??0)}</button>:null}{tx.expense&&tx.status==="PENDING"&&!tx.journal?<button onClick={()=>void openExpenseSource()} className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-800">Add payment source</button>:null}{canEditDateTime?<button onClick={()=>tx.customerLedgerEntry?setLedgerEditOpen(true):openDetailsEditor()} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 text-xs font-black text-[var(--accent)]">Edit transaction</button>:null}{tx.expense&&tx.status!=="REVERSED"?<Link href={expenseEditHref} className="min-h-10 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2.5 text-xs font-black text-[var(--accent)]">Edit all fields</Link>:null}{canCorrect?<button onClick={openAmountCorrection} className="min-h-10 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800">Correct amount</button>:null}{canEditDateTime&&!tx.expense&&!tx.customerLedgerEntry?<button onClick={openDateTimeEditor} className="min-h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--accent)]">Edit date & time</button>:null}{canDelete?<button onClick={()=>{setReason("");setDeleteOpen(true)}} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700">Delete</button>:null}{canReverse?<button onClick={()=>setReverseOpen(true)} className="min-h-10 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700">Reverse</button>:null}</div>
   </div>
   {error?<div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>:null}
@@ -517,7 +517,7 @@ export default function TransactionDetailPage(){
 
   <Modal open={dateTimeOpen} title="Correct transaction date & time" description="Owner/Admin correction. Related transaction dates move with this correction and every old value stays in the audit trail." onClose={()=>setDateTimeOpen(false)} footer={<div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setDateTimeOpen(false)} className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-sm font-bold">Cancel</button><button form="edit-date-time" disabled={saving||!editDateTime||dateTimeReason.trim().length<3} className="app-primary-button min-h-11 text-sm font-bold disabled:opacity-50">{saving?"Saving…":"Save correction"}</button></div>}>
    <form id="edit-date-time" onSubmit={updateDateTime} className="space-y-3">
-    <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Transaction date & time</span><input type="datetime-local" className="app-control w-full" value={editDateTime} onChange={e=>setEditDateTime(e.target.value)} required/></label>
+    <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Transaction date & time (IST, 24-hour clock)</span><input type="datetime-local" className="app-control w-full" value={editDateTime} onChange={e=>setEditDateTime(e.target.value)} required/></label>
     <label className="block"><span className="mb-1.5 block text-xs font-bold text-[var(--text-muted)]">Reason for correction</span><textarea name="cashledger_date_time_reason" autoComplete="on" className="app-control min-h-24 w-full p-3" minLength={3} value={dateTimeReason} onChange={e=>setDateTimeReason(e.target.value)} placeholder="Example: Transaction entered with wrong time" required/></label>
     <p className="text-[11px] leading-5 text-[var(--text-muted)]">This updates the linked business dates too: ledger posting, applicable due dates, payout/collection dates and provider settlement dates. System creation and audit timestamps are never rewritten.</p>
    </form>

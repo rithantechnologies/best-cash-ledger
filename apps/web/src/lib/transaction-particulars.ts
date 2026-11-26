@@ -13,6 +13,7 @@ type QuickCash = {
 export type ParticularsTransaction = {
   transactionType: string;
   quickCashTransfer?: QuickCash | null;
+  expense?: { expenseCategory?: { name: string } | null } | null;
   cashTransfer?: {
     customerUpiAccount?: object | null;
     customerBankAccount?: object | null;
@@ -26,6 +27,10 @@ const readable = (value: string) => value.replaceAll('_', ' ').toLowerCase().rep
 const concise = (name: string | null | undefined) => name?.trim() || null;
 
 export function transactionParticulars(tx: ParticularsTransaction): { title: string; detail: string | null } {
+  if (tx.transactionType === 'BUSINESS_EXPENSE' || tx.transactionType === 'PERSONAL_EXPENSE') {
+    const category = concise(tx.expense?.expenseCategory?.name);
+    return { title: readable(tx.transactionType) + (category ? ' · ' + category : ''), detail: null };
+  }
   const quick = tx.quickCashTransfer;
   if (quick) {
     if (quick.purpose === 'SERVICE') return {

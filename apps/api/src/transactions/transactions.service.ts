@@ -213,6 +213,7 @@ export class TransactionsService {
       },
       microAtm: true,
       aeps: true,
+      expense: { select: { expenseCategory: { select: { name: true } } } },
       accountEntry: { include: { account: true } },
       customerLedgerEntry: { include: { customerCard: true, financialAccount: true, allocations: { include: { payable: { include: { sourceTransaction: true } }, cardDueClearing: { include: { transaction: true } } } } } },
       providerSettlementReceipt: {
